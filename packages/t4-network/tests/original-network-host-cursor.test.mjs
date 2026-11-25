@@ -514,3 +514,21 @@ test('K26 cold original source frontier verifies many revisions in one indexed p
   await assert.rejects(f.port().inspectOriginalHostCursor(),error('HOST_CURSOR_ORIGINAL_EVENT_REVISION_CONFLICT'));
   assert.equal(f.puts,1);
 });
+
+
+test('K95 next original Event includes the same twice-verified frontier without an extra original journal scan',async()=>{
+  const f=await fixture(),a=admittedSourceBaseline(f),port=f.port(a.options);
+  let reads=0;const original=f.originalKernel.listEventsSince;
+  f.originalKernel.listEventsSince=async(...args)=>{reads++;return original(...args);};
+  const status=await port.inspectOriginalHostCursor(),next=await port.readNextOriginalSourceEvent(),separate=reads;
+  reads=0;const combined=await port.readNextOriginalSourceEventWithFrontier();
+  assert.deepEqual(combined.originalHostCursorStatus,status);
+  const {originalHostCursorStatus,...selection}=combined;assert.deepEqual(selection,next);
+  assert.equal(reads,separate-1);assert.equal(f.puts,0);
+  await port.commitAcknowledgedCursor({recovery:f.recovery});
+  const idle=await port.readNextOriginalSourceEventWithFrontier();
+  assert.equal(idle.state,'NO_NEXT_ORIGINAL_EVENT');
+  assert.deepEqual(idle.originalHostCursorStatus,await port.inspectOriginalHostCursor());
+  f.deny();await assert.rejects(port.readNextOriginalSourceEventWithFrontier(),error('HOST_CURSOR_ORIGINAL_ACCESS_DENIED'));
+  assert.equal(f.puts,1);
+});

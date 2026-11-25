@@ -410,11 +410,7 @@ export function createT4OriginalNetworkHostCursorPort({
       originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,remoteNetworkReadRequired:false,
       originalAuthorityGranted:false});
   }
-  async function inspectOriginalHostCursor(){
-    const initial=await context();
-    const found=await readVerified(initial);
-    if(!same(await context(),initial))
-      fail('HOST_CURSOR_ORIGINAL_CONTEXT_CHANGED');
+  function statusOf(found){
     return frozen({
       schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_STATUS_V1',
       checkpointRef,revision:found.revision,
@@ -435,6 +431,13 @@ export function createT4OriginalNetworkHostCursorPort({
       originalBusinessApplyReceiptFabricated:false,
       otherCursorStoreCreated:false,
     });
+  }
+  async function inspectOriginalHostCursor(){
+    const initial=await context();
+    const found=await readVerified(initial);
+    if(!same(await context(),initial))
+      fail('HOST_CURSOR_ORIGINAL_CONTEXT_CHANGED');
+    return statusOf(found);
   }
   async function commitAcknowledgedCursor({recovery}={}){
     return commitCursor(recovery,false);
@@ -565,8 +568,9 @@ export function createT4OriginalNetworkHostCursorPort({
       ...(replacement?{originalReplacementHistoricalRecoveryUsed:true}:{}),
     });
   }
-  async function readNextOriginalSourceEvent({maxEvents=1}={}){
+  async function readNextOriginalSourceEvent({maxEvents=1,includeOriginalHostCursor=false}={}){
     if(maxEvents!==1)fail('HOST_CURSOR_NEXT_ONE_EVENT_ONLY');
+    if(typeof includeOriginalHostCursor!=='boolean')fail('HOST_CURSOR_NEXT_OPTIONS_INVALID');
     const initial=await context();
     const committed=await readVerified(initial);
     if(!committed.last&&!committed.baseline)fail('HOST_CURSOR_ORIGINAL_ACK_NOT_COMMITTED');
@@ -591,9 +595,11 @@ export function createT4OriginalNetworkHostCursorPort({
     if(!same(after.last,committed.last)||!same(after.baseline,committed.baseline)||
       after.chainHash!==committed.chainHash||after.revision!==committed.revision)
       fail('HOST_CURSOR_ORIGINAL_FRONTIER_CHANGED_DURING_PLAN');
+    if(!same(await context(),initial))fail('HOST_CURSOR_ORIGINAL_CONTEXT_CHANGED');
+    const frontier=includeOriginalHostCursor?{originalHostCursorStatus:statusOf(after)}:{};
     if(next.window.count===0)
       return frozen({schema:'IWXA_T4_ORIGINAL_HOST_NEXT_EVENT_V1',
-        state:'NO_NEXT_ORIGINAL_EVENT',originalT3NextCursor:copy(current),
+        state:'NO_NEXT_ORIGINAL_EVENT',originalT3NextCursor:copy(current),...frontier,
         originalT3HostTaskMustSchedule:false,
         networkPublished:false,originalSubjectMutationInvoked:false});
     if(next.window.sourcePrefixDigestBefore!==current.sourcePrefixDigest||
@@ -602,7 +608,7 @@ export function createT4OriginalNetworkHostCursorPort({
       fail('HOST_CURSOR_NEXT_EVENT_CAUSAL_GAP');
     return frozen({
       schema:'IWXA_T4_ORIGINAL_HOST_NEXT_EVENT_V1',
-      state:'NEXT_ORIGINAL_EVENT_READY_FOR_EXISTING_HOST_TASK',
+      state:'NEXT_ORIGINAL_EVENT_READY_FOR_EXISTING_HOST_TASK',...frontier,
       window:copy(next.window),nextCursor:copy(next.nextCursor),
       originalHostFrontierRef:checkpointRef,
       originalHostFrontierRevision:committed.revision,
@@ -617,6 +623,9 @@ export function createT4OriginalNetworkHostCursorPort({
     identity,checkpointRef,originalT3OnlyStore:true,
     inspectOriginalHostCursor,commitAcknowledgedCursor,commitHistoricallyConfirmedCursor,commitHistoricallyConfirmedReplacementCursor,
     inspectOriginalCommittedSourceAcknowledgements,readNextOriginalSourceEvent,
+    // The same twice-verified original frontier can accompany the next Event.
+    // No cached cursor, parallel state, or additional authority is introduced.
+    readNextOriginalSourceEventWithFrontier:()=>readNextOriginalSourceEvent({includeOriginalHostCursor:true}),
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkHostCursorPort({
       technicalSchemaId,
       originalKernel,technicalWorkspaceId,sourceWorkspaceId,

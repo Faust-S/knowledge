@@ -295,7 +295,12 @@ async function prepareNextNativeObject(params){
     fail('DISPATCH_NATIVE_ORIGINAL_HOST_PORTS_REQUIRED');
   const cursorPort=params.originalNativeCursorPort;
   await allowed(params,'native-frontier-read');
-  const status=await cursorPort.inspectOriginalHostCursor();
+  // Original cursor selection already proves the same frontier before and
+  // after reading the next source Event. Reuse that exact status instead of
+  // performing a separate full original history read before selection.
+  const combined=typeof cursorPort.readNextOriginalSourceEventWithFrontier==='function';
+  const selection=combined?await cursorPort.readNextOriginalSourceEventWithFrontier():null;
+  const status=combined?selection?.originalHostCursorStatus:await cursorPort.inspectOriginalHostCursor();
   if(status?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_STATUS_V1'||
     status.originalT3EventChainVerified!==(status.revision>0)||
     (status.revision===0&&(status.originalBaselineAdmitted!==true||
@@ -312,7 +317,7 @@ async function prepareNextNativeObject(params){
     !validCursor(status.originalT3NextCursor,params.workspaceId,
       params.originalWriteOwnerRef))
     fail('DISPATCH_NATIVE_ORIGINAL_FRONTIER_INVALID');
-  const next=await cursorPort.readNextOriginalSourceEvent();
+  const next=combined?selection:await cursorPort.readNextOriginalSourceEvent();
   const before=status.originalT3NextCursor;
   const resultBase={
     schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',
