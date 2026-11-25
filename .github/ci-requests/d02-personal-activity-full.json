@@ -1,0 +1,13 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d02-personal-activity-full",
+  "prepared_sha": "d05af91879794d08d638cd60c6d437018afc60e7",
+  "profile": "full-release-after-navigation-fixes",
+  "revisions": {
+    "site": "f31f04ed1a4c5067ec6a48be389346b4e4467d6c",
+    "subject": "76ed326b21392836f4ff0ed376baea7b3f555ac5",
+    "t2": "e70de29b72b83e2546f7ab74b17572685a728c17",
+    "platform": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+    "bli": "9f41447197251d41e69fbcb98e52ef1050754ec2"
+  }
+}
