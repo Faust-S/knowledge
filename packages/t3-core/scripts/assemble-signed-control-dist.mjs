@@ -224,7 +224,15 @@ export function assembleSignedControlDist({
   t2Dist,t3Build,outputDir,testOnlyUnqualifiedFixture=false,
   installedOriginalAdminD3=false,installedOriginalAgentD6=false,
   desktopAgentControlOnly=false,desktopAdminControlOnly=false,
+  androidAgentAssets=false,
 }={}){
+  // The installed Capacitor asset origin is not an externally deployed
+  // website or the desktop signed native owner. Its original T2/T3 Host
+  // must use the same qualified Kernel at exactly https://localhost.
+  if(typeof androidAgentAssets!=="boolean"||
+      (androidAgentAssets&&(testOnlyUnqualifiedFixture||installedOriginalAdminD3||
+        installedOriginalAgentD6||desktopAgentControlOnly||desktopAdminControlOnly)))
+    fail("ANDROID_AGENT_ASSET_PROFILE_INVALID");
   // A signed desktop Agent hosts T3 D1/D6 but owns native model execution
   // independently. An inert optional BLI marker is not permission to ship
   // a partially compiled WebGPU Worker. This explicit Agent-only profile
@@ -279,12 +287,13 @@ export function assembleSignedControlDist({
     Number(parsed.port)>=1&&Number(parsed.port)<=65535;
   const web=parsed.protocol==='https:'&&Boolean(parsed.hostname)&&
     parsed.hostname!=='localhost';
-  if(parsed.origin!==origin||(!loopback&&
-     ((installedOriginalAgentD6||installedOriginalAdminD3)||!web)))
+  if(parsed.origin!==origin||
+     (androidAgentAssets?origin!=='https://localhost':
+       (!loopback&&((installedOriginalAgentD6||installedOriginalAdminD3)||!web))))
     fail('PRODUCT_PINNED_HTTPS_OR_NATIVE_LOOPBACK_ORIGIN_REQUIRED');
   const domainShell=JSON.parse(readFileSync(
     required(source,'_iwxa/domain-shell.json'),'utf8'));
-  if(web&&domainShell.origin!==origin)
+  if((web||androidAgentAssets)&&domainShell.origin!==origin)
     fail('WEB_DOMAIN_SHELL_ORIGIN_MISMATCH');
   const catalog=JSON.parse(readFileSync(required(source,'_iwxa/service-catalog.json'),'utf8'));
   const config=JSON.parse(readFileSync(required(source,'workspace/workspace.config.json'),'utf8'));
@@ -292,6 +301,18 @@ export function assembleSignedControlDist({
      !Array.isArray(catalog.entries)||
      !catalog.entries.some(x=>x.service_id===config.workspace_service_id))
     fail('ORIGINAL_WORKSPACE_SERVICE_REQUIRED');
+  if(androidAgentAssets&&(
+      domain.domain_id!=='iwxa.personal-agent'||
+      domainShell.domain_id!==domain.domain_id||
+      config.domain_id!==domain.domain_id||
+      config.workspace_service_id!=='iwxa.personal-agent.workspace'||
+      domain.service_worker?.mode!=='disabled'||
+      domain.security?.module_service_worker!==false||
+      domain.security?.allow_secrets!==false||
+      config.host?.direct_indexeddb!==false||
+      config.host?.required_contract_version!=='1.3.0'||
+      config.host?.required_runtime_version!=='0.3.6'))
+    fail('ANDROID_AGENT_ORIGINAL_PRODUCT_REQUIRED');
   const signedHtml=readFileSync(required(compiled,'signed-workspace.html'),'utf8');
   const isolatedHtml=readFileSync(required(compiled,'isolated-signed-workspace.html'),'utf8');
   const trustedHtml=readFileSync(required(compiled,'trusted-kernel-realm.html'),'utf8');
@@ -323,7 +344,9 @@ export function assembleSignedControlDist({
     fail("DESKTOP_AGENT_WEBGPU_WORKER_FORBIDDEN");
   if(desktopAdminControlOnly&&workers.length!==0)
     fail("DESKTOP_ADMIN_WEBGPU_WORKER_FORBIDDEN");
-  const localInference=(desktopAgentControlOnly||desktopAdminControlOnly)
+  if(androidAgentAssets&&(workers.length!==0||marks.some(Boolean)))
+    fail("ANDROID_AGENT_BROWSER_INFERENCE_FORBIDDEN");
+  const localInference=(desktopAgentControlOnly||desktopAdminControlOnly||androidAgentAssets)
     ?false:marks.some(Boolean)||workers.length>0;
   if(localInference && (workers.length!==1||marks.some(mark=>!mark)||
       !readFileSync(workers[0],'utf8').includes('IWXA_NETWORK_DENIED_IN_WORKER')))
@@ -371,7 +394,7 @@ export function assembleSignedControlDist({
   // A web product receives the actual T3 Workspace, Exchange, Lifecycle
   // and Studio pages. Preserve its ORIGINAL site index.html and original T2
   // Host/Store; never reuse the native Agent placeholder as a domain shell.
-  const webEntries=web?[
+  const webEntries=(web||androidAgentAssets)?[
     ['index.html','index.html','/workspace/'],
     ['exchange/index.html','exchange/index.html','/workspace/exchange/'],
     ['lifecycle/index.html','lifecycle/index.html','/workspace/lifecycle/'],
@@ -426,7 +449,7 @@ export function assembleSignedControlDist({
     // Browser domains leave this SAME dist with its final site, Workspace,
     // original Kernel/Exchange and one explicit offline T3 switch.
     // No native Agent or Admin signer is staged into a browser domain.
-    if(web)materializeDomainMode(temp);
+    if(web&&!androidAgentAssets)materializeDomainMode(temp);
     if(existsSync(output))fail('OUTPUT_ALREADY_EXISTS');
     renameSync(temp,output);
     return {schema:'iwxa.t3.signed-control-one-dist/1',origin,
@@ -439,7 +462,10 @@ export function assembleSignedControlDist({
       original_loader_sha256:hash(originalLoader),
       original_runtime_sha256:hash(originalRuntime),
       original_runtime_unchanged:true,
-      autonomous_domain_mode_staged:web,output};
+      autonomous_domain_mode_staged:web&&!androidAgentAssets,
+      ...(androidAgentAssets?{android_agent_assets_staged:true,
+        native_model_bridge_registered:false,
+        signed_native_owner_registered:false}:{}),output};
   }catch(error){rmSync(temp,{recursive:true,force:true});throw error;}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){

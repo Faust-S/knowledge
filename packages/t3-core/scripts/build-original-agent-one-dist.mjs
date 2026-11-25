@@ -46,7 +46,8 @@ export function requireOriginalAgentT2Product(t2Dist){
  * qualified ORIGINAL T2 Kernel bytes come from the shared One Core. These
  * declarations configure an ordinary original T2 service, not a new Host,
  * Kernel, signed policy, publisher, receipt or application Store. */
-function originalAgentProfile(path){
+function originalAgentProfile(path,androidAgentAssets=false){
+  if(typeof androidAgentAssets!=='boolean')fail('ANDROID_ASSET_PROFILE_INVALID');
   const file=resolve(path);
   if(!existsSync(file)||lstatSync(file).isSymbolicLink()||
      !lstatSync(file).isFile())fail('OWNING_AGENT_PROFILE_REQUIRED');
@@ -60,20 +61,21 @@ function originalAgentProfile(path){
      profile.productId!==PRODUCT||
      profile.serviceId!=='iwxa.personal-agent.workspace'||
      profile.configVersion!=='0.6.0'||
-     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(profile.origin)||
-     Number(new URL(profile.origin).port)<1||
-     Number(new URL(profile.origin).port)>65534||
+     (androidAgentAssets?profile.origin!=='https://localhost':
+       (!/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(profile.origin)||
+        Number(new URL(profile.origin).port)<1||
+        Number(new URL(profile.origin).port)>65534))||
      profile.workspaceProfile!=='generic'||
      profile.localStoreName!=='iwxa-local'||
      profile.kernelVersion!=='0.3.6'||
      profile.runtimeContract!=='1.3.0'||
      profile.qualifiedArtifactId!==
        'iwxa-kernel-k036-same-store-history-20261019-qualified.1'||
-     profile.authorizedNativeOwner!=='ORIGINAL_T3_SIGNED_EMPLOYEE'||
+     profile.authorizedNativeOwner!==(androidAgentAssets?null:'ORIGINAL_T3_SIGNED_EMPLOYEE')||
      // Product-neutral One Dist has NO implied Atlas or other recipient.
      // Each native recipient needs original signed D1 and explicit disclosure.
      profile.authorizedResultRecipient!==null||
-     profile.installedAgentT3Mode!=='EXPLICIT_OPT_IN')
+     profile.installedAgentT3Mode!==(androidAgentAssets?'ANDROID_LOCAL_ASSETS':'EXPLICIT_OPT_IN'))
     fail('OWNING_AGENT_PRODUCT_PROFILE_INVALID');
   return profile;
 }
@@ -84,12 +86,12 @@ function originalAgentProfile(path){
  * domain identity, test data, mock access, or fake receipt survives staging.
  */
 export async function materializeOriginalAgentT2Product({
-  qualifiedKernelDist,agentProfile,outputRoot,
+  qualifiedKernelDist,agentProfile,outputRoot,androidAgentAssets=false,
 }={}){
   if(![qualifiedKernelDist,agentProfile,outputRoot].every(
       x=>typeof x==='string'&&x.trim()))fail('PRODUCT_STAGE_INPUTS_REQUIRED');
   const original=resolve(qualifiedKernelDist),stage=resolve(outputRoot);
-  const profile=originalAgentProfile(agentProfile);
+  const profile=originalAgentProfile(agentProfile,androidAgentAssets);
   const shared=resolve(dirname(fileURLToPath(import.meta.url)),'..');
   const root=resolve(shared,'..','..');
   if(existsSync(stage)||[original,resolve(agentProfile),shared,root]
@@ -132,8 +134,8 @@ export async function materializeOriginalAgentT2Product({
   shell.domain_id=profile.productId;
   shell.origin=profile.origin;
   shell.brand={name:'IWXA Personal Agent',short_name:'IWXA',
-    descriptor:'Original signed personal Task and Result Workspace',
-    home_path:'/workspace/',logo_path:'/workspace/favicon.ico',
+    descriptor:androidAgentAssets?'Локальная рабочая область IWXA':'Original signed personal Task and Result Workspace',
+    home_path:androidAgentAssets?'/':'/workspace/',logo_path:'/workspace/favicon.ico',
     favicon_path:'/workspace/favicon.ico'};
   config.config_version=profile.configVersion;
   config.domain_id=profile.productId;
@@ -143,13 +145,19 @@ export async function materializeOriginalAgentT2Product({
     required_runtime_version:'0.3.6',
     local_store_name:profile.localStoreName,
     storage_access:'iwxa-client-only',direct_indexeddb:false};
+  // Android starts with the real personal Workspace lifecycle, not the
+  // desktop signed employee's corporate scope. Saved-view and Exchange
+  // object mutations await their actual product schema registrations.
+  if(androidAgentAssets){
+    config.modules=config.modules.filter(m=>m.module_id!=='iwxa.workspace.view-state');
+  }
   const passport={
     service_id:profile.serviceId,service_version:profile.configVersion,
     base_path:'/workspace/',supported_levels:['T0','T1','T2'],
     input_object_types:[],output_object_types:[],schemas:{},
     permissions:{
-      workspace:{list:true,read:true,create:true,soft_delete:false,
-        restore:false,purge:false},
+      workspace:{list:true,read:true,create:true,soft_delete:androidAgentAssets,
+        restore:androidAgentAssets,purge:false},
       objects:{read:[],write:[],delete:[]},
       events:{read_scope:'workspace'},
       packages:{export:false,import:false,
@@ -212,16 +220,16 @@ export async function materializeOriginalAgentT2Product({
  */
 export async function buildOriginalAgentOneDistFromQualifiedKernel({
   qualifiedKernelDist,agentProfile,t3Build,outputDir,receiptPath,
-  desktopAgentControlOnly=false,
+  desktopAgentControlOnly=false,androidAgentAssets=false,
 }={}){
   const staged=mkdtempSync(join(tmpdir(),'iwxa-agent-original-t2-'));
   try{
     const source=resolve(staged,'agent-original-dist');
     const product=await materializeOriginalAgentT2Product({
-      qualifiedKernelDist,agentProfile,outputRoot:source});
+      qualifiedKernelDist,agentProfile,outputRoot:source,androidAgentAssets});
     const built=buildOriginalAgentOneDist({
       t2Dist:source,t3Build,outputDir,receiptPath,
-      desktopAgentControlOnly});
+      desktopAgentControlOnly,androidAgentAssets});
     return Object.freeze({...built,origin:product.origin,
       originalProductId:product.productId,verifiedOriginalT2:true});
   }finally{rmSync(staged,{recursive:true,force:true});}
@@ -231,8 +239,10 @@ export async function buildOriginalAgentOneDistFromQualifiedKernel({
  * A new recipient never gets implied rights from these build-time bytes.
  */
 export function buildOriginalAgentOneDist({
-  t2Dist,t3Build,outputDir,receiptPath,desktopAgentControlOnly=false,
+  t2Dist,t3Build,outputDir,receiptPath,desktopAgentControlOnly=false,androidAgentAssets=false,
 }={}){
+  if(typeof androidAgentAssets!=='boolean'||(androidAgentAssets&&desktopAgentControlOnly))
+    fail('ANDROID_ASSET_PROFILE_INVALID');
   if(typeof desktopAgentControlOnly!=="boolean")
     fail("DESKTOP_AGENT_CONTROL_FLAG_INVALID");
   if(![t2Dist,t3Build,outputDir,receiptPath].every(
@@ -249,10 +259,12 @@ export function buildOriginalAgentOneDist({
   // qualified digest, service passport and compiled source are checked by
   // the existing assembler, and the original Agent D6 schema is registered.
   const original=assembleSignedControlDist({t2Dist:source,t3Build:compiled,
-    outputDir:output,installedOriginalAgentD6:true,
-    desktopAgentControlOnly});
+    outputDir:output,installedOriginalAgentD6:!androidAgentAssets,
+    desktopAgentControlOnly,androidAgentAssets});
   if(original.original_runtime_unchanged!==true||
-     original.original_agent_d6_schema_registered!==true||
+     original.original_agent_d6_schema_registered!==!androidAgentAssets||
+     (androidAgentAssets&&(original.android_agent_assets_staged!==true||
+       original.local_inference_registered!==false))||
      original.workspace_service_id!==
        readJson(resolve(output,'workspace/workspace.config.json')).workspace_service_id||
      original.original_qualified_artifact!==
@@ -270,14 +282,15 @@ export function buildOriginalAgentOneDist({
   }
   return Object.freeze({schema:original.schema,productId:PRODUCT,
     original_qualified_artifact:original.original_qualified_artifact,
-    original_agent_d6_schema_registered:true,original_runtime_unchanged:true,
-    output,receipt});
+    original_agent_d6_schema_registered:!androidAgentAssets,original_runtime_unchanged:true,
+    ...(androidAgentAssets?{android_agent_assets_staged:true}:{}),output,receipt});
 }
 
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const args=process.argv.slice(2);
   const desktopAgentControlOnly=args.at(-1)==='--desktop-agent-control';
-  if(desktopAgentControlOnly)args.pop();
+  const androidAgentAssets=args.at(-1)==='--android-agent-assets';
+  if(desktopAgentControlOnly||androidAgentAssets)args.pop();
   const valid=['--t2-dist','--t3-build','--output','--receipt',
     '--qualified-kernel-dist','--agent-profile'];
   if(![8,10].includes(args.length)||
@@ -292,9 +305,10 @@ if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
      (qualified===Object.hasOwn(opts,'--t2-dist'))||
      !['--t3-build','--output','--receipt'].every(k=>Object.hasOwn(opts,k)))
     fail('PRODUCT_INPUT_MODE_INVALID');
+  if(androidAgentAssets&&!qualified)fail('ANDROID_ASSET_OWNING_PROFILE_REQUIRED');
   const argsCommon={t3Build:opts['--t3-build'],
     outputDir:opts['--output'],receiptPath:opts['--receipt'],
-    desktopAgentControlOnly};
+    desktopAgentControlOnly,androidAgentAssets};
   const result=qualified
     ?await buildOriginalAgentOneDistFromQualifiedKernel({
       ...argsCommon,qualifiedKernelDist:opts['--qualified-kernel-dist'],
