@@ -147,70 +147,8 @@ jobs:
             grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
             grep -E '^D06_T3_DOWNLOAD_FAILURE=[A-Z0-9_]+:(COMPLETION|BROWSER_FILE|SAVE_AS|BYTE_READBACK):(CANCELED|NO_SPACE|ACCESS|MISSING_FILE|TARGET_CLOSED|TIMEOUT|NETWORK|OTHER)$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
             grep -E '^D06_T3_PORTABLE_(ARCHIVE_BYTES=[0-9]+|OPEN_PAGES=[0-9]+|DOWNLOAD_PAGE_CLOSED=(YES|NO)|DOWNLOAD_LIFECYCLE=(PAGE_CLOSED|PAGE_CRASHED|CONTEXT_CLOSED|BROWSER_DISCONNECTED))$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
-            grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS
-            grep -Eo 'D06_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u | head -40 || true
-            grep -Eo 'D06_T3_EXCHANGE_CONSENT_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u || true
-            node --input-type=module - "$RUNNER_TEMP/d06-t3-native-private.log" <<'NODE'
-          import {readFileSync} from 'node:fs';
-          const body=readFileSync(process.argv[2],'utf8');
-          const exits=[...body.matchAll(/<process did exit: exitCode=(-?\d+|null), signal=(SIG[A-Z0-9]+|null)>/g)];
-          for(const m of exits.slice(-12)) console.log("D06_T3_BROWSER_EXIT="+m[1]+":"+m[2]);
-          const browserFatal=[...body.matchAll(/(?:Out of memory|Received signal (?:6|9|11)|FATAL:|Unable to allocate)/gi)].length;
-          console.log("D06_T3_BROWSER_FATAL_MARKERS="+browserFatal);
-          const hits=[...body.matchAll(/(?:scripts\/verify-native-transfer|tests\/t3\/exchange-consent)\.mjs:(\d+):(\d+)/g)];
-          for(const m of hits.slice(-8)) console.log("D06_T3_EXCHANGE_COORD="+(m[0].startsWith("scripts/")?"TRANSFER":"CONSENT")+":"+m[1]+":"+m[2]);
-          NODE
-            oom_after="$(awk '$1=="oom_kill"{print $2}' /sys/fs/cgroup/memory.events 2>/dev/null || true)"
-            if [[ "$oom_before" =~ ^[0-9]+$ && "$oom_after" =~ ^[0-9]+$ && "$oom_after" -ge "$oom_before" ]]; then
-              echo "D06_T3_BROWSER_OOM_DELTA=$((oom_after-oom_before))"
-            fi
-            for marker in 'TimeoutError' 'AssertionError' 'strict mode violation' 'toBeVisible' 'toBeDisabled' 'toBeEnabled' 'toBeChecked' 'toHaveAttribute' 'toHaveCount' 'toHaveText' 'Timed out' 'waitForFunction' 'locator.waitFor' 'net::ERR' 'TypeError' 'EADDRINUSE'; do
-              if grep -Fq "$marker" "$RUNNER_TEMP/d06-t3-native-private.log"; then echo "D06_T3_EXCHANGE_FAILURE_CLASS=$marker"; fi
-            done
-            exit 1
-          }
-          grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
-          grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log"
-          echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
-      - name: Privacy and evidence boundary
-        if: always()
-        run: |
-          echo D06_T3_PRODUCT_ACCEPTED=false
-          echo D06_T3_PRIVATE_OUTPUT_UPLOADS=0
-          echo D06_T3_PRIVATE_LOGS_UPLOADED=0
- "$RUNNER_TEMP/d06-t3-native-private.log" || true
-            grep -E '^D06_T3_PORTABLE_ACTIVATION=(EVENT|CLICK):(PASS|CANCELED|NO_SPACE|ACCESS|MISSING_FILE|TARGET_CLOSED|TIMEOUT|NETWORK|OTHER)
-            grep -Eo 'D06_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u | head -40 || true
-            grep -Eo 'D06_T3_EXCHANGE_CONSENT_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u || true
-            node --input-type=module - "$RUNNER_TEMP/d06-t3-native-private.log" <<'NODE'
-          import {readFileSync} from 'node:fs';
-          const body=readFileSync(process.argv[2],'utf8');
-          const exits=[...body.matchAll(/<process did exit: exitCode=(-?\d+|null), signal=(SIG[A-Z0-9]+|null)>/g)];
-          for(const m of exits.slice(-12)) console.log("D06_T3_BROWSER_EXIT="+m[1]+":"+m[2]);
-          const browserFatal=[...body.matchAll(/(?:Out of memory|Received signal (?:6|9|11)|FATAL:|Unable to allocate)/gi)].length;
-          console.log("D06_T3_BROWSER_FATAL_MARKERS="+browserFatal);
-          const hits=[...body.matchAll(/(?:scripts\/verify-native-transfer|tests\/t3\/exchange-consent)\.mjs:(\d+):(\d+)/g)];
-          for(const m of hits.slice(-8)) console.log("D06_T3_EXCHANGE_COORD="+(m[0].startsWith("scripts/")?"TRANSFER":"CONSENT")+":"+m[1]+":"+m[2]);
-          NODE
-            oom_after="$(awk '$1=="oom_kill"{print $2}' /sys/fs/cgroup/memory.events 2>/dev/null || true)"
-            if [[ "$oom_before" =~ ^[0-9]+$ && "$oom_after" =~ ^[0-9]+$ && "$oom_after" -ge "$oom_before" ]]; then
-              echo "D06_T3_BROWSER_OOM_DELTA=$((oom_after-oom_before))"
-            fi
-            for marker in 'TimeoutError' 'AssertionError' 'strict mode violation' 'toBeVisible' 'toBeDisabled' 'toBeEnabled' 'toBeChecked' 'toHaveAttribute' 'toHaveCount' 'toHaveText' 'Timed out' 'waitForFunction' 'locator.waitFor' 'net::ERR' 'TypeError' 'EADDRINUSE'; do
-              if grep -Fq "$marker" "$RUNNER_TEMP/d06-t3-native-private.log"; then echo "D06_T3_EXCHANGE_FAILURE_CLASS=$marker"; fi
-            done
-            exit 1
-          }
-          grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
-          grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log"
-          echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
-      - name: Privacy and evidence boundary
-        if: always()
-        run: |
-          echo D06_T3_PRODUCT_ACCEPTED=false
-          echo D06_T3_PRIVATE_OUTPUT_UPLOADS=0
-          echo D06_T3_PRIVATE_LOGS_UPLOADED=0
- "$RUNNER_TEMP/d06-t3-native-private.log" || true
+            grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
+            grep -E '^D06_T3_PORTABLE_ACTIVATION=(EVENT|CLICK):(PASS|CANCELED|NO_SPACE|ACCESS|MISSING_FILE|TARGET_CLOSED|TIMEOUT|NETWORK|OTHER)$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
             grep -Eo 'D06_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u | head -40 || true
             grep -Eo 'D06_T3_EXCHANGE_CONSENT_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u || true
             node --input-type=module - "$RUNNER_TEMP/d06-t3-native-private.log" <<'NODE'
