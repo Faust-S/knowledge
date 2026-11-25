@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: ffae8873637d618858d4cd440c434b59022160af
+          ref: 790c7b13399cdf8a9cbfb0833e11f753897d28ec
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
