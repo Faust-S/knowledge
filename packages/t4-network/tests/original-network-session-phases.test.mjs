@@ -2194,7 +2194,7 @@ test('K85 recipient verifies PUBLISHED via independent source owner history and 
 });
 
 
-test('K86 original recipient dispatcher admits successor content through independent source history without a business write',async()=>{
+test('K86 K87 original recipient dispatcher verifies content and recovers one original business write and ACK',async()=>{
   const q=await replacementRecipientFixture({realSourceHistory:true,canonicalCapture:true}),{x,c}=q,root=x.session,before=x.sourceCursorBefore;
   const {getMode,requiredCryptoSuite}=x.eligibilityOptions();
   await q.diff();
@@ -2206,7 +2206,21 @@ test('K86 original recipient dispatcher admits successor content through indepen
     networkTargetRef:root.recipientNodeRef,session:root,sourceCursorBefore:before,sourceCursorAfter:x.sourceCursorAfter,
     originalSourceOwnerReadVerified:true,originalCaptureEvidenceVerified:true,originalSourceCursorAdvanced:false,originalNetworkPublished:false,
     originalSubjectMutationInvoked:false,capturedPlaintextReturned:false,createsStore:false,createsScheduler:false});
-  let busy=false,allowed=true,opens=0,writes=0;
+  let busy=false,allowed=true,opens=0,writes=0,allowBusiness=false,loseSubjectReply=true;
+  const originalKernel=x.f.kernel.kernel,baseHas=originalKernel.hasOperation;let subjectWrites=0;
+  originalKernel.hasOperation=op=>op==='t1.commitObjectGraph'||baseHas(op);
+  const delta=x.task.capture.prepared.delta;
+  x.f.kernel.objects.set(delta.workspaceId+':'+delta.objectId,{object:{workspace_id:delta.workspaceId,object_id:delta.objectId,
+    revision:delta.baseRevision,schema_id:delta.schemaId,schema_version:delta.schemaVersion,deleted:false,data:{title:'before'},extensions:{}},
+    relations:{outgoing:[],incoming:[]}});
+  originalKernel.commitObjectGraph=async input=>{subjectWrites++;assert.equal(input.idempotency_key,'t4-object-'+c.capturedSha256);
+    const receipt=await originalKernel.putObject({workspace_id:input.workspace_id,...input.object,event:input.event});
+    if(loseSubjectReply){loseSubjectReply=false;throw Object.assign(Error('lost subject response'),{code:'ACK_LOST'});}
+    return {...receipt,transaction_id:'txn:k87:one',workspace_id:input.workspace_id};};
+  const verifyApplied=async proof=>{const row=await originalKernel.getObject(delta.workspaceId,delta.objectId),events=await originalKernel.listEventsSince(delta.workspaceId);
+    return row?.object?.revision===delta.sourceRevision&&JSON.stringify(row.object.data)===JSON.stringify(delta.data)&&
+      events.some(e=>e.event_id===proof.originalRecipientEventId&&e.revision===proof.originalRecipientRevision&&
+        e.payload.originalContentDigest===proof.originalRecipientStateDigest);};
   const opts=request=>({...x.historicalReadOptions(request.ownerNodeRef),request,requiredCryptoSuite,
     verifyOriginalRecipientApplied:async()=>false,verifyOriginalHistoricalNodeSignature:x.historicalSignature(request.ownerNodeRef),
     authorizeOriginalHostWire:async()=>true,authorizeOriginalOwnerHistoryRead:async()=>true});
@@ -2217,16 +2231,19 @@ test('K86 original recipient dispatcher admits successor content through indepen
   const select=()=>readT4OriginalLocalReplacementSelection({...history,technicalSchemaId:'iwxa.demo.note',sourceWorkspaceId:root.workspaceId,
     originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch:c.ownerEpoch,sourceCursorBefore:before,
     readOriginalCurrentCursor:()=>cursor.readOriginalVerifiedCursor(),requiredCryptoSuite,verifyOriginalHistoricalNodeSignature:x.historicalSignature(recipientNodeRef),
-    verifyOriginalRecipientApplied:async()=>false});
+    verifyOriginalRecipientApplied:verifyApplied});
   const context=async node=>({...await x.historicalReadOptions(node).readOriginalHostContext(),workspaceId:c.workspaceId});
   const dispatcher=()=>createT4OriginalHostRecipientDispatcher({workspaceId:c.workspaceId,originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,
     scopeRef,ownerEpoch:c.ownerEpoch,getMode,originalKernel:x.f.kernel.kernel,originalRecipientCursorPort:cursor,
     readOriginalHostContext:()=>context(recipientNodeRef),authorizeOriginalHostTask:async()=>true,authorizeOriginalRead:async()=>true,
-    authorizeOriginalWrite:async()=>{writes++;return false;},authorizeNetworkReceive:async()=>true,verifyOriginalSourceEvent:async()=>true});
-  const makePhase=(a,read)=>x.f.port({sessionRef:c.sessionRef,changeId:c.changeId,authorizeOriginalRecipientSupersession:null,
-    replacementRecipientAdmission:a,readOriginalReplacementRecipientApplyAdmission:read,verifyOriginalPhaseEvidence:async proof=>
+    authorizeOriginalWrite:async()=>{writes++;return allowBusiness;},authorizeNetworkReceive:async()=>true,
+    verifyOriginalSourceEvent:async p=>p.sourceEventId===delta.sourceEventId&&p.sourceEventDigest===delta.sourceEventDigest});
+  const makePhase=(a,read,ack)=>x.f.port({sessionRef:c.sessionRef,changeId:c.changeId,authorizeOriginalRecipientSupersession:null,
+    replacementRecipientAdmission:a,readOriginalReplacementRecipientApplyAdmission:read,readOriginalReplacementRecipientAckPublication:ack??null,
+    verifyOriginalRecipientApplied:verifyApplied,verifyOriginalPhaseEvidence:async proof=>
       proof.phase==='RECEIVED'?proof.evidence.evidenceRef===a.contentEvidence.frames[2].key:
-        proof.phase==='VERIFIED'&&proof.evidence.evidenceDigest===a.originalStateDigest});
+        proof.phase==='VERIFIED'?proof.evidence.evidenceDigest===a.originalStateDigest:
+          proof.phase==='APPLY_INTENT'?proof.evidence.evidenceDigest==='sha256:'+c.capturedSha256:proof.phase==='APPLIED'});
   const options={requiredCryptoSuite,frameDiscoveryPort:x.transport(recipientNodeRef),recipientPublicationPort:q.recipientPublicationPort,
     authorizeOriginalRecipientSession:async()=>true,readOriginalSourceContentHistory:request=>busy?null:readT4OriginalReplacementOwnerHistory(opts(request)),
     readOriginalOwnerEligibility,authorizeOriginalReplacement:async()=>true,readOriginalSourceHostContext:()=>context(sourceNodeRef),
@@ -2235,7 +2252,7 @@ test('K86 original recipient dispatcher admits successor content through indepen
     authorizeOriginalSealedOpen:async()=>true,verifyOriginalSourceBinding:async p=>p.originalSourceHeadProof.originalEventDigest===c.sourceEventDigest,
     bindOriginalReplacementRecipientContentEvidence:read=>async proof=>{const e=await read(proof);assert.equal(e.candidate.sessionRef,c.sessionRef);opens++;
       return {authenticated:true,plaintext:new Uint8Array(x.task.capture.prepared.bytes),originalVaultUsed:true,originalCapturedBytesVerified:true,originalBusinessApplied:false};},
-    authorizeOriginalReplacementRecipientApplyAdmission:async()=>allowed,createOriginalReplacementRecipientPhasePort:({admission},read)=>makePhase(admission,read)};
+    authorizeOriginalReplacementRecipientApplyAdmission:async()=>allowed,createOriginalReplacementRecipientPhasePort:({admission},read,ack)=>makePhase(admission,read,ack)};
   let task=dispatcher();const advance=async(patch={})=>task.runNativeReplacementStep({...options,selection:await select(),...patch});
   assert.equal((await advance()).state,'WAITING_FOR_REPLACEMENT_RECIPIENT_CONTENT');assert.equal(opens,0);
   await q.publish();await confirmT4OriginalReplacementSourcePublication({sourceAdmissionPhasePort:phase,sourcePublicationPort:q.source,getMode});
@@ -2249,4 +2266,24 @@ test('K86 original recipient dispatcher admits successor content through indepen
   assert.equal((await select()).originalLocalPhase,'VERIFIED');assert.equal(verified.originalSubjectMutationInvoked,false);
   assert.equal(x.phaseWrites(),phaseWrites+2);assert.equal(writes,0);assert.deepEqual(await cursor.readOriginalVerifiedCursor(),before);
   assert.ok(opens>=2);
+  // K87: use the same original task and phase ledger for business apply and
+  // signed ACK. Only the Kernel implementation and open callback are fixtures.
+  const signs=x.signatureCount(),puts=x.counts().networkPuts;
+  const applyOptions={enableOriginalReplacementApply:true,resolveOriginalSigningContext:async()=>x.recipientSigner(),signOriginalNodeBytes:x.signRecipientAck,
+    createOriginalReplacementRecipientAckPublicationPort:({session},readOriginalReplacementAppliedAckAdmission)=>
+      x.createReplacementRecipientPort({session},()=>readT4OriginalReplacementRecipientAdmission(x.recipientAdmissionOptions(phase)),{readOriginalReplacementAppliedAckAdmission})};
+  allowBusiness=true;
+  await assert.rejects(advance(applyOptions),isCode('SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN'));
+  assert.equal(subjectWrites,1);assert.equal((await select()).originalLocalPhase,'APPLY_INTENT');
+  assert.equal(x.signatureCount(),signs);assert.equal(x.counts().networkPuts,puts);
+  task.dispose();x.f.restart();task=dispatcher();
+  // Lose the ACK publication response, then prove the already signed bytes.
+  x.loseControlWrite();await assert.rejects(advance(applyOptions),isCode('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  assert.equal(subjectWrites,1);assert.equal(x.signatureCount(),signs+1);assert.equal(x.counts().networkPuts,puts+1);
+  task.dispose();x.f.restart();task=dispatcher();
+  const applied=await advance(applyOptions);assert.equal(applied.state,'ORIGINAL_REPLACEMENT_RECIPIENT_APPLIED');
+  assert.equal(applied.originalSubjectMutationInvoked,false);assert.equal(applied.originalRecipientApplied,true);
+  assert.equal((await select()).originalLocalPhase,'APPLIED');assert.equal(subjectWrites,1);
+  assert.equal(x.signatureCount(),signs+1);assert.equal(x.counts().networkPuts,puts+1);
+  assert.deepEqual(await cursor.readOriginalVerifiedCursor(),before);
 });

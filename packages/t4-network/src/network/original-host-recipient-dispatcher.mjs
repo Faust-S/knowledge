@@ -9,7 +9,9 @@ import {fetchT4OriginalRelationPutDelta,applyT4OriginalRelationPutDelta,
   advanceT4OriginalRelationCursor} from './original-relation-delta.mjs';
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {runT4OriginalNetworkRecipientTask,discoverT4OriginalNetworkSessionContent,
-  openT4OriginalNetworkSubjectChange,readT4OriginalReplacementRecipientApplyAdmission,admitT4OriginalReplacementRecipientSubject} from './original-network-subject-apply.mjs';
+  openT4OriginalNetworkSubjectChange,readT4OriginalReplacementRecipientApplyAdmission,admitT4OriginalReplacementRecipientSubject,
+  applyT4OriginalReplacementNetworkSubjectWithDurableIntent,readT4OriginalReplacementAppliedAckAdmission,
+  readT4OriginalReplacementRecipientAckPublication,finalizeT4OriginalReplacementRecipientAcknowledgement} from './original-network-subject-apply.mjs';
 import {validateT4OriginalNativeCaptureSession,validateT4OriginalReplacementSessionCandidate,createT4OriginalSourceSessionHead}
   from './original-network-publication.mjs';
 import {discoverT4OriginalSourceSessionAnnouncement} from './original-network-source-announcement.mjs';
@@ -898,17 +900,23 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
 
 // Replacement content resumes on the existing recipient task, never a
 // second writer. Each wake reopens original owner evidence and advances at
-// most one technical phase; the live admission itself grants no mutation.
+// most one admission phase or one result continuation; live admission
+// itself grants no mutation. The original APPLY_INTENT owns the write.
 async function executeNativeReplacementRecipientStep(p,options){
   requireNativeRecipientPorts(p);mode(p);
   const {selection,requiredCryptoSuite,frameDiscoveryPort,recipientPublicationPort:rawPublication,
     authorizeOriginalRecipientSession,readOriginalSourceContentHistory,readOriginalOwnerEligibility,authorizeOriginalReplacement,
     readOriginalSourceHostContext,authorizeOriginalSourceRead,readOriginalSourceEvents,verifyOriginalSourceSubject,
     authorizeOriginalSealedOpen,verifyOriginalSourceBinding,bindOriginalReplacementRecipientContentEvidence,
-    authorizeOriginalReplacementRecipientApplyAdmission,createOriginalReplacementRecipientPhasePort}=options;
+    authorizeOriginalReplacementRecipientApplyAdmission,createOriginalReplacementRecipientPhasePort,
+    enableOriginalReplacementApply=false,createOriginalReplacementRecipientAckPublicationPort,
+    resolveOriginalSigningContext,signOriginalNodeBytes,retryMissing=false}=options;
   const c=validateT4OriginalReplacementSessionCandidate(selection?.session),before=selection.sourceCursorBefore;
   if(selection.schema!=='IWXA_T4_ORIGINAL_LOCAL_REPLACEMENT_SELECTION_V1'||selection.role!=='RECIPIENT'||
-    ![null,'RECEIVED'].includes(selection.originalLocalPhase)||selection.originalLocalPhaseRevision!==(selection.originalLocalPhase===null?0:1)||
+    typeof enableOriginalReplacementApply!=='boolean'||typeof retryMissing!=='boolean'||
+    !(enableOriginalReplacementApply?[null,'RECEIVED','VERIFIED','APPLY_INTENT']:[null,'RECEIVED']).includes(selection.originalLocalPhase)||
+    selection.originalLocalPhaseRevision!==[null,'RECEIVED','VERIFIED','APPLY_INTENT'].indexOf(selection.originalLocalPhase)||
+    (enableOriginalReplacementApply&&![createOriginalReplacementRecipientAckPublicationPort,resolveOriginalSigningContext,signOriginalNodeBytes].every(f=>typeof f==='function'))||
     !['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch'].every(k=>c[k]===p[k])||
     !cursorValid(before,c.workspaceId,c.originalWriteOwnerRef)||before.sourcePrefixDigest!==c.sourcePrefixDigestBefore||
     selection.originalLocalRetirementEventVerified!==true||selection.originalLocalPublicationChainVerified!==true||
@@ -940,7 +948,8 @@ async function executeNativeReplacementRecipientStep(p,options){
     saved?.checkpointRef!==selection.originalLocalPublicationCheckpointRef||saved.revision!==selection.originalLocalPublicationRevision||
     saved.chainHash!==selection.originalLocalPublicationChainHash||saved.originalT3EventChainVerified!==true||
     !same(saved.frames?.map(({sequence,messageType,sha256,state})=>({sequence,messageType,sha256,state})),selection.originalLocalFrames)||
-    saved.frames.length!==1||saved.frames[0].messageType!=='DIFF_REQUEST'||saved.frames[0].state!=='PRESENT')
+    saved.frames.length<1||saved.frames.length>2||saved.frames[0].messageType!=='DIFF_REQUEST'||saved.frames[0].state!=='PRESENT'||
+    (saved.frames.length===2&&(selection.originalLocalPhase!=='APPLY_INTENT'||!enableOriginalReplacementApply||saved.frames[1].messageType!=='APPLIED_ACK')))
     fail('RECIPIENT_NATIVE_REPLACEMENT_CONTENT_SELECTION_CHANGED');
   const done=(state,extra={})=>frozen({schema:'IWXA_T4_ORIGINAL_HOST_REPLACEMENT_RECIPIENT_CONTENT_V1',state,
     replacementSessionRef:c.sessionRef,originalSupersessionEventId:c.replacement.recipientPhaseEventId,
@@ -956,6 +965,7 @@ async function executeNativeReplacementRecipientStep(p,options){
     authorizeOriginalReplacement:live(authorizeOriginalReplacement,'authorize-replacement'),getMode:p.getMode,
     authorizeOriginalRecipientSession:async()=>{await guard('discover-replacement-content');return true;}});};
   const readEvidence=async()=>{const v=await observe();if(v.state!=='CONTENT_VERIFIED')fail('SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_NOT_READY');return v.originalReplacementContentEvidence;};
+  let applyStarted=false;
   try{
     const content=await observe();if(content.state!=='CONTENT_VERIFIED')return wait();
     const sourceHeadProof=await verifyT4OriginalSourceHeadCausality({verifiedHeads:content.verifiedHeads,verifiedDiffRequest:content.verifiedDiffRequest,
@@ -973,21 +983,69 @@ async function executeNativeReplacementRecipientStep(p,options){
       verifyOriginalSourceBinding:live(verifyOriginalSourceBinding,'verify-source-binding'),readOriginalReplacementRecipientContentEvidence:readEvidence});
     const args={received,readOriginalReplacementRecipientContentObservation:observe,
       authorizeOriginalReplacementRecipientApplyAdmission:live(authorizeOriginalReplacementRecipientApplyAdmission,'replacement-apply-admission'),getMode:p.getMode};
+    let phase,ackPort;
+    const subjectArgs={...args,originalKernel:p.originalKernel,
+      authorizeOriginalRead:live(p.authorizeOriginalRead,'read-original-subject'),authorizeOriginalWrite:live(p.authorizeOriginalWrite,'write-original-subject'),
+      verifyOriginalSourceEvent:live(p.verifyOriginalSourceEvent,'verify-original-source-event'),
+      readOriginalDependencyCoverage:typeof p.readOriginalDependencyCoverage==='function'?live(p.readOriginalDependencyCoverage,'read-original-dependencies'):undefined,
+      withOriginalSubjectMutation:typeof p.withOriginalSubjectMutation==='function'?async(proof,action)=>{
+        await guard('before-original-subject-mutation-boundary');const value=await p.withOriginalSubjectMutation(proof,async()=>{
+          await guard('inside-original-subject-mutation-boundary');const result=await action();await guard('inside-original-subject-mutation-readback');return result;});
+        await guard('after-original-subject-mutation-boundary');return value;
+      }:undefined};
+    const ackArgs=()=>({...subjectArgs,recipientPhasePort:phase,recipientPublicationPort:ackPort});
+    const readAckAdmission=()=>readT4OriginalReplacementAppliedAckAdmission(ackArgs());
+    const readAckPublication=()=>readT4OriginalReplacementRecipientAckPublication(ackArgs());
     const readAdmission=()=>readT4OriginalReplacementRecipientApplyAdmission(args),admission=await readAdmission();
-    const phase=scoped(await createOriginalReplacementRecipientPhasePort({session:c,admission},readAdmission),
-      ['schema','role','checkpointRef','recipientApplyIntentRequired','originalT3TechnicalWorkspaceOnly','originalReplacementRecipientAdmission'],
+    phase=scoped(await createOriginalReplacementRecipientPhasePort({session:c,admission},readAdmission,enableOriginalReplacementApply?readAckPublication:undefined),
+      ['schema','role','checkpointRef','recipientApplyIntentRequired','originalT3TechnicalWorkspaceOnly','originalReplacementRecipientAdmission','originalReplacementRecipientAckPublicationRequired'],
       'RECIPIENT_NATIVE_REPLACEMENT_PHASE_REQUIRED');
     const status=await phase.inspectOriginalSession();
     if(status.checkpointRef!==selection.originalLocalPhaseCheckpointRef||status.currentPhase!==selection.originalLocalPhase||
       status.revision!==selection.originalLocalPhaseRevision)fail('RECIPIENT_NATIVE_REPLACEMENT_CONTENT_SELECTION_CHANGED');
     await checkCursor();
+    if(status.currentPhase==='VERIFIED'||status.currentPhase==='APPLY_INTENT'){
+      // Construct the exact same original publication Object with its
+      // additional ACK gate before permitting the first subject mutation.
+      // The gate reads the result/intent independently, not its own ACK.
+      ackPort=scoped(await createOriginalReplacementRecipientAckPublicationPort({session:c},readAckAdmission),
+        ['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler','originalReplacementRecipientAckPublication'],
+        'RECIPIENT_NATIVE_REPLACEMENT_ACK_PUBLICATION_REQUIRED');
+      if(!same(ackPort.session,c)||ackPort.checkpointRef!==publication.checkpointRef||ackPort.originalReplacementRecipientAckPublication!==true||
+        phase.originalReplacementRecipientAckPublicationRequired!==true||!same(await ackPort.inspectOriginalPublication(),saved))
+        fail('RECIPIENT_NATIVE_REPLACEMENT_ACK_PUBLICATION_REQUIRED');
+      applyStarted=status.currentPhase==='VERIFIED';
+      const actual=await applyT4OriginalReplacementNetworkSubjectWithDurableIntent({...subjectArgs,recipientPhasePort:phase});
+      if(actual.originalBusinessApplied!==true||actual.originalDurableApplyIntentVerified!==true||actual.originalReplacementRecipientAdmissionVerified!==true||
+        actual.originalMutationRetried!==false||actual.originalReplacementAckStillRequired!==true||actual.sourceCursorAdvanced!==false||actual.recipientCursorAdvanced!==false)
+        fail('RECIPIENT_NATIVE_REPLACEMENT_RESULT_INVALID');
+      await checkCursor();
+      if(status.currentPhase==='VERIFIED')return done('ORIGINAL_REPLACEMENT_RECIPIENT_RESULT_VERIFIED',{
+        originalSubjectMutationInvoked:actual.originalCommitInvoked===true,originalRecipientApplied:true,originalAckStillRequired:true});
+      if(actual.originalCommitInvoked!==false)fail('RECIPIENT_NATIVE_REPLACEMENT_RESULT_RETRIED');
+      const finalized=await finalizeT4OriginalReplacementRecipientAcknowledgement({...ackArgs(),retryMissing,
+        createSignedAppliedAckFrame:async({session,sequence,body,criticalExtensions})=>{
+          if(!same(session,c)||sequence!==2)fail('RECIPIENT_NATIVE_REPLACEMENT_ACK_SIGNING_MISMATCH');
+          const signing=await live(resolveOriginalSigningContext,'resolve-replacement-ack-signing')(frozen({session:c,sequence,messageType:'APPLIED_ACK',
+            originalNodeSigningAuthorityRequired:true,originalReplacementAppliedAckRequired:true}));
+          if(!ID(signing?.permissionRef)||!ID(signing?.signerRef))fail('RECIPIENT_NATIVE_STEP_ORIGINAL_SIGNING_CONTEXT_INVALID');
+          return signT4CandidateFrame({unsignedFrame:createT4CandidateUnsignedFrame({messageType:'APPLIED_ACK',sequence,
+            messageId:'msg:t4:recipient:'+c.sessionRef.slice(-64)+':'+sequence,sourceNodeRef:c.recipientNodeRef,recipientNodeRef:c.sourceNodeRef,
+            sessionRef:c.sessionRef,scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,permissionRef:signing.permissionRef,signerRef:signing.signerRef,
+            cryptoSuite:requiredCryptoSuite,body,criticalExtensions}),signOriginalNodeBytes:live(signOriginalNodeBytes,'sign-replacement-ack')});
+        }});
+      if(finalized.originalReplacementRecipientAckVerified!==true||finalized.originalSubjectMutationInvoked!==false||
+        finalized.recipientPhase?.currentPhase!=='APPLIED'||finalized.verifiedResult?.originalRecipientEventId!==actual.originalRecipientEventId)
+        fail('RECIPIENT_NATIVE_REPLACEMENT_ACK_RESULT_INVALID');
+      await checkCursor();return done('ORIGINAL_REPLACEMENT_RECIPIENT_APPLIED',{originalRecipientApplied:true,originalAckStillRequired:false});
+    }
     const result=await admitT4OriginalReplacementRecipientSubject({...args,recipientPhasePort:phase});
     if(result.state!==(selection.originalLocalPhase===null?'RECEIVED':'VERIFIED')||result.originalSubjectMutationInvoked!==false||
       result.sourceCursorAdvanced!==false||result.recipientCursorAdvanced!==false||result.revision!==status.revision+1)
       fail('RECIPIENT_NATIVE_REPLACEMENT_PHASE_RESULT_INVALID');
     await checkCursor();return done('ORIGINAL_REPLACEMENT_RECIPIENT_'+result.state,{originalPhaseRecorded:true});
   }catch(error){
-    if(!['REPLACEMENT_ORIGINAL_OWNER_ELIGIBILITY_NOT_READY','REPLACEMENT_RECIPIENT_HEAD_NOT_PRESENT',
+    if(applyStarted||!['REPLACEMENT_ORIGINAL_OWNER_ELIGIBILITY_NOT_READY','REPLACEMENT_RECIPIENT_HEAD_NOT_PRESENT',
       'REPLACEMENT_RECIPIENT_SOURCE_ADMISSION_NOT_READY','SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_NOT_READY'].includes(error?.code))throw error;
     mode(p);return wait();
   }
