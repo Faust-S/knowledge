@@ -16,7 +16,11 @@ import {validateT4OriginalNativeCaptureSession,validateT4OriginalReplacementSess
   validateT4OriginalReplacementDiffAcceptance,validateT4OriginalReplacementContentEvidence} from './original-network-publication.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 
-const MAGIC=Buffer.from('T4S2'),MAX=64*8192,MAX_HEADER=4096,TAG=16;
+import {T4_NATIVE_MAX_CIPHERTEXT_BYTES as MAX,T4_NATIVE_SEALED_HEADER_MAX_BYTES as MAX_HEADER,
+  T4_NATIVE_SEALED_TAG_BYTES as TAG,T4_NATIVE_SEALED_PREFIX_BYTES as PREFIX}
+  from './original-native-content-limits.mjs';
+
+const MAGIC=Buffer.from('T4S2');
 const SCHEMA='IWXA_T4_SEALED_CONTENT_CANDIDATE_V2',SUITE='X25519_HKDF_SHA256_AES256GCM';
 const replacementSession=value=>value?.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_SESSION_CANDIDATE_V1';
 const KDF_DOMAIN=Buffer.from('IWXA-T4-SEALED-CONTENT-V2\0','utf8');
@@ -57,17 +61,17 @@ function keyFor(privateKey,publicKey,salt,headerBytes){
 function encodeHeader(header){
   const raw=Buffer.from(canonical(header),'utf8');
   if(raw.length<1||raw.length>MAX_HEADER)fail('SEALED_CONTENT_HEADER_LIMIT');
-  const prefix=Buffer.alloc(6);MAGIC.copy(prefix);prefix.writeUInt16BE(raw.length,4);
+  const prefix=Buffer.alloc(PREFIX);MAGIC.copy(prefix);prefix.writeUInt16BE(raw.length,4);
   return Buffer.concat([prefix,raw]);
 }
 function contextRef(aad){return 'sealed:sha256:'+hash(aad);}
 function parseEnvelope(input,session,recipientKeyRef,publicKey){
-  if(!(input instanceof Uint8Array)||input.length<6+TAG+1||input.length>MAX)
+  if(!(input instanceof Uint8Array)||input.length<PREFIX+TAG+1||input.length>MAX)
     fail('SEALED_CONTENT_TRANSPORT_LIMIT_EXCEEDED');
-  const bytes=Buffer.from(input),length=bytes.readUInt16BE(4),end=6+length;
+  const bytes=Buffer.from(input),length=bytes.readUInt16BE(4),end=PREFIX+length;
   if(!bytes.subarray(0,4).equals(MAGIC)||length<1||length>MAX_HEADER||end+TAG>=bytes.length)
     fail('SEALED_CONTENT_ENVELOPE_INVALID');
-  const aad=bytes.subarray(0,end),headerBytes=bytes.subarray(6,end);let header;
+  const aad=bytes.subarray(0,end),headerBytes=bytes.subarray(PREFIX,end);let header;
   try{header=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(headerBytes));}
   catch{fail('SEALED_CONTENT_ENVELOPE_INVALID');}
   try{
@@ -97,7 +101,7 @@ function sealBytes(plaintext,session,recipientKeyRef,publicKey){
   // The existing 64 x 8192 wire capacity includes the entire envelope.
   // Reject oversized content before any publication; no truncation.
   if(aad.length+plaintext.length+TAG>MAX)fail('SEALED_CONTENT_TRANSPORT_LIMIT_EXCEEDED');
-  const key=keyFor(privateKey,publicKey,salt,aad.subarray(6));
+  const key=keyFor(privateKey,publicKey,salt,aad.subarray(PREFIX));
   try{
     const cipher=createCipheriv('aes-256-gcm',key,nonce,{authTagLength:TAG});
     cipher.setAAD(aad,{plaintextLength:plaintext.length});

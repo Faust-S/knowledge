@@ -1,7 +1,7 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {validT4OriginalAssetMime,validT4OriginalRelationKind} from './original-subject-fields.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
-import {prepareT4OriginalAssetDelta} from './original-asset-delta.mjs';
+import {prepareT4OriginalAssetDelta,preflightT4OriginalAssetNativeCapacity} from './original-asset-delta.mjs';
 import {prepareT4OriginalRelationPutDelta} from './original-relation-delta.mjs';
 import {captureT4OriginalDeletionAtMutation,reconcileT4OriginalSourceDeletion,
   runT4OriginalSubjectMutationBoundary} from './original-deletion-delta.mjs';
@@ -58,6 +58,7 @@ function normalizeInput(kind,input,workspaceId,captureRef){
   if(kind==='ASSET_PUT'){
     if(!validT4OriginalAssetMime(input.mime)||typeof input.base_revision!=='number'||
       !Number.isSafeInteger(input.base_revision)||input.base_revision<0||
+      input.base_revision>=Number.MAX_SAFE_INTEGER||
       !(input.bytes instanceof Uint8Array)||
       input.bytes.length>700000)
       fail('SUBJECT_CAPTURE_ASSET_INPUT_INVALID');
@@ -352,22 +353,32 @@ export async function captureT4OriginalHostSubjectMutation(params={}){
   const {kind,workspaceId,originalWriteOwnerRef,captureRef,sourceCursor,
     mutationInput,originalKernel,authorizeOriginalRead,authorizeOriginalWrite,
     persistOriginalIntent,readOriginalIntent,getMode}=params;
-  const subjectId=subjectIdOf(kind,mutationInput);
+  // Snapshot before any asynchronous authority/read boundary, even for direct callers.
+  const input=structuredClone(mutationInput);
+  const subjectId=subjectIdOf(kind,input);
   await originalPorts({...params,subjectId});
   if(typeof persistOriginalIntent!=='function')
     fail('SUBJECT_CAPTURE_ORIGINAL_HOST_PORTS_REQUIRED');
   checkCursor(sourceCursor,workspaceId,originalWriteOwnerRef);
-  const normalized=bindOriginalTrace(
-    normalizeInput(kind,mutationInput,workspaceId,captureRef),captureRef);
+  const resolveRevision=kind==='ASSET_PUT'&&input?.base_revision===undefined;
+  const draft=normalizeInput(kind,resolveRevision?{...input,base_revision:0}:input,workspaceId,captureRef);
   const captureParams={...params,subjectId};
   const readCtx=proofContext({...captureParams},SUBJECTS[kind].read);
   const writeCtx=proofContext({...captureParams},SUBJECTS[kind].write);
   if(await authorizeOriginalRead(readCtx)!==true||
     await authorizeOriginalWrite(writeCtx)!==true)
     fail('SUBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
-  const prior=await originalRead(originalKernel,kind,workspaceId,normalized.writeInput);
+  const prior=await originalRead(originalKernel,kind,workspaceId,draft.writeInput);
   mode(getMode);
-  expectedRevision(kind,prior,normalized.writeInput);
+  if(await authorizeOriginalRead(readCtx)!==true||await authorizeOriginalWrite(writeCtx)!==true)
+    fail('SUBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
+  mode(getMode);
+  // Omitted original API revisions are resolved to a witnessed CAS inside
+  // the existing Host mutation boundary; never turn a stale explicit CAS into a new one.
+  const normalized=bindOriginalTrace(resolveRevision?
+    normalizeInput(kind,{...input,base_revision:prior?.asset?.revision??0},workspaceId,captureRef):draft,captureRef);
+  const revision=expectedRevision(kind,prior,normalized.writeInput);
+  if(kind==='ASSET_PUT')preflightT4OriginalAssetNativeCapacity({workspaceId,originalWriteOwnerRef,operation:normalized.operation});
   const priorIntent=await readOriginalIntent({
     captureRef,workspaceId,originalWriteOwnerRef,kind,subjectId,
   });
@@ -382,7 +393,7 @@ export async function captureT4OriginalHostSubjectMutation(params={}){
     inputDigest:normalized.inputDigest,
     originalInputDigest:normalized.originalInputDigest,
     idempotencyKey:normalized.idempotencyKey,
-    expectedRevision:kind==='ASSET_PUT'?mutationInput.base_revision+1:null,
+    expectedRevision:revision,
     originalT3WriteRequired:true,networkPublished:false,
   });
   if(await persistOriginalIntent(intent)!==true)

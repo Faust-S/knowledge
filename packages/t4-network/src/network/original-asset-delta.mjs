@@ -1,4 +1,5 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
+import {requireT4NativeCaptureCapacity} from './original-native-content-limits.mjs';
 import {validT4OriginalAssetMime} from './original-subject-fields.mjs';
 import {verifyT4OriginalRecipientAcknowledgement} from './original-event-window.mjs';
 
@@ -28,7 +29,7 @@ function checked(delta){
     !ID(delta.originalEventType)||!HASH(delta.sourceEventDigest)||
     !HASH(delta.windowDigest)||!SHA(delta.assetBytesSha256)||
     !Number.isSafeInteger(delta.baseRevision)||delta.baseRevision<0||
-    delta.sourceRevision!==delta.baseRevision+1||
+    !Number.isSafeInteger(delta.sourceRevision)||delta.sourceRevision!==delta.baseRevision+1||
     !validT4OriginalAssetMime(delta.mime)||
     !Number.isSafeInteger(delta.assetSize)||delta.assetSize<0||
     delta.assetSize>MAX||!base64(delta.bytesBase64))
@@ -44,6 +45,17 @@ function checked(delta){
     sha256,key:sha256+'.t4d'});
 }
 export function verifyT4OriginalAssetDelta(delta){return checked(delta);}
+
+export function preflightT4OriginalAssetNativeCapacity({workspaceId,originalWriteOwnerRef,operation}){
+  const content=Buffer.from(operation.bytesBase64,'base64');
+  const reserve=checked({schema:SCHEMA,workspaceId,originalWriteOwnerRef,
+    assetId:operation.asset_id,objectId:operation.object_id,mime:operation.mime,
+    baseRevision:operation.base_revision,sourceRevision:operation.base_revision+1,
+    sourceEventId:'e'.repeat(160),sourceEventDigest:'sha256:'+'a'.repeat(64),
+    originalEventType:operation.event.event_type,windowDigest:'sha256:'+'a'.repeat(64),
+    bytesBase64:operation.bytesBase64,assetBytesSha256:packageSha256(content),assetSize:content.length});
+  return requireT4NativeCaptureCapacity(reserve.bytes.length);
+}
 export function digestT4OriginalAssetContent(d){
   return 'sha256:'+packageSha256(Buffer.concat([
     Buffer.from('IWXA-T4-ORIGINAL-ASSET-CONTENT-V1\0','utf8'),

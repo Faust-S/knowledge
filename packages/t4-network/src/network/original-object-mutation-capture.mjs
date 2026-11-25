@@ -1,6 +1,6 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
-import {prepareT4OriginalObjectDelta} from './original-object-delta.mjs';
+import {prepareT4OriginalObjectDelta,preflightT4OriginalObjectNativeCapacity} from './original-object-delta.mjs';
 
 export class T4OriginalObjectCaptureError extends Error{
   constructor(code,details={}){super(code);this.name='T4OriginalObjectCaptureError';
@@ -20,6 +20,7 @@ function validateMutation(input,workspaceId,objectId){
   if(!input||input.workspace_id!==workspaceId||input.object_id!==objectId||
     !ID(input.schema_id)||!ID(input.schema_version)||
     !Number.isSafeInteger(input.base_revision)||input.base_revision<0||
+    input.base_revision>=Number.MAX_SAFE_INTEGER||
     !ID(input.event?.event_type)||
     !input.data||typeof input.data!=='object'||Array.isArray(input.data))
     fail('OBJECT_CAPTURE_ORIGINAL_MUTATION_INVALID');
@@ -50,7 +51,20 @@ export async function captureT4OriginalObjectMutation({
       persistOriginalIntent,readOriginalIntent,persistOriginalOutbox,
       readOriginalOutbox].some(f=>typeof f!=='function'))
     fail('OBJECT_CAPTURE_ORIGINAL_HOST_PORTS_REQUIRED');
-  const mutationBytes=validateMutation(mutationInput,workspaceId,objectId);
+  let admitted=structuredClone(mutationInput);
+  if(admitted&&admitted.base_revision===undefined){
+    validateMutation({...admitted,base_revision:0},workspaceId,objectId);
+    const readCtx=Object.freeze({operation:'t1.getObject',workspaceId,objectId,originalWriteOwnerRef,
+      captureRef,resolveOmittedBaseRevision:true});
+    networkMode(getMode);
+    if(await authorizeOriginalRead(readCtx)!==true)fail('OBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
+    const current=await originalKernel.getObject(workspaceId,objectId);
+    networkMode(getMode);
+    if(await authorizeOriginalRead(readCtx)!==true)fail('OBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
+    networkMode(getMode);
+    admitted={...admitted,base_revision:current?.object?.revision??0};
+  }
+  const mutationBytes=validateMutation(admitted,workspaceId,objectId);
   const originalInputDigest='sha256:'+packageSha256(mutationBytes);
   if(mutationInput.event.payload!==undefined&&
     (mutationInput.event.payload===null||
@@ -77,11 +91,16 @@ export async function captureT4OriginalObjectMutation({
     fail('OBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
   const initial=await originalKernel.getObject(workspaceId,objectId);
   networkMode(getMode);
+  if(await authorizeOriginalRead({...ctx,operation:'t1.getObject'})!==true)
+    fail('OBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
+  networkMode(getMode);
   if(originalMutation.base_revision===0?initial!=null:
     (initial?.object?.revision!==originalMutation.base_revision||
       initial.object.deleted===true||initial.object.schema_id!==originalMutation.schema_id||
       initial.object.schema_version!==originalMutation.schema_version))
     fail('OBJECT_CAPTURE_BASE_REVISION_CONFLICT');
+  preflightT4OriginalObjectNativeCapacity({workspaceId,originalWriteOwnerRef,
+    mutationInput:originalMutation,existingExtensions:initial?.object?.extensions??{}});
   const priorIntent=await readOriginalIntent(Object.freeze({
     captureRef,workspaceId,objectId,originalWriteOwnerRef,
   }));

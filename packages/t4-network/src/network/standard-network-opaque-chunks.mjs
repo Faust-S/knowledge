@@ -1,4 +1,6 @@
 import {createHash} from 'node:crypto';
+import {T4_NATIVE_CHUNK_BYTES,T4_NATIVE_MAX_CHUNKS,T4_NATIVE_MAX_CIPHERTEXT_BYTES}
+  from './original-native-content-limits.mjs';
 
 /*
  * P2.1: bounded transport chunking of material already sealed by the
@@ -12,7 +14,7 @@ const fail=code=>{throw new T4CandidateChunkError(code);};
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const DIG=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
 const HASH=x=>'sha256:'+createHash('sha256').update(x).digest('hex');
-const MAX=64*8192;
+const MAX=T4_NATIVE_MAX_CIPHERTEXT_BYTES;
 const fields=['changeId','contentDigest','chunkIndex','chunkCount',
   'ciphertextBase64','ciphertextSha256','encryptionContextRef'];
 const frozen=x=>Object.freeze(x);
@@ -33,12 +35,12 @@ async function guard(params,operation){
 export async function prepareT4CandidateOpaqueChunks({
   changeId,ownerRef,sourceContentRef,getMode,
   authorizeOriginalSealedContent,readOriginalSealedContent,
-  chunkBytes=8192,
+  chunkBytes=T4_NATIVE_CHUNK_BYTES,
 }={}){
   if(![changeId,ownerRef,sourceContentRef].every(ID)||
     ![getMode,authorizeOriginalSealedContent,readOriginalSealedContent]
       .every(x=>typeof x==='function')||
-    !Number.isSafeInteger(chunkBytes)||chunkBytes<1||chunkBytes>8192)
+    !Number.isSafeInteger(chunkBytes)||chunkBytes<1||chunkBytes>T4_NATIVE_CHUNK_BYTES)
     fail('CHUNK_ORIGINAL_PORTS_REQUIRED');
   const p={changeId,ownerRef,sourceContentRef,getMode,
     authorizeOriginalSealedContent};
@@ -54,7 +56,7 @@ export async function prepareT4CandidateOpaqueChunks({
     original.ciphertext.byteLength>MAX)
     fail('CHUNK_ORIGINAL_SEALED_CONTENT_INVALID');
   const snapshot=new Uint8Array(original.ciphertext),encryptionContextRef=original.encryptionContextRef;
-  if(Math.ceil(snapshot.length/chunkBytes)>64)fail('CHUNK_TRANSPORT_CAPACITY_EXCEEDED');
+  if(Math.ceil(snapshot.length/chunkBytes)>T4_NATIVE_MAX_CHUNKS)fail('CHUNK_TRANSPORT_CAPACITY_EXCEEDED');
   await guard(p,'t4.network.sealed.readback');
   const digest=HASH(snapshot);
   const count=Math.ceil(snapshot.length/chunkBytes);

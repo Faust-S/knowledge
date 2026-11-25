@@ -805,3 +805,27 @@ test('K19 automatic capture requires an admitted baseline, not the latest Event 
     code('CAPTURE_FRONTIER_ORIGINAL_BASELINE_REQUIRED'));
   assert.equal(f.writes.length,0);assert.equal(f.intents.size,0);
 });
+
+test('K105 rejects unsendable Object before intent and original write',async()=>{
+ const f=originalFixture();
+ await assert.rejects(capture(f,1,{mutationInput:{...mutation(1),data:{text:'x'.repeat(530000)}}}),
+   code('T4_NATIVE_CONTENT_REQUIRES_MULTIPART'));
+ assert.equal(f.intents.size,0);assert.equal(f.writes.length,0);assert.equal(f.outbox.size,0);
+ assert.equal(f.read().revision,1);
+ const next=await capture(f,1);assert.equal(next.sourceRevision,2);
+});
+test('K105 Object omitted revision resolves an explicit original CAS and preserves recovery format',async()=>{
+ const f=originalFixture(),input=mutation(1);delete input.base_revision;
+ const saved=await capture(f,1,{mutationInput:input});
+ assert.equal(saved.sourceRevision,2);assert.equal(f.writes[0].base_revision,1);
+ assert.equal(f.intents.get('capture:1').expectedBaseRevision,1);
+ assert.equal(f.intents.get('capture:1').originalMutation.base_revision,1);
+ assert.equal(Object.hasOwn(input,'base_revision'),false);
+});
+test('K105 Object omitted revision cannot read after authority revocation',async()=>{
+ const f=originalFixture(),input=mutation(1);delete input.base_revision;
+ let calls=0;
+ await assert.rejects(capture(f,1,{mutationInput:input,authorizeOriginalRead:async()=>++calls===1}),
+   code('OBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED'));
+ assert.equal(f.intents.size,0);assert.equal(f.writes.length,0);
+});

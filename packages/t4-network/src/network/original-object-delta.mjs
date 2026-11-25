@@ -1,4 +1,5 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
+import {requireT4NativeCaptureCapacity} from './original-native-content-limits.mjs';
 import {verifyT4OriginalRecipientAcknowledgement} from './original-event-window.mjs';
 
 export class T4OriginalObjectDeltaError extends Error {
@@ -80,6 +81,17 @@ export function digestT4OriginalObjectContent({
   return 'sha256:'+packageSha256(encode({
     schemaId,schemaVersion,data,extensions,
   }));
+}
+// Use the exact V1 delta encoder, not the size of the mutation input.
+export function preflightT4OriginalObjectNativeCapacity({workspaceId,originalWriteOwnerRef,mutationInput,existingExtensions={}}){
+  const {object_id:objectId,schema_id:schemaId,schema_version:schemaVersion,base_revision:baseRevision,data}=mutationInput;
+  const extensions={...existingExtensions,...mutationInput.extensions};
+  const reserve=verifyT4OriginalObjectDelta({schema:WIRE_SCHEMA,workspaceId,originalWriteOwnerRef,
+    objectId,schemaId,schemaVersion,baseRevision,sourceRevision:baseRevision+1,
+    sourceEventId:'e'.repeat(160),sourceEventDigest:'sha256:'+'a'.repeat(64),
+    windowDigest:'sha256:'+'a'.repeat(64),originalEventType:mutationInput.event.event_type,
+    data,extensions,objectContentDigest:digestT4OriginalObjectContent({schemaId,schemaVersion,data,extensions})});
+  return requireT4NativeCaptureCapacity(reserve.bytes.length);
 }
 export function verifyT4OriginalObjectDelta(delta){
   return Object.freeze(validateDelta(delta));

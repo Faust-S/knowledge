@@ -1038,3 +1038,31 @@ test('K104 invalid original subject metadata is rejected before intent or busine
     assert.equal(f.intents.size,0);assert.equal(f.writes.length,0);
   }
 });
+
+test('K105 rejects unsendable 512 KiB Asset before intent and subject write',async()=>{
+  const f=fixture(),host=adapter(f);
+  await assert.rejects(host.putAsset({mutationInput:{...assetInput(),bytes:Buffer.alloc(512*1024)},
+    sourceCursor:await cursor(f),captureRef:'capture:oversize:asset'}),err('T4_NATIVE_CONTENT_REQUIRES_MULTIPART'));
+  assert.equal(f.intents.size,0);assert.equal(f.outbox.size,0);assert.equal(f.writes.length,0);
+  assert.equal(f.asset().asset.revision,1);
+  const saved=await host.putAsset({mutationInput:assetInput(),sourceCursor:await cursor(f),captureRef:'capture:after:oversize'});
+  assert.equal(saved.originalReceipt.asset.revision,2);
+});
+test('K105 accepts omitted Asset revision with an exact witnessed CAS for create and update',async()=>{
+  const f=fixture(),host=adapter(f);f.removeSourceAsset();
+  const input=assetInput();delete input.base_revision;
+  const first=await host.putAsset({mutationInput:input,sourceCursor:await cursor(f),captureRef:'capture:asset:implicit-create'});
+  assert.equal(first.originalReceipt.asset.revision,1);
+  const second=await host.putAsset({mutationInput:{...input,bytes:Buffer.from('updated')},
+    sourceCursor:first.capture.nextCursor,captureRef:'capture:asset:implicit-update'});
+  assert.equal(second.originalReceipt.asset.revision,2);
+  assert.deepEqual(f.writes.map(x=>x.input.base_revision),[0,1]);
+  assert.equal(f.intents.get('capture:asset:implicit-update').operation.base_revision,1);
+  assert.equal(Object.hasOwn(input,'base_revision'),false);
+});
+test('K105 omitted Asset CAS does not bypass an explicit stale revision',async()=>{
+  const f=fixture(),host=adapter(f);
+  await assert.rejects(host.putAsset({mutationInput:{...assetInput(),base_revision:0},
+    sourceCursor:await cursor(f),captureRef:'capture:asset:stale'}),err('SUBJECT_CAPTURE_ORIGINAL_ASSET_REVISION_CONFLICT'));
+  assert.equal(f.intents.size,0);assert.equal(f.writes.length,0);
+});
