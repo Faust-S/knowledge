@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 20f8870983814e2d4073ea14a6ec9a348815b3fc
+          ref: 9c4961cded97c77aed48ae48c84269e6fad903a3
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -336,7 +336,7 @@ jobs:
           NODE
           if ! npm test > "$RUNNER_TEMP/private-all-regression.log" 2>&1; then
             echo D02_T3_COMPLETE_CLUB_REGRESSION=FAIL
-            grep -E '^not ok [0-9]+ - ' "$RUNNER_TEMP/private-all-regression.log" | head -15 || true
+            awk '/^> .* test:/{suite=$0} /^not ok [0-9]+ - /{if(suite!=last){print suite;last=suite}print;count++;if(count>=15)exit}' "$RUNNER_TEMP/private-all-regression.log" || true
             exit 1
           fi
           echo D02_T3_COMPLETE_CLUB_REGRESSION=PASS
@@ -439,7 +439,7 @@ jobs:
           # Use the existing scoped credential only if the intended repository is private
           # and the credential already grants push. Never modify main or an existing ref.
           [ "$(gh api repos/Faust-S/club.iwxa.ru --jq '.private')" = true ]
-          [ "$(git rev-parse HEAD)" = "20f8870983814e2d4073ea14a6ec9a348815b3fc" ]
+          [ "$(git rev-parse HEAD)" = "9c4961cded97c77aed48ae48c84269e6fad903a3" ]
           case "$(git remote get-url origin)" in
             https://github.com/Faust-S/club.iwxa.ru|https://github.com/Faust-S/club.iwxa.ru.git) ;;
             *) echo D02_T3_PRIVATE_RETENTION_REMOTE=FAIL; exit 1 ;;
