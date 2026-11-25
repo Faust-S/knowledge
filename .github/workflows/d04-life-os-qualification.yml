@@ -1,12 +1,7 @@
 name: D04 full release qualification (private source, no artifacts)
 on:
-  push:
-    branches:
-      - work/2026-11-25-d04-local-time-qualification
-    paths:
-      - .github/workflows/d04-life-os-qualification.yml
-      - scripts/d04-private-source-preflight.sh
   workflow_dispatch:
+
 permissions:
   contents: read
 concurrency:
