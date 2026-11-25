@@ -26,7 +26,7 @@ function fixture(){
     workspace_id:ws,organization_id:'org:a',scope_revision:1};
   const manifest={format:'iwxa.package',format_version:'1.0',encryption:'none',
     workspaces:[ws],workspace_states:[{workspace_id:ws}],options:opts,counts,
-    files:[{path:'content/objects.ndjson'}],package_digest:dg,semantic_digest:sd};
+    files:[{path:'content/objects.ndjson'},{path:'technical/validation-report.json'}],package_digest:dg,semantic_digest:sd};
   const f={calls,context,rows:[structuredClone(row)],events:[
     {workspace_id:ws,event_type:'iwxa.company.work',object_id:row.object_id}],old:null,
     preview:{preview_token:input.preview_token,package_digest:dg,semantic_digest:sd,
@@ -102,6 +102,11 @@ test('denied import previews are cancelled before any write or new local authori
     p=>p.objects[0].object_id='t3.access.signed-registry',
     p=>p.manifest.options.include_assets=false,
     p=>p.manifest.files.push({path:'technical/grants.json'}),
+    p=>p.manifest.files.push({path:'technical/capability/instance.json'}),
+    p=>p.manifest.files.push({path:'technical/capability/grant.json'}),
+    p=>p.manifest.files.push({path:'technical/validation-report.json/extra'}),
+    p=>p.manifest.files.push({path:'technical/validation-report.json.bak'}),
+    p=>p.manifest.format_version='1.1',
     p=>p.excluded_by_permission.objects=1,
     p=>p.schemas[0].status='embedded_new',
     p=>{p.manifest.workspaces=['ws:foreign'];p.workspaces[0].workspace_id='ws:foreign';
@@ -170,5 +175,24 @@ test('original missing registry Object is absence, not a denied or incomplete in
     await assert.rejects(f.bound().exportPackage(opts),{code});
     await assert.rejects(f.bound().importPreview(bytes()),{code});
     assert.deepEqual(f.calls,[]);
+  }
+});
+
+test('original K036 validation report is allowed but other technical files block both directions',async()=>{
+  const f=fixture();
+  assert.ok(f.preview.preview.manifest.files.some(x=>x.path==='technical/validation-report.json'));
+  await f.bound().exportPackage(opts);
+  await f.bound().confirmExport(confirm);
+  await f.bound().importPreview(bytes());
+  await f.bound().importCommit(input);
+  assert.deepEqual(f.calls,['export','preview','cancel','confirm','preview','commit']);
+  for(const path of ['technical/capability/grant.json','technical/validation-report.json.bak']){
+    const bad=fixture();
+    bad.preview.preview.manifest.files.push({path});
+    await assert.rejects(bad.bound().exportPackage(opts),
+      {code:'T3_CORPORATE_EXCHANGE_BUSINESS_ARCHIVE_REQUIRED'});
+    assert.deepEqual(bad.calls,['export','preview','cancel']);
+    await assert.rejects(bad.bound().confirmExport(confirm),
+      {code:'T3_CORPORATE_EXCHANGE_VERIFIED_EXPORT_REQUIRED'});
   }
 });

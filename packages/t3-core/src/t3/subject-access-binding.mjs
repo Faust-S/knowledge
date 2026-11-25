@@ -66,6 +66,9 @@ function requireCompleteBusinessArchive(handle,workspace){
   const p=handle?.preview,m=p?.manifest;
   // Same signed corporate Workspace ID on both products. No foreign-source
   // remap, personal backup or cross-organization import in this profile.
+  // The immutable K036 exporter always includes its own validation report.
+  // That report is not a capability carrier. All other technical entries,
+  // including the 1.1 capability paths, remain outside business Exchange.
   if(m?.format!=="iwxa.package"||m.format_version!=="1.0"||
      m.encryption!=="none"||m.workspaces?.length!==1||
      m.workspaces[0]!==workspace||m.workspace_states?.length!==1||
@@ -73,7 +76,8 @@ function requireCompleteBusinessArchive(handle,workspace){
      !COMPLETE_OPTIONS.every(k=>m.options?.[k]===true)||
      m.counts?.workspaces!==1||p.scope_mode!=="workspace"||
      !Array.isArray(m.files)||m.files.some(f=>
-       typeof f?.path!=="string"||f.path.startsWith("technical/"))||
+       typeof f?.path!=="string"||
+       (f.path.startsWith("technical/")&&f.path!=="technical/validation-report.json"))||
      !completeCounts(p.totals,p.included,p.excluded_by_permission)||
      !ARCHIVE_COUNTS.every(k=>m.counts?.[k]===p.totals[k])||
      !Array.isArray(p.objects)||p.objects.length!==p.totals.objects||
