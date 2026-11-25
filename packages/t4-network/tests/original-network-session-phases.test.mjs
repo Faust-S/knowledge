@@ -1690,6 +1690,13 @@ test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers 
   }else{
     const beforeHost={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
     peerUnavailable=true;assert.equal((await hostStep('SOURCE')).state,'WAITING_FOR_REPLACEMENT_OWNER_EVIDENCE');peerUnavailable=false;
+    // K76: a busy peer after initial admission but before CAS is waiting,
+    // not a fatal wake suspension or a permission to write.
+    let freshReads=0;
+    const midProofWait=await hostStep('SOURCE',{readOriginalPeerReplacementHistory:async request=>{
+      if(++freshReads===2)return null;return carrier(sourceNodeRef)(request);}});
+    assert.equal(midProofWait.state,'WAITING_FOR_REPLACEMENT_OWNER_EVIDENCE');assert.equal(freshReads,2);
+    assert.equal(midProofWait.sourceCursorAdvanced,false);assert.equal(midProofWait.originalRecipientCursorAdvanced,false);
     await assert.rejects(hostStep('SOURCE',{authorizeOriginalPeerReplacementHistoryRead:async p=>p.stage==='before'}),isCode('REPLACEMENT_HISTORY_PEER_READ_DENIED'));
     await assert.rejects(hostStep('SOURCE',{authorizeOriginalHostTask:async()=>false}),isCode('REPLACEMENT_HOST_CURSOR_TASK_DENIED'));
     assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},beforeHost);
@@ -1699,8 +1706,18 @@ test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers 
     assert.deepEqual(await x.realRecipientCursor().readOriginalVerifiedCursor(),x.sourceCursorBefore);
     await assert.rejects(x.eligibility(),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
     historyAllowed=false;await assert.rejects(recipientCommit(),isCode('CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED'));historyAllowed=true;
-    const recipientStep=await hostStep('RECIPIENT');assert.equal(recipientStep.state,'ORIGINAL_REPLACEMENT_CURSOR_COMMITTED');
-    assert.equal(recipientStep.sourceCursorAdvanced,false);assert.equal(recipientStep.originalRecipientCursorAdvanced,true);
+    const realPort=x.realRecipientCursor();let committedHere=false;
+    const interruptedReadback={...realPort,
+      commitHistoricallyConfirmedReplacementCursor:async input=>{
+        const result=await realPort.commitHistoricallyConfirmedReplacementCursor(input);committedHere=true;return result;},
+      readOriginalVerifiedCursor:async()=>{
+        if(committedHere)throw Object.assign(Error('lost final Host readback'),{code:'K76_READBACK_UNAVAILABLE'});
+        return realPort.readOriginalVerifiedCursor();}};
+    await assert.rejects(hostStep('RECIPIENT',{originalCursorPort:interruptedReadback}),error=>{
+      assert.equal(error.code,'RECIPIENT_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN');
+      assert.equal(error.details.originalCode,'K76_READBACK_UNAVAILABLE');
+      assert.equal(error.details.originalWriteMayHaveCommitted,true);assert.equal(error.details.automaticRetryAllowed,false);return true;});
+    assert.equal(committedHere,true);assert.deepEqual(await realPort.readOriginalVerifiedCursor(),x.sourceCursorAfter);
     assert.ok(carrierCalls>2);
   }
   x.f.restart();

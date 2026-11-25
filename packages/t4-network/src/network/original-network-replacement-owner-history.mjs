@@ -10,7 +10,7 @@ import {t4NativeSubjectCriticalExtensions} from './standard-network-wire-candida
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const DIG=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
 const copy=x=>structuredClone(x),same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
-const fail=code=>{throw Object.assign(Error(code),{code});};
+const fail=(code,details)=>{throw Object.assign(Error(code),{code,...(details===undefined?{}:{details:Object.freeze(details)})});};
 const REQUEST='IWXA_T4_ORIGINAL_REPLACEMENT_OWNER_HISTORY_REQUEST_V1';
 const SNAPSHOT='IWXA_T4_ORIGINAL_REPLACEMENT_OWNER_HISTORY_V1';
 const roles=c=>[c.sourceNodeRef,c.recipientNodeRef];
@@ -192,16 +192,35 @@ export async function completeT4OriginalReplacementHostCursor({selection,role,or
   await task();if(!same(await cursor(),before))fail('REPLACEMENT_HOST_CURSOR_FRONTIER_CHANGED');
   // No attempt to advance the peer's cursor or reopen an old task. Local
   // CAS uncertainty is not swallowed as a waiting state or retried here.
-  const result=await port.commitHistoricallyConfirmedReplacementCursor({recovery:{session:c,sourceCursorBefore:before,
-    requesterNodeRef:localNodeRef,readOriginalOwnerHistory:readHistory,requiredCryptoSuite,
-    authorizeOriginalHistoricalCursorRecovery,verifyOriginalHistoricalNodeSignature}});mode();
-  const after={...before,lastEventId:c.sourceEventId,seenEventCount:before.seenEventCount+1,sourcePrefixDigest:c.sourcePrefixDigestAfter};
-  const expectedSchema=role==='SOURCE'?'IWXA_T4_ORIGINAL_HOST_ACK_CURSOR_COMMIT_V1':'IWXA_T4_ORIGINAL_HOST_RECIPIENT_REPLACEMENT_CURSOR_COMMIT_V1';
-  const confirmed=role==='SOURCE'?result?.originalT3NextCursor:result?.originalT3VerifiedCursor;
-  if(result?.schema!==expectedSchema||!['ORIGINAL_T3_CAS_COMMITTED','ALREADY_COMMITTED'].includes(result.state)||
-    result.checkpointRef!==port.checkpointRef||result.originalReplacementHistoricalRecoveryUsed!==true||
-    result.originalT3EventChainVerified!==true||result.originalT3PutObjectRetried!==false||!same(confirmed,after)||!same(await cursor(),after))
-    fail('REPLACEMENT_HOST_CURSOR_RESULT_NOT_PROVEN');
+  let result;
+  try{
+    result=await port.commitHistoricallyConfirmedReplacementCursor({recovery:{session:c,sourceCursorBefore:before,
+      requesterNodeRef:localNodeRef,readOriginalOwnerHistory:readHistory,requiredCryptoSuite,
+      authorizeOriginalHistoricalCursorRecovery,verifyOriginalHistoricalNodeSignature}});
+  }catch(error){
+    // Original cursor writers wrap EVERY failure after a possible CAS in
+    // their write-outcome-unknown error. A busy peer during a fresh proof
+    // before CAS is therefore only a wait, not a failed/suspended Host.
+    if(error?.code!=='CURSOR_REPLACEMENT_OWNER_HISTORY_NOT_READY'||error.details?.originalWriteMayHaveCommitted===true)throw error;
+    await task();if(!same(await cursor(),before))fail('REPLACEMENT_HOST_CURSOR_FRONTIER_CHANGED');
+    return waiting();
+  }
+  try{
+    mode();
+    const after={...before,lastEventId:c.sourceEventId,seenEventCount:before.seenEventCount+1,sourcePrefixDigest:c.sourcePrefixDigestAfter};
+    const expectedSchema=role==='SOURCE'?'IWXA_T4_ORIGINAL_HOST_ACK_CURSOR_COMMIT_V1':'IWXA_T4_ORIGINAL_HOST_RECIPIENT_REPLACEMENT_CURSOR_COMMIT_V1';
+    const confirmed=role==='SOURCE'?result?.originalT3NextCursor:result?.originalT3VerifiedCursor;
+    if(result?.schema!==expectedSchema||!['ORIGINAL_T3_CAS_COMMITTED','ALREADY_COMMITTED'].includes(result.state)||
+      result.checkpointRef!==port.checkpointRef||result.originalReplacementHistoricalRecoveryUsed!==true||
+      result.originalT3EventChainVerified!==true||result.originalT3PutObjectRetried!==false||!same(confirmed,after)||!same(await cursor(),after))
+      fail('REPLACEMENT_HOST_CURSOR_RESULT_NOT_PROVEN');
+  }catch(error){
+    // Even an outer lifetime/readback failure after the writer returned
+    // must not be treated as an unattempted operation or trigger a retry.
+    fail(role==='SOURCE'?'HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN':'RECIPIENT_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',
+      {originalCode:error?.code??null,originalWriteMayHaveCommitted:true,automaticRetryAllowed:false,
+        readOriginalObjectAndEventBeforeFurtherAction:true});
+  }
   return Object.freeze({state:'ORIGINAL_REPLACEMENT_CURSOR_COMMITTED',selection:selected,cursorCommitState:result.state,
     replacementSessionRef:c.sessionRef,originalReplacementHistoricalRecoveryUsed:true,
     originalT3CursorOnly:true,sourceCursorAdvanced:role==='SOURCE',originalRecipientCursorAdvanced:role==='RECIPIENT',
