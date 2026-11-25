@@ -1,10 +1,7 @@
 name: Open IWXA knowledge checks
 on:
-  push:
-    branches:
-      - work/2026-11-02-pipeline-foundation
-  pull_request:
   workflow_dispatch:
+
 permissions:
   contents: read
 jobs:

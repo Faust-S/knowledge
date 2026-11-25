@@ -1,9 +1,7 @@
 name: D05 T3 private write permission only
 on:
-  push:
-    branches: [test/2026-11-24-d05-t3-integration]
-    paths: [qualification/d05/t3-requests/private-write-probe.json]
   workflow_dispatch:
+
 permissions: {}
 concurrency:
   group: d05-t3-private-write-probe-${{ github.ref }}

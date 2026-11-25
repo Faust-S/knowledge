@@ -1,10 +1,5 @@
 name: d05-cehovod-full-product-build
 on:
-  push:
-    branches:
-      - test/2026-11-18-d05-source-qualification
-    paths:
-      - .github/workflows/d05-cehovod-full-product-build.yml
   workflow_dispatch:
 
 permissions:

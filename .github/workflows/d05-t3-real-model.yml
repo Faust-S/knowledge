@@ -1,8 +1,5 @@
 name: D05 T3 actual model on hardware-required WebGPU
 on:
-  push:
-    branches: [test/2026-11-24-d05-t3-integration]
-    paths: [qualification/d05/t3-requests/real-model.json]
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -36,6 +33,7 @@ on:
     secrets:
       DOMEN:
         required: true
+
 permissions:
   contents: read
   actions: read

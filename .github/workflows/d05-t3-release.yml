@@ -1,8 +1,5 @@
 name: D05 T3 grouped release qualification
 on:
-  push:
-    branches: [test/2026-11-24-d05-t3-integration]
-    paths: [qualification/d05/t3-requests/release.json]
   workflow_dispatch:
     inputs:
       publication_recovery:
@@ -10,6 +7,7 @@ on:
         type: boolean
         required: false
         default: true
+
 permissions:
   contents: read
   actions: read

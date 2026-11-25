@@ -1,11 +1,7 @@
 name: d05-finance-qualification-probe
 on:
-  push:
-    branches:
-      - test/2026-11-18-d05-source-qualification
-    paths:
-      - .github/workflows/d05-finance-qualification-probe.yml
   workflow_dispatch:
+
 permissions:
   contents: read
 jobs:

@@ -1,10 +1,5 @@
 name: d05-cehovod-private-source-qualification
 on:
-  push:
-    branches:
-      - test/2026-11-18-d05-source-qualification
-    paths:
-      - .github/workflows/d05-cehovod-source-qualification.yml
   workflow_dispatch:
 
 permissions:
