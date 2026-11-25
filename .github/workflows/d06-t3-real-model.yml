@@ -1,11 +1,8 @@
 name: d06-t3-real-model
 # Retry the two unresolved native witnesses; do not repeat Windows or production rebuilds.
 on:
-  push:
-    branches:
-      - test/2026-11-24-d06-t3-preparation
-    paths:
-      - .github/d06/diagnostic-requests/d06-t3-real-model.request
+  workflow_dispatch:
+
 concurrency:
   group: d06-t3-qualification-${{ github.ref }}
   cancel-in-progress: false

@@ -2,11 +2,8 @@ name: d06-t3-release-gate
 # A candidate is qualified only on an explicit request commit.
 # Intermediate source and workflow edits do not start runners.
 on:
-  push:
-    branches:
-      - test/2026-11-24-d06-t3-preparation
-    paths:
-      - .github/d06/t3-release-request.json
+  workflow_dispatch:
+
 concurrency:
   group: d06-t3-qualification-${{ github.ref }}
   cancel-in-progress: false
