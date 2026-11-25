@@ -87,8 +87,9 @@ const input=(revision=1)=>({workspace_id:ws,idempotency_key:'original graph '+re
   relation_puts:[rel(revision===1?fresh:'r:k21:second',target,b,'new dependency')],
   relation_deletes:[{relation_id:revision===1?old:fresh}],
   event:{event_type:'business.graph.changed',payload:{revision}}});
-async function fixture(){
+async function fixture({prepareSource=()=>{}}={}){
   const f=await seeded('source'),technicalWorkspaceId='ws:k21:source:technical';
+  await prepareSource(f);
   const cursor=(await readT4OriginalEventWindow({workspaceId:ws,originalWriteOwnerRef:owner,
     authorizeOriginalRead:allow,readOriginalEvents:()=>f.kernel.listEventsSince(ws)})).nextCursor;
   const ledger=createT4OriginalHostCaptureLedgerPort({originalKernel:f.kernel,technicalWorkspaceId,sourceWorkspaceId:ws,
@@ -345,4 +346,56 @@ test('K22 automatic graph frontier uses verified paired original inventory inste
     listOriginalPendingIntents:async()=>assert.fail('legacy pending route')});
   const result=await h.commitObjectGraph({mutationInput:input(2),captureRef:'capture:k22:two'});
   assert.equal(result.capture.originalT3OutboxVerified,true);assert.equal(passes,2);assert.equal(f.graphWrites,2);
+});
+
+function k120Pages(f){
+  return {readOriginalEvents:async()=>assert.fail('legacy full source history used'),originalCommitPageSize:2,
+    withOriginalHistoryReadBoundary:async(_proof,run)=>run(),
+    readOriginalCommitPage:async({workspaceId,afterEventId,limit})=>{
+      assert.equal(workspaceId,ws);
+      const rows=f.events.filter(e=>e.workspace_id===ws);
+      const start=afterEventId===null?0:rows.findIndex(e=>e.event_id===afterEventId)+1;
+      if(afterEventId!==null)assert.ok(start>0);
+      const entries=rows.slice(start,start+limit).map(event=>({event,legacy_history:false}));
+      return {entries,next_after_event_id:entries.at(-1)?.event.event_id??afterEventId,
+        has_more:start+entries.length<rows.length,order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+    }};
+}
+test('K120 bounded graph capture, historical recovery and native replay preserve one original transaction per key',async()=>{
+  const f=await fixture({prepareSource:f=>{
+    f.events[0].service_id='service:other';f.events[0].idempotency_key=input().idempotency_key;
+  }});
+  const pages=k120Pages(f),h=f.host(pages);
+  const first=await h.commitObjectGraph({mutationInput:input(),captureRef:'capture:k120:one'});
+  const second=await h.commitObjectGraph({mutationInput:input(2),captureRef:'capture:k120:two'});
+  assert.equal(second.capture.originalT3OutboxVerified,true);
+  const recovered=await h.reconcileGraphMutation({workspaceId:ws,objectId:target,captureRef:'capture:k120:one'});
+  assert.equal(recovered.historicalOutboxVerified,true);assert.equal(recovered.prepared.sha256,first.capture.prepared.sha256);
+  const published=await readT4OriginalHostCapturedSubject({...f.common,...pages,kind:'GRAPH_COMMIT',subjectId:target,captureRef:'capture:k120:one'});
+  assert.equal(published.prepared.sha256,first.capture.prepared.sha256);
+  const before=f.events.length;
+  const replay=await h.commitObjectGraph({mutationInput:input(),captureRef:'capture:k120:one'});
+  assert.equal(replay.originalReceipt.deduplicated,true);assert.equal(f.events.length,before);
+  assert.equal(f.graphWrites,2);assert.equal(f.graphInvocations,3);
+});
+test('K120 bounded graph lost reply recovers exactly once and duplicated service key invalidates historical proof',async()=>{
+  const f=await fixture(),pages=k120Pages(f),h=f.host(pages),captureRef='capture:k120:lost';
+  f.loseAck();
+  await assert.rejects(h.commitObjectGraph({mutationInput:input(),captureRef}),err('GRAPH_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  const recovered=await h.reconcileGraphMutation({workspaceId:ws,objectId:target,captureRef});
+  assert.equal(recovered.originalT3OutboxVerified,true);assert.equal(recovered.originalMutationRetried,false);
+  await f.kernel.putObject({workspace_id:ws,object_id:a,schema_id:'iwxa.demo.note',schema_version:'1.0.0',
+    base_revision:1,data:{title:'another original operation'},event:{event_type:'business.changed'}});
+  f.events.at(-1).idempotency_key=input().idempotency_key;
+  await assert.rejects(h.reconcileGraphMutation({workspaceId:ws,objectId:target,captureRef}),err('GRAPH_SOURCE_EVENT_NOT_PROVEN'));
+  await assert.rejects(readT4OriginalHostCapturedSubject({...f.common,...pages,kind:'GRAPH_COMMIT',subjectId:target,captureRef}),
+    err('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED'));
+  assert.equal(f.graphWrites,1);assert.equal(f.graphInvocations,1);
+});
+test('K120 original graph preflight refuses capture trace reuse before original Intent or business mutation',async()=>{
+  const f=await fixture({prepareSource:f=>{f.events[0].payload.iwxa_t4_capture_ref='capture:k120:used';}});
+  await assert.rejects(f.host(k120Pages(f)).commitObjectGraph({mutationInput:input(),captureRef:'capture:k120:used'}),
+    err('GRAPH_SOURCE_EVENT_NOT_PROVEN'));
+  assert.equal(f.graphWrites,0);assert.equal(f.graphInvocations,0);
+  assert.equal((await f.ledger.listOriginalPendingIntents({workspaceId:ws,originalWriteOwnerRef:owner})).length,0);
 });

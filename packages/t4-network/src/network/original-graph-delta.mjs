@@ -304,6 +304,40 @@ async function history(p,scope){
     fail('GRAPH_ORIGINAL_HISTORY_INVALID');
   return rows;
 }
+function pagedGraph(p){
+  return p.readOriginalCommitPage!==undefined||p.withOriginalHistoryReadBoundary!==undefined;
+}
+// One authorized scan proves the exact next original Event, both key scopes
+// and the full V1 digest, without copying unrelated Event payloads.
+async function graphHistory(p,scope,cursor,query){
+  if(pagedGraph(p)){
+    const guard=readGuard(p,scope);
+    const observed=await readT4OriginalEventWindow({...scope,cursor,maxEvents:1,
+      authorizeOriginalRead:async()=>{await guard('t1.listEventsSince');return true;},
+      readOriginalCommitPage:p.readOriginalCommitPage,withOriginalHistoryReadBoundary:p.withOriginalHistoryReadBoundary,
+      pageSize:p.originalCommitPageSize??256,originalTraceQuery:query});
+    const proof=observed.originalTraceEvidence;
+    if(proof?.originalHistoryFullyRead!==true||proof.kind!=='graph_capture'||
+      proof.value!==query.value||!DIG(proof.originalHistoryDigest)||
+      !REV(proof.matchCount)||!REV(proof.graphIdempotencyMatchCount))
+      fail('GRAPH_ORIGINAL_HISTORY_INVALID');
+    return {...observed,event:proof.nextOriginalEvent,matchCount:proof.matchCount,
+      keyMatchCount:proof.graphIdempotencyMatchCount,historyDigest:proof.originalHistoryDigest};
+  }
+  const rows=await history(p,scope);
+  const observed=await readT4OriginalEventWindow({...scope,cursor,maxEvents:1,
+    authorizeOriginalRead:p.authorizeOriginalRead,readOriginalEvents:async()=>rows});
+  const event=observed.window.count===1?rows.find(e=>e.event_id===observed.window.lastEventId):null;
+  const service=query.serviceId??event?.service_id??null;
+  return {...observed,event,rows,matchCount:rows.filter(e=>e.payload?.[TRACE]===query.value).length,
+    keyMatchCount:rows.filter(e=>e.idempotency_key===query.idempotencyKey&&(service===null||e.service_id===service)).length};
+}
+function sameGraphHistory(a,b,workspaceId){
+  if(a.rows!==undefined&&b.rows!==undefined)return sameHistory(a.rows,b.rows,workspaceId);
+  return DIG(a.historyDigest)&&a.historyDigest===b.historyDigest&&a.originalEventsRead===b.originalEventsRead;
+}
+const graphQuery=(captureRef,idempotencyKey,serviceId)=>({kind:'graph_capture',value:captureRef,idempotencyKey,
+  ...(serviceId===undefined?{}:{serviceId})});
 function writeGuard(p,scope,extra={}){
   return async()=>{mode(p);
     if(await p.authorizeOriginalWrite(Object.freeze({...scope,...extra,
@@ -314,7 +348,11 @@ function writeGuard(p,scope,extra={}){
 }
 function requireCapturePorts(p,write=false){
   requireReadPorts(p);
-  if(![p.authorizeOriginalWrite,p.readOriginalEvents,p.readOriginalIntent,p.readOriginalOutbox,
+  const paged=pagedGraph(p);
+  if(paged&&(![p.readOriginalCommitPage,p.withOriginalHistoryReadBoundary].every(f=>typeof f==='function')||
+    !Number.isSafeInteger(p.originalCommitPageSize??256)||(p.originalCommitPageSize??256)<1||(p.originalCommitPageSize??256)>1024))
+    fail('GRAPH_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
+  if(![p.authorizeOriginalWrite,...(paged?[]:[p.readOriginalEvents]),p.readOriginalIntent,p.readOriginalOutbox,
     p.persistOriginalOutbox].every(f=>typeof f==='function')||
     (write&&(!p.originalKernel.hasOperation('t1.commitObjectGraph')||
       typeof p.originalKernel.commitObjectGraph!=='function'||typeof p.persistOriginalIntent!=='function')))
@@ -323,22 +361,20 @@ function requireCapturePorts(p,write=false){
 async function completeCapture(p,scope,intent,receipt=null){
   const x=validateIntent(intent,scope,p.captureRef),guard=writeGuard(p,scope,{captureRef:p.captureRef});
   await guard();
-  const events=await history(p,scope),matches=events.filter(e=>e.payload?.[TRACE]===p.captureRef);
-  if(matches.length!==1)fail('GRAPH_SOURCE_EVENT_NOT_PROVEN',{originalMutationRetried:false});
-  const event=matches[0];bindEvent(intent,scope,event);
-  if(events.filter(e=>e.idempotency_key===intent.idempotencyKey&&e.service_id===event.service_id).length!==1)
-    fail('GRAPH_SOURCE_EVENT_NOT_PROVEN');
-  const {window,nextCursor}=await readT4OriginalEventWindow({...scope,cursor:intent.sourceCursor,maxEvents:1,
-    authorizeOriginalRead:p.authorizeOriginalRead,readOriginalEvents:async()=>events});
-  if(window.count!==1||window.lastEventId!==event.event_id)
+  const query=graphQuery(p.captureRef,intent.idempotencyKey);
+  const events=await graphHistory(p,scope,intent.sourceCursor,query),{event,window,nextCursor}=events;
+  if(events.matchCount!==1)fail('GRAPH_SOURCE_EVENT_NOT_PROVEN',{originalMutationRetried:false});
+  if(window.count!==1||!event||event.payload?.[TRACE]!==p.captureRef||window.lastEventId!==event.event_id)
     fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
+  bindEvent(intent,scope,event);
+  if(events.keyMatchCount!==1)fail('GRAPH_SOURCE_EVENT_NOT_PROVEN');
   const existing=await p.readOriginalOutbox({...scope,captureRef:p.captureRef});
   // A committed immutable Outbox is historical proof even when subsequent
   // original transactions have changed the live object or the relations.
   if(receipt===null&&existing!=null){
     const exact=verifyT4OriginalGraphCapture({intent,outbox:existing,event,window,nextCursor,
       prepared:decodeT4OriginalGraphDeltaBytes(Buffer.from(existing.bytesBase64,'base64'))});
-    if(!sameHistory(await history(p,scope),events,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
+    if(!sameGraphHistory(await graphHistory(p,scope,intent.sourceCursor,query),events,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
     await guard();
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_GRAPH_CAPTURE_RECEIPT_V1',captureRef:p.captureRef,
       originalReceipt:null,originalT3OutboxVerified:true,originalT3IsOnlyStore:true,
@@ -353,7 +389,7 @@ async function completeCapture(p,scope,intent,receipt=null){
   if(receipt!==null)validateReceipt(receipt,x.expected,x.puts,x.deletes,event,scope);
   checkAfter(await graphState(p,scope,graphIds(x.puts,x.deletes),endpoints([...x.puts,...x.deletes])),
     x.expected,x.puts,x.deletes);
-  if(!sameHistory(await history(p,scope),events,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
+  if(!sameGraphHistory(await graphHistory(p,scope,intent.sourceCursor,query),events,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
   await guard();
   const outbox={schema:OUTBOX,kind:KIND,captureRef:p.captureRef,workspaceId:scope.workspaceId,
     originalWriteOwnerRef:scope.originalWriteOwnerRef,subjectId:scope.objectId,
@@ -391,10 +427,11 @@ export async function captureT4OriginalGraphMutation(p={}){
     if(await p.readOriginalOutbox({...scope,captureRef:p.captureRef})==null)
       fail('GRAPH_ORIGINAL_IDEMPOTENCY_OUTCOME_UNRESOLVED',{automaticRetryAllowed:false});
     const verified=await completeCapture(p,scope,prior,null);
-    const stream=await history(p,scope);
-    const event=stream.find(e=>e.event_id===verified.originalSourceEventId);
+    const query=graphQuery(p.captureRef,prior.idempotencyKey);
+    const stream=await graphHistory(p,scope,prior.sourceCursor,query),{event}=stream;
     const service=p.originalKernel.sessionInfo?.service_id;
-    if(!event||typeof service!=='string'||event.service_id!==service)
+    if(!event||event.event_id!==verified.originalSourceEventId||
+      stream.matchCount!==1||stream.keyMatchCount!==1||typeof service!=='string'||event.service_id!==service)
       fail('GRAPH_ORIGINAL_IDEMPOTENCY_SERVICE_MISMATCH');
     await guard();
     let receipt;
@@ -402,17 +439,16 @@ export async function captureT4OriginalGraphMutation(p={}){
     catch(error){fail('GRAPH_ORIGINAL_DEDUPLICATED_RECEIPT_UNAVAILABLE',{
       originalCode:error?.code??null,automaticRetryAllowed:false});}
     validateReceipt(receipt,original.expected,original.puts,original.deletes,event,scope,true);
-    if(!sameHistory(await history(p,scope),stream,scope.workspaceId))fail('GRAPH_ORIGINAL_DEDUPLICATION_CHANGED_HISTORY');
+    if(!sameGraphHistory(await graphHistory(p,scope,prior.sourceCursor,query),stream,scope.workspaceId))fail('GRAPH_ORIGINAL_DEDUPLICATION_CHANGED_HISTORY');
     await guard();
     return Object.freeze({...verified,originalReceipt:receipt,originalDeduplicatedReceiptVerified:true});
   }
-  const stream=await history(p,scope);
-  const pre=await readT4OriginalEventWindow({...scope,cursor:p.sourceCursor,maxEvents:1,
-    authorizeOriginalRead:p.authorizeOriginalRead,readOriginalEvents:async()=>stream});
-  if(pre.window.count!==0)fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
   const service=p.originalKernel.sessionInfo?.service_id;
-  if(stream.some(e=>e.idempotency_key===op.idempotency_key&&(!service||e.service_id===service)))
-    fail('GRAPH_ORIGINAL_IDEMPOTENCY_ALREADY_USED');
+  const query=graphQuery(p.captureRef,op.idempotency_key,service||undefined);
+  const stream=await graphHistory(p,scope,p.sourceCursor,query);
+  if(stream.window.count!==0)fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
+  if(stream.keyMatchCount!==0)fail('GRAPH_ORIGINAL_IDEMPOTENCY_ALREADY_USED');
+  if(stream.matchCount!==0)fail('GRAPH_SOURCE_EVENT_NOT_PROVEN',{originalMutationRetried:false});
   const before=await graphState(p,scope,graphIds(op.relation_puts,op.relation_deletes),endpoints(op.relation_puts));
   const deleted=op.relation_deletes.map(r=>{
     const row=before.relations.get(r.relation_id);if(!row)fail('GRAPH_ORIGINAL_PREIMAGE_CONFLICT');return row;
@@ -442,14 +478,14 @@ export async function captureT4OriginalGraphMutation(p={}){
   requireT4NativeCaptureCapacity(reserved.bytes.length);
   if(bytes(intent).length>MAX)fail('GRAPH_INTENT_TOO_LARGE');
   await guard();
-  if(!sameHistory(await history(p,scope),stream,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
+  if(!sameGraphHistory(await graphHistory(p,scope,p.sourceCursor,query),stream,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
   if(await p.persistOriginalIntent(intent)!==true||
     !same(await p.readOriginalIntent({...scope,captureRef:p.captureRef}),intent))
     fail('GRAPH_INTENT_NOT_DURABLE');
   await guard();
   checkBefore(await graphState(p,scope,graphIds(op.relation_puts,deleted),endpoints([...op.relation_puts,...deleted])),
     reserve.objectBeforeDigest,op.relation_puts,deleted);
-  if(!sameHistory(await history(p,scope),stream,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
+  if(!sameGraphHistory(await graphHistory(p,scope,p.sourceCursor,query),stream,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
   let receipt;
   try{receipt=await p.originalKernel.commitObjectGraph(traced);}
   catch(error){fail('GRAPH_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{originalCode:error?.code??null,

@@ -105,6 +105,7 @@ function normalizeHistory(raw,workspaceId){
 }
 const localSnapshots=new WeakMap();
 const incrementTrace=(map,key)=>{if(typeof key==='string')map.set(key,(map.get(key)??0)+1);};
+const scopedTraceKey=(serviceId,key)=>JSON.stringify([serviceId,key]);
 function registerLocalSnapshot(state,retainedOriginalEvents){
   const {workspaceId,originalWriteOwnerRef,events,prefixes}=state;
   const token=immutable({schema:'IWXA_T4_LOCAL_EVENT_READ_SNAPSHOT_V1',
@@ -120,7 +121,7 @@ export function prepareT4OriginalLocalEventSnapshot({workspaceId,originalWriteOw
   if(!id(workspaceId)||!id(originalWriteOwnerRef))fail('ORIGINAL_T3_OWNER_SCOPE_REQUIRED');
   const rows=structuredClone(originalEvents),{positions,events}=normalizeHistory(rows,workspaceId);
   const prefixes=[emptyPrefix],acc=createHash('sha256').update('[');
-  const idempotencies=new Map(),deleteTraces=new Map(),captureTraces=new Map();
+  const idempotencies=new Map(),deleteTraces=new Map(),captureTraces=new Map(),serviceIdempotencies=new Map();
   for(let i=0;i<events.length;i++){
     // Exact old V1 hash of the canonical JSON array, not a new chain format.
     // A copy of the running SHA state plus ']' gives the prefix in O(1)
@@ -129,11 +130,13 @@ export function prepareT4OriginalLocalEventSnapshot({workspaceId,originalWriteOw
     acc.update(JSON.stringify(canonical(events[i])));
     prefixes.push('sha256:'+acc.copy().update(']').digest('hex'));
     incrementTrace(idempotencies,rows[i].idempotency_key);
+    if(typeof rows[i].idempotency_key==='string')incrementTrace(serviceIdempotencies,
+      scopedTraceKey(rows[i].service_id,rows[i].idempotency_key));
     incrementTrace(deleteTraces,rows[i].payload?.iwxa_t4_object_delete_intent);
     incrementTrace(captureTraces,rows[i].payload?.iwxa_t4_capture_ref);
   }
   return registerLocalSnapshot({workspaceId,originalWriteOwnerRef,rows,positions,events,prefixes,
-    idempotencies,deleteTraces,captureTraces});
+    idempotencies,deleteTraces,captureTraces,serviceIdempotencies});
 }
 function localSnapshot(token,workspaceId,owner){
   const x=localSnapshots.get(token);
@@ -155,8 +158,12 @@ export function readT4OriginalLocalSnapshotPosition(token,{workspaceId,originalW
   if(!id(eventId))fail('ORIGINAL_LOCAL_EVENT_SNAPSHOT_SCOPE_INVALID');
   const i=x.positions.get(eventId);return i===undefined?null:i+1;
 }
-export function countT4OriginalLocalSnapshotTrace(token,{workspaceId,originalWriteOwnerRef,kind,value}={}){
+export function countT4OriginalLocalSnapshotTrace(token,{workspaceId,originalWriteOwnerRef,kind,value,serviceId}={}){
   const x=localSnapshot(token,workspaceId,originalWriteOwnerRef);
+  if(kind==='service_idempotency_key'){
+    if(!id(serviceId)||typeof value!=='string')fail('ORIGINAL_LOCAL_EVENT_SNAPSHOT_TRACE_INVALID');
+    return x.serviceIdempotencies.get(scopedTraceKey(serviceId,value))??0;
+  }
   if(typeof value!=='string'||!['idempotency_key','object_delete_intent','capture_ref'].includes(kind))
     fail('ORIGINAL_LOCAL_EVENT_SNAPSHOT_TRACE_INVALID');
   return (kind==='idempotency_key'?x.idempotencies:kind==='capture_ref'?x.captureTraces:x.deleteTraces).get(value)??0;
@@ -181,11 +188,17 @@ async function readCommitEventWindow({
     typeof withOriginalHistoryReadBoundary!=='function')fail('ORIGINAL_COMMIT_EVENT_PORTS_REQUIRED');
   // For a captured mutation, verify uniqueness of its original trace across
   // the whole original history without retaining unrelated Event payloads.
-  // Only these three original protocol trace fields may be queried.
+  // Only these original protocol trace fields may be queried. Graph capture
+  // also proves the original service-scoped key in the same authorized scan.
   const trace=originalTraceQuery===null?null:immutable(structuredClone(originalTraceQuery));
-  if(trace!==null&&(!keys(trace,['kind','value'])||
-    !['capture_ref','idempotency_key','object_delete_intent','delete_reservation_key'].includes(trace.kind)||
-    typeof trace.value!=='string'||trace.value.length<1||trace.value.length>256||maxEvents!==1))
+  const traceValue=x=>typeof x==='string'&&x.length>=1&&x.length<=256;
+  const graphTrace=trace?.kind==='graph_capture';
+  const validGraphTrace=graphTrace&&traceValue(trace.idempotencyKey)&&
+    (keys(trace,['kind','value','idempotencyKey'])||
+      (keys(trace,['kind','value','idempotencyKey','serviceId'])&&id(trace.serviceId)));
+  const validSimpleTrace=keys(trace,['kind','value'])&&
+    ['capture_ref','idempotency_key','object_delete_intent','delete_reservation_key'].includes(trace.kind);
+  if(trace!==null&&(!(validGraphTrace||validSimpleTrace)||!traceValue(trace.value)||maxEvents!==1))
     fail('ORIGINAL_COMMIT_EVENT_TRACE_QUERY_INVALID');
   const before=cursor===null?null:immutable(structuredClone(cursor));
   if(before!==null&&!exactCursor(before,workspaceId,originalWriteOwnerRef))
@@ -206,13 +219,15 @@ async function readCommitEventWindow({
     const seen=new Set(),available=[];
     const start=before?.seenEventCount??0,previousDigest=before?.sourcePrefixDigest??emptyPrefix;
     let after=null,count=0,eventsRead=0,anchored=before===null,hasMore=false,modern=false;
-    let traceMatches=0,nextOriginalEvent=null;
+    let traceMatches=0,nextOriginalEvent=null,graphKeyMatches=0;
+    const graphServices=graphTrace?new Map():null;
+    const graphHistoryHash=graphTrace?createHash('sha256').update('['):null;
     const compatibilityRows=collectOriginalEvents?[]:null;
     // Preserve only original Event references, prefix digests and the exact
     // records needed by the immutable capture inventory, not unrelated data.
     const snap=snapshotSelection===null?null:{workspaceId,originalWriteOwnerRef,
       selectedRows:new Map(),positions:new Map(),events:[],prefixes:[emptyPrefix],
-      idempotencies:new Map(),deleteTraces:new Map(),captureTraces:new Map()};
+      idempotencies:new Map(),deleteTraces:new Map(),captureTraces:new Map(),serviceIdempotencies:new Map()};
     const snapHash=snap===null?null:createHash('sha256').update('[');
     for(;;){
       await checkRead();
@@ -244,13 +259,23 @@ async function readCommitEventWindow({
           snap.prefixes.push('sha256:'+snapHash.copy().update(']').digest('hex'));
           if(snapshotSelection.has(e.eventId))snap.selectedRows.set(e.eventId,entry.event);
           incrementTrace(snap.idempotencies,entry.event.idempotency_key);
+          if(typeof entry.event.idempotency_key==='string')incrementTrace(snap.serviceIdempotencies,
+            scopedTraceKey(entry.event.service_id,entry.event.idempotency_key));
           incrementTrace(snap.deleteTraces,entry.event.payload?.iwxa_t4_object_delete_intent);
           incrementTrace(snap.captureTraces,entry.event.payload?.iwxa_t4_capture_ref);
+        }
+        if(graphTrace){
+          if(seen.size>1)graphHistoryHash.update(',');
+          graphHistoryHash.update(JSON.stringify(canonical(e)));
+          if(entry.event.idempotency_key===trace.idempotencyKey){
+            if(graphKeyMatches>=Number.MAX_SAFE_INTEGER)fail('ORIGINAL_COMMIT_EVENT_COUNT_OVERFLOW');
+            graphKeyMatches++;incrementTrace(graphServices,entry.event.service_id);
+          }
         }
         if(trace!==null){
           const matches=trace.kind==='delete_reservation_key'?
             (entry.event.idempotency_key===trace.value||entry.event.payload?.iwxa_t4_object_delete_intent===trace.value):
-            (trace.kind==='capture_ref'?entry.event.payload?.iwxa_t4_capture_ref:
+            (trace.kind==='capture_ref'||graphTrace?entry.event.payload?.iwxa_t4_capture_ref:
               trace.kind==='object_delete_intent'?entry.event.payload?.iwxa_t4_object_delete_intent:
                 entry.event.idempotency_key)===trace.value;
           if(matches){
@@ -312,11 +337,15 @@ async function readCommitEventWindow({
     });
     await checkRead();
     snapshotState=snap;
+    const graphService=graphTrace?(trace.serviceId??nextOriginalEvent?.service_id??null):null;
     completed=immutable({window:immutable({...message,windowDigest:hash(message)}),
       nextCursor,originalEventsRead:eventsRead,
       ...(compatibilityRows===null?{}:{originalEvents:compatibilityRows}),
       ...(trace===null?{}:{originalTraceEvidence:immutable({kind:trace.kind,value:trace.value,
-        matchCount:traceMatches,nextOriginalEvent,originalHistoryFullyRead:true})})});
+        matchCount:traceMatches,nextOriginalEvent,originalHistoryFullyRead:true,
+        ...(graphTrace?{graphIdempotencyMatchCount:graphService===null?graphKeyMatches:(graphServices.get(graphService)??0),
+          graphServiceId:graphService,originalHistoryDigest:'sha256:'+graphHistoryHash.update(']').digest('hex')}:{}),
+      })})});
     return completed;
   };
   try{

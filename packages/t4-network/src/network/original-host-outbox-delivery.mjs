@@ -211,7 +211,8 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
     fail('OUTBOX_ORIGINAL_EVENT_HISTORY_INVALID');
   const {kind}=s;
   const expectedDelete=isT4NativeDeleteKind(kind)?originalT4DeletionCapturedEvent(intent):null;
-  const trace=['OBJECT_PUT','GRAPH_COMMIT'].includes(kind)?{kind:'capture_ref',value:s.captureRef}:
+  const trace=kind==='GRAPH_COMMIT'?{kind:'graph_capture',value:s.captureRef,idempotencyKey:intent.idempotencyKey}:
+    kind==='OBJECT_PUT'?{kind:'capture_ref',value:s.captureRef}:
     kind==='OBJECT_DELETE'?{kind:'object_delete_intent',value:expectedDelete.payload.iwxa_t4_object_delete_intent}:
       {kind:'idempotency_key',value:expectedDelete?.idempotency_key??intent.idempotencyKey};
   const {window,nextCursor,originalTraceEvidence}=await readT4OriginalEventWindow({
@@ -242,7 +243,8 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
     originalTraceEvidence.matchCount!==1||originalTraceEvidence.nextOriginalEvent?.event_id!==outbox.sourceEventId))
     fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
   if(snapshot!==null&&Object.hasOwn(snapshot,'retainedOriginalEvents')&&
-    countT4OriginalLocalSnapshotTrace(snapshot,{...s,...trace})!==1)
+    countT4OriginalLocalSnapshotTrace(snapshot,{...s,...(kind==='GRAPH_COMMIT'?
+      {kind:'capture_ref',value:s.captureRef}:trace)})!==1)
     fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
   const event=bounded?originalTraceEvidence.nextOriginalEvent:
     snapshot===null?originals.find(row=>row?.event_id===outbox.sourceEventId):
@@ -250,7 +252,17 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
   if(!event||event.workspace_id!==s.workspaceId||
     event.event_type!==verified.prepared.delta.originalEventType)
     fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
-  if(kind==='OBJECT_PUT'){
+  if(kind==='GRAPH_COMMIT'){
+    const matches=bounded?originalTraceEvidence.graphIdempotencyMatchCount:snapshot===null?
+      originals.filter(row=>row?.idempotency_key===intent.idempotencyKey&&row?.service_id===event.service_id).length:
+      countT4OriginalLocalSnapshotTrace(snapshot,{...s,kind:'service_idempotency_key',value:intent.idempotencyKey,serviceId:event.service_id});
+    const captureMatches=bounded?originalTraceEvidence.matchCount:snapshot===null?
+      originals.filter(row=>row?.payload?.iwxa_t4_capture_ref===s.captureRef).length:
+      countT4OriginalLocalSnapshotTrace(snapshot,{...s,kind:'capture_ref',value:s.captureRef});
+    if(matches!==1||captureMatches!==1||event.idempotency_key!==intent.idempotencyKey||
+      event.payload?.iwxa_t4_capture_ref!==s.captureRef||event.event_type!==intent.operation.event?.event_type)
+      fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
+  }else if(kind==='OBJECT_PUT'){
     if(event.payload?.iwxa_t4_capture_ref!==s.captureRef||
       event.payload?.iwxa_t4_original_input_digest!==
         intent.originalInputDigest||

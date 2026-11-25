@@ -284,3 +284,37 @@ test('K119 original Object deletion reservation checks both trace fields without
   assert.equal(proof.window.count,0);
   assert.deepEqual(proof.nextCursor,cursor);
 });
+
+test('K120 graph trace binds the capture globally and the idempotency key by original service',async()=>{
+  const rows=[event(1),event(2),event(3),event(4)];
+  rows[0].service_id='other';rows[0].idempotency_key='shared key';
+  rows[1].idempotency_key='shared key';rows[1].payload.iwxa_t4_capture_ref='capture:graph';
+  rows[2].service_id='other';rows[2].idempotency_key='shared key';
+  const cursor=(await legacy(rows,null,1)).nextCursor;
+  const q={kind:'graph_capture',value:'capture:graph',idempotencyKey:'shared key'};
+  const read=(query)=>readT4OriginalCommitEventWindow({...setup(rows).options,cursor,pageSize:1,maxEvents:1,originalTraceQuery:query});
+  const proof=await read(q),e=proof.originalTraceEvidence;
+  assert.equal(e.matchCount,1);assert.equal(e.graphIdempotencyMatchCount,1);assert.equal(e.graphServiceId,'svc');
+  assert.equal(e.originalHistoryDigest,(await legacy(rows,null,4)).nextCursor.sourcePrefixDigest);
+  assert.equal((await read({...q,serviceId:'other'})).originalTraceEvidence.graphIdempotencyMatchCount,2);
+  rows[3].idempotency_key='shared key';
+  const changed=await read(q);
+  assert.equal(changed.originalTraceEvidence.graphIdempotencyMatchCount,2);
+  assert.notEqual(changed.originalTraceEvidence.originalHistoryDigest,e.originalHistoryDigest);
+  assert.deepEqual(changed.window,proof.window);
+  const snapshot=await prepareT4OriginalCommitLocalEventSnapshot({...setup(rows).options,pageSize:2,retainedEventIds:['evt-2']});
+  assert.equal(countT4OriginalLocalSnapshotTrace(snapshot,{...scope,kind:'service_idempotency_key',value:'shared key',serviceId:'svc'}),2);
+  assert.equal(countT4OriginalLocalSnapshotTrace(snapshot,{...scope,kind:'service_idempotency_key',value:'shared key',serviceId:'other'}),2);
+});
+test('K120 graph preflight at an empty tail counts all services when no original service is known',async()=>{
+  const rows=[event(1),event(2)];rows[0].idempotency_key='shared';rows[1].idempotency_key='shared';rows[1].service_id='other';
+  const cursor=(await legacy(rows,null,2)).nextCursor;
+  const args={...setup(rows).options,cursor,pageSize:1,maxEvents:1};
+  const q={kind:'graph_capture',value:'new:capture',idempotencyKey:'shared'};
+  const e=(await readT4OriginalCommitEventWindow({...args,originalTraceQuery:q})).originalTraceEvidence;
+  assert.equal(e.graphServiceId,null);assert.equal(e.graphIdempotencyMatchCount,2);assert.equal(e.matchCount,0);
+  const scoped=(await readT4OriginalCommitEventWindow({...args,originalTraceQuery:{...q,serviceId:'svc'}})).originalTraceEvidence;
+  assert.equal(scoped.graphIdempotencyMatchCount,1);assert.equal(scoped.graphServiceId,'svc');
+  for(const invalid of [{...q,serviceId:null},{...q,idempotencyKey:''},{...q,arbitrary:true}])
+    await assert.rejects(readT4OriginalCommitEventWindow({...args,originalTraceQuery:invalid}),{code:'ORIGINAL_COMMIT_EVENT_TRACE_QUERY_INVALID'});
+});
