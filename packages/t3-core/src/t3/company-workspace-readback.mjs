@@ -134,3 +134,45 @@ export async function readOriginalCompanyWorkspace({
     checkedImportedObjects:expectedRows===null?null:expectedRows.length,
     records:Object.freeze(result),signedReceiptVerified:false});
 }
+
+// Original T2's atomic importer skips byte-equivalent existing objects and
+// deduplicates identical event IDs. Never interpret a conflicting skip as
+// success, and never accept an overwrite of an immutable company record.
+export function completeCompanyMergePlan(preview,plan,workspaceId){
+  return id(workspaceId)&&plan?.mode==='merge'&&plan.target_workspace===workspaceId&&
+    (plan.conflict??'fail')==='fail'&&plan.include_workspaces?.length===1&&
+    plan.include_workspaces[0]===workspaceId&&!(plan.include_objects?.length)&&
+    plan.include_history===true&&plan.include_relations===true&&plan.include_assets===true&&
+    preview?.workspaces?.length===1&&preview.workspaces[0]?.workspace_id===workspaceId&&
+    Array.isArray(preview.objects)&&preview.objects.every(row=>
+      row.workspace_id===workspaceId&&Number.isSafeInteger(row.incoming_revision)&&
+      row.incoming_revision>=1&&row.conflict===false&&
+      (row.local_revision===null||
+        (row.data_equal===true&&row.local_revision===row.incoming_revision)));
+}
+export function validateCompanyMergeReceipt(preview,plan,receipt){
+  const issues=[];
+  const counts=receipt?.applied,allowed=preview?.included;
+  const keys=['workspaces','objects_inserted','objects_updated','objects_skipped',
+    'events','relations','assets','schemas_inserted','schemas_reused','schemas_rejected'];
+  if(!completeCompanyMergePlan(preview,plan,plan?.target_workspace)||
+     !allowed||!counts||keys.some(k=>!Number.isSafeInteger(counts[k])||counts[k]<0)||
+     receipt.cancelled===true||receipt.mode!=='merge'||receipt.conflict_policy!=='fail'||
+     !Array.isArray(receipt.skipped_conflicts)||receipt.skipped_conflicts.length!==0||
+     Object.keys(receipt.workspace_id_map??{}).length!==1||
+     receipt.workspace_id_map[plan.target_workspace]!==plan.target_workspace){
+    return ['Квитанция не подтверждает полный корпоративный импорт без замены записей.'];
+  }
+  const identical=preview.objects.filter(row=>row.local_revision!==null&&row.data_equal===true).length;
+  if(allowed.objects!==preview.objects.length||counts.objects_skipped!==identical||
+     counts.objects_inserted!==allowed.objects-identical||counts.objects_updated!==0)
+    issues.push('Не подтверждено сохранение всех новых и ранее полученных рабочих записей.');
+  // The original importer compares the complete event on duplicate IDs
+  // inside its transaction. A lower event INSERT counter is not a loss
+  // when a prior identical event exists. Work record events are then read
+  // back independently, not inferred from this counter.
+  if(counts.events>allowed.events||counts.relations!==allowed.relations||
+     counts.assets!==allowed.assets||counts.schemas_rejected!==0)
+    issues.push('Квитанция не соответствует составу исходного архива.');
+  return Object.freeze(issues);
+}

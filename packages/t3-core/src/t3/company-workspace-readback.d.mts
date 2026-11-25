@@ -21,3 +21,6 @@ export function readOriginalCompanyWorkspace(input:{
   kernel:KernelFacade;workspaceId:string;expectedRows?:readonly PreviewObjectRow[]|null;
   organizationId?:string|null;
 }):Promise<CompanyWorkspaceReadback>;
+
+export function completeCompanyMergePlan(preview:unknown,plan:unknown,workspaceId:string):boolean;
+export function validateCompanyMergeReceipt(preview:unknown,plan:unknown,receipt:unknown):readonly string[];

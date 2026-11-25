@@ -335,8 +335,8 @@ export function createSubjectKernelBinding({
         const foreign = source !== workspace_id;
         const map = plan?.workspace_id_map;
         if(business&&(foreign||boundImport.business!==true||
-           !["merge","full","selective"].includes(plan?.mode)||
-           !["fail","overwrite"].includes(plan?.conflict??"fail")||
+           plan?.mode!=="merge"||plan.target_workspace!==workspace_id||
+           (plan?.conflict??"fail")!=="fail"||
            !Array.isArray(plan.include_workspaces)||plan.include_workspaces.length!==1||
            plan.include_workspaces[0]!==workspace_id||
            (plan.include_objects?.length??0)!==0||

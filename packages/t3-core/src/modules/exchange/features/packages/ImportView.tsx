@@ -12,6 +12,7 @@ import type {
 import type { WorkspaceRecord } from "@/kernel-client";
 import type { createTrustedAgeExchange } from "../../../../t3/index.mjs";
 import { PackageCorruptedError } from "@/kernel-client/errors";
+import { isInstalledCompanyExchange, completeCompanyMergePlan, validateCompanyMergeReceipt, readOriginalCompanyWorkspace } from "../../../../t3/company-workspace-readback.mjs";
 import {
   INITIAL_IMPORT_STATE,
   importReducer,
@@ -136,6 +137,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   pwaLaunchEpoch = 0, protectedExchange = null,
   signedWorkspaceScope = false }: ImportViewProps) {
   const [state, dispatch] = useReducer(importReducer, INITIAL_IMPORT_STATE);
+  const installedCompany=isInstalledCompanyExchange(kernel,signedWorkspaceScope);
   const [pwaReadBusy, setPwaReadBusy] = useState(false);
   const [pwaReadError, setPwaReadError] = useState<string | null>(null);
   const [pwaUsed, setPwaUsed] = useState<InstalledPwaFileHandle | null>(null);
@@ -417,6 +419,8 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     // PERSON and ordinary T2 retain their existing selective routes.
     if (signedWorkspaceScope && !completeSignedWorkspacePlan(
       state.handle,state.plan,localWorkspaces)) return;
+    if(installedCompany&&!completeCompanyMergePlan(state.handle.preview,state.plan,
+      localWorkspaces[0]?.workspace_id??""))return;
     const previewWorkspaceIds =
       state.handle.preview.workspaces.map((workspace) => workspace.workspace_id);
     const previewObjectKeys =
@@ -462,9 +466,10 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
         clearTimeout(expiryTimerRef.current);
         expiryTimerRef.current = null;
       }
-      const restoreIssues = [...validateRestorationReceipt(
-        state.handle.preview, state.plan, receipt,
-      )];
+      const companyMerge=installedCompany&&!nativeCommit;
+      const restoreIssues = [...(companyMerge
+        ? validateCompanyMergeReceipt(state.handle.preview,state.plan,receipt)
+        : validateRestorationReceipt(state.handle.preview,state.plan,receipt))];
       // Validate the original receipt identity before treating a successful
       // Kernel write as restoration of THIS selected file and import plan.
       if (receipt.package_digest !== state.handle.package_digest ||
@@ -473,6 +478,16 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
         restoreIssues.push("Квитанция Kernel не соответствует выбранному пакету или плану импорта.");
       }
       let readbackUnconfirmed = false;
+      if(companyMerge&&!receipt.cancelled){
+        try{
+          await readOriginalCompanyWorkspace({kernel,
+            workspaceId:state.plan.target_workspace!,
+            expectedRows:state.handle.preview.objects});
+        }catch{
+          readbackUnconfirmed=true;
+          restoreIssues.push("Повторное чтение всех рабочих записей и исходных событий не подтверждено. Не повторяйте импорт автоматически.");
+        }
+      }
       if(nativeCommit){
         // A browser Kernel facade may be backed by another Store even when
         // its workspaces have the same names. Only the ORIGINAL installed
@@ -522,7 +537,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       // read the destination from the ORIGINAL selected Kernel again before
       // reporting completion. An uncertain read leaves the committed receipt
       // visible and must NEVER silently replay the import.
-      if (!nativeCommit && state.plan.mode === "merge" && state.plan.target_workspace &&
+      if (!companyMerge && !nativeCommit && state.plan.mode === "merge" && state.plan.target_workspace &&
           !receipt.cancelled && kernel.hasOperation("t1.getWorkspace")) {
         const target = state.plan.target_workspace;
         try {
@@ -800,10 +815,12 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     }
   };
   const signedCompany = signedWorkspaceScope && state.handle!==null;
-  const signedFullReady = !signedCompany || completeSignedWorkspacePlan(
-    state.handle!,state.plan,localWorkspaces);
+  const signedFullReady = !signedCompany || (completeSignedWorkspacePlan(
+    state.handle!,state.plan,localWorkspaces) &&
+    (!installedCompany || completeCompanyMergePlan(state.handle!.preview,state.plan,
+      localWorkspaces[0]?.workspace_id??"")));
   return renderImport({
-    state, canPreview, signedCompany, signedFullReady,
+    state, canPreview, signedCompany, signedFullReady, installedCompany,
     canCommit:state.handle?canCommitToken(state.handle.preview_token):canCommit,
     canCancel:state.handle?canCancelToken(state.handle.preview_token):canCancel,
     canPlainPreview:kernel.hasOperation("t2.importPreview"),localWorkspaces,
@@ -823,6 +840,7 @@ interface RenderProps {
   canPreview: boolean;
   signedCompany: boolean;
   signedFullReady: boolean;
+  installedCompany: boolean;
   canPlainPreview: boolean;
   canCommit: boolean;
   canCancel: boolean;
@@ -850,7 +868,7 @@ interface RenderProps {
 
 function renderImport(p: RenderProps) {
   const {
-    state, canPreview, signedCompany, signedFullReady, canCommit, canCancel, canPlainPreview, localWorkspaces,
+    state, canPreview, signedCompany, signedFullReady, installedCompany, canCommit, canCancel, canPlainPreview, localWorkspaces,
     onFile, runCommit, cancelActive, dispatch,
     pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed, openPwaFile,
     protectedExchange, ageFile, setAgeFile, ageBusy, ageError, openAgeFile,
@@ -870,6 +888,10 @@ function renderImport(p: RenderProps) {
         (не более {MAX_PACKAGE_BYTES / (1024 * 1024)} МиБ). Байты передаются ядру и
         не сохраняются в оболочке — предпросмотр удерживает только токен и digest'ы.
       </p>
+      {installedCompany&&<p className="text-xs text-slate-400">
+        Рабочие записи сохраняются в своей редакции. Совпадающие записи не дублируются.
+        При конфликте импорт прекращается без замены данных. Приёмка подписанного Result остаётся отдельной операцией.
+      </p>}
       {pwaFileHandle && (
         <div className="rounded border border-sky-800 p-3 space-y-2"
           data-testid="import-pwa-file">
@@ -1020,7 +1042,7 @@ function renderImport(p: RenderProps) {
               data-testid="import-conflict"
               onChange={(e) => dispatch({ type: "set-plan", plan: { conflict: e.target.value as ConflictPolicy } })}
             >
-              {(["fail", "skip", "overwrite"] as ConflictPolicy[]).map((c) => (
+              {((installedCompany?["fail"]:["fail", "skip", "overwrite"]) as ConflictPolicy[]).map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
