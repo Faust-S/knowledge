@@ -15,13 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Require dedicated private write token before retrieving or building sources
+      - name: Require existing authorized token before retrieving or building sources
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.D05_T3_RETAIN_WRITE }}
+          GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           set -euo pipefail
-          test -n "${GH_TOKEN:-}" || { echo D05_T3_RETAIN_WRITE_SECRET_MISSING; exit 1; }
+          test -n "${GH_TOKEN:-}" || { echo D05_T3_DOMEN_MISSING; exit 1; }
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod
@@ -56,7 +56,7 @@ jobs:
         working-directory: site
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.D05_T3_RETAIN_WRITE }}
+          GH_TOKEN: ${{ secrets.DOMEN }}
           SOURCE_SHA: ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
         run: |
           set -euo pipefail
@@ -274,7 +274,7 @@ jobs:
         working-directory: site
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.D05_T3_RETAIN_WRITE }}
+          GH_TOKEN: ${{ secrets.DOMEN }}
           CANDIDATE: ${{ steps.snapshot.outputs.commit }}
           SOURCE_SHA: ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
           SNAPSHOT_TREE: ${{ steps.snapshot.outputs.tree }}

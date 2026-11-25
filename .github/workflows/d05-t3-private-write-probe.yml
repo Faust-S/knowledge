@@ -16,7 +16,7 @@ jobs:
       - name: Distinguish effective write permission from API rate limits
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.D05_T3_RETAIN_WRITE }}
+          GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           set -euo pipefail
           node --input-type=module <<'JS'
