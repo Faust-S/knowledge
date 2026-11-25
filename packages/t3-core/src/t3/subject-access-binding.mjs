@@ -92,7 +92,16 @@ async function requireWorkingInventory(kernel,workspace,{forExport=false}={}){
   for(const [method,op] of [["getObject","t1.getObject"],["listEventsSince","t1.listEventsSince"]])
     if(!kernel.hasOperation(op)||typeof kernel[method]!=="function")
       refused("T3_CORPORATE_EXCHANGE_INVENTORY_UNAVAILABLE");
-  const old=await kernel.getObject(workspace,"t3.access.signed-registry");
+  // An empty business Workspace has no administrative registry Object.
+  // The original Kernel adapters may express that absence either as null
+  // or as OBJECT_NOT_FOUND. Never swallow scope, Workspace or transport
+  // failures; the complete original Event inventory is still mandatory.
+  let old;
+  try{old=await kernel.getObject(workspace,"t3.access.signed-registry");}
+  catch(error){
+    if(error?.code!=="OBJECT_NOT_FOUND")throw error;
+    old=null;
+  }
   if(old!=null)refused("T3_CORPORATE_EXCHANGE_LEGACY_REGISTRY_PRESENT");
   const events=await kernel.listEventsSince(workspace);
   if(!Array.isArray(events)||events.some(e=>e?.workspace_id!==workspace))

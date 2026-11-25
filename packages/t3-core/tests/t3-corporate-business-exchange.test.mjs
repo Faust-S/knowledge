@@ -149,3 +149,26 @@ test('non-identical existing corporate record never reaches original merge',asyn
     {code:'T3_CORPORATE_EXCHANGE_COMPLETE_WORKSPACE_REQUIRED'});
   assert.deepEqual(f.calls,['preview']);
 });
+
+test('original missing registry Object is absence, not a denied or incomplete inventory',async()=>{
+  const absent=fixture();
+  absent.kernel.getObject=async()=>{throw Object.assign(Error('missing'),{code:'OBJECT_NOT_FOUND'});};
+  await absent.bound().exportPackage(opts);
+  await absent.bound().confirmExport(confirm);
+  await absent.bound().importPreview(bytes());
+  await absent.bound().importCommit(input);
+  assert.deepEqual(absent.calls,['export','preview','cancel','confirm','preview','commit']);
+  const legacy=fixture();
+  legacy.kernel.getObject=absent.kernel.getObject;
+  legacy.events.push({workspace_id:ws,event_type:'t3.access.signed_registry.persisted'});
+  await assert.rejects(legacy.bound().exportPackage(opts),
+    {code:'T3_CORPORATE_EXCHANGE_LEGACY_REGISTRY_PRESENT'});
+  assert.deepEqual(legacy.calls,[]);
+  for(const code of ['WORKSPACE_NOT_FOUND','PERMISSION_DENIED','TRANSPORT_UNAVAILABLE']){
+    const f=fixture();
+    f.kernel.getObject=async()=>{throw Object.assign(Error(code),{code});};
+    await assert.rejects(f.bound().exportPackage(opts),{code});
+    await assert.rejects(f.bound().importPreview(bytes()),{code});
+    assert.deepEqual(f.calls,[]);
+  }
+});
