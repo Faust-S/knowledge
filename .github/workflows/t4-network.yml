@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - work/2026-11-22-t4-t3-0.3.0-integration
+      - work/2026-11-25-t4-k104-compatibility
     # Full qualification is opt-in at a deliberate integration checkpoint.
     # Ordinary development pushes are covered by local targeted tests.
     paths:
@@ -28,6 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Preserve exact public source for local continuation
+        if: ${{ github.ref != 'refs/heads/work/2026-11-25-t4-k104-compatibility' }}
         run: git archive --format=zip --output="$RUNNER_TEMP/t4-source-$GITHUB_SHA.zip" "$GITHUB_SHA" packages/t4-network packages/t3-core
       - uses: actions/setup-node@v4
         with:
@@ -35,9 +37,11 @@ jobs:
       - name: Install locked public transport dependencies once
         run: |
           npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
-          tar -czf "$RUNNER_TEMP/t4-locked-node-modules.tar.gz" -C packages/t4-network node_modules
+          if [ "$GITHUB_REF" != "refs/heads/work/2026-11-25-t4-k104-compatibility" ]; then
+            tar -czf "$RUNNER_TEMP/t4-locked-node-modules.tar.gz" -C packages/t4-network node_modules
+          fi
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ always() && github.ref != 'refs/heads/work/2026-11-25-t4-k104-compatibility' }}
         with:
           name: t4-candidate-revision
           path: |
@@ -50,12 +54,19 @@ jobs:
         working-directory: packages/t4-network
         run: npm run check
       - name: Qualify cumulative K72-K91 recovery and native profile changes
+        if: ${{ github.ref != 'refs/heads/work/2026-11-25-t4-k104-compatibility' }}
         working-directory: packages/t4-network
         run: |
           node --experimental-strip-types --test --test-name-pattern='^K(7[2-9]|8[0-9]|9[01])\b' tests/original-network-key-lifecycle.test.mjs tests/original-network-session-phases.test.mjs tests/original-network-committed-recipient-results.test.mjs tests/original-network-publication.test.mjs tests/original-native-signed-kernel-relay.test.mjs
       - name: Existing recipient frontier and publication regression
+        if: ${{ github.ref != 'refs/heads/work/2026-11-25-t4-k104-compatibility' }}
         working-directory: packages/t4-network
         run: node --experimental-strip-types --test --test-skip-pattern='^K91\b' tests/original-network-committed-recipient-results.test.mjs tests/original-network-publication.test.mjs tests/original-network-host-cursor.test.mjs
+
+      - name: Cumulative compatibility and original capture regression
+        if: ${{ github.ref == 'refs/heads/work/2026-11-25-t4-k104-compatibility' }}
+        working-directory: packages/t4-network
+        run: node scripts/run_contract_shard.mjs core
 
   contract:
     if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'T4 candidate qualification:')) }}
