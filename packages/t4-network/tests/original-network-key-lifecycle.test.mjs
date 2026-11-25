@@ -1330,8 +1330,14 @@ test('K80 existing signed Access and native relay carry opt-in owner eligibility
     originalPorts.authorizeOriginalSessionSelection=async()=>assert.fail('not retired');
     assert.throws(()=>createT4OriginalNativeHostNetworkOwner({...config,enableReplacementEligibilityRead:true,originalSignedReplacementHistoryAccess:disabled}),
       {code:'NATIVE_NETWORK_OWNER_REPLACEMENT_ELIGIBILITY_PROFILE_INVALID'});
-    const owner=createT4OriginalNativeHostNetworkOwner({...config,enableReplacementEligibilityRead:true});
+    assert.throws(()=>createT4OriginalNativeHostNetworkOwner({...config,enableReplacementSourceAdmission:true}),
+      {code:'NATIVE_NETWORK_OWNER_REPLACEMENT_SOURCE_ADMISSION_PROFILE_INVALID'});
+    assert.throws(()=>createT4OriginalNativeHostNetworkOwner({...config,enableReplacementEligibilityRead:true,enableReplacementSourceAdmission:true}),
+      {code:'NATIVE_NETWORK_OWNER_REPLACEMENT_SOURCE_ADMISSION_PROFILE_INVALID'});
+    originalPorts.authorizeOriginalReplacement=async()=>assert.fail('read-only endpoint cannot admit');
+    const owner=createT4OriginalNativeHostNetworkOwner({...config,enableReplacementEligibilityRead:true,enableReplacementSourceAdmission:true});
     assert.equal(owner.originalReplacementEligibilityReadEnabled,true);
+    assert.equal(owner.originalReplacementSourceAdmissionEnabled,true);
     const relay=createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,networkOwner:owner});
     try{
       let enter=null;const ownerServer=createT4OriginalReplacementHistoryServer({...carrierPorts,localNodeRef:A,peerNodeRef:B,

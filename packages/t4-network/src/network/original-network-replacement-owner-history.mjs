@@ -129,7 +129,7 @@ export async function readT4OriginalReplacementOwnerHistory({request,technicalSc
 export function deferT4OriginalReplacementHistoryWake({role,selection,previous=null,now}={}){
   const sessionRef=selection?.session?.sessionRef,phase=selection?.originalLocalPhase,revision=selection?.originalLocalPublicationRevision;
   if(!['SOURCE','RECIPIENT'].includes(role)||!ID(sessionRef)||!(phase===null||ID(phase))||
-    !Number.isSafeInteger(revision)||revision<1||!Number.isFinite(now)||now<0||
+    !Number.isSafeInteger(revision)||revision<0||(revision===0&&phase!==null)||!Number.isFinite(now)||now<0||
     (previous!==null&&(!Number.isFinite(previous.observedAt)||now<previous.observedAt||!Number.isSafeInteger(previous.attempt)||previous.attempt<1)))
     fail('REPLACEMENT_HISTORY_WAKE_DEFERRAL_INVALID');
   const unchanged=previous!==null&&previous.sessionRef===sessionRef&&previous.phase===phase&&previous.revision===revision;

@@ -1872,3 +1872,71 @@ test('K79 accepted predecessor APPLIED_ACK prevents independent source eligibili
     authorizeOriginalOwnerHistoryRead:async()=>true,originalCursorPort:x.realSourceCursor(),readOriginalCaptureSelection:async()=>assert.fail('old accepted ACK must block capture read')}),
     isCode('REPLACEMENT_ORIGINAL_APPLIED_ACK_ALREADY_ACCEPTED'));
 });
+
+
+import {advanceT4OriginalReplacementSourceHandshake} from '../src/network/original-network-session-supersession.mjs';
+import {requireT4OriginalRetiredAttemptStatus} from '../src/network/original-network-session-phases.mjs';
+import {createT4OriginalReplacementHistoryClient,createT4OriginalReplacementHistoryServer} from '../src/network/original-replacement-owner-history-carrier.mjs';
+
+test('K81 stopped source advances one successor step at a time through owner eligibility carrier; lost responses never duplicate signature or phase',async()=>{
+  const x=await controlFixture({indexed:true,realSourceHistory:true}),root=x.session,before=x.sourceCursorBefore;
+  await closeInitialAttempt(x);
+  const predecessor=x.sourcePhase(),retired=requireT4OriginalRetiredAttemptStatus(await predecessor.inspectOriginalSession(),root,'SOURCE',predecessor.checkpointRef);
+  const {requiredCryptoSuite,getMode}=x.eligibilityOptions();
+  const capture=()=>({schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SELECTION_V1',state:'ORIGINAL_NATIVE_SESSION_SELECTED',
+    ...Object.fromEntries(['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch'].map(k=>[k,root[k]])),
+    networkTargetRef:root.recipientNodeRef,session:root,sourceCursorBefore:before,sourceCursorAfter:x.sourceCursorAfter,
+    originalSourceOwnerReadVerified:true,originalCaptureEvidenceVerified:true,originalSourceCursorAdvanced:false,originalNetworkPublished:false,
+    originalSubjectMutationInvoked:false,capturedPlaintextReturned:false,createsStore:false,createsScheduler:false});
+  const localRead=request=>readT4OriginalReplacementOwnerEligibility({...x.historicalReadOptions(request.ownerNodeRef),request,requiredCryptoSuite,
+    verifyOriginalRecipientApplied:async()=>false,verifyOriginalHistoricalNodeSignature:x.historicalSignature(request.ownerNodeRef),
+    authorizeOriginalHostWire:async()=>true,authorizeOriginalOwnerHistoryRead:async()=>true,
+    originalCursorPort:request.ownerNodeRef===sourceNodeRef?x.realSourceCursor():x.realRecipientCursor(),
+    ...(request.ownerNodeRef===sourceNodeRef?{readOriginalCaptureSelection:async()=>capture()}: {})});
+  const carrier={scopeRef,ownerEpoch:root.ownerEpoch,workspaceId:root.workspaceId,originalWriteOwnerRef:owner,getMode};
+  const peerContext=nodeRef=>({nodeRef,originalPeerSessionRef:'peer:k81:authenticated',contextEpoch:1,scopeRef,ownerEpoch:root.ownerEpoch,
+    originalPeerAuthenticated:true,originalConfidentialChannelVerified:true});
+  let busy=true,peerReads=0,allow=true;
+  const server=createT4OriginalReplacementHistoryServer({...carrier,localNodeRef:recipientNodeRef,peerNodeRef:sourceNodeRef,
+    readOriginalPeerContext:async()=>peerContext(sourceNodeRef),readOriginalReplacementOwnerHistory:async({request})=>{
+      peerReads++;return busy?null:localRead(request);}});
+  const client=createT4OriginalReplacementHistoryClient({...carrier,localNodeRef:sourceNodeRef,peerNodeRef:recipientNodeRef,
+    readOriginalPeerContext:async()=>peerContext(recipientNodeRef),invokeOriginalPeerHistory:({requestBytes})=>server(requestBytes)});
+  const select=()=>readT4OriginalLocalReplacementSelection({...x.historicalReadOptions(sourceNodeRef),technicalSchemaId:'iwxa.demo.note',
+    sourceWorkspaceId:root.workspaceId,originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch:root.ownerEpoch,
+    sourceCursorBefore:before,readOriginalCurrentCursor:async()=>(await x.realSourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,
+    requiredCryptoSuite,verifyOriginalHistoricalNodeSignature:x.historicalSignature(sourceNodeRef),verifyOriginalRecipientApplied:async()=>false});
+  const advance=(selection=null,patch={})=>advanceT4OriginalReplacementSourceHandshake({originalCaptureSession:root,sourceCursorBefore:before,retired,selection,
+    getMode,requiredCryptoSuite,readOriginalOwnerEligibility:r=>r.ownerNodeRef===sourceNodeRef?localRead(r):client(r),
+    authorizeOriginalReplacement:async proof=>allow&&proof.originalBothAttemptsRetired===true,
+    createOriginalReplacementPublicationPort:x.createReplacementPort,
+    createOriginalReplacementSourcePhasePort:async({session:c,admission},readOriginalReplacementSourceAdmission)=>x.sourcePhase({
+      sessionRef:c.sessionRef,authorizeOriginalSourceSupersession:null,replacementSourceAdmission:admission,readOriginalReplacementSourceAdmission}),
+    resolveOriginalSigningContext:x.resolveSourceContentSigner,signOriginalNodeBytes:x.signSourceContent,...patch});
+  const baseline={signs:x.signatureCount(),puts:x.counts().networkPuts,source:x.sourceStore.calls,recipient:x.f.kernel.calls,phases:x.sourcePhaseWrites()};
+  assert.equal(await select(),null);
+  const waiting=await advance();assert.equal(waiting.state,'WAITING_FOR_REPLACEMENT_ELIGIBILITY');
+  assert.equal(waiting.replacementWake.originalLocalPublicationRevision,0);assert.equal(waiting.automaticRetryAllowed,false);assert.equal(peerReads,1);
+  assert.equal(x.sourceStore.calls,baseline.source);assert.equal(x.signatureCount(),baseline.signs);assert.equal(x.counts().networkPuts,baseline.puts);
+  busy=false;allow=false;
+  await assert.rejects(advance(),isCode('REPLACEMENT_ORIGINAL_ADMISSION_DENIED'));allow=true;
+  await assert.rejects(advance(null,{retired:{...retired,originalSupersessionEventId:'event:wrong'}}),isCode('REPLACEMENT_HOST_SOURCE_HANDSHAKE_RETIREMENT_CHANGED'));
+  x.sourceStore.loseNextReply();await assert.rejects(advance(),isCode('PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN'));
+  x.f.restart();const prepared=await select();assert.equal(prepared.originalLocalFrames[0].state,'PREPARED');
+  assert.equal(x.signatureCount(),baseline.signs+1);assert.equal(x.counts().networkPuts,baseline.puts);
+  busy=true;assert.equal((await advance(prepared)).state,'WAITING_FOR_REPLACEMENT_ELIGIBILITY');busy=false;
+  x.loseControlWrite();await assert.rejects(advance(prepared),isCode('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  x.f.restart();const attempted=await select();assert.equal(attempted.originalLocalFrames[0].state,'ATTEMPTED');
+  const published=await advance(attempted);assert.equal(published.state,'ORIGINAL_REPLACEMENT_HEAD_PUBLISHED');
+  assert.equal(x.signatureCount(),baseline.signs+1);assert.equal(x.counts().networkPuts,baseline.puts+1);
+  const present=await select();assert.equal(present.originalLocalFrames[0].state,'PRESENT');assert.equal(present.originalLocalPhase,null);
+  x.sourceStore.loseNextReply();await assert.rejects(advance(present),isCode('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  x.f.restart();const admitted=await select();assert.equal(admitted.originalLocalPhase,'INTENT');assert.equal(admitted.originalLocalPhaseRevision,1);
+  // The stale selection is not a new INTENT, nor permission to re-publish.
+  const confirmed=await advance(present);assert.equal(confirmed.state,'ORIGINAL_REPLACEMENT_SOURCE_INTENT_RECORDED');assert.equal(confirmed.originalSourceAdmissionStatus,'ALREADY_CONFIRMED');
+  assert.equal(x.sourcePhaseWrites(),baseline.phases+1);assert.equal(x.signatureCount(),baseline.signs+1);
+  assert.equal(x.counts().networkPuts,baseline.puts+1);assert.equal(x.f.kernel.calls,baseline.recipient);
+  assert.deepEqual((await x.realSourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,before);
+  assert.deepEqual((await x.realRecipientCursor().inspectOriginalRecipientCursor()).originalT3VerifiedCursor,before);
+  await assert.rejects(advance(admitted),isCode('REPLACEMENT_HOST_SOURCE_HANDSHAKE_SELECTION_INVALID'));
+});

@@ -766,6 +766,77 @@ export async function admitT4OriginalReplacementSourcePhase({
     recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false});
 }
 
+// One source continuation of an already stopped original attempt. This is
+// deliberately not an independent task or a new publication state machine.
+// The original publication/phase ports own every write and every retry.
+export async function advanceT4OriginalReplacementSourceHandshake({
+  originalCaptureSession,sourceCursorBefore,retired,selection=null,
+  createOriginalReplacementPublicationPort,createOriginalReplacementSourcePhasePort,
+  resolveOriginalSigningContext,signOriginalNodeBytes,authorizeOriginalReplacement,
+  readOriginalOwnerEligibility,requiredCryptoSuite,getMode,retryMissing=false,
+}={}){
+  const root=validateT4OriginalNativeCaptureSession(originalCaptureSession),before=freeze(clone(sourceCursorBefore)),
+    stop=freeze(clone(retired)),local=selection===null?null:freeze(clone(selection));
+  if(stop?.originalAttemptSuperseded!==true||!ID(stop.replacementSessionRef)||!ID(stop.originalSupersessionEventId)||
+    !ID(stop.originalRetiredPhaseCheckpointRef)||!DIG(stop.originalRetiredPhaseChainHash)||
+    !Number.isSafeInteger(stop.originalRetiredPhaseRevision)||stop.originalRetiredPhaseRevision<1||stop.originalRetiredPhaseRevision>3||
+    stop.originalNewAttemptAdmissionStillRequired!==true||stop.liveNetworkAuthorityGranted!==false||
+    stop.originalSubjectMutationInvoked!==false||stop.sourceCursorAdvanced!==false||
+    ![createOriginalReplacementPublicationPort,createOriginalReplacementSourcePhasePort,resolveOriginalSigningContext,
+      signOriginalNodeBytes,authorizeOriginalReplacement,readOriginalOwnerEligibility,getMode].every(f=>typeof f==='function')||
+    typeof retryMissing!=='boolean')fail('REPLACEMENT_HOST_SOURCE_HANDSHAKE_PORTS_REQUIRED');
+  const matches=c=>c.sessionRef===stop.replacementSessionRef&&same(c.originalCaptureSession,root)&&
+    c.replacement.sourcePhaseRef===stop.originalRetiredPhaseCheckpointRef&&
+    c.replacement.sourcePhaseEventId===stop.originalSupersessionEventId&&
+    c.replacement.sourcePhaseRevision===stop.originalRetiredPhaseRevision&&
+    c.replacement.sourcePhaseChainHash===stop.originalRetiredPhaseChainHash;
+  if(local!==null){
+    const c=validateT4OriginalReplacementSessionCandidate(local.session);
+    if(local.schema!=='IWXA_T4_ORIGINAL_LOCAL_REPLACEMENT_SELECTION_V1'||local.role!=='SOURCE'||!matches(c)||
+      !same(local.sourceCursorBefore,before)||!same(local.retired,stop)||local.originalLocalPhase!==null||local.originalLocalPhaseRevision!==0||
+      !Number.isSafeInteger(local.originalLocalPublicationRevision)||local.originalLocalPublicationRevision<1||
+      local.originalLocalPublicationChainVerified!==true||local.originalLocalRetirementEventVerified!==true||
+      local.originalLocalHistoricalSignaturesVerified!==true||local.originalPeerOwnerReadStillRequired!==true||
+      local.liveNetworkAuthorityGranted!==false||local.originalSubjectMutationInvoked!==false||local.sourceCursorAdvanced!==false||
+      local.recipientCursorAdvanced!==false||local.originalNewAttemptAdmissionStillRequired!==true||
+      local.originalLocalFrames?.length!==1||local.originalLocalFrames[0].sequence!==1||
+      local.originalLocalFrames[0].messageType!=='HEADS'||!SHA(local.originalLocalFrames[0].sha256)||
+      !['PREPARED','ATTEMPTED','PRESENT'].includes(local.originalLocalFrames[0].state))
+      fail('REPLACEMENT_HOST_SOURCE_HANDSHAKE_SELECTION_INVALID');
+  }
+  const eligibility={originalCaptureSession:root,sourceCursorBefore:before,requesterNodeRef:root.sourceNodeRef,
+    requiredCryptoSuite,getMode,readOriginalOwnerEligibility,authorizeOriginalReplacement:async proof=>{
+      const c=validateT4OriginalReplacementSessionCandidate(proof.candidate);
+      if(!matches(c)||(local!==null&&!same(c,local.session)))fail('REPLACEMENT_HOST_SOURCE_HANDSHAKE_RETIREMENT_CHANGED');
+      return authorizeOriginalReplacement(proof);
+    }};
+  const result=(state,extra={})=>freeze({schema:'IWXA_T4_ORIGINAL_HOST_REPLACEMENT_SOURCE_HANDSHAKE_V1',state,
+    replacementSessionRef:stop.replacementSessionRef,originalSupersessionEventId:stop.originalSupersessionEventId,
+    originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,
+    originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false,...extra});
+  const admit=local?.originalLocalFrames[0].state==='PRESENT';
+  try{
+    if(admit){
+      const a=await admitT4OriginalReplacementSourcePhase({...eligibility,createOriginalReplacementPublicationPort,createOriginalReplacementSourcePhasePort});
+      return result('ORIGINAL_REPLACEMENT_SOURCE_INTENT_RECORDED',{originalSourceAdmissionEventId:a.originalReplacementAdmissionEventId,
+        originalSourceAdmissionStatus:a.status,originalLocalReadbackRequired:true});
+    }
+    const head=await publishT4OriginalReplacementSourceHead({...eligibility,createOriginalReplacementPublicationPort,
+      resolveOriginalSigningContext,signOriginalNodeBytes,retryMissing});
+    return result('ORIGINAL_REPLACEMENT_HEAD_PUBLISHED',{publicationState:head.publicationState,originalLocalReadbackRequired:true});
+  }catch(error){
+    // A peer can become busy even after a successful technical write. Do
+    // not assert that no write happened. On the next ordinary wake, select
+    // the original durable publication/phase again before choosing a step.
+    // Never swallow a CAS or network-outcome-unknown wrapper here.
+    if(error?.code!=='REPLACEMENT_ORIGINAL_OWNER_ELIGIBILITY_NOT_READY')throw error;
+    mode(getMode);
+    return result('WAITING_FOR_REPLACEMENT_ELIGIBILITY',{originalLocalReadbackRequired:true,automaticRetryAllowed:false,
+      replacementWake:{session:{sessionRef:stop.replacementSessionRef},originalLocalPhase:null,
+        originalLocalPublicationRevision:local?.originalLocalPublicationRevision??0}});
+  }
+}
+
 /** Fresh, original-owner admission of the recipient-side successor diff.
  * An authenticated HEADS alone does not prove source INTENT was committed. */
 export async function readT4OriginalReplacementRecipientAdmission({
