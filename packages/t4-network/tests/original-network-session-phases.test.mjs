@@ -1810,3 +1810,65 @@ test('K77 original wake deferral is bounded, role-distinct and resets with local
   assert.equal(phase.attempt,1);assert.equal(phase.retryAfterMs,2250);
   assert.throws(()=>next('SOURCE',prior,1),isCode('REPLACEMENT_HISTORY_WAKE_DEFERRAL_INVALID'));
 });
+
+import {createT4OriginalReplacementOwnerEligibilityRequest,readT4OriginalReplacementOwnerEligibility} from "../src/network/original-network-replacement-owner-eligibility.mjs";
+
+
+test('K79 independent owner eligibility reads exact predecessor, frontier and source capture without a transport or write port',async()=>{
+  const x=await controlFixture({indexed:true,realSourceHistory:true}),c=x.session,before=x.sourceCursorBefore;
+  const request=(node,requester=sourceNodeRef)=>createT4OriginalReplacementOwnerEligibilityRequest({session:c,sourceCursorBefore:before,requesterNodeRef:requester,ownerNodeRef:node});
+  let allowed=true,capture=c;
+  const selection=()=>({schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SELECTION_V1',state:'ORIGINAL_NATIVE_SESSION_SELECTED',
+    ...Object.fromEntries(['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch'].map(k=>[k,c[k]])),
+    networkTargetRef:c.recipientNodeRef,session:capture,sourceCursorBefore:before,sourceCursorAfter:x.sourceCursorAfter,
+    originalSourceOwnerReadVerified:true,originalCaptureEvidenceVerified:true,originalSourceCursorAdvanced:false,originalNetworkPublished:false,
+    originalSubjectMutationInvoked:false,capturedPlaintextReturned:false,createsStore:false,createsScheduler:false});
+  const options=r=>({...x.historicalReadOptions(r.ownerNodeRef),request:r,requiredCryptoSuite:x.eligibilityOptions().requiredCryptoSuite,
+    verifyOriginalRecipientApplied:async()=>false,verifyOriginalHistoricalNodeSignature:x.historicalSignature(r.ownerNodeRef),
+    authorizeOriginalHostWire:async()=>true,authorizeOriginalOwnerHistoryRead:async p=>allowed&&p.originalSubjectMutationAllowed===false&&p.request.schema===r.schema,
+    originalCursorPort:r.ownerNodeRef===sourceNodeRef?x.realSourceCursor():x.realRecipientCursor(),
+    ...(r.ownerNodeRef===sourceNodeRef?{readOriginalCaptureSelection:async()=>selection()}:{} )});
+  const read=(r,patch={})=>readT4OriginalReplacementOwnerEligibility({...options(r),...patch});
+  assert.equal((await read(request(sourceNodeRef))).state,'WAITING_FOR_LOCAL_RETIREMENT');
+  assert.equal((await read(request(recipientNodeRef))).state,'WAITING_FOR_LOCAL_RETIREMENT');
+  await closeInitialAttempt(x);
+  const direct=await x.eligibility(),counts={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
+  const source=await read(request(sourceNodeRef)),recipient=await read(request(recipientNodeRef));
+  assert.equal(source.state,'ORIGINAL_OWNER_ELIGIBILITY_VERIFIED');assert.deepEqual(source.sourceCapture.session,c);
+  assert.equal(recipient.sourceCapture,null);assert.equal(source.retiredAck,null);assert.equal(recipient.liveNetworkAuthorityGranted,false);
+  const composition={originalCaptureSession:c,sourceCursorBefore:before,requiredCryptoSuite:x.eligibilityOptions().requiredCryptoSuite,
+    getMode:x.eligibilityOptions().getMode,authorizeOriginalReplacement:async()=>true};
+  for(const requesterNodeRef of [sourceNodeRef,recipientNodeRef]){
+    const paths=[];const r=await recoverT4OriginalReplacementEligibility({...composition,requesterNodeRef,readOriginalOwnerEligibility:async request=>{
+      paths.push(request.ownerNodeRef);return read(request);}});
+    assert.deepEqual(r,direct);assert.equal(paths.length,4);assert.notEqual(paths[0],requesterNodeRef);
+  }
+  await assert.rejects(recoverT4OriginalReplacementEligibility({...composition,requesterNodeRef:sourceNodeRef,
+    readOriginalOwnerEligibility:async()=>null}),isCode('REPLACEMENT_ORIGINAL_OWNER_ELIGIBILITY_NOT_READY'));
+  await assert.rejects(recoverT4OriginalReplacementEligibility({...composition,requesterNodeRef:sourceNodeRef,
+    verifyOriginalSourceCapture:async()=>true,readOriginalOwnerEligibility:read}),isCode('REPLACEMENT_ORIGINAL_PORTS_REQUIRED'));
+  await assert.rejects(recoverT4OriginalReplacementEligibility({...composition,requesterNodeRef:sourceNodeRef,
+    readOriginalOwnerEligibility:async()=>source}),isCode('REPLACEMENT_ELIGIBILITY_OWNER_SNAPSHOT_INVALID'));
+  await assert.rejects(recoverT4OriginalReplacementEligibility({...composition,requesterNodeRef:sourceNodeRef,
+    authorizeOriginalReplacement:async()=>false,readOriginalOwnerEligibility:read}),isCode('REPLACEMENT_ORIGINAL_ADMISSION_DENIED'));
+  allowed=false;await assert.rejects(read(request(sourceNodeRef)),isCode('REPLACEMENT_HISTORY_OWNER_READ_DENIED'));allowed=true;
+  capture={...c,capturedSha256:'f'.repeat(64)};await assert.rejects(read(request(sourceNodeRef)),isCode('REPLACEMENT_ELIGIBILITY_OWNER_CAPTURE_MISMATCH'));capture=c;
+  const actual=options(request(recipientNodeRef)).originalCursorPort;
+  await assert.rejects(read(request(recipientNodeRef),{originalCursorPort:{...actual,inspectOriginalRecipientCursor:async()=>({
+    ...await actual.inspectOriginalRecipientCursor(),originalT3VerifiedCursor:x.sourceCursorAfter})}}),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
+  let reads=0;await assert.rejects(read(request(recipientNodeRef),{originalCursorPort:{...actual,inspectOriginalRecipientCursor:async()=>({
+    ...await actual.inspectOriginalRecipientCursor(),chainHash:++reads===1?H:B})}}),isCode('REPLACEMENT_ELIGIBILITY_OWNER_EVIDENCE_CHANGED'));
+  x.offline();x.f.restart();assert.deepEqual(await read(request(sourceNodeRef)),source);
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},counts);
+});
+
+test('K79 accepted predecessor APPLIED_ACK prevents independent source eligibility',async()=>{
+  const x=await controlFixture({indexed:true,realSourceHistory:true});await closeInitialAttempt(x);await x.acceptConflictingAck();
+  const request=createT4OriginalReplacementOwnerEligibilityRequest({session:x.session,sourceCursorBefore:x.sourceCursorBefore,
+    requesterNodeRef:recipientNodeRef,ownerNodeRef:sourceNodeRef});
+  await assert.rejects(readT4OriginalReplacementOwnerEligibility({...x.historicalReadOptions(sourceNodeRef),request,
+    requiredCryptoSuite:x.eligibilityOptions().requiredCryptoSuite,verifyOriginalRecipientApplied:async()=>false,
+    verifyOriginalHistoricalNodeSignature:x.historicalSignature(sourceNodeRef),authorizeOriginalHostWire:async()=>true,
+    authorizeOriginalOwnerHistoryRead:async()=>true,originalCursorPort:x.realSourceCursor(),readOriginalCaptureSelection:async()=>assert.fail('old accepted ACK must block capture read')}),
+    isCode('REPLACEMENT_ORIGINAL_APPLIED_ACK_ALREADY_ACCEPTED'));
+});
