@@ -921,6 +921,15 @@ try{
   !new URL(page.url()).searchParams.has("club_compare_slot"),"NATIVE_HORIZON_EXACT_EDITOR");
  check(await savedHorizonForm.locator('[name="entryId"]').inputValue()===""&&
   await savedHorizonForm.locator('[name="minutesA"]').inputValue()===String(horizonOriginalSlot.durationMinutes),"NATIVE_HORIZON_OTHER_CHOICE_EXPLICIT");
+ check(await savedHorizonForm.locator('[name="focus"]').inputValue()==="week"&&
+  !(await savedHorizonForm.locator('[name="entryId"]').isEnabled()),"NATIVE_HORIZON_FOCUSED_TIME");
+ const focusedHorizonBefore=await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"));
+ await savedHorizonForm.locator('[name="minutesB"]').fill("60");
+ await savedHorizonForm.locator("[data-club-goal-resource-run]").click();
+ await poll(async()=>await page.locator("[data-club-goal-resource-result]").getAttribute("data-iwxa-assistant-state")==="ready","NATIVE_HORIZON_TIME_ONLY_READY");
+ check((await page.locator("[data-club-goal-resource-result]").textContent()).includes("Денежные последствия не рассчитаны")&&
+  await page.locator("[data-club-goal-resource-result]").getByRole("button",{name:/Подготовить платёж/}).count()===0,"NATIVE_HORIZON_NO_ARTIFICIAL_EXPENSE");
+ check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===focusedHorizonBefore,"NATIVE_HORIZON_FOCUSED_READ_ONLY");
  check([await localGoal(),await localWeek(),await localCash()].every((row,i)=>row?.kernelSource?.workspaceId===base.scope&&
   row.updatedAt===[horizonOriginalGoal,horizonOriginalWeek,horizonOriginalCash][i].updatedAt&&
   row.kernelSource.syncedUpdatedAt===row.updatedAt),"NATIVE_HORIZON_ORIGINAL_REVISIONS");
@@ -952,6 +961,22 @@ try{
  await horizonPanel.locator("[data-club-goal-horizon-period]").selectOption("30");
  await poll(async()=> (await horizonResult.textContent()).includes("из 30 дней"),"GOAL_HORIZON_MONTH_COVERAGE");
  check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===horizonBefore,"GOAL_HORIZON_MONTH_READ_ONLY");
+ if(!await horizonGroups.evaluate(e=>e.open))await horizonGroups.locator(":scope > summary").click();
+ const horizonDirect= horizonGoal.getByRole("link",{name:"Открыть дело",exact:true});
+ const horizonDirectURL=new URL(await horizonDirect.getAttribute("href"),page.url());
+ check(horizonDirectURL.searchParams.get("club_week_slot")===goalResourceTask.id&&
+  horizonDirectURL.searchParams.get("club_week_rev")===(await localWeek()).updatedAt&&
+  horizonDirectURL.searchParams.get("club_goal_horizon_days")==="30"&&
+  !horizonDirectURL.searchParams.has("club_activity_period"),"GOAL_HORIZON_DIRECT_FUTURE_ROUTE");
+ await horizonDirect.click();
+ const horizonDirectEditor=page.locator("form[data-club-week-form]");
+ await poll(async()=>await horizonDirectEditor.locator("[data-club-week-save]").isEnabled()&&
+  await horizonDirectEditor.locator('[name="title"]').inputValue()===goalResourceTask.title,"GOAL_HORIZON_DIRECT_EDITOR_READY");
+ check(await horizonDirectEditor.locator('[name="durationMinutes"]').inputValue()===String(goalResourceTask.durationMinutes),"GOAL_HORIZON_DIRECT_EXACT_TASK");
+ await page.getByRole("button",{name:"Вернуться к обязательствам",exact:true}).click();
+ await poll(async()=>new URL(page.url()).searchParams.get("club_goal_horizon_days")==="30"&&new URL(page.url()).hash==="#club-goal-horizon","GOAL_HORIZON_DIRECT_RETURN");
+ check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===horizonBefore,"GOAL_HORIZON_DIRECT_NO_WRITE");
+ await poll(async()=>await horizonPanel.evaluate(e=>e.open)&&await horizonPanel.locator("[data-club-goal-horizon-period]").inputValue()==="30","GOAL_HORIZON_DIRECT_PERIOD_RETAINED");
  await horizonPanel.locator(":scope > summary").click();
  log("OFFLINE_GOAL_HORIZON_EXACT_COMPARISON_READ_ONLY");
  const resourceOpen=page.locator("[data-club-goal-list]").getByRole("button",{name:"Проверить следующий шаг",exact:true});
@@ -989,6 +1014,18 @@ try{
   const context=card.locator("[data-club-resource-decision-context]");
   check(await context.count()===1&&(await context.textContent()).includes("Изменение нагрузки"),"GOAL_RESOURCE_INCREMENTAL_EFFECT_VISIBLE");
  }
+ const focusedCashMode=resourceForm.locator('[name="focus"]');
+ await focusedCashMode.selectOption("cash");
+ check(!(await resourceForm.locator('[name="slotId"]').isEnabled()),"GOAL_RESOURCE_CASH_ONLY_FIELDS");
+ await resourceRun.click();
+ await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="ready","GOAL_RESOURCE_CASH_ONLY_READY");
+ check((await resourceResult.textContent()).includes("Последствия для времени и срока цели не рассчитаны")&&
+  await resourceResult.getByRole("button",{name:/Подготовить дело/}).count()===0,"GOAL_RESOURCE_NO_ARTIFICIAL_TASK");
+ check(await resourceMetric(goalResourceA,"Прогноз к концу периода")===2000&&await resourceMetric(goalResourceB,"Прогноз к концу периода")===6000,"GOAL_RESOURCE_CASH_ONLY_SAME_FORECAST");
+ check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===resourceBefore,"GOAL_RESOURCE_CASH_ONLY_READ_ONLY");
+ await focusedCashMode.selectOption("both");
+ await resourceRun.click();
+ await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="ready","GOAL_RESOURCE_COMBINED_RESTORED");
  const resourceHistoryWindow=resourceForm.locator('[name="historyDays"]');
  check(await resourceHistoryWindow.inputValue()==="30","GOAL_RESOURCE_HISTORY_DEFAULT");
  await resourceHistoryWindow.selectOption("90");
