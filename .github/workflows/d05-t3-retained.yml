@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: 790c7b13399cdf8a9cbfb0833e11f753897d28ec
+          ref: f07e5b5aab94589dce03aa0051c088b28019d3d0
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -205,7 +205,7 @@ jobs:
         shell: bash
         env:
           SNAPSHOT_TREE: ${{ steps.snapshot.outputs.tree }}
-          SOURCE_SHA: 790c7b13399cdf8a9cbfb0833e11f753897d28ec
+          SOURCE_SHA: f07e5b5aab94589dce03aa0051c088b28019d3d0
         run: |
           set -euo pipefail
           node --input-type=module <<'JS'
@@ -249,7 +249,7 @@ jobs:
         env:
           DOMEN_TOKEN: ${{ secrets.DOMEN }}
           CANDIDATE: ${{ steps.candidate.outputs.commit }}
-          SOURCE_SHA: 790c7b13399cdf8a9cbfb0833e11f753897d28ec
+          SOURCE_SHA: f07e5b5aab94589dce03aa0051c088b28019d3d0
           SNAPSHOT_TREE: ${{ steps.snapshot.outputs.tree }}
           TARGET_BRANCH: work/2026-11-25-d05-t3-retained-inputs
         run: |
