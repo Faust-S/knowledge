@@ -1,5 +1,5 @@
 name: d06-t3-real-model
-# Address only the failed macOS build/Exchange/model branch, not Windows or Linux.
+# Retry the two unresolved native witnesses; do not repeat Windows or production rebuilds.
 on:
   push:
     branches:
@@ -13,12 +13,24 @@ permissions:
   contents: read
   actions: read
 jobs:
-  macos:
-    runs-on: macos-latest
+  repair:
+    name: ${{ matrix.witness }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - witness: macos-model-exchange
+            os: macos-latest
+            node: "22.16.0"
+          - witness: linux-native-exchange
+            os: ubuntu-latest
+            node: "24"
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
+      NODE_OPTIONS: '--experimental-strip-types'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,7 +42,7 @@ jobs:
           path: pipeline
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: ${{ matrix.node }}
       - name: Validate exact request and prior mandatory Windows result
         shell: bash
         env:
@@ -41,11 +53,15 @@ jobs:
           import assert from 'node:assert/strict';
           import {readFileSync} from 'node:fs';
           const r=JSON.parse(readFileSync('pipeline/.github/d06/diagnostic-requests/d06-t3-real-model.request','utf8'));
-          assert.deepStrictEqual(r,{schema:'IWXA_D06_T3_MACOS_REPAIR/1',site:'783487c583c18a118bd13be72352ce70de931e99',baseline:'0d7c911e2586b84d4b6b2ca429dcc5414fc75cc3',owner:'8471dca0037328dfee8689632df9c27866e89845',windowsRun:45642777150,windowsJob:139305606852,attempt:1});
+          assert.deepStrictEqual(r,{schema:'IWXA_D06_T3_SCOPED_REPAIR/1',site:'783487c583c18a118bd13be72352ce70de931e99',baseline:'0d7c911e2586b84d4b6b2ca429dcc5414fc75cc3',owner:'8471dca0037328dfee8689632df9c27866e89845',windowsRun:45642777150,windowsJob:139305606852,attempt:2});
           NODE
           test "$(gh api repos/Faust-S/knowledge/actions/runs/45642777150 --jq .head_sha)" = "ef5478bed71d26bee413e5a21754f2889e118174"
           test "$(gh api repos/Faust-S/knowledge/actions/jobs/139305606852 --jq '[.run_id,.name,.conclusion]|@tsv')" = "$(printf '45642777150\twindows\tsuccess')"
-          echo D06_MACOS_PRIOR_WINDOWS=PASS
+          if [ "$RUNNER_OS" = macOS ]; then
+            test "$(node --version)" = v22.16.0
+            test "$(npm --version)" = 10.9.2
+          fi
+          echo D06_REPAIR_PRIOR_WINDOWS=PASS
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
@@ -78,6 +94,7 @@ jobs:
           test "$(git -C private-assistant rev-parse HEAD)" = "9f41447197251d41e69fbcb98e52ef1050754ec2"
           echo D06_MACOS_BUILD_WITNESS_ONLY_DELTA=PASS
       - name: Use original disposable HTTPS Host OpenSSL
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
@@ -91,7 +108,11 @@ jobs:
         run: |
           set -euo pipefail
           gh api repos/Faust-S/knowledge/actions/artifacts/14920233669/zip > "$RUNNER_TEMP/platform-outer.zip"
-          echo "96bb993383af31309b79dceb6f321ac5365ac7777362f512f9225226ee51904f  $RUNNER_TEMP/platform-outer.zip" | shasum -a 256 --check --status
+          if [ "$RUNNER_OS" = macOS ]; then
+            echo "96bb993383af31309b79dceb6f321ac5365ac7777362f512f9225226ee51904f  $RUNNER_TEMP/platform-outer.zip" | shasum -a 256 --check --status
+          else
+            echo "96bb993383af31309b79dceb6f321ac5365ac7777362f512f9225226ee51904f  $RUNNER_TEMP/platform-outer.zip" | sha256sum --check --status
+          fi
           unzip -p "$RUNNER_TEMP/platform-outer.zip" platform-inputs.zip > "$RUNNER_TEMP/platform-inputs.zip"
           node scripts/d06-t3-platform-inputs.mjs verify "$RUNNER_TEMP/platform-inputs.zip" > "$RUNNER_TEMP/platform-private.log" 2>&1 || { echo D06_MACOS_PLATFORM=FAIL; exit 1; }
           echo D06_T3_ORIGINAL_PLATFORM_128_FILES=PASS
@@ -106,7 +127,13 @@ jobs:
           if ! npm run t3:prepare-host -- "$GITHUB_WORKSPACE/original-core/packages/t3-core" "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/private-assistant" https://127.0.0.1:8443 > "$log" 2>&1; then
             node --input-type=module - "$log" <<'NODE'
           import {readFileSync} from 'node:fs';
-          const body=readFileSync(process.argv[2],'utf8');
+          const body=readFileSync(process.argv[2],'utf8').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'');
+          const failures=body.split(/\r?\n/).filter(line=>/Command failed:|(?:^|\s)(?:Error|TypeError|SyntaxError|RangeError|ReferenceError):|\bERR_[A-Z0-9_]+\b|\berror during build\b|\bBuild failed\b/i.test(line));
+          const commands=[['DOMAIN_VITE',/Command failed:.*\bbuild:host-module\b/],['BUILD_INFO',/Command failed:.*\bgenerate:build-info\b/],['DOMAIN_STAGE',/Command failed:.*stage-d06-site-only\.mjs/],['BLI_STAGE',/Command failed:.*stage-t2-external-module\.mjs/],['CORE_VITE',/Command failed:.*vite(?:\/bin\/vite\.js|\s+build)/],['CORE_INSTALL',/Command failed:.*\bci\b/],['TYPECHECK',/Command failed:.*\btypecheck\b/],['ROUTES',/Command failed:.*materialize-static-routes/],['KERNEL',/Command failed:.*stage-verified-kernel/]];
+          for(const [label,pattern] of commands)if(failures.some(line=>pattern.test(line)))console.log('D06_REPAIR_FAILED_COMMAND='+label);
+          const codes=new Set();
+          for(const line of failures)for(const m of line.matchAll(/\b(?:ERR_[A-Z0-9_]+|(?:EACCES|EPERM|ENOENT|EISDIR|ENOMEM|ENOSPC)|(?:TypeError|SyntaxError|RangeError|ReferenceError)|(?:UNRESOLVED_IMPORT|UNRESOLVED_ENTRY|INVALID_EXPORT_OPTION|MISSING_EXPORT|PARSE_ERROR|PLUGIN_ERROR|CSS_SYNTAX_ERROR|INVALID_CONFIG))\b/g))codes.add(m[0]);
+          for(const code of [...codes].slice(0,20))console.log('D06_REPAIR_FAILURE_CODE='+code);
           const phaseRules=[['PREPARE',/\bt3:prepare-host\b/],['BUILD_INFO',/\bgenerate:build-info\b/],['DOMAIN_MODULE',/\bbuild:host-module\b/],['DOMAIN_STAGE',/D06_SITE_ONLY_HOST_MODULE_STAGED/],['CORE_INSTALL',/added \d+ packages/],['TYPECHECK',/\btypecheck\b/],['RUNTIME_CHECK',/\bcheck:runtime\b/],['VITE',/vite v\d+[^\r\n]*building/],['ROUTES',/materialize-static-routes/],['KERNEL',/stage-verified-kernel/]];
           let last='UNKNOWN',lastIndex=-1;
           for(const [label,re] of phaseRules){const m=[...body.matchAll(new RegExp(re.source,'g'))].at(-1);if(m&&m.index>lastIndex){last=label;lastIndex=m.index;}}
@@ -167,9 +194,10 @@ jobs:
           for phase in ITEM_HISTORY BACKUP PD12_PORTABLE; do
             grep -Fx "D06_T3_PHYSICAL_DOWNLOAD=$phase:PASS" "$log"
           done
+          grep -E '^D06_NATIVE_PD16_(SELECTION=SELECTED|WORKFLOW_READBACK=MATCH)$' "$log" || true
           echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
       - name: Real Qwen on actual D06 subject and cold offline Kernel draft
-        if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
+        if: ${{ runner.os == 'macOS' && !cancelled() && steps.preview-build.outcome == 'success' }}
         working-directory: private-site
         shell: bash
         env:
