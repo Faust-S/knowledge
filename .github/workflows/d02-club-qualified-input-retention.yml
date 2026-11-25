@@ -1,0 +1,222 @@
+# Retention only, after functional qualification 45658424250.
+# No private Actions; no private artifacts or logs published.
+name: d02-club-qualified-input-retention
+on:
+  push:
+    branches:
+      - work/2026-11-24-d02-personal-activity-qualification
+    paths:
+      - .github/workflows/d02-club-qualified-input-retention.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: d02-club-qualified-input-retention
+  cancel-in-progress: false
+jobs:
+  retain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+    steps:
+      - name: Confirm existing scoped private repository write access before preparation
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+          GIT_TERMINAL_PROMPT: '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository=Faust-S/club.iwxa.ru
+          ref=refs/heads/work/2026-11-25-club-t3-qualified-inputs
+          [ "$(gh api repos/$repository --jq '.private')" = true ]
+          if gh api "repos/$repository/git/ref/heads/work/2026-11-25-club-t3-qualified-inputs" > "$RUNNER_TEMP/private-ref.json" 2> "$RUNNER_TEMP/private-access.log"; then
+            [ "$(jq -r '.object.sha' "$RUNNER_TEMP/private-ref.json")" = "e2837c9c379679733009bbaeb733541d4b4b4642" ] || { echo D02_RETENTION_REF_UNEXPECTED; exit 1; }
+          elif ! gh api --method POST "repos/$repository/git/refs" -f ref="$ref" -f sha="e2837c9c379679733009bbaeb733541d4b4b4642" > "$RUNNER_TEMP/private-ref.json" 2> "$RUNNER_TEMP/private-access.log"; then
+            if grep -Eqi 'HTTP 403|Resource not accessible|permission|not authorized' "$RUNNER_TEMP/private-access.log"; then
+              echo D02_RETENTION_WRITE_ACCESS=DENIED
+            elif grep -Eqi 'HTTP 422|rule|protected' "$RUNNER_TEMP/private-access.log"; then
+              echo D02_RETENTION_REF_CREATE=REJECTED
+            else
+              echo D02_RETENTION_REF_CREATE=FAIL
+            fi
+            exit 1
+          fi
+          echo D02_RETENTION_PRIVATE_REF_AT_QUALIFIED_SOURCE=PASS
+      - name: Preserve original Git LF bytes
+        run: git config --global core.autocrlf false
+      - name: Checkout exact public T3 platform candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          persist-credentials: false
+          path: one-core
+      - name: Checkout exact private Club candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: e2837c9c379679733009bbaeb733541d4b4b4642
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - name: Checkout original T2 for one-time migration qualification only
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - name: Checkout original private BLI domain-assistant candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 9f41447197251d41e69fbcb98e52ef1050754ec2
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: bli-owner
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Download and verify exact public portable candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/artifacts/14920233669/zip > "$RUNNER_TEMP/t3-platform-outer.zip"
+          echo "96bb993383af31309b79dceb6f321ac5365ac7777362f512f9225226ee51904f  $RUNNER_TEMP/t3-platform-outer.zip" | sha256sum --check --status
+          unzip -p "$RUNNER_TEMP/t3-platform-outer.zip" platform-inputs.zip > "$RUNNER_TEMP/t3-platform.zip"
+          echo "b778474d011b34a77cd60b945f02295fb24654c833f3ab12ff36bd3c0bdd8863  $RUNNER_TEMP/t3-platform.zip" | sha256sum --check --status
+          echo D02_T3_PUBLIC_RELEASE_ARCHIVE=PASS
+      - name: Compile existing Club module into exact original T3 Host candidate
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npm run t3:host:prepare -- "$GITHUB_WORKSPACE/one-core/packages/t3-core" "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/t3-platform.zip" "$GITHUB_WORKSPACE/bli-owner" > "$RUNNER_TEMP/private-build.log" 2>&1; then
+            echo D02_T3_HOST_SOURCE_BUILD=FAIL
+            grep -Eo 'CLUB_T3_(HOST|PLATFORM)_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z_]+|T2_ACTIVE_RUNTIME_CONTRACT_HOLD|TS[0-9]{4}' "$RUNNER_TEMP/private-build.log" | sort -u | head -15 || true
+            # Expose only compile diagnostics coordinates and a fixed category,
+            # not private source, actual values, paths outside the stage or logs.
+            node --input-type=module - "$RUNNER_TEMP/private-build.log" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const lines=readFileSync(process.argv[2],'utf8').split(/\r?\n/);
+          const pattern=/^(src\/modules\/club\/[A-Za-z0-9_./-]+\.(?:ts|tsx|mts))\((\d+),(\d+)\): error (TS\d+):/;
+          const publicPattern=/^(src\/[A-Za-z0-9_./-]+\.(?:ts|tsx|mts))\((\d+),(\d+)\): error (TS\d+):/;
+          const hits=[];
+          for(const line of lines){
+            const m=line.match(pattern)||line.match(publicPattern);
+            if(!m)continue;
+            // Coordinates refer only to files already known to their owner.
+            // No message text or private file contents is emitted.
+            hits.push('D02_T3_DIAGNOSTIC='+m[4]+' '+m[1]+':'+m[2]+':'+m[3]);
+          }
+          for(const row of [...new Set(hits)].slice(0,120))console.log(row);
+          console.log('D02_T3_DIAGNOSTICS_COUNT='+hits.length);
+          NODE
+            exit 1
+          fi
+          node -e 'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(p.schema!=="IWXA_CLUB_COMPILED_HOST_INPUT/1"||p.moduleId!=="iwxa.domain.club"||p.state!=="SOURCE_BUILD_NOT_PRODUCT_ACCEPTED"||p.sourceCommit!=="326f725c44d69ac99f6b912241e9e8a6c3d716a5")process.exit(1);console.log("D02_T3_HOST_SOURCE_BUILD=PASS; files="+p.files.length+"; module_source_files="+p.moduleSourceFiles.length)' "$RUNNER_TEMP/club-t3-host/club-t3-host-input.json"
+          node --input-type=module - "$RUNNER_TEMP/club-t3-host/club-t3-host-input.json" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const p=JSON.parse(readFileSync(process.argv[2],'utf8'));
+          if(p.assistant?.sourceCommit!=='9f41447197251d41e69fbcb98e52ef1050754ec2'||
+             p.assistant.webllm!=='0.2.87'||!p.assistant.sharedEngine||!p.assistant.entry||
+             p.files.filter(x=>/^assets\/model-worker-[A-Za-z0-9_-]+\.js$/.test(x.path)).length!==1)process.exit(1);
+          console.log('D02_T3_ORIGINAL_DOMAIN_ASSISTANT_SHARED_ENGINE=PASS; workers=1');
+          NODE
+          echo D02_T3_DOMAIN_ACCEPTED=false
+      - name: Prepare original Kernel support from unchanged source
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_T2_NPM_CACHE_DIR: ${{ runner.temp }}/club-npm-cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! (npm ci --no-audit --no-fund && npm run build && npm run t3:kernel-support:prepare -- "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/t2" "$RUNNER_TEMP/club-kernel-support") > "$RUNNER_TEMP/private-retention-build.log" 2>&1; then
+            echo D02_RETENTION_ORIGINAL_SUPPORT=FAIL
+            grep -Eo 'CLUB_(T2|T3)_[A-Z0-9_]+' "$RUNNER_TEMP/private-retention-build.log" | sort -u | head -20 || true
+            exit 1
+          fi
+          echo D02_RETENTION_ORIGINAL_SUPPORT=PASS
+      - name: Retain qualified local build inputs only in private Club candidate branch
+        working-directory: site
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          # Do not upload the domain dist or generated private files to public Actions.
+          # Use the existing scoped credential only if the intended repository is private
+          # and the credential already grants push. Never modify main or an existing ref.
+          [ "$(gh api repos/Faust-S/club.iwxa.ru --jq '.private')" = true ]
+          [ "$(git rev-parse HEAD)" = "e2837c9c379679733009bbaeb733541d4b4b4642" ]
+          case "$(git remote get-url origin)" in
+            https://github.com/Faust-S/club.iwxa.ru|https://github.com/Faust-S/club.iwxa.ru.git) ;;
+            *) echo D02_T3_PRIVATE_RETENTION_REMOTE=FAIL; exit 1 ;;
+          esac
+          git diff --exit-code --quiet
+          if ! node scripts/retain-club-t3-inputs.mjs "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/t3-platform.zip" > "$RUNNER_TEMP/private-retain.log" 2>&1; then
+            echo D02_T3_PRIVATE_RETENTION_PREPARE=FAIL; exit 1
+          fi
+          target=refs/heads/work/2026-11-25-club-t3-qualified-inputs
+          root=runtime/t3-platform/0.3.1-rc.1
+          git add -- "$root/club-host" "$root/kernel-support" "$root/platform-inputs.zip"
+          # Limit the new private commit to the original retained build inputs.
+          # Abort before push if an unexpected path, secret-like file, symlink,
+          # oversized Git file, or non-addition appears.
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {execFileSync} from 'node:child_process';
+          import {lstatSync} from 'node:fs';
+          const base='runtime/t3-platform/0.3.1-rc.1/';
+          const rows=execFileSync('git',['diff','--cached','--name-status','-z'],{encoding:'utf8'}).split('\0').filter(Boolean);
+          assert.ok(rows.length>0&&rows.length%2===0,'empty or invalid retained inputs');
+          const roots=new Set();
+          for(let i=0;i<rows.length;i+=2){
+            const p=rows[i+1],name=p.slice(base.length),top=name.split('/')[0];
+            assert.equal(rows[i],'A');
+            assert.ok(p.startsWith(base)&&['club-host','kernel-support','platform-inputs.zip'].includes(top));
+            assert.ok(!p.split('/').some(x=>/^\.env|^\.git$|^node_modules$|^\.npmrc$|^\.ssh$/.test(x)));
+            assert.ok(!/\.(?:map|log|iwxa|pem|key|pfx|gguf|safetensors)$/i.test(p));
+            const stat=lstatSync(p);assert.ok(stat.isFile()&&!stat.isSymbolicLink()&&stat.size<=95*1024*1024);
+            roots.add(top);
+          }
+          assert.equal(roots.size,3);
+          console.log('D02_T3_PRIVATE_RETENTION_INPUTS_READY=PASS; files='+rows.length/2);
+          NODE
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Retain qualified Club T3 local inputs for run $GITHUB_RUN_ID [skip ci]" > "$RUNNER_TEMP/private-retain-commit.log" 2>&1
+          # The API preflight created this one private branch at the qualified source.
+          # Verify the exact parent and use an ordinary non-force fast-forward.
+          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-qualified-inputs --jq '.object.sha')" = "e2837c9c379679733009bbaeb733541d4b4b4642" ]
+          [ "$(git rev-parse HEAD^)" = "e2837c9c379679733009bbaeb733541d4b4b4642" ]
+          # Explicitly use gh's standard credential setup, local to this disposable checkout.
+          gh auth setup-git --hostname github.com > "$RUNNER_TEMP/private-retain-credential.log" 2>&1
+          if ! git push --porcelain origin "HEAD:$target" > "$RUNNER_TEMP/private-retain-push.log" 2>&1; then
+            if grep -Eqi '403|permission|denied|not authorized|not accessible' "$RUNNER_TEMP/private-retain-push.log"; then
+              echo D02_RETENTION_PUSH_ACCESS=DENIED
+            elif grep -Eqi 'non-fast-forward|fetch first|stale info' "$RUNNER_TEMP/private-retain-push.log"; then
+              echo D02_RETENTION_PUSH_CONFLICT=FAIL
+            elif grep -Eqi 'protected branch|repository rule|GH013|GH006' "$RUNNER_TEMP/private-retain-push.log"; then
+              echo D02_RETENTION_PUSH_RULE=REJECTED
+            elif grep -Eqi 'could not read Username|Authentication failed|terminal prompts disabled' "$RUNNER_TEMP/private-retain-push.log"; then
+              echo D02_RETENTION_PUSH_AUTH=FAIL
+            else
+              echo D02_RETENTION_PUSH_OTHER=FAIL
+            fi
+            exit 1
+          fi
+          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-qualified-inputs --jq '.object.sha')" = "$(git rev-parse HEAD)" ]
+          echo "D02_T3_QUALIFIED_INPUT_COMMIT=$(git rev-parse HEAD)"
+          echo D02_T3_PRIVATE_RETENTION=PASS
+      - name: Remove private generated outputs and private logs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/t3-platform.zip" "$RUNNER_TEMP/t3-platform-outer.zip" "$RUNNER_TEMP/private-access.log" "$RUNNER_TEMP/private-ref.json" "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/private-retention-build.log" "$RUNNER_TEMP/private-retain.log" "$RUNNER_TEMP/private-retain-commit.log" "$RUNNER_TEMP/private-retain-push.log" "$RUNNER_TEMP/private-retain-credential.log"
