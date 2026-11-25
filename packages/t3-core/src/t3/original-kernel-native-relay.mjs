@@ -48,7 +48,8 @@ export function createOriginalKernelNativeRelay({
   const networkNames=Array.isArray(networkOwner?.operations)?
     Object.keys(NETWORK_METHODS).filter(name=>
       networkOwner.operations.includes(NETWORK_METHODS[name])):[];
-  check(!networkNames.includes("listEventCommitWindow")||
+  const historyMethods=new Set(["listEventCommitWindow","listEventObjectCommitWindow"]);
+  check(!networkNames.some(name=>historyMethods.has(name))||
     (typeof networkOwner?.resolveOriginalAccess==="function"&&
       networkOwner.operations.includes("t1.listEventsSince")),
     "T3_ORIGINAL_NETWORK_RELAY_COMMIT_HISTORY_OWNER_REQUIRED");
@@ -172,9 +173,9 @@ export function createOriginalKernelNativeRelay({
     check(networkActive(state)&&attaching!==state&&network.names.includes(method),
       "T3_ORIGINAL_NETWORK_RELAY_NOT_CONNECTED");
     check(pending===null&&reservation===null,"T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS");
-    if(method==="listEventCommitWindow")check(network.resolveAccess&&
+    if(historyMethods.has(method))check(network.resolveAccess&&
       state.grants.granted_operations.includes("t1.listEventsSince")&&
-      state.grants.granted_operations.includes("t1.listEventCommitWindow"),
+      state.grants.granted_operations.includes(NETWORK_METHODS[method]),
       "T3_ORIGINAL_NETWORK_RELAY_AUTHORITY_DENIED");
     const held={};reservation=held;
     try{
@@ -213,7 +214,7 @@ export function createOriginalKernelNativeRelay({
         const original=Object.freeze({
           sessionInfo:state.kernel.sessionInfo,
           hasOperation:id=>active()&&state.grants.granted_operations.includes(id)&&
-            (id===operation||(operation==="t1.listEventCommitWindow"&&id==="t1.listEventsSince")),
+            (id===operation||(historyMethods.has(method)&&id==="t1.listEventsSince")),
           [method]:async(...checkedArgs)=>{
             check(!invoked&&isDeepStrictEqual(normalize(checkedArgs),normalize(exact)),
               "T3_ORIGINAL_NETWORK_RELAY_AUTHORIZED_COMMAND_MISMATCH");
@@ -242,7 +243,7 @@ export function createOriginalKernelNativeRelay({
     hasOperation:id=>!closed&&live===state&&state.networkStarted&&
       state.grants.granted_operations.includes(id)&&
       network.names.some(name=>NETWORK_METHODS[name]===id)&&
-      (id!=="t1.listEventCommitWindow"||
+      (!["t1.listEventCommitWindow","t1.listEventObjectCommitWindow"].includes(id)||
         (typeof network.resolveAccess==="function"&&state.grants.granted_operations.includes("t1.listEventsSince"))),
     ...Object.fromEntries(network.names.map(name=>[name,(...args)=>networkDispatch(state,name,args)])),
   });

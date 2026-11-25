@@ -114,6 +114,16 @@ export const adapter = {
     return session.t1.listEventCommitWindow!(workspaceId,afterEventId,limit);
   },
 
+  listEventObjectCommitWindow(
+    session: KernelSession, workspaceId: string, objectId: string, afterEventId: string | null, limit: number,
+  ): Promise<OriginalEventCommitWindow> {
+    if (session.contract_version !== "1.3.0")
+      throw new Error("ORIGINAL_EVENT_COMMIT_CONTRACT_MISMATCH");
+    requireOperation(session, "t1.listEventsSince", session.t1?.listEventsSince);
+    requireOperation(session, "t1.listEventObjectCommitWindow", session.t1?.listEventObjectCommitWindow);
+    return session.t1.listEventObjectCommitWindow!(workspaceId,objectId,afterEventId,limit);
+  },
+
   // ---- T1 writes ----------------------------------------------------------
   createWorkspace(
     session: KernelSession,

@@ -41,10 +41,16 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     session.granted_operations?.includes("t1.listEventCommitWindow") === true &&
     typeof session.t1?.listEventsSince === "function" &&
     typeof session.t1?.listEventCommitWindow === "function";
+  const objectCommitWindowAvailable = session.contract_version === "1.3.0" &&
+    session.granted_operations?.includes("t1.listEventsSince") === true &&
+    session.granted_operations?.includes("t1.listEventObjectCommitWindow") === true &&
+    typeof session.t1?.listEventsSince === "function" &&
+    typeof session.t1?.listEventObjectCommitWindow === "function";
   const grantedOperations = Object.freeze(
     [...(session.granted_operations ?? [])].filter(op =>
       (op !== "t1.commitObjectGraph" || atomicAvailable) &&
-      (op !== "t1.listEventCommitWindow" || commitWindowAvailable)),
+      (op !== "t1.listEventCommitWindow" || commitWindowAvailable) &&
+      (op !== "t1.listEventObjectCommitWindow" || objectCommitWindowAvailable)),
   ) as readonly OperationId[];
   const grantedLevels = Object.freeze(
     [...(session.granted_levels ?? [])],
@@ -56,6 +62,10 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     ...(commitWindowAvailable ? {
       listEventCommitWindow: async (ws: string, after: string | null, limit: number) =>
         adapter.listEventCommitWindow(session,ws,after,limit),
+    } : {}),
+    ...(objectCommitWindowAvailable ? {
+      listEventObjectCommitWindow: async (ws: string, objectId: string, after: string | null, limit: number) =>
+        adapter.listEventObjectCommitWindow(session,ws,objectId,after,limit),
     } : {}),
     hasOperation(op) {
       return grantedOpSet.has(op);
@@ -167,6 +177,7 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     "purgePreview","purgeCommit","purgeCancel",
     ...(atomicAvailable ? ["commitObjectGraph"] : []),
     ...(commitWindowAvailable ? ["listEventCommitWindow"] : []),
+    ...(objectCommitWindowAvailable ? ["listEventObjectCommitWindow"] : []),
   ];
   const routeOriginalMutation = input.routeOriginalMutation;
   const mutationMethods = new Set(["createWorkspace","putObject","deleteObject","putRelation","deleteRelation",

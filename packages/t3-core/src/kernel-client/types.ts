@@ -11,8 +11,11 @@ export type OriginalEventCommitWindow = {
 export type OriginalEventCommitReader = (
   workspaceId: string, afterEventId: string | null, limit: number,
 ) => Promise<OriginalEventCommitWindow>;
+export type OriginalEventObjectCommitReader = (
+  workspaceId: string, objectId: string, afterEventId: string | null, limit: number,
+) => Promise<OriginalEventCommitWindow>;
 export type KernelSession = IWXAClient & {
-  t1: IWXAClient["t1"] & { listEventCommitWindow?: OriginalEventCommitReader };
+  t1: IWXAClient["t1"] & { listEventCommitWindow?: OriginalEventCommitReader; listEventObjectCommitWindow?: OriginalEventObjectCommitReader };
 };
 export type OperationId = import("./contracts/runtime-1.3.0").OperationId;
 

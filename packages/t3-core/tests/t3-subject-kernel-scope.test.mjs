@@ -667,3 +667,43 @@ test("K111 original history grant revocation during signed decision stops the la
   await assert.rejects(f.bound.listEventCommitWindow(ws,null,1),{code:"T3_KERNEL_OPERATION_NOT_GRANTED"});
   assert.equal(f.calls.length,0);
 });
+
+const objectWindowOperation="t1.listEventObjectCommitWindow",objectScope="item:original";
+test("K124 exact Object Event page separately signs the Object and requires both original grants",async()=>{
+  const f=fixture(),signed=[];
+  f.kernel.listEventObjectCommitWindow=async(...args)=>{
+    f.calls.push(args);return commitPage([{event:{event_id:"event:next",workspace_id:ws,object_id:objectScope},legacy_history:false}]);
+  };
+  const digestFor=f.owner.operationDigest;
+  f.owner.operationDigest=arg=>{signed.push(arg);return digestFor(arg);};
+  f.allowed.add(commitWindowOperation);
+  await assert.rejects(f.bound.listEventObjectCommitWindow(ws,objectScope,null,1),{code:"T3_KERNEL_OPERATION_NOT_GRANTED"});
+  f.allowed.add(objectWindowOperation);f.allowed.delete("t1.listEventsSince");
+  await assert.rejects(f.bound.listEventObjectCommitWindow(ws,objectScope,null,1),{code:"T3_KERNEL_OPERATION_NOT_GRANTED"});
+  f.allowed.add("t1.listEventsSince");
+  assert.equal((await f.bound.listEventObjectCommitWindow(ws,objectScope,"event:old",1)).next_after_event_id,"event:next");
+  assert.deepEqual(f.calls,[[ws,objectScope,"event:old",1]]);
+  assert.equal(signed[0].operation,objectWindowOperation);
+  assert.deepEqual(signed[0].input,{workspace_id:ws,object_id:objectScope,after_event_id:"event:old",limit:1});
+});
+test("K124 Object history never exposes another Object or Workspace even on a granted signed command",async()=>{
+  const f=fixture();f.allowed.add(objectWindowOperation);
+  f.kernel.listEventObjectCommitWindow=async()=>{f.calls.push("kernel");return commitPage([{event:{
+    event_id:"event:next",workspace_id:ws,object_id:"item:foreign"},legacy_history:false}]);};
+  assert.throws(()=>f.bound.listEventObjectCommitWindow(ws,"",null,1),{code:"T3_SUBJECT_OBJECT_ID_INVALID"});
+  assert.throws(()=>f.bound.listEventObjectCommitWindow(ws,objectScope,null,0),{code:"T3_SUBJECT_EVENT_WINDOW_LIMIT_INVALID"});
+  await assert.rejects(f.bound.listEventObjectCommitWindow("ws:foreign",objectScope,null,1),{code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
+  assert.equal(f.calls.length,0);
+  await assert.rejects(f.bound.listEventObjectCommitWindow(ws,objectScope,null,1),{code:"T3_KERNEL_EVENT_OBJECT_SCOPE_MISMATCH"});
+  assert.equal(f.calls.length,1);
+});
+test("K124 exact Object Event read stops at last hop when either original grant is revoked",async()=>{
+  for(const op of [objectWindowOperation,"t1.listEventsSince"]){
+    const f=fixture();f.allowed.add(objectWindowOperation);
+    f.kernel.listEventObjectCommitWindow=async()=>{f.calls.push("kernel");return commitPage();};
+    const authorize=f.owner.authorize;
+    f.owner.authorize=async req=>{const result=await authorize(req);f.allowed.delete(op);return result;};
+    await assert.rejects(f.bound.listEventObjectCommitWindow(ws,objectScope,null,1),{code:"T3_KERNEL_OPERATION_NOT_GRANTED"});
+    assert.equal(f.calls.length,0);
+  }
+});

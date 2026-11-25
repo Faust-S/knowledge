@@ -21,6 +21,7 @@ const PERSONAL_ACTIONS=Object.freeze({
   "t1.listObjects":"object.read",
   "t1.listEventsSince":"event.read",
   "t1.listEventCommitWindow":"event.read",
+  "t1.listEventObjectCommitWindow":"event.read",
   "t1.putObject":"object.write",
   "t1.getAsset":"asset.read",
   "t1.putAsset":"asset.write",

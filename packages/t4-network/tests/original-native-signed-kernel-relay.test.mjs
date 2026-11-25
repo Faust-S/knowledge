@@ -184,3 +184,30 @@ test('K116 optional commit history cannot be installed by an unsigned relay or w
    networkOwner:{...owner,onAttach:()=>true,onDetach:()=>{}}}),
    {code:'T3_ORIGINAL_NETWORK_RELAY_COMMIT_HISTORY_OWNER_REQUIRED'});
 });
+
+test('K124 native signed relay carries exact original Object history scope and rejects foreign receipts',async()=>{
+ const op='t1.listEventObjectCommitWindow',read='t1.listEventsSince',object='object:technical',digestInputs=[];
+ const local=createTemporaryOriginalPersonalAuthority({workspaceId:TECH,operations:[op,read],clock:Date.now});
+ let ctx;
+ const relay=createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,networkOwner:{
+   operations:[op,read],onAttach:p=>{ctx=p;return true;},onDetach:()=>{},
+   resolveOriginalAccess:p=>p.args[0]===TECH?{...local.access,operationDigest:input=>{
+     digestInputs.push(input);return local.access.operationDigest(input);}}:null}});
+ const exchange=(verb,payload)=>relay.exchange({verb,payload},1);
+ try{
+   const s=await exchange('attach',{sessionInfo:{...info,granted_operations:[...info.granted_operations,op]},networkRelayVersion:1});
+   assert.ok(s.networkMethods.includes('listEventObjectCommitWindow'));
+   assert.equal(ctx.kernel.hasOperation(op),true);
+   const task=ctx.kernel.listEventObjectCommitWindow(TECH,object,null,1);
+   const cmd=await exchange('next',{sessionId:s.sessionId});
+   assert.equal(cmd.method,'listEventObjectCommitWindow');
+   assert.deepEqual(cmd.args,[TECH,object,null,1]);
+   assert.deepEqual(digestInputs[0].input,{workspace_id:TECH,object_id:object,after_event_id:null,limit:1});
+   const page={entries:[{event:{workspace_id:TECH,object_id:'object:foreign',event_id:'event:new'},legacy_history:false}],
+     next_after_event_id:'event:new',has_more:false,order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+   const denied=assert.rejects(task,{code:'T3_KERNEL_EVENT_OBJECT_SCOPE_MISMATCH'});
+   await exchange('result',{sessionId:s.sessionId,id:cmd.id,ok:true,result:page});
+   await denied;
+   await assert.rejects(ctx.kernel.listEventObjectCommitWindow(WS,object,null,1),{code:'T3_ORIGINAL_NETWORK_RELAY_AUTHORITY_DENIED'});
+ }finally{relay.close();local.closeOriginalVault();}
+});

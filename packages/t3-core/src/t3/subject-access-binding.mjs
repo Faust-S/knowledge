@@ -17,6 +17,7 @@ const OPERATIONS = Object.freeze({
   commitObjectGraph: "t1.commitObjectGraph",
   listEventsSince: "t1.listEventsSince",
   listEventCommitWindow: "t1.listEventCommitWindow",
+  listEventObjectCommitWindow: "t1.listEventObjectCommitWindow",
   softDeleteWorkspace: "t1.softDeleteWorkspace",
   restoreWorkspace: "t1.restoreWorkspace",
   exportPreview: "t2.exportPreview",
@@ -228,7 +229,7 @@ export function createSubjectKernelBinding({
       refused("T3_KERNEL_INPUT_SCOPE_MISMATCH");
     }
     const operation = OPERATIONS[method];
-    if (method === "listEventCommitWindow" && !kernel.hasOperation("t1.listEventsSince"))
+    if (["listEventCommitWindow","listEventObjectCommitWindow"].includes(method) && !kernel.hasOperation("t1.listEventsSince"))
       refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (typeof kernel[method] !== "function") refused("T3_KERNEL_OPERATION_UNAVAILABLE");
@@ -300,7 +301,7 @@ export function createSubjectKernelBinding({
       refused("T3_SUBJECT_CONTEXT_CHANGED");
     }
     requireActive();
-    if (method === "listEventCommitWindow" && !kernel.hasOperation("t1.listEventsSince"))
+    if (["listEventCommitWindow","listEventObjectCommitWindow"].includes(method) && !kernel.hasOperation("t1.listEventsSince"))
       refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (method === "commitObjectGraph" && commitObjectGraphPrecondition !== null) {
@@ -329,6 +330,8 @@ export function createSubjectKernelBinding({
             ? await kernel.listEventsSince(workspace_id,command.since)
             : method === "listEventCommitWindow"
               ? await kernel.listEventCommitWindow(workspace_id,command.after_event_id,command.limit)
+              : method === "listEventObjectCommitWindow"
+                ? await kernel.listEventObjectCommitWindow(workspace_id,command.object_id,command.after_event_id,command.limit)
             : method === "softDeleteWorkspace" || method === "restoreWorkspace"
               ? await kernel[method](workspace_id)
               : method === "purgeCancel"
@@ -356,7 +359,7 @@ export function createSubjectKernelBinding({
           ? "T3_KERNEL_EVENT_SCOPE_MISMATCH" : "T3_KERNEL_LIST_SCOPE_MISMATCH");
       }
     }
-    if (method === "listEventCommitWindow") {
+    if (["listEventCommitWindow","listEventObjectCommitWindow"].includes(method)) {
       const keys = (v,names) => v && typeof v === "object" && !Array.isArray(v) &&
         Object.keys(v).length === names.length && names.every(k=>Object.hasOwn(v,k));
       if (!keys(result,["entries","next_after_event_id","has_more","order","legacy_history_causal_proven"]) ||
@@ -374,6 +377,8 @@ export function createSubjectKernelBinding({
           refused("T3_KERNEL_EVENT_COMMIT_WINDOW_INVALID");
         if (!row.legacy_history) modern = true;
         checkEvent(row.event);
+        if (method === "listEventObjectCommitWindow" && row.event.object_id !== command.object_id)
+          refused("T3_KERNEL_EVENT_OBJECT_SCOPE_MISMATCH");
         if (!id(row.event.event_id) || seen.has(row.event.event_id))
           refused("T3_KERNEL_EVENT_COMMIT_WINDOW_INVALID");
         seen.add(row.event.event_id);
@@ -626,6 +631,14 @@ export function createSubjectKernelBinding({
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1024)
         refused("T3_SUBJECT_EVENT_WINDOW_LIMIT_INVALID");
       return invoke("listEventCommitWindow",{workspace_id,after_event_id,limit},workspace_id);
+    },
+    listEventObjectCommitWindow: (workspace_id, object_id, after_event_id, limit) => {
+      requiredId(object_id,"OBJECT_ID");
+      if (after_event_id !== null && !id(after_event_id))
+        refused("T3_SUBJECT_EVENT_CURSOR_INVALID");
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1024)
+        refused("T3_SUBJECT_EVENT_WINDOW_LIMIT_INVALID");
+      return invoke("listEventObjectCommitWindow",{workspace_id,object_id,after_event_id,limit},workspace_id);
     },
     softDeleteWorkspace: workspace_id =>
       invoke("softDeleteWorkspace",{workspace_id},workspace_id),

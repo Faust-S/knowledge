@@ -209,3 +209,27 @@ describe("K111 optional original commit-order history",()=>{
     expect(calls).toEqual([[ws,null,16]]);
   });
 });
+
+describe("K124 separately negotiated original Object Event window",()=>{
+  const op="t1.listEventObjectCommitWindow",ws="ws:original",object="object:original";
+  const page={entries:[],next_after_event_id:null,has_more:false,
+    order:"LOCAL_TRANSACTION_COMMIT_ORDER" as const,legacy_history_causal_proven:false as const};
+  it("requires both exact grants and actual method, never emulates from the Workspace window",async()=>{
+    const calls:unknown[][]=[];
+    const reader:NonNullable<KernelSession["t1"]["listEventObjectCommitWindow"]>=async(...args)=>{calls.push(args);return page;};
+    for(const [version,grants] of [
+      ["1.2.0",["t1.listEventsSince",op]],["1.3.0",[op]],["1.3.0",["t1.listEventsSince","t1.listEventCommitWindow"]]
+    ] as const){
+      const session={...makeSession([...grants],{listEventObjectCommitWindow:reader}),contract_version:version} as KernelSession;
+      expect(createKernelFacade({session}).listEventObjectCommitWindow).toBeUndefined();
+    }
+    const grantOnly={...makeSession(["t1.listEventsSince",op]),contract_version:"1.3.0"} as KernelSession;
+    expect(createKernelFacade({session:grantOnly}).hasOperation(op)).toBe(false);
+    const full={...makeSession(["t1.listEventsSince",op],{listEventObjectCommitWindow:reader}),contract_version:"1.3.0"} as KernelSession;
+    const facade=createKernelFacade({session:full});
+    expect(facade.hasOperation(op)).toBe(true);
+    expect(facade.hasOperation("t1.listEventCommitWindow")).toBe(false);
+    expect(await facade.listEventObjectCommitWindow!(ws,object,null,16)).toBe(page);
+    expect(calls).toEqual([[ws,object,null,16]]);
+  });
+});
