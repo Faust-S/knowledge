@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: 790c7b13399cdf8a9cbfb0833e11f753897d28ec
+          ref: 22077a17dae840786f2845888c5bf81841ce9433
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -444,6 +444,7 @@ jobs:
             exit 1
           fi
           grep -E '^\{"status":"CEHOVOD_T3_PUBLIC_COLD_OFFLINE_PASS","routes":11,"files":[0-9]+,"serverStopped":true,"browserRestarted":true,"actualInference":false,"protectedWorkspaceAccepted":false\}$' "$log"
+          grep -E '^\{"status":"CEHOVOD_T3_ALL_SITE_COLD_PASS","siteRoutes":[0-9]+,"serviceRoutes":11,"localAssetErrors":0,"protectedWorkspaceAccepted":false\}$' "$log"
           echo D05_T3_PUBLIC_OFFLINE_PASS
       - name: Exact repeat build and damaged-input rollback from retained bytes
         id: repro
