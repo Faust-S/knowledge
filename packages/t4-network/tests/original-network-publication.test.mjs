@@ -917,3 +917,19 @@ test('K56 local recipient publication and terminal phase recover a stop-only cap
   assert.equal(await readT4OriginalLocalRetiredRecipientSession({...options,
     sourceCursorBefore:{...options.sourceCursorBefore,sourcePrefixDigest:session.sourcePrefixDigestAfter}}),null);
 });
+
+test('K59 original PRESENT anchor remains exact after later frame events extend the same publication',async()=>{
+  const f=await sourceStepFixture();await f.step();await f.step();
+  const head=await f.port().readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
+  assert.equal(head.originalPresentRevision,head.originalPublicationRevision);
+  assert.equal(head.originalPresentChainHash,head.originalPublicationChainHash);
+  assert.equal(f.events.find(e=>e.event_id===head.originalPresentEventId).payload.action,'PRESENT');
+  await f.diff();await f.step();f.restart();
+  const again=await f.port().readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
+  for(const key of ['originalPresentEventId','originalPresentRevision','originalPresentChainHash','key','sha256'])assert.equal(again[key],head[key]);
+  assert.ok(again.originalPublicationRevision>head.originalPublicationRevision);
+  assert.notEqual(again.originalPublicationChainHash,head.originalPublicationChainHash);
+  const change=await f.port().readOriginalPublishedFrame({sequence:2,includePresentEventAnchor:true});
+  assert.ok(change.originalPresentRevision>again.originalPresentRevision);
+  assert.notEqual(change.originalPresentEventId,again.originalPresentEventId);
+});

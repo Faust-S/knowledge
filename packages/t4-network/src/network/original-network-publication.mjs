@@ -575,6 +575,25 @@ export function createT4OriginalPublicationIndexMigrationStepper({
 // committed successor source INTENT and verifying the exact signed HEADS.
 // This validator confers no authority: its evidence must be obtained from
 // the original owner ports again at every publication write boundary.
+// Validate original source INTENT even before the recipient has accepted HEADS.
+export function validateT4OriginalReplacementSourceIntentStatus(value,identity){
+  const s=clone(value),a=s?.originalReplacementSourceAdmission,c=validateT4OriginalReplacementSessionCandidate(identity);
+  if(s?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||s.role!=='SOURCE'||
+    !['sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch','sessionRef','changeId'].every(k=>s[k]===c[k])||
+    (s.changeKind??'OBJECT_PUT')!==c.changeKind||s.currentPhase!=='INTENT'||s.revision!==1||
+    !ID(s.checkpointRef)||!DIG(s.chainHash)||!ID(s.originalReplacementAdmissionEventId)||
+    s.originalReplacementSourceAdmissionRecorded!==true||s.originalT3EventChainVerified!==true||
+    s.originalT3OnlyStore!==true||s.originalBusinessApplied!==false||s.verifiedOriginalRecipientApplication!==false||
+    s.originalNewAttemptAdmissionStillRequired!==true||s.liveNetworkAuthorityGranted!==false||
+    !same(s.sourceIntentEvidence,{evidenceRef:c.sourceEventId,evidenceDigest:c.capturedWindowDigest})||
+    !same(s.currentEvidence,s.sourceIntentEvidence)||s.sourcePublishedEvidence!==null||
+    !same(a?.binding,c.replacement)||a.sourceEventId!==c.sourceEventId||a.captureDigest!==c.capturedWindowDigest||
+    !SHA(a.headSha256)||a.headKey!==a.headSha256+'.t4n'||!ID(a.publicationRef)||
+    !Number.isSafeInteger(a.publicationRevision)||a.publicationRevision<1||!DIG(a.publicationChainHash))
+    fail('PUBLICATION_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_INVALID');
+  return deepFreeze(s);
+}
+
 export function validateT4OriginalReplacementRecipientAdmissionEvidence(value,identity){
   const v=clone(value),e=v?.eligibility,h=v?.head,s=v?.sourceIntent,a=s?.originalReplacementSourceAdmission;
   const c=validateT4OriginalReplacementSessionCandidate(identity);
@@ -597,18 +616,7 @@ export function validateT4OriginalReplacementRecipientAdmissionEvidence(value,id
     h.originalSignatureVerified!==true||h.originalAccessVerified!==true||
     h.originalReplayCheckpointRecorded!==true||h.networkBytesVerified!==true||
     h.originalSubjectMutationInvoked!==false||h.originalBusinessApplied!==false||h.originalT3ExchangeCalled!==false||
-    s?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||s.role!=='SOURCE'||
-    !['sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch','sessionRef','changeId'].every(k=>s[k]===c[k])||
-    (s.changeKind??'OBJECT_PUT')!==c.changeKind||s.currentPhase!=='INTENT'||s.revision!==1||
-    !ID(s.checkpointRef)||!DIG(s.chainHash)||!ID(s.originalReplacementAdmissionEventId)||
-    s.originalReplacementSourceAdmissionRecorded!==true||s.originalT3EventChainVerified!==true||
-    s.originalT3OnlyStore!==true||s.originalBusinessApplied!==false||s.verifiedOriginalRecipientApplication!==false||
-    s.originalNewAttemptAdmissionStillRequired!==true||s.liveNetworkAuthorityGranted!==false||
-    !same(s.sourceIntentEvidence,{evidenceRef:c.sourceEventId,evidenceDigest:c.capturedWindowDigest})||
-    !same(s.currentEvidence,s.sourceIntentEvidence)||s.sourcePublishedEvidence!==null||
-    !same(a?.binding,c.replacement)||a.sourceEventId!==c.sourceEventId||a.captureDigest!==c.capturedWindowDigest||
-    a.headKey!==h.key||a.headSha256!==h.sha256||!ID(a.publicationRef)||
-    !Number.isSafeInteger(a.publicationRevision)||a.publicationRevision<1||!DIG(a.publicationChainHash))
+    !same(validateT4OriginalReplacementSourceIntentStatus(s,c),s)||a.headKey!==h.key||a.headSha256!==h.sha256)
     fail('PUBLICATION_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_INVALID');
   readT4OriginalReplacementSourceHead({identity:c.originalCaptureSession,body:h.verifiedBody,
     sessionRef:c.sessionRef,sourceCursorBefore:e.sourceCursorBefore,expectedCandidate:c});
@@ -887,7 +895,7 @@ export function createT4OriginalNetworkPublicationPort({
       if(await originalKernel.getObject(technicalWorkspaceId,checkpointRef)!==null)
         fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
       mode();
-      return {entries:[],revision:0,chainHash:genesis};
+      return {entries:[],revision:0,chainHash:genesis,presentEvents:[]};
     }
     const o=row?.object,d=o?.data;
     if(o?.workspace_id!==technicalWorkspaceId||o.object_id!==checkpointRef||
@@ -899,7 +907,7 @@ export function createT4OriginalNetworkPublicationPort({
       o.revision!==events.length||events.length>MAX_FRAMES*18)
       fail('PUBLICATION_ORIGINAL_CHECKPOINT_INVALID');
     let previous=genesis;
-    const states=[],ids=new Set();
+    const states=[],ids=new Set(),presentEvents=[];
     for(let i=0;i<events.length;i++){
       const ev=events[i],p=ev.payload;
       if(ev.event_type!==EVENT||ev.revision!==i+1||!ID(ev.event_id)||
@@ -907,6 +915,7 @@ export function createT4OriginalNetworkPublicationPort({
         !same(p,eventRecord(i+1,previous,p.action,p.slots)))
         fail('PUBLICATION_ORIGINAL_EVENT_CHAIN_INVALID');
       advance(states,p);previous=p.chainHash;ids.add(ev.event_id);
+      if(p.action==='PRESENT')presentEvents[p.slots[0].sequence-1]={eventId:ev.event_id,revision:ev.revision,chainHash:p.chainHash};
     }
     if(previous!==d.chainHash||states.length!==d.entries.length||
       !same(states,d.entries.map(({wireText,...metadata})=>metadata)))
@@ -927,7 +936,7 @@ export function createT4OriginalNetworkPublicationPort({
     if(!same(after?.object,o))
       fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
     mode();
-    return {entries:clone(d.entries),revision:o.revision,chainHash:previous};
+    return {entries:clone(d.entries),revision:o.revision,chainHash:previous,presentEvents};
   }
   async function commit(ctx,current,action,entries,slots){
     const revision=current.revision+1;
@@ -983,8 +992,8 @@ export function createT4OriginalNetworkPublicationPort({
   // The source can reconstruct its own signed frame from the one original
   // publication ledger and immutable remote readback after a cold restart.
   // This proves neither receipt nor application by the other peer.
-  async function readOriginalPublishedFrame({sequence}={}){
-    if(!Number.isSafeInteger(sequence)||sequence<1||sequence>MAX_FRAMES)
+  async function readOriginalPublishedFrame({sequence,includePresentEventAnchor=false}={}){
+    if(typeof includePresentEventAnchor!=='boolean'||!Number.isSafeInteger(sequence)||sequence<1||sequence>MAX_FRAMES)
       fail('PUBLICATION_SEQUENCE_INVALID');
     const ctx=await context(),current=await read(ctx),entry=current.entries[sequence-1];
     if(entry?.state!=='PRESENT')fail('PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT');
@@ -998,10 +1007,15 @@ export function createT4OriginalNetworkPublicationPort({
     await verifyFrame(ctx,entry,'outbound-proof-after-network');
     const after=await read(ctx);
     if(after.revision!==current.revision||after.chainHash!==current.chainHash||
-      !same(after.entries[sequence-1],entry))fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+      !same(after.entries[sequence-1],entry)||
+      !same(after.presentEvents[sequence-1],current.presentEvents[sequence-1]))fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+    const anchor=current.presentEvents[sequence-1];
+    if(!anchor)fail('PUBLICATION_ORIGINAL_PRESENT_EVENT_REQUIRED');
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1',
       key,sha256:entry.sha256,checkpointRef,originalPublicationRevision:current.revision,
       originalPublicationChainHash:current.chainHash,
+      ...(includePresentEventAnchor?{originalPresentEventId:anchor.eventId,originalPresentRevision:anchor.revision,
+        originalPresentChainHash:anchor.chainHash}:{}),
       signedMessageType:frame.messageType,verifiedMessageId:frame.messageId,
       verifiedSourceNodeRef:frame.sourceNodeRef,verifiedRecipientNodeRef:frame.recipientNodeRef,
       verifiedScopeRef:frame.scopeRef,verifiedSessionRef:frame.sessionRef,

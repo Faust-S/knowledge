@@ -1091,7 +1091,7 @@ test('K58 source accepts successor DIFF only with exact independently verified P
     authorizeOriginalReplacementDiffAcceptance:async proof=>proof.originalRecipientDiffPublicationVerified===true&&
       proof.originalSubjectMutationAllowed===false};
   const accept=(patch={})=>discoverT4OriginalReplacementRecipientDiff({...options,...patch});
-  assert.equal((await accept()).state,'WAITING_FOR_REPLACEMENT_DIFF');
+  assert.equal((await accept({readOriginalReplacementRecipientAdmission:async()=>{throw Error('peer witness must not be read before DIFF');}})).state,'WAITING_FOR_REPLACEMENT_DIFF');
   const published=await x.publishReplacementDiff(phase);
   const signs=x.signatureCount(),puts=x.counts().networkPuts,sourcePhase=x.sourcePhaseWrites(),recipientPhase=x.phaseWrites();
   const pending=await accept({recipientPublicationPort:{...recipientPublicationPort,readOriginalPublishedFrame:async()=>{
@@ -1107,6 +1107,18 @@ test('K58 source accepts successor DIFF only with exact independently verified P
   assert.equal(accepted.state,'ORIGINAL_REPLACEMENT_DIFF_VERIFIED');assert.equal(accepted.diffSha256,published.sha256);
   assert.equal(accepted.originalRecipientPublicationCheckpointRef,published.originalPublicationCheckpointRef);
   assert.equal(accepted.originalSourceAdmissionEventId,admitted.originalReplacementAdmissionEventId);
+  assert.equal(accepted.originalSourceHeadPresentRevision,admitted.admission.publicationRevision);
+  assert.equal(accepted.originalSourceHeadPresentChainHash,admitted.admission.publicationChainHash);
+  assert.equal(accepted.originalSourceAdmissionChainHash,admitted.chainHash);
+  assert.ok(accepted.originalSourceHeadPresentEventId);assert.ok(accepted.originalRecipientDiffPresentEventId);
+  await assert.rejects(accept({sourcePublicationPort:{...sourcePublicationPort,readOriginalPublishedFrame:async p=>({
+    ...await sourcePublicationPort.readOriginalPublishedFrame(p),originalPresentChainHash:'sha256:'+'f'.repeat(64)})}}),
+    isCode('REPLACEMENT_SOURCE_DIFF_ORIGINAL_PUBLICATION_MISMATCH'));
+  const extended=await accept({sourcePublicationPort:{...sourcePublicationPort,readOriginalPublishedFrame:async p=>{
+    const proof=await sourcePublicationPort.readOriginalPublishedFrame(p);
+    return {...proof,originalPublicationRevision:proof.originalPublicationRevision+3,originalPublicationChainHash:'sha256:'+'f'.repeat(64)};
+  }}});
+  assert.deepEqual(extended,accepted);
   assert.equal(accepted.originalRecipientDiffPublicationVerified,true);
   assert.equal(accepted.originalContentTransferStillRequired,true);assert.equal(accepted.liveNetworkAuthorityGranted,false);
   assert.equal(accepted.originalSubjectMutationInvoked,false);

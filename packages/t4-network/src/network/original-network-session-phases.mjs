@@ -363,8 +363,10 @@ export function createT4OriginalNetworkSessionPhasePort({
       e.originalSourceCaptureVerified!==true||e.originalAcceptedAppliedAckAbsent!==true||
       e.originalNewAttemptAdmissionStillRequired!==true||e.liveNetworkAuthorityGranted!==false||
       h?.schema!=='IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1'||h.key!==replacement.headKey||h.sha256!==replacement.headSha256||
-      h.checkpointRef!==replacement.publicationRef||h.originalPublicationRevision!==replacement.publicationRevision||
-      h.originalPublicationChainHash!==replacement.publicationChainHash||h.signedMessageType!=='HEADS'||
+      h.checkpointRef!==replacement.publicationRef||!ID(h.originalPresentEventId)||
+      h.originalPresentRevision!==replacement.publicationRevision||h.originalPresentChainHash!==replacement.publicationChainHash||
+      !Number.isSafeInteger(h.originalPublicationRevision)||h.originalPublicationRevision<h.originalPresentRevision||
+      !HASH(h.originalPublicationChainHash)||(h.originalPublicationRevision===h.originalPresentRevision&&h.originalPublicationChainHash!==h.originalPresentChainHash)||h.signedMessageType!=='HEADS'||
       h.verifiedSequence!==1||h.verifiedSessionRef!==sessionRef||h.verifiedSourceNodeRef!==sourceNodeRef||
       h.verifiedRecipientNodeRef!==recipientNodeRef||h.verifiedScopeRef!==scopeRef||h.verifiedOwnerEpoch!==ownerEpoch||
       !eq(h.verifiedBody?.replacement,replacement.binding)||
