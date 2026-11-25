@@ -1,0 +1,11 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d06-t3-release-gate",
+  "prepared": "56cd40ec99de6a992e1d0962e6b6b9fed2514342",
+  "owner": "8471dca0037328dfee8689632df9c27866e89845",
+  "site": "8ee1f93603c95738333bc1489d68816ead870893",
+  "retention": "be7e994af3aba9837d6ee2c3ce17373e47dd1cdc",
+  "profile": "production-build-then-retention",
+  "priorRun": 45685687719,
+  "reason": "Qualify final production build independently of private write authorization"
+}
