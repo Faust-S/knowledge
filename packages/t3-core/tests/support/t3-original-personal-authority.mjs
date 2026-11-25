@@ -42,6 +42,10 @@ const PERSONAL_ACTIONS=Object.freeze({
   "t4.network.frame.index.publish":"t4.network.frame.index.publish",
   "t4.network.node.sign":"t4.network.node.sign",
   "t4.network.node.verify":"t4.network.node.verify",
+  "t4.network.original.replacement.owner.read-history":"t4.network.original.replacement.owner.read-history",
+  "t4.network.original.replacement.peer.read-history":"t4.network.original.replacement.peer.read-history",
+  "t4.network.original.source.owner.read-window":"t4.network.original.source.owner.read-window",
+  "t4.network.original.source.peer.read-window":"t4.network.original.source.peer.read-window",
 });
 function createSigner(name,subject,uses,now){
   const {publicKey,privateKey}=generateKeyPairSync("ed25519");

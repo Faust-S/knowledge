@@ -20,7 +20,9 @@ const SHA=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const fail=code=>{throw Object.assign(Error(code),{code});};
 const RESPONSE='IWXA_T4_ORIGINAL_REPLACEMENT_OWNER_CALL_RESULT_V1';
-const clients=new WeakSet();
+const clients=new WeakSet(),servers=new WeakMap();
+export const isT4OriginalReplacementHistoryServerForPeerContext=(server,readOriginalPeerContext)=>
+  typeof server==='function'&&typeof readOriginalPeerContext==='function'&&servers.get(server)===readOriginalPeerContext;
 export const isT4OriginalReplacementHistoryClient=p=>typeof p==='function'&&clients.has(p);
 const REQUEST_LIMIT=32768,RESPONSE_LIMIT=4*1024*1024,FRAME_LIMIT=32768,BATCH_LIMIT=1024*1024;
 function exactKeys(v,keys){return v&&typeof v==='object'&&!Array.isArray(v)&&
@@ -155,10 +157,12 @@ export function createT4OriginalReplacementHistoryClient({invokeOriginalPeerHist
 export function createT4OriginalReplacementHistoryServer({readOriginalReplacementOwnerHistory,...ports}={}){
   if(typeof readOriginalReplacementOwnerHistory!=='function')fail('REPLACEMENT_HISTORY_CARRIER_PORTS_REQUIRED');
   const c=connection(ports);
-  return async bytes=>{
+  const server=async bytes=>{
     const r=c.route(decodeT4OriginalReplacementHistoryRequest(bytes),true),prior=await c.read();
     const result=encodeT4OriginalReplacementHistoryResponse(await readOriginalReplacementOwnerHistory({request:r,peerContext:{nodeRef:prior.nodeRef,
       originalPeerSessionRef:prior.originalPeerSessionRef,contextEpoch:prior.contextEpoch}}),r);
     await c.unchanged(prior);return result;
   };
+  Object.defineProperty(server,'identity',{value:c.identity,enumerable:true});
+  servers.set(server,ports.readOriginalPeerContext);return Object.freeze(server);
 }

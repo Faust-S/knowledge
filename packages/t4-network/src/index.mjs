@@ -35,3 +35,5 @@ export * from './network/original-vault-sealed-content.mjs';
 export * from './network/original-network-session-supersession.mjs';
 
 export * from './network/original-native-host-network-profile.mjs';
+
+export * from './network/original-peer-history-tls-connection.mjs';

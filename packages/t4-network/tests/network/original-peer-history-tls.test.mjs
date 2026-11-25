@@ -1,0 +1,157 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {execFileSync} from 'node:child_process';
+import {createServer,connect} from 'node:tls';
+import {once} from 'node:events';
+import {createHash,X509Certificate} from 'node:crypto';
+import {createT4OriginalPeerHistoryTlsConnection,T4_ORIGINAL_PEER_HISTORY_TLS_ALPN}
+  from '../../src/network/original-peer-history-tls-connection.mjs';
+import {createT4OriginalReplacementHistoryClient,createT4OriginalReplacementHistoryServer,
+  encodeT4OriginalReplacementHistoryRequest} from '../../src/network/original-replacement-owner-history-carrier.mjs';
+import {createT4OriginalReplacementOwnerEligibilityRequest} from '../../src/network/original-network-replacement-owner-eligibility.mjs';
+import {createT4OriginalSourceEventWindowRequest,readT4OriginalSourceEventWindow,T4_SOURCE_EVENT_WINDOW_OWNER_ACTION,T4_SOURCE_EVENT_WINDOW_PEER_ACTION}
+  from '../../src/network/original-source-event-window.mjs';
+import {readT4OriginalEventWindow} from '../../src/network/original-event-window.mjs';
+import {deriveT4OriginalNativeCaptureSession} from '../../src/network/original-network-publication.mjs';
+import {createT4OriginalSignedReplacementHistoryAccess} from '../../src/network/original-signed-replacement-history-access.mjs';
+import {createTemporaryOriginalPersonalAuthority} from '../../../t3-core/tests/support/t3-original-personal-authority.mjs';
+
+const sha=b=>createHash('sha256').update(b).digest('hex'),allow=async()=>true;
+const workspaceId='ws:k99:business',originalWriteOwnerRef='owner:k99',scopeRef='scope:k99',ownerEpoch=2,
+  A='node:k99:a',B='node:k99:b',technicalWorkspaceId='ws:k99:technical';
+const common={workspaceId,originalWriteOwnerRef,scopeRef,ownerEpoch,getMode:()=> 'T4_NETWORK'};
+const route=(localNodeRef,peerNodeRef)=>({...common,localNodeRef,peerNodeRef});
+const defer=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
+
+async function credentials(root){
+  const openssl=(...args)=>execFileSync('openssl',args,{cwd:root,stdio:'pipe'});
+  openssl('req','-x509','-newkey','ed25519','-nodes','-days','1','-keyout','ca.key','-out','ca.pem',
+    '-subj','/CN=IWXA K99 ephemeral qualification CA','-addext','basicConstraints=critical,CA:TRUE','-addext','keyUsage=critical,keyCertSign,cRLSign');
+  await writeFile(join(root,'leaf.ext'),'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth,clientAuth\nsubjectAltName=DNS:localhost\n');
+  for(const [name,serial] of [['a','1'],['b','2']]){
+    openssl('req','-newkey','ed25519','-nodes','-keyout',name+'.key','-out',name+'.csr','-subj','/CN=IWXA K99 test peer '+name);
+    openssl('x509','-req','-in',name+'.csr','-CA','ca.pem','-CAkey','ca.key','-set_serial',serial,'-days','1','-extfile','leaf.ext','-out',name+'.pem');
+  }
+  const read=path=>readFile(join(root,path)),ca=await read('ca.pem');
+  const load=async n=>{const cert=await read(n+'.pem');return {cert,key:await read(n+'.key'),ca,pin:sha(new X509Certificate(cert).raw)};};
+  return {a:await load('a'),b:await load('b')};
+}
+async function pair(keys){
+  const tls={minVersion:'TLSv1.3',maxVersion:'TLSv1.3',ALPNProtocols:[T4_ORIGINAL_PEER_HISTORY_TLS_ALPN],rejectUnauthorized:true};
+  const listener=createServer({...keys.a,...tls,requestCert:true});
+  await new Promise((resolve,reject)=>{listener.once('error',reject);listener.listen(0,'127.0.0.1',resolve);});
+  const accepting=once(listener,'secureConnection');
+  const b=connect({...keys.b,...tls,host:'127.0.0.1',port:listener.address().port,servername:'localhost'});
+  try{
+    const [[a]]=await Promise.all([accepting,once(b,'secureConnect')]);
+    return {a,b,async close(){a.destroy();b.destroy();await new Promise(resolve=>listener.close(resolve));}};
+  }catch(error){b.destroy();listener.close();throw error;}
+}
+async function captureFixture(){
+  const event=(id,revision)=>({event_id:id,workspace_id:workspaceId,object_id:'object:k99',revision,
+    event_type:'business.object.changed',service_id:'service:k99',occurred_at:'2026-11-25T10:00:00Z',payload:{private:'K99 never transmit Event payload'}});
+  const events=[event('event:k99:baseline',1),event('event:k99:change',2)];
+  const read=cursor=>readT4OriginalEventWindow({workspaceId,originalWriteOwnerRef,maxEvents:1,cursor,
+    authorizeOriginalRead:allow,readOriginalEvents:async()=>events});
+  const before=(await read(null)).nextCursor,{window,nextCursor}=await read(before),content=Buffer.from('captured canonical fixture');
+  const capture={kind:'OBJECT_PUT',captureRef:'capture:k99',workspaceId,originalWriteOwnerRef,sourceEventId:window.lastEventId,sourceRevision:2,
+    originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,sourceWindow:window,
+    prepared:{bytes:new Uint8Array(content),sha256:sha(content),delta:{sourceEventId:window.lastEventId,sourceRevision:2,
+      sourceEventDigest:window.eventRefs[0].eventDigest,windowDigest:window.windowDigest}}};
+  const session=deriveT4OriginalNativeCaptureSession({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',state:'ORIGINAL_NATIVE_CAPTURE_READY',
+    workspaceId,originalWriteOwnerRef,sourceNodeRef:A,recipientNodeRef:B,scopeRef,ownerEpoch,networkTargetRef:B,
+    networkPublished:false,sourceCursorAdvanced:false,originalRecipientApplied:false,sourceCursorBefore:before,sourceCursorAfter:nextCursor,capture});
+  const selected={schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SELECTION_V1',state:'ORIGINAL_NATIVE_SESSION_SELECTED',session,
+    sourceCursorBefore:before,sourceCursorAfter:nextCursor,sourceWindow:window,originalCaptureEvidenceVerified:true,
+    originalSourceOwnerReadVerified:true,originalSourceCursorAdvanced:false,originalNetworkPublished:false,
+    originalSubjectMutationInvoked:false,capturedPlaintextReturned:false};
+  return {session,before,selected,request:createT4OriginalSourceEventWindowRequest({session,sourceCursorBefore:before,requesterNodeRef:B,ownerNodeRef:A})};
+}
+
+test('K99 mutual TLS carries the existing bounded owner history call, not Kernel authority or Event payload',{timeout:30000},async()=>{
+  const root=await mkdtemp(join(tmpdir(),'iwxa-t4-k99-'));let sockets=null;
+  try{
+    const keys=await credentials(root),f=await captureFixture();sockets=await pair(keys);
+    let admittedA=true,admittedB=true,ownerReads=0,hold=null;
+    const oldPeer='t4.network.original.replacement.peer.read-history',oldOwner='t4.network.original.replacement.owner.read-history';
+    const authorityA=createTemporaryOriginalPersonalAuthority({workspaceId,clock:Date.now,purpose:'network.synchronization',
+      operations:[T4_SOURCE_EVENT_WINDOW_OWNER_ACTION,oldPeer]}),
+      authorityB=createTemporaryOriginalPersonalAuthority({workspaceId,clock:Date.now,purpose:'network.synchronization',
+      operations:[T4_SOURCE_EVENT_WINDOW_PEER_ACTION,oldOwner]});
+    const signed=(f,localNodeRef)=>createT4OriginalSignedReplacementHistoryAccess({...common,technicalWorkspaceId,
+      sourceNodeRef:A,recipientNodeRef:B,localNodeRef,access:f.access,expectedContext:f.access.currentContext(),
+      enableOriginalEligibilityRead:true,enableOriginalSourceWindowRead:true});
+    const accessA=signed(authorityA,A),accessB=signed(authorityB,B);
+    const setup=(socket,local,peer,localPin,peerPin,admitted)=>({...route(local,peer),socket,contextEpoch:7,
+      localCertificateSha256:localPin,peerCertificateSha256:peerPin,isOriginalHostActive:()=>true,
+      authorizeOriginalPeerConnection:p=>admitted()&&p.originalTransportGrantsNoSubjectAuthority===true&&
+        p.localNodeRef===local&&p.peerNodeRef===peer&&p.peerCertificateSha256===peerPin});
+    const configA=setup(sockets.a,A,B,keys.a.pin,keys.b.pin,()=>admittedA),configB=setup(sockets.b,B,A,keys.b.pin,keys.a.pin,()=>admittedB);
+    assert.throws(()=>createT4OriginalPeerHistoryTlsConnection({...configA,peerCertificateSha256:'0'.repeat(64)}),{code:'ORIGINAL_PEER_TLS_CERTIFICATE_MISMATCH'});
+    const a=createT4OriginalPeerHistoryTlsConnection(configA),b=createT4OriginalPeerHistoryTlsConnection(configB);
+    assert.equal(a.readOriginalPeerContext().nodeRef,B);assert.equal(b.readOriginalPeerContext().nodeRef,A);
+    assert.equal(a.readOriginalPeerContext().originalPeerSessionRef,b.readOriginalPeerContext().originalPeerSessionRef);
+    const serverA=createT4OriginalReplacementHistoryServer({...route(A,B),readOriginalPeerContext:a.readOriginalPeerContext,
+      readOriginalReplacementOwnerHistory:async({request,peerContext})=>{
+        ownerReads++;assert.equal(peerContext.nodeRef,B);assert.equal(peerContext.originalPeerSessionRef,a.readOriginalPeerContext().originalPeerSessionRef);
+        if(hold){hold.entered.resolve();await hold.release.promise;}
+        if(request.schema!==f.request.schema)return null;
+        return readT4OriginalSourceEventWindow({request,technicalWorkspaceId,getMode:common.getMode,
+          readOriginalHostContext:async()=>({workspaceId:technicalWorkspaceId,originalWriteOwnerRef,nodeRef:A,scopeRef,hostSessionRef:'host:k99:a'}),
+          authorizeOriginalOwnerHistoryRead:accessA.authorizeOwner,readOriginalCaptureSelection:async()=>f.selected});
+      }});
+    const serverB=createT4OriginalReplacementHistoryServer({...route(B,A),readOriginalPeerContext:b.readOriginalPeerContext,
+      readOriginalReplacementOwnerHistory:async({peerContext})=>{assert.equal(peerContext.nodeRef,A);return null;}});
+    const fake=createT4OriginalReplacementHistoryServer({...route(A,B),readOriginalPeerContext:()=>a.readOriginalPeerContext(),
+      readOriginalReplacementOwnerHistory:async()=>null});
+    assert.throws(()=>a.bindReceiver(fake),{code:'ORIGINAL_PEER_TLS_RECEIVER_INVALID'});
+    a.bindReceiver(serverA);b.bindReceiver(serverB);
+    const clientA=createT4OriginalReplacementHistoryClient({...route(A,B),readOriginalPeerContext:a.readOriginalPeerContext,
+      invokeOriginalPeerHistory:a.invokeOriginalPeerHistory}),clientB=createT4OriginalReplacementHistoryClient({...route(B,A),
+      readOriginalPeerContext:b.readOriginalPeerContext,invokeOriginalPeerHistory:b.invokeOriginalPeerHistory});
+    const eligible=createT4OriginalReplacementOwnerEligibilityRequest({session:f.session,sourceCursorBefore:f.before,requesterNodeRef:A,ownerNodeRef:B});
+    const read=async(client,access,operation,request)=>{
+      const proof={operation,request,originalIndependentOwnerReadRequired:true,originalSubjectMutationAllowed:false,originalFrameRetryAllowed:false};
+      await access.authorizePeer({...proof,stage:'before'});
+      const result=await client(request);
+      await access.authorizePeer({...proof,stage:'after'});return result;
+    };
+    const project=()=>read(clientB,accessB,T4_SOURCE_EVENT_WINDOW_PEER_ACTION,f.request);
+    const [snapshot,busy]=await Promise.all([project(),read(clientA,accessA,oldPeer,eligible)]);
+    assert.equal(busy,null);assert.equal(snapshot.originalCaptureEvidenceVerified,true);assert.equal(snapshot.originalEventPayloadReturned,false);
+    assert.deepEqual(snapshot.nextCursor,f.selected.sourceCursorAfter);assert.equal(snapshot.window.eventRefs[0].eventDigest,f.session.sourceEventDigest);
+    assert.equal(JSON.stringify(snapshot).includes('never transmit'),false);assert.equal(ownerReads,1);
+    assert.ok(authorityA.proofCount>=4&&authorityA.registryReads===authorityA.proofCount);
+    assert.ok(authorityB.proofCount>=2&&authorityB.registryReads===authorityB.proofCount);
+    const prior=b.readOriginalPeerContext();
+    await assert.rejects(b.invokeOriginalPeerHistory({requestBytes:encodeT4OriginalReplacementHistoryRequest(f.request),
+      originalPeerContext:{...prior,originalPeerSessionRef:'forged:peer'}}),{code:'ORIGINAL_PEER_TLS_REQUEST_INVALID'});
+    assert.equal(ownerReads,1);
+    // The owner can be busy. Never queue an unbounded second outgoing call;
+    // revocation while reading must also suppress its response.
+    hold={entered:defer(),release:defer()};const pending=project();await hold.entered.promise;
+    await assert.rejects(clientB(f.request),{code:'ORIGINAL_PEER_TLS_REQUEST_SLOT_UNAVAILABLE'});
+    const refused=assert.rejects(pending,{code:'ORIGINAL_PEER_TLS_TRANSPORT_LOST'});
+    authorityA.revoke();hold.release.resolve();await refused;
+    assert.equal(ownerReads,2);assert.throws(()=>b.readOriginalPeerContext(),{code:'ORIGINAL_PEER_TLS_ADMISSION_DENIED'});
+    a.close();b.close();await sockets.close();sockets=null;
+    // Another authenticated TLS session cannot inherit the old connection
+    // identity, and a malicious peer cannot allocate an oversized body.
+    sockets=await pair(keys);admittedA=true;const second=createT4OriginalPeerHistoryTlsConnection(setup(sockets.a,A,B,keys.a.pin,keys.b.pin,()=>admittedA));
+    assert.notEqual(second.readOriginalPeerContext().originalPeerSessionRef,prior.originalPeerSessionRef);
+    second.bindReceiver(createT4OriginalReplacementHistoryServer({...route(A,B),readOriginalPeerContext:second.readOriginalPeerContext,
+      readOriginalReplacementOwnerHistory:async()=>{ownerReads++;return null;}}));
+    const end=once(sockets.b,'close'),oversize=Buffer.alloc(5);oversize[0]=1;oversize.writeUInt32BE(32769,1);sockets.b.write(oversize);
+    await end;assert.equal(ownerReads,2);second.close();await sockets.close();sockets=null;
+    // An original owner may revoke the connection independently of its
+    // signed action grant. A still-valid TLS certificate is not admission.
+    sockets=await pair(keys);admittedA=true;const third=createT4OriginalPeerHistoryTlsConnection(setup(sockets.a,A,B,keys.a.pin,keys.b.pin,()=>admittedA));
+    admittedA=false;assert.throws(()=>third.readOriginalPeerContext(),{code:'ORIGINAL_PEER_TLS_ADMISSION_DENIED'});third.close();
+    console.log('T4_K99_MUTUAL_TLS_ORIGINAL_OWNER_CARRIER_PASS',JSON.stringify({actualTls13:true,mutualCertificateVerification:true,
+      exactPinnedCertificates:true,duplexOriginalCalls:true,signedOriginalOwnerAndPeerActions:true,rawEventPayloadReturned:false,revocationDuringReadDenied:true,transportAdmissionRevoked:true,
+      oversizedFrameDenied:true,independentInstalledHosts:false}));
+  }finally{await sockets?.close();await rm(root,{recursive:true,force:true});}
+});

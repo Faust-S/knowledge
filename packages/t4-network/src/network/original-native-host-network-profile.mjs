@@ -4,6 +4,7 @@ import {createT4OriginalVaultNodeSignaturePort} from './original-vault-node-sign
 import {createT4OriginalVaultSealedContentPort} from './original-vault-sealed-content.mjs';
 import {createT4OriginalSignedReplacementHistoryAccess} from './original-signed-replacement-history-access.mjs';
 import {createT4OriginalReplacementHistoryClient,createT4OriginalReplacementHistoryServer} from './original-replacement-owner-history-carrier.mjs';
+import {isT4OriginalPeerHistoryTlsConnection} from './original-peer-history-tls-connection.mjs';
 import {isOriginalKernelNativeRelayForNetworkOwner} from '../../../t3-core/src/t3/original-kernel-native-relay.mjs';
 
 const fail=code=>{throw Object.assign(Error(code),{code,outcome:'DENIED'});};
@@ -43,6 +44,9 @@ export function createT4OriginalNativeHostNetworkProfile({
     getAuthorizationHeader,verifyOriginalOwnerAgreement,fetchImpl,maxBytes,timeoutMs}=originalTopology;
   const {readOriginalPeerContext,invokeOriginalPeerHistory}=originalPeerHistory;
   const carrier={...common,localNodeRef,peerNodeRef,readOriginalPeerContext};
+  const tlsPeer=isT4OriginalPeerHistoryTlsConnection(originalPeerHistory);
+  if(tlsPeer&&['workspaceId','originalWriteOwnerRef','scopeRef','ownerEpoch','localNodeRef','peerNodeRef'].some(k=>originalPeerHistory.identity[k]!==carrier[k]))
+    fail('NATIVE_NETWORK_PROFILE_ORIGINAL_PEER_MISMATCH');
   try{
     const signature=createT4OriginalVaultNodeSignaturePort({...keys,localNodeRef,remoteNodeRef:peerNodeRef,
       localKeyRef,remoteKeyRef,readEncryptedVault,unlockPassphrase,requireDurableNetworkKeyBinding:true});
@@ -65,7 +69,7 @@ export function createT4OriginalNativeHostNetworkProfile({
       enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:true,enableSourceEventWindowRead,
       enableReplacementSourceAdmission:source,enableReplacementSourceContent:source,enableReplacementSourceAckConfirmation:source,
       enableReplacementRecipientAdmission:!source,enableReplacementRecipientContent:!source,enableReplacementRecipientApply:!source});
-    const close=()=>{if(closed)return;closed=true;transport.close();};
+    const close=()=>{if(closed)return;closed=true;try{transport.close();}finally{if(tlsPeer)originalPeerHistory.close();}};
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_NATIVE_HOST_NETWORK_PROFILE_V1',role,networkOwner,
       // This receiver is installed on the original authenticated peer channel,
       // never as a browser relay verb or a new network service. The relay
@@ -73,8 +77,10 @@ export function createT4OriginalNativeHostNetworkProfile({
       bindOriginalPeerHistoryReceiver(relay){
         if(closed||!isOriginalKernelNativeRelayForNetworkOwner(relay,networkOwner)||
           typeof relay.readOriginalReplacementOwnerHistory!=='function')fail('NATIVE_NETWORK_PROFILE_ORIGINAL_RELAY_REQUIRED');
-        return createT4OriginalReplacementHistoryServer({...carrier,
+        const receiver=createT4OriginalReplacementHistoryServer({...carrier,
           readOriginalReplacementOwnerHistory:input=>relay.readOriginalReplacementOwnerHistory(input)});
+        if(tlsPeer)originalPeerHistory.bindReceiver(receiver);
+        return receiver;
       },close});
-  }catch(error){closed=true;transport?.close();throw error;}
+  }catch(error){closed=true;try{transport?.close();}finally{if(tlsPeer)originalPeerHistory.close();}throw error;}
 }
