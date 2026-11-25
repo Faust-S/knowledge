@@ -1,0 +1,45 @@
+{
+  "schema": "IWXA_D05_T3_GROUNDED_ADVICE_SOURCE_RECEIPT/1",
+  "runId": 45638140508,
+  "linuxJobId": 139289056262,
+  "siteCommit": "7b384b7274f99ad702a75ad3e21f2e3460dccdcc",
+  "witnessCommit": "577596aa0a0415a5130234571993a0a0e82b89b5",
+  "assistantCommit": "ea8ee8ced6bd649274163a3b26a5b3c476409cca",
+  "subjectCommit": "447df292f2bbe7cc87ac17192853b0c1751895c6",
+  "skillsVersion": "1.5.0",
+  "commonAssistantTests": {
+    "passed": 80,
+    "total": 80
+  },
+  "subjectTests": {
+    "passed": 1565,
+    "total": 1565
+  },
+  "fieldPolicyTests": {
+    "passed": 35,
+    "total": 35
+  },
+  "nativeContexts": true,
+  "types": true,
+  "bindings": true,
+  "existingModule": true,
+  "sourceGate": "FAIL",
+  "failure": "FORMAT_ONLY",
+  "formatterErrors": 3,
+  "correctedFiles": [
+    {
+      "path": "scripts/cehovod-assistant-skills.test.mjs",
+      "edits": 6,
+      "sha256": "afeaf9979e5a4871ab1363bd4bc09715d1edb0c10197e6f25e68147dc0a4b632"
+    },
+    {
+      "path": "scripts/check-t3-assistant-browser.ts",
+      "edits": 1,
+      "sha256": "cfc499ef1279328f5993efabc4d8bffe94617cdf35b9db5d91cf3bf93b179fd9"
+    }
+  ],
+  "correctedSiteCommit": "91ea34a35e574dbc60c18d130140b8d0056f67e1",
+  "correctedWitnessCommit": "8fd3441145d549c276aca316ad7ed80a85eb8888",
+  "hardware": "NOT_RUN",
+  "productAccepted": false
+}

@@ -1,15 +1,16 @@
 {
   "schema": "IWXA_D05_T3_GROUNDED_ADVICE_QUALIFICATION_REQUEST/1",
-  "siteCommit": "7b384b7274f99ad702a75ad3e21f2e3460dccdcc",
+  "siteCommit": "91ea34a35e574dbc60c18d130140b8d0056f67e1",
   "subjectCommit": "447df292f2bbe7cc87ac17192853b0c1751895c6",
   "assistantCommit": "ea8ee8ced6bd649274163a3b26a5b3c476409cca",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
-  "witnessCommit": "577596aa0a0415a5130234571993a0a0e82b89b5",
+  "witnessCommit": "8fd3441145d549c276aca316ad7ed80a85eb8888",
   "evaluatorCommit": "677f845b1920c12ff7ba1125e7ed36f115f96c22",
   "skillsVersion": "1.5.0",
   "profile": "light",
-  "reason": "Qualify source-grounded next-step selection across four actual online and cold offline scenarios; keep 1.4.1 qualification and prior release criteria separate.",
-  "previousRunId": 45633634092,
+  "reason": "Repeat only targeted 1.5.0 qualification after exact formatter corrections in two test files; the previous Linux source regression passed except layout lint.",
+  "previousRunId": 45638140508,
   "fullRelease": false,
-  "productAccepted": false
+  "productAccepted": false,
+  "formatterOnly": true
 }
