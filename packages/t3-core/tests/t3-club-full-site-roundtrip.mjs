@@ -680,6 +680,7 @@ try{
  check(await proofForm.locator("[data-club-proof-source]").inputValue()===goalId,"ASSESSMENT_EXACT_SOURCE");
  check(await proofForm.locator('[name="goalAssessment"]').inputValue()===""&&await proofForm.locator('[name="basis"]').inputValue()==="","ASSESSMENT_NO_IMPLICIT_DECISION");
  check((await proofForm.locator("[data-club-proof-source-note]").textContent()).includes("Проверена комплектность"),"ASSESSMENT_ORIGINAL_CRITERION");
+ check((await proofForm.locator("[data-club-proof-source-note]").textContent()).includes("Есть набор для начала практики"),"ASSESSMENT_ORIGINAL_EXPECTED_RESULT");
  check(!(await localProof()),"ASSESSMENT_OPEN_NO_WRITE");
  await proofForm.locator('[name="goalAssessment"]').selectOption("partial");
  for(const [key,value] of Object.entries({result:proofResult,basis:proofBasis,check:proofCheck}))
@@ -1432,6 +1433,17 @@ try{
  }
  await restoreAssessment("ASSESSMENT_COLD");
  log("OFFLINE_GOAL_ASSESSMENT_EXACT_SOURCE_REOPEN");
+ phase="OFFLINE_GOAL_REVIEW_NEW_ASSESSMENT_CONTEXT";
+ await visit(page,"/projects/?workspace_id="+encodeURIComponent(base.scope)+"&club_goal="+encodeURIComponent(goalId)+"#club-goal-map");
+ const reviewBefore=await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"));
+ await page.locator("[data-club-goal-list]").getByRole("button",{name:"Оценить результат",exact:true}).click();
+ await proofForm.waitFor({state:"visible"});
+ const reviewNote=await proofForm.locator("[data-club-proof-source-note]").textContent();
+ check(reviewNote.includes("Предыдущий записанный результат: "+proofResult)&&reviewNote.includes("Проверена комплектность"),"GOAL_REVIEW_PREVIOUS_RESULT_AND_CRITERION");
+ check(await proofForm.locator('[name="result"]').inputValue()===""&&await proofForm.locator('[name="basis"]').inputValue()===""&&
+  await proofForm.locator('[name="goalAssessment"]').inputValue()==="","GOAL_REVIEW_NEW_ASSESSMENT_NOT_COPIED");
+ check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===reviewBefore,"GOAL_REVIEW_NEW_ASSESSMENT_NO_WRITE");
+ log("OFFLINE_GOAL_REVIEW_PREVIOUS_RESULT_CONTEXT");
  async function changeGoalState(status,reason,reviewDate=null){
   phase="OFFLINE_GOAL_LIFECYCLE_"+status.toUpperCase();
   await visit(page,"/projects/?workspace_id="+encodeURIComponent(base.scope)+"&club_goal="+encodeURIComponent(goalId)+"#club-goal-map");
@@ -1453,6 +1465,18 @@ try{
   check(history.at(-1).previousUpdatedAt===before.updatedAt&&history.at(-1).recordedAt===changed.updatedAt&&changed.data.updatedAt===changed.updatedAt,"LIFECYCLE_EXACT_REVISION_CHAIN");
   check(JSON.stringify(await localProof())===JSON.stringify(oldProof),"LIFECYCLE_DOES_NOT_REWRITE_PROOF");
   await poll(async()=>(await page.locator("[data-club-goal-list]").textContent()).includes("По моей оценке: достигнута частично"),"LIFECYCLE_ASSESSMENT_STILL_APPLIES");
+  if(status==="deferred"){
+   const beforeFilter=await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"));
+   const filter=page.locator("[data-club-goal-filter]");
+   await filter.selectOption("attention");
+   const panel=page.locator("[data-club-goal-list]"),reason=panel.locator("[data-club-goal-review-issues]");
+   check(await panel.getByRole("heading",{name:goalTitle,exact:true}).count()===1,"GOAL_REVIEW_FILTER_EXACT_GOAL");
+   check(await reason.evaluate(el=>el.open)&&
+    (await reason.textContent()).includes("Наступила выбранная дата возврата: "+reviewDate),"GOAL_REVIEW_FILTER_EXPLICIT_DATE");
+   await filter.selectOption("all");
+   check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===beforeFilter,"GOAL_REVIEW_FILTER_NO_WRITE");
+   log("OFFLINE_GOAL_REVIEW_FILTER_EXPLICIT_DATE");
+  }
   const saveLink=page.locator("[data-club-goal-list]").getByRole("link",{name:"Сохранить в IWXA",exact:true});
   await saveLink.click();
   const card=page.getByTestId("club-t0-import-card");
@@ -1468,7 +1492,7 @@ try{
   await save.click();
   await poll(async()=>{const g=await localGoal();return g?.objectId===goalId&&g.kernelSource?.revision===before.kernelSource.revision+1&&g.kernelSource.syncedUpdatedAt===g.updatedAt&&g.data.goalLifecycle.status===status},"LIFECYCLE_KERNEL_RECEIPT");
  }
- await changeGoalState("deferred","Сначала завершить текущие обязательства",dates.future);
+ await changeGoalState("deferred","Сначала завершить текущие обязательства",dates.today);
  await changeGoalState("active","Появилось время для пересмотра результата");
  await changeGoalState("completed","Завершаю работу с частично достигнутым результатом");
  const lifecycleBeforeExport=(await localGoal()).data.goalLifecycle;
@@ -1481,6 +1505,19 @@ try{
  await poll(async()=>(await lifecycleCold.getByTestId("club-native-goal-lifecycle").textContent()).includes("Завершена"),"LIFECYCLE_COLD_STATE");
  check((await lifecycleCold.getByTestId("club-native-goal-assessment").textContent()).includes("достигнута частично"),"LIFECYCLE_COLD_PARTIAL_ASSESSMENT");
  check((await lifecycleCold.textContent()).includes("Записано времени по делам: 110 мин.")&&/Расходы: 17[\s\u00a0]000/.test(await lifecycleCold.textContent()),"LIFECYCLE_COLD_FACTS_PRESERVED");
+ async function verifyGoalReview(prefix,panel){
+  phase=prefix;
+  const before=await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"));
+  await poll(async()=>(await panel.getByTestId("club-native-goal-review-count").textContent()).includes("К проверке по сохранённым записям: 1"),prefix+"_COUNT");
+  const detail=panel.getByTestId("club-native-goal-review");
+  if(!await detail.evaluate(el=>el.open))await detail.locator(":scope > summary").click();
+  check((await detail.textContent()).includes("Остались обязательства: дел 0, денежных планов 1"),prefix+"_INACTIVE_OBLIGATIONS");
+  check(!(await detail.textContent()).includes("В открытом недельном плане нет незавершённого дела"),prefix+"_NO_AUTOMATIC_NEXT_STEP");
+  await detail.locator(":scope > summary").click();
+  check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===before,prefix+"_NO_WRITE");
+  log(prefix);
+ }
+ await verifyGoalReview("OFFLINE_NATIVE_GOAL_REVIEW_READ_ONLY",lifecycleCold);
  const reviewStart=dates.past<cashDates.first?dates.past:cashDates.first;
  const reviewThrough=await page.evaluate(()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10)});
  async function verifyPeriodReview(prefix){
@@ -1607,6 +1644,7 @@ try{
  check((await transferredGoal.textContent()).includes(goalTitle),"PERSONAL_TRANSFER_GOAL_TITLE");
  check(!(await localWeek())&&!(await localCash())&&!(await localGoal())&&!(await localProof()),"PERSONAL_TRANSFER_NO_TAB_RESULTS");
  log("INDEPENDENT_GOAL_LINKS_IWXA_READBACK");
+ await verifyGoalReview("INDEPENDENT_GOAL_REVIEW_IWXA",transferredGoal);
  await verifyPeriodReview("INDEPENDENT_PERIOD_REVIEW_IWXA");
  phase="INDEPENDENT_GOAL_ASSESSMENT_READBACK";
  await poll(async()=>(await transferredGoal.getByTestId("club-native-goal-assessment").textContent()).includes("достигнута частично"),"ASSESSMENT_INDEPENDENT_NATIVE_READBACK");

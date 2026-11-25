@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: 617afd4cbae041a59506ce78ee276a285eafe438
+          ref: 2adc31c6fd2fdb15d548fc546e0f695535af45bf
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: owner
@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: bf5251e47463accf4021b91f964ef55c9133fe8b
+          ref: 6e90f9ef58a7c8d83d602fdbce0099fdce201eb1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -57,7 +57,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 617afd4cbae041a59506ce78ee276a285eafe438 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 617afd4cbae041a59506ce78ee276a285eafe438 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
+          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 2adc31c6fd2fdb15d548fc546e0f695535af45bf && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 2adc31c6fd2fdb15d548fc546e0f695535af45bf --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
             echo D02_OFFICIAL_SKILLS_IMPORT=FAIL
             grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/d02-import.private" | sort -u | head -20 || true
             exit 1
@@ -73,7 +73,7 @@ jobs:
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import {readFileSync} from 'node:fs';
-          import {loadSkillPack,validateSkillPack} from '../bli-owner/browser-local-inference/domain-assistant/skill-runtime.mjs';
+          import {loadSkillPack,validateSkillPack,rankSkills,skillPrompt} from '../bli-owner/browser-local-inference/domain-assistant/skill-runtime.mjs';
           const raw=readFileSync('assets/club-assistant-skills.json','utf8');
           const origin='https://club.iwxa.ru';
           const loaded=await loadSkillPack('/assets/club-assistant-skills.json',{
@@ -87,6 +87,14 @@ jobs:
           const bad=structuredClone(original);
           bad.skills[0].limit='a'.repeat(451);
           assert.throws(()=>validateSkillPack(bad),/T3_ASSISTANT_SKILLS_ENTRY/);
+          for(const [query,id] of [['какие цели проверить','goal-map'],['проверить с запасом','goal-map'],['план и факт расходов','personal-economy'],['пересмотреть результат цели','evidence-portfolio']]){
+            assert.equal(rankSkills(loaded,query,{limit:1})[0]?.id,id);
+          }
+          const skill=loaded.skills.find(x=>x.id==='goal-map'),hint=loaded.resultHints.find(x=>x.marker==='data-club-goal-resource-result');
+          const prompt=skillPrompt(loaded,skill,'Проверить с запасом',{resultHint:hint});
+          assert.match(prompt,/не прогноз и не гарантия/);
+          assert.match(prompt,/К проверке/);
+          console.log('D02_ORIGINAL_T3_REVIEW_SKILL_SELECTION_AND_PROMPT=PASS');
           console.log('D02_ORIGINAL_T3_IMPORTED_SKILL_RUNTIME=PASS');
           NODE
       - name: Verify exact economic logic projection and targeted regression
