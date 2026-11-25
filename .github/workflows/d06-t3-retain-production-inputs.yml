@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: ffa31457ea7b29b9a0f65eafd7e44a2141da6e66
+          ref: 0be251ff034b890695f47aad47711aaafd681553
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-site
@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(gh api repos/Faust-S/komplektovod.ru --jq .private)" = "true"
-          test "$(gh api repos/Faust-S/komplektovod.ru/git/ref/heads/test/2026-11-25-d06-t3-production-inputs --jq .object.sha)" = "ffa31457ea7b29b9a0f65eafd7e44a2141da6e66"
+          test "$(gh api repos/Faust-S/komplektovod.ru/git/ref/heads/test/2026-11-25-d06-t3-production-inputs --jq .object.sha)" = "0be251ff034b890695f47aad47711aaafd681553"
           echo D06_T3_RETAIN_PRIVATE_DESTINATION=PASS
       - name: Verify original public portable input
         env:
@@ -250,8 +250,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$(gh api repos/Faust-S/komplektovod.ru --jq .private)" = "true"
-          test "$(git rev-parse HEAD)" = "ffa31457ea7b29b9a0f65eafd7e44a2141da6e66"
-          test "$(gh api repos/Faust-S/komplektovod.ru/git/ref/heads/test/2026-11-25-d06-t3-production-inputs --jq .object.sha)" = "ffa31457ea7b29b9a0f65eafd7e44a2141da6e66"
+          test "$(git rev-parse HEAD)" = "0be251ff034b890695f47aad47711aaafd681553"
+          test "$(gh api repos/Faust-S/komplektovod.ru/git/ref/heads/test/2026-11-25-d06-t3-production-inputs --jq .object.sha)" = "0be251ff034b890695f47aad47711aaafd681553"
           test -z "$(git diff --name-only)"
           dir=runtime/t3-platform/0.3.1-rc.1
           node --input-type=module - <<'NODE' > "$RUNNER_TEMP/d06-retained-inventory-private.log" 2>&1
@@ -261,7 +261,7 @@ jobs:
           import {platformDir,installedArchive,verifyPlatformArchive} from "./scripts/d06-t3-platform-inputs.mjs";
           const host=join(platformDir,"d06-host");
           const receipt=verifyPreparedD06Host(host);
-          if(receipt.origin!=="https://komplektovod.ru"||receipt.siteCommit!=="ffa31457ea7b29b9a0f65eafd7e44a2141da6e66")throw Error("D06_RETAIN_ORIGIN_OR_SHA");
+          if(receipt.origin!=="https://komplektovod.ru"||receipt.siteCommit!=="0be251ff034b890695f47aad47711aaafd681553")throw Error("D06_RETAIN_ORIGIN_OR_SHA");
           verifyPlatformArchive(installedArchive);
           const inputs=[installedArchive,join(host,"d06-t3-host-input.json"),...receipt.files.map(x=>join(host,x.path))];
           for(const path of inputs){
@@ -270,8 +270,9 @@ jobs:
           }
           NODE
           echo D06_T3_RETAIN_INPUT_ALLOWLIST=PASS
-          git -c core.autocrlf=false add -- "$dir/platform-inputs.zip" "$dir/d06-host"
-          node --input-type=module - <<'NODE' > "$RUNNER_TEMP/d06-retained-stage-private.log" 2>&1
+          git -c core.autocrlf=false add -- "$dir/platform-inputs.zip" "$dir/d06-host" > "$RUNNER_TEMP/d06-retained-add-private.log" 2>&1 || { echo D06_T3_RETAIN_STAGE_ADD=FAIL; exit 1; }
+          echo D06_T3_RETAIN_STAGE_ADD=PASS
+          node --input-type=module - <<'NODE' > "$RUNNER_TEMP/d06-retained-stage-private.log" 2>&1 || { echo D06_T3_RETAIN_STAGED_BYTES=FAIL; exit 1; }
           import assert from "node:assert/strict";
           import {execFileSync} from "node:child_process";
           import {readFileSync} from "node:fs";
@@ -283,6 +284,8 @@ jobs:
           for(let i=0;i<change.length;i+=2){assert.equal(change[i],"A");actual.push(change[i+1]);}
           assert.deepEqual(actual.sort(),expected);
           for(const path of expected){
+            const attr=execFileSync("git",["check-attr","text","--",path],{encoding:"utf8"}).trim();
+            assert.ok(attr.endsWith(": text: unset"));
             const staged=execFileSync("git",["show",":"+path],{maxBuffer:96*1024*1024});
             assert.ok(staged.equals(readFileSync(path)));
           }
@@ -292,7 +295,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -c core.hooksPath=/dev/null commit -m "Retain verified original T3 production inputs for D06 candidate" > "$RUNNER_TEMP/d06-retain-commit-private.log" 2>&1
           candidate="$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD^)" = "ffa31457ea7b29b9a0f65eafd7e44a2141da6e66"
+          test "$(git rev-parse HEAD^)" = "0be251ff034b890695f47aad47711aaafd681553"
           # Re-read the committed files, not only the disposable staged copy.
           git archive --format=tar HEAD > "$RUNNER_TEMP/d06-retained-commit.tar"
           mkdir "$RUNNER_TEMP/d06-retained-commit"
@@ -305,7 +308,7 @@ jobs:
           import {platformDir,installedArchive,verifyPlatformArchive} from "./scripts/d06-t3-platform-inputs.mjs";
           const receipt=verifyPreparedD06Host(join(platformDir,"d06-host"));
           verifyPlatformArchive(installedArchive);
-          if(receipt.siteCommit!=="ffa31457ea7b29b9a0f65eafd7e44a2141da6e66"||receipt.origin!=="https://komplektovod.ru")throw Error("D06_RETAIN_COMMITTED_RECEIPT");
+          if(receipt.siteCommit!=="0be251ff034b890695f47aad47711aaafd681553"||receipt.origin!=="https://komplektovod.ru")throw Error("D06_RETAIN_COMMITTED_RECEIPT");
           NODE
           ) > "$RUNNER_TEMP/d06-retained-commit-private.log" 2>&1
           echo D06_T3_RETAIN_COMMITTED_READBACK=PASS
@@ -319,7 +322,7 @@ jobs:
           remote=https://github.com/Faust-S/komplektovod.ru.git
           target=refs/heads/test/2026-11-25-d06-t3-production-inputs
           git -c credential.helper= ls-remote "$remote" "$target" > "$RUNNER_TEMP/d06-remote-before.txt" 2>"$RUNNER_TEMP/d06-remote-private.log" || { echo D06_T3_RETAIN_REMOTE_READ=FAIL; exit 1; }
-          test "$(cut -f1 "$RUNNER_TEMP/d06-remote-before.txt")" = "ffa31457ea7b29b9a0f65eafd7e44a2141da6e66"
+          test "$(cut -f1 "$RUNNER_TEMP/d06-remote-before.txt")" = "0be251ff034b890695f47aad47711aaafd681553"
           git -c credential.helper= push --dry-run "$remote" HEAD:"$target" > "$RUNNER_TEMP/d06-push-private.log" 2>&1 || { echo D06_T3_RETAIN_WRITE_PREFLIGHT=FAIL; exit 1; }
           echo D06_T3_RETAIN_WRITE_PREFLIGHT=PASS
           git -c credential.helper= push "$remote" HEAD:"$target" > "$RUNNER_TEMP/d06-push-private.log" 2>&1 || {
