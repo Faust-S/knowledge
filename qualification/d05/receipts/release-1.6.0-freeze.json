@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FROZEN_NATIVE_LABELS_READY_FOR_ONE_TIME_QUALIFICATION",
+  "status": "FROZEN_ONE_TIME_QUALIFICATION_REQUESTED",
   "scope": "1.6.0",
   "siteCommit": "64dcbe764ab05136bd6f9d4f4a3bf902897b06b7",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -134,5 +134,16 @@
       "linux": "SKIPPED_BY_QUALITY_GATE"
     }
   ],
-  "publicationProcedure": "UNCHANGED_EXISTING_AUTHORIZED_PROCEDURE"
+  "publicationProcedure": "UNCHANGED_EXISTING_AUTHORIZED_PROCEDURE",
+  "oneTimeRequest": {
+    "runId": 45692010068,
+    "preparedCommit": "b07e2f64745af709ad361aed29b86864b02a96fa",
+    "requestCommit": "3ff4fe386b0c4f08542468d876808aa0c89928a1",
+    "requestBranch": "ci/once/d05-t3-release/b07e2f64745af709ad361aed29b86864b02a96fa",
+    "requestFile": ".github/ci-requests/d05-t3-release.json",
+    "runStatusAtRecording": "in_progress",
+    "conclusionAtRecording": null,
+    "matchingRuns": 1,
+    "immutable": true
+  }
 }
