@@ -150,10 +150,128 @@ export function countT4OriginalLocalSnapshotTrace(token,{workspaceId,originalWri
   return (kind==='idempotency_key'?x.idempotencies:x.deleteTraces).get(value)??0;
 }
 
+// The original Kernel owns the commit order and the read/exclusion boundary.
+// A sequence of independent IDB read transactions alone is not a snapshot.
+// This opt-in reader must not be selected until the original Host supplies
+// that boundary and the original scoped commit-page operation.
+// Retain only Event identities, the current page and the bounded projection;
+// V1 prefixes still require a scan from the beginning, not a new chain.
+export async function readT4OriginalCommitEventWindow({
+  workspaceId,originalWriteOwnerRef,cursor=null,maxEvents=128,pageSize=256,
+  authorizeOriginalRead,readOriginalCommitPage,withOriginalHistoryReadBoundary,
+}={}){
+  if(!id(workspaceId)||!id(originalWriteOwnerRef))fail('ORIGINAL_T3_OWNER_SCOPE_REQUIRED');
+  if(!Number.isSafeInteger(maxEvents)||maxEvents<1||maxEvents>1024||
+    !Number.isSafeInteger(pageSize)||pageSize<1||pageSize>1024)
+    fail('ORIGINAL_EVENT_WINDOW_LIMIT_INVALID');
+  if(typeof authorizeOriginalRead!=='function'||typeof readOriginalCommitPage!=='function'||
+    typeof withOriginalHistoryReadBoundary!=='function')fail('ORIGINAL_COMMIT_EVENT_PORTS_REQUIRED');
+  const before=cursor===null?null:immutable(structuredClone(cursor));
+  if(before!==null&&!exactCursor(before,workspaceId,originalWriteOwnerRef))
+    fail('ORIGINAL_EVENT_CURSOR_INVALID');
+  const guard=immutable({operation:'t1.listEventsSince',workspaceId,originalWriteOwnerRef,
+    networkReadGrantsCreated:false,originalCommitOrderReadRequired:true});
+  const requireRead=async()=>{
+    if(await authorizeOriginalRead(guard)!==true)fail('ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED');
+  };
+  await requireRead();
+  let calls=0,active=true,completed;
+  const read=async()=>{
+    if(!active||++calls!==1)fail('ORIGINAL_COMMIT_EVENT_BOUNDARY_INVALID');
+    const checkActive=()=>{if(!active||calls!==1)fail('ORIGINAL_COMMIT_EVENT_BOUNDARY_INVALID');};
+    const checkRead=async()=>{checkActive();await requireRead();checkActive();};
+    const accumulator=createHash('sha256').update('[');
+    const prefix=()=>'sha256:'+accumulator.copy().update(']').digest('hex');
+    const seen=new Set(),available=[];
+    const start=before?.seenEventCount??0,previousDigest=before?.sourcePrefixDigest??emptyPrefix;
+    let after=null,count=0,eventsRead=0,anchored=before===null,hasMore=false,modern=false;
+    for(;;){
+      await checkRead();
+      const page=structuredClone(await readOriginalCommitPage(immutable({
+        ...guard,afterEventId:after,limit:pageSize,commitOperation:'t1.listEventCommitWindow',
+      })));
+      await checkRead();
+      if(!keys(page,['entries','next_after_event_id','has_more','order','legacy_history_causal_proven'])||
+        !Array.isArray(page.entries)||page.entries.length>pageSize||
+        typeof page.has_more!=='boolean'||page.order!=='LOCAL_TRANSACTION_COMMIT_ORDER'||
+        page.legacy_history_causal_proven!==false||
+        (page.has_more&&page.entries.length!==pageSize)||
+        (after!==null&&page.entries.length===0))
+        fail('ORIGINAL_COMMIT_EVENT_PAGE_INVALID');
+      // Check every returned identity and scope, even after reaching the
+      // requested window size in this page. Hash only the consumed prefix.
+      const rows=page.entries.map(entry=>{
+        if(!keys(entry,['event','legacy_history'])||typeof entry.legacy_history!=='boolean'||
+          (modern&&entry.legacy_history))fail('ORIGINAL_COMMIT_EVENT_PAGE_INVALID');
+        if(!entry.legacy_history)modern=true;
+        const e=normalizeEvent(entry.event,workspaceId);
+        if(seen.has(e.eventId))fail('ORIGINAL_T3_EVENT_DUPLICATE');
+        seen.add(e.eventId);
+        return e;
+      });
+      const last=rows.at(-1)?.eventId??after;
+      if(page.next_after_event_id!==last)fail('ORIGINAL_COMMIT_EVENT_PAGE_INVALID');
+      eventsRead+=rows.length;
+      for(let i=0;i<rows.length;i++){
+        const e=rows[i];
+        if(available.length===maxEvents){hasMore=true;break;}
+        if(count>=Number.MAX_SAFE_INTEGER)fail('ORIGINAL_COMMIT_EVENT_COUNT_OVERFLOW');
+        if(count>0)accumulator.update(',');
+        accumulator.update(JSON.stringify(canonical(e)));
+        count++;
+        if(!anchored){
+          if(e.eventId===before.lastEventId&&count!==start)
+            fail('ORIGINAL_EVENT_CURSOR_NOT_FOUND');
+          if(count===start){
+            if(e.eventId!==before.lastEventId)fail('ORIGINAL_EVENT_CURSOR_NOT_FOUND');
+            if(prefix()!==previousDigest)fail('ORIGINAL_T3_EVENT_HISTORY_DIVERGED');
+            anchored=true;
+          }
+        }else available.push(e);
+      }
+      if(available.length===maxEvents){hasMore=hasMore||page.has_more;break;}
+      if(!page.has_more)break;
+      after=last;
+    }
+    if(!anchored)fail('ORIGINAL_EVENT_CURSOR_NOT_FOUND');
+    const lastEventId=available.at(-1)?.eventId??before?.lastEventId??null;
+    const afterDigest=prefix();
+    const nextCursor=available.length?immutable({
+      schema:cursorSchema,workspaceId,originalWriteOwnerRef,lastEventId,
+      seenEventCount:count,sourcePrefixDigest:afterDigest,originalPermissionProof:false,
+    }):before;
+    const message=immutable({
+      schema:windowSchema,workspaceId,originalWriteOwnerRef,afterEventId:before?.lastEventId??null,
+      sourcePrefixDigestBefore:previousDigest,sourcePrefixDigestAfter:afterDigest,lastEventId,
+      eventRefs:immutable(available),count:available.length,hasMore,
+      sourceT3OriginalEventObjectsNotCopied:true,causalOrderProven:false,
+      recipientApplied:false,notAcceptedBusinessResult:true,
+    });
+    await checkRead();
+    completed=immutable({window:immutable({...message,windowDigest:hash(message)}),
+      nextCursor,originalEventsRead:eventsRead});
+    return completed;
+  };
+  try{
+    const result=await withOriginalHistoryReadBoundary(immutable({...guard,
+      originalHistoryExclusionRequired:true}),read);
+    if(calls!==1||completed===undefined||result!==completed)
+      fail('ORIGINAL_COMMIT_EVENT_BOUNDARY_INVALID');
+    return completed;
+  }finally{active=false;}
+}
+
 export async function readT4OriginalEventWindow({
   workspaceId,originalWriteOwnerRef,cursor=null,maxEvents=128,
   authorizeOriginalRead,readOriginalEvents,readOriginalWindow=null,originalLocalEventSnapshot=null,
+  readOriginalCommitPage=null,withOriginalHistoryReadBoundary=null,pageSize=256,
 }={}) {
+  if(readOriginalCommitPage!==null||withOriginalHistoryReadBoundary!==null){
+    if(readOriginalEvents!==undefined||readOriginalWindow!==null||originalLocalEventSnapshot!==null)
+      fail('ORIGINAL_COMMIT_EVENT_PORTS_REQUIRED');
+    return readT4OriginalCommitEventWindow({workspaceId,originalWriteOwnerRef,cursor,maxEvents,pageSize,
+      authorizeOriginalRead,readOriginalCommitPage,withOriginalHistoryReadBoundary});
+  }
   if(!id(workspaceId)||!id(originalWriteOwnerRef))fail('ORIGINAL_T3_OWNER_SCOPE_REQUIRED');
   if(!Number.isSafeInteger(maxEvents)||maxEvents<1||maxEvents>1024)
     fail('ORIGINAL_EVENT_WINDOW_LIMIT_INVALID');
