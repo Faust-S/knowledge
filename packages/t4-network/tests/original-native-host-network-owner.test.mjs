@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash,generateKeyPairSync,sign,verify} from 'node:crypto';
+import {createHash,generateKeyPairSync,sign,verify,randomBytes,createCipheriv,createDecipheriv} from 'node:crypto';
 import {T4TransferError} from '../src/network/webdav-package-transfer.mjs';
 import {T4CandidateFrameTransportError} from '../src/network/standard-network-wire-transport.mjs';
 import {T4OriginalNetworkPublicationError,isT4RecoverablePublicationWakeError} from '../src/network/original-network-publication.mjs';
@@ -15,6 +15,8 @@ import {createT4NetworkTopology,openT4NativeTopologyTransport} from '../src/netw
 import {createT4OriginalHostCaptureLedgerPort} from '../src/network/original-host-capture-ledger.mjs';
 import {captureT4OriginalObjectMutation} from '../src/network/original-object-mutation-capture.mjs';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
+import {readT4OriginalHostCapturedSubject,verifyT4OriginalHostCapturedSubjectSource} from '../src/network/original-host-outbox-delivery.mjs';
+import {digestT4OriginalObjectContent} from '../src/network/original-object-delta.mjs';
 import {decodeT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION} from '../src/network/standard-network-wire-candidate.mjs';
 const WS='ws:k14:subject',OWNER='owner:k14',S='node:k14:source',R='node:k14:recipient',
   SCOPE='scope:k14',SUITE='X25519_AES256GCM_ED25519';
@@ -133,13 +135,13 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
   localCapture=false,localGraph=false,localAdmission=allow,frameAdmission=allow,
   indexMigration=false,technicalRead=allow,explicitResume=false,resumeInput=null,resumeAdmission=deny,
   nativeTopologyTransport=null,requireSignedTopologyAccess=false,originalVaultNodeSignaturePort=null,
-  replacementRecovery=false,terminalRecovery=false,peerHistoryRead=async()=>null}){
+  replacementRecovery=false,terminalRecovery=false,peerHistoryRead=async()=>null,portOverrides={},canWake=()=>true,onResult=()=>{},testProofInMemory=false}){
   const tech=store.technicalWorkspaceId;
   const localOps=['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject',
     't1.commitObjectGraph','t1.deleteObject','t1.listAssets','t1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation'];
-  const local=createTemporaryOriginalPersonalAuthority({workspaceId:WS,operations:localOps,clock:Date.now});
+  const local=createTemporaryOriginalPersonalAuthority({workspaceId:WS,operations:localOps,clock:Date.now,testProofInMemory});
   const technical=createTemporaryOriginalPersonalAuthority({workspaceId:tech,
-    operations:['t1.getObject','t1.putObject','t1.listObjects','t1.listEventsSince'],clock:Date.now});
+    operations:['t1.getObject','t1.putObject','t1.listObjects','t1.listEventsSince'],clock:Date.now,testProofInMemory});
   const results=[],commands=[];let epoch=1,admitted=true,mode='T4_NETWORK',failure=null,accessResolutions=0,
     clock=1000,signatureCalls=0;
   const originalPorts={authorizeOriginalBinding:async p=>admitted&&p.contextEpoch===epoch&&p.role===role&&
@@ -179,6 +181,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
       assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);return action();
     },
   };
+  Object.assign(originalPorts,portOverrides);
   if(originalVaultNodeSignaturePort)for(const k of ['verifyOriginalNodeSignature','resolveOriginalSigningContext','signOriginalNodeBytes'])
     delete originalPorts[k];
   const owner=createT4OriginalNativeHostNetworkOwner({...scope(tech),role,requiredCryptoSuite:SUITE,
@@ -187,9 +190,9 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     enableExplicitNetworkResume:explicitResume,readOriginalNetworkResumeInput:resumeInput,requireSignedTopologyAccess,
     enableLocalReplacementRecovery:replacementRecovery,enableReplacementTerminalRecovery:terminalRecovery,
     readOriginalBaselineAdmissionInput:async()=>requestBaseline?baselineInput:null,
-    onStep:r=>results.push(r)});
+    onStep:r=>{results.push(r);onResult(r);}});
   const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,networkOwner:{
-    ...owner,async onIdleWake(p){try{await owner.onIdleWake(p)}catch(e){failure=e;throw e}}
+    ...owner,async onIdleWake(p){try{if(canWake())await owner.onIdleWake(p)}catch(e){failure=e;throw e}}
   }});
   const info={contract_version:'1.3.0',runtime_version:'0.3.6',service_id:'iwxa.workspace.relay',mode:'ready',
     granted_operations:[...new Set(['t1.getWorkspace','t1.commitObjectGraph','t1.getObject','t1.listEventsSince',...owner.operations])]};
@@ -233,7 +236,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
       await request;if(error)throw error;return result;
     }finally{clearTimeout(deadline);}
   }
-  return {owner,relay,attach,drive,invokeLocal,results,commands,local,technical,get accessResolutions(){return accessResolutions},
+  return {owner,relay,attach,drive,invokeLocal,results,commands,local,technical,get failure(){return failure},get accessResolutions(){return accessResolutions},
     revokeBinding(){admitted=false},disableMode(){mode='LOCAL_T3'},invalidate(){epoch++;relay.invalidate()},
     advanceClock(ms){clock+=ms},get signatureCalls(){return signatureCalls}};
 }
@@ -843,4 +846,138 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
     assert.equal(f.relay.networkAttached,true);
     assert.equal(source.events.filter(e=>e.workspace_id===WS).length,2);
   }finally{f.relay.close();transport.close();}
+});
+
+
+test('K92 original signed native relays drain three causal captures, including two revisions of one object, and resume the remaining backlog cold',{timeout:600000},async()=>{
+  const source=kernelFixture('k92-source'),recipient=kernelFixture('k92-recipient'),wire=wireFixture(true);
+  source.technicalWorkspaceId='ws:k92:source:technical';recipient.technicalWorkspaceId='ws:k92:recipient:technical';
+  const base=mutation('o:k92:baseline','baseline','business.baseline');
+  const sourceBaseline=(await source.kernel.putObject(base)).event,recipientBaseline=(await recipient.kernel.putObject(base)).event;
+  const before=(await readT4OriginalEventWindow({workspaceId:WS,originalWriteOwnerRef:OWNER,
+    authorizeOriginalRead:allow,readOriginalEvents:()=>source.kernel.listEventsSince(WS),maxEvents:1})).nextCursor;
+  const getMode=()=> 'T4_NETWORK',ledger=createT4OriginalHostCaptureLedgerPort({...scope(source.technicalWorkspaceId),originalKernel:source.kernel,getMode,
+    readOriginalHostContext:async()=>({workspaceId:source.technicalWorkspaceId,originalWriteOwnerRef:OWNER,hostSessionRef:'host:k92:original-source'}),
+    authorizeOriginalTechnicalRead:allow,authorizeOriginalTechnicalWrite:deny});
+  const capturePorts=async id=>{
+    const rows=await ledger.listOriginalOutbox({workspaceId:WS,originalWriteOwnerRef:OWNER,sourceEventId:id});
+    assert.equal(rows.length,1);
+    const r=rows[0];return {...ledger,workspaceId:WS,originalWriteOwnerRef:OWNER,networkTargetRef:R,
+      kind:r.kind??'OBJECT_PUT',subjectId:r.subjectId??r.objectId,captureRef:r.captureRef,originalKernel:source.kernel,
+      getMode,authorizeOriginalRead:allow,authorizeNetworkPublish:allow,readOriginalEvents:()=>source.kernel.listEventsSince(WS)};
+  };
+  const captured=async id=>readT4OriginalHostCapturedSubject(await capturePorts(id));
+  const verifySource=async p=>verifyT4OriginalHostCapturedSubjectSource(await capturePorts(p.originalSourceEventId??p.sourceEventId),p);
+  const verifyEvent=async p=>{
+    const d=(await captured(p.sourceEventId)).prepared.delta;
+    return p.sourceEventDigest===d.sourceEventDigest&&p.objectContentDigest===d.objectContentDigest&&p.sourceRevision===d.sourceRevision&&p.windowDigest===d.windowDigest;
+  };
+  const verifyApplied=async p=>{
+    const event=recipient.events.find(e=>e.workspace_id===WS&&e.event_id===p.originalRecipientEventId);
+    if(!event||event.revision!==p.originalRecipientRevision||event.payload.originalContentDigest!==p.originalRecipientStateDigest)return false;
+    const o=(await recipient.kernel.getObject(WS,event.object_id))?.object;
+    return o?.revision===event.revision&&digestT4OriginalObjectContent({schemaId:o.schema_id,schemaVersion:o.schema_version,data:o.data,extensions:o.extensions})===p.originalRecipientStateDigest;
+  };
+  const phaseEvidence=async p=>{
+    const e=p.evidence;
+    if(p.phase==='INTENT')return (await captured(e.evidenceRef)).sourceWindow.windowDigest===e.evidenceDigest;
+    const bytes=wire.frames.get(e.evidenceRef);
+    if(!bytes)return false;
+    const frame=decodeT4CandidateFrame(bytes);
+    if(p.phase==='VERIFIED'||p.phase==='APPLY_INTENT'){
+      if(frame.messageType!=='CHANGE_REF')return false;
+      const c=await captured(frame.body.eventRef);
+      return e.evidenceDigest===(p.phase==='VERIFIED'?c.prepared.delta.objectContentDigest:'sha256:'+c.prepared.sha256);
+    }
+    if(e.evidenceDigest!==hash(bytes))return false;
+    if(p.phase==='APPLIED'||p.phase==='APPLIED_CONFIRMED')return frame.messageType==='APPLIED_ACK'&&await verifyApplied(e);
+    return (p.phase==='PUBLISHED'&&frame.messageType==='CHANGE_REF')||(p.phase==='RECEIVED'&&frame.messageType==='CHUNK');
+  };
+  // Actual authenticated encryption and signed frames; the Kernel and transport
+  // are test ports. Production Vault and signed Access composition are K90.
+  const key=randomBytes(32);let seals=0,opens=0;
+  const gates=new Map();
+  const gate=role=>({canWake:()=>gates.has(role),onResult:r=>{
+    console.log('K92',role,r.state,r.errorCode??'');
+    const g=gates.get(role);
+    if(g&&(r.state===g.target||r.state==='NETWORK_WAKE_SUSPENDED'||r.state==='NETWORK_WAKE_RECOVERY_WAIT')){
+      gates.delete(role);if(r.state!==g.target)g.reject(Error(r.errorCode??r.state));else g.resolve(r);
+    }
+  }});
+  const makeSource=()=>nativeFixture({...gate('SOURCE'),testProofInMemory:true,role:'SOURCE',store:source,wire,localCapture:true,localGraph:true,phaseEvidence,
+    baselineInput:{sourceCursor:before,originalBaselineRef:sourceBaseline.event_id,originalBaselineDigest:hash(JSON.stringify(sourceBaseline))},
+    portOverrides:{verifyOriginalRecipientApplied:verifyApplied,authorizeOriginalSealedContent:allow,
+      readOriginalSealedContent:async p=>{
+        const bytes=p.originalCapture.prepared.bytes;assert.equal(sha(bytes),p.session.capturedSha256);seals++;
+        const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv);cipher.setAAD(Buffer.from(p.session.sessionRef));
+        return {ciphertext:Buffer.concat([iv,cipher.update(bytes),cipher.final(),cipher.getAuthTag()]),encryptionContextRef:'sealed:k92:epoch2'};
+      }}});
+  const makeRecipient=(indexMigration=false)=>nativeFixture({...gate('RECIPIENT'),testProofInMemory:true,role:'RECIPIENT',store:recipient,source,wire,phaseEvidence,indexMigration,
+    baselineInput:{sourceCursor:before,originalBaselineRef:recipientBaseline.event_id,originalBaselineDigest:hash(JSON.stringify(recipientBaseline))},
+    portOverrides:{verifyOriginalRecipientApplied:verifyApplied,verifyOriginalSourceSubject:verifySource,verifyOriginalSourceBinding:verifySource,
+      verifyOriginalSourceEvent:verifyEvent,authorizeOriginalSealedOpen:allow,
+      openOriginalSealedContent:async p=>{
+        const bytes=Buffer.from(p.ciphertext);assert.equal(hash(bytes),p.contentDigest);opens++;
+        const decipher=createDecipheriv('aes-256-gcm',key,bytes.subarray(0,12));decipher.setAAD(Buffer.from(p.sessionRef));decipher.setAuthTag(bytes.subarray(-16));
+        return {authenticated:true,plaintext:new Uint8Array(Buffer.concat([decipher.update(bytes.subarray(12,-16)),decipher.final()]))};
+      },withOriginalSubjectMutation:async(p,action)=>action()}});
+  let sender=makeSource(),receiver=makeRecipient(),ss,rs,pumps=[],pumpFailure=null;
+  const deadline=setTimeout(()=>{sender.relay.close();receiver.relay.close();},590000);
+  // Both original WebView polls remain alive while either peer is doing work.
+  // The test gates wakes at protocol milestones, not native command execution.
+  const pump=(f,session,store)=>{
+    let stopped=false;
+    const task=(async()=>{try{while(!stopped){
+      if(f.failure)throw f.failure;
+      const cmd=await f.relay.exchange({verb:'next',payload:{sessionId:session.sessionId}},1);
+      if(cmd.kind==='IDLE')continue;
+      const args=decodeOriginalNetworkRelayArgs(cmd.method,cmd.args);
+      const value=await store.kernel[cmd.method](...args);
+      await f.relay.exchange({verb:'result',payload:{sessionId:session.sessionId,id:cmd.id,ok:true,
+        result:encodeOriginalNetworkRelayResult(cmd.method,value)}},1);
+    }}catch(error){if(!stopped){pumpFailure=error;for(const g of gates.values())g.reject(error);gates.clear();throw error;}}})();
+    task.catch(()=>{});
+    return {stop:async()=>{stopped=true;f.relay.close();await task;}};
+  };
+  const start=async()=>{ss=await sender.attach();rs=await receiver.attach();pumps=[pump(sender,ss,source),pump(receiver,rs,recipient)];};
+  const stop=async()=>{await Promise.all(pumps.map(p=>p.stop()));pumps=[];};
+  const drive=(f,target)=>new Promise((resolve,reject)=>{
+    if(pumpFailure||f.failure)return reject(pumpFailure??f.failure);
+    assert.equal(gates.has(f===sender?'SOURCE':'RECIPIENT'),false);
+    gates.set(f===sender?'SOURCE':'RECIPIENT',{target,resolve,reject});
+  });
+  const frontier=(store,kind)=>[...store.rows.values()].map(r=>r.object).find(o=>o.data?.schema===kind);
+  const transfer=async(i)=>{
+    await drive(sender,'HEADS_PRESENT');await drive(receiver,'DIFF_PRESENT');
+    await drive(sender,'PUBLISHED_RECORDED');await drive(receiver,'RECIPIENT_CURSOR_ADVANCED');
+    await drive(sender,'SOURCE_ACK_CONFIRMED');
+    const sc=frontier(source,'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_FRONTIER_V1'),rc=frontier(recipient,'IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_FRONTIER_V1');
+    assert.equal(sc.revision,i);assert.equal(rc.revision,i);
+    assert.deepEqual(sc.data.last.sourceCursorAfter,rc.data.last.sourceCursorAfter);
+    assert.equal(recipient.events.filter(e=>e.workspace_id===WS).length,i+1);
+    assert.equal(seals,i);
+  };
+  try{
+    await start();
+    await drive(sender,'ADMITTED');await drive(receiver,'ADMITTED');
+    const a=mutation('o:k92:a','revision one','business.created');
+    const b={...mutation('o:k92:a','revision two','business.updated'),base_revision:1};
+    const c=mutation('o:k92:b','independent object','business.created');
+    const captures=[];
+    for(const input of [a,b,c])captures.push(await sender.relay.exchange({verb:'sourceMutation',payload:{sessionId:ss.sessionId,method:'putObject',args:[input]}},1));
+    assert.equal(new Set(captures.map(x=>x.captureRef)).size,3);
+    assert.equal(source.events.filter(e=>e.workspace_id===WS).length,4);assert.equal(wire.puts,0);
+    await transfer(1);assert.equal((await recipient.kernel.getObject(WS,a.object_id)).object.data.title,'revision one');
+    await transfer(2);assert.equal((await recipient.kernel.getObject(WS,a.object_id)).object.data.title,'revision two');
+    await stop();const priorPuts=wire.puts;
+    sender=makeSource();receiver=makeRecipient(true);await start();
+    await drive(receiver,'NETWORK_INDEX_MIGRATION_COMPLETE');
+    assert.equal(receiver.results.at(-1).skippedCompletedRecipientPublicationCount,2);assert.equal(receiver.signatureCalls,0);assert.equal(wire.puts,priorPuts);
+    await transfer(3);
+    assert.equal((await recipient.kernel.getObject(WS,c.object_id)).object.data.title,'independent object');
+    await drive(sender,'NO_NEXT_ORIGINAL_EVENT');await drive(receiver,'WAITING_FOR_HEADS');
+    assert.equal(source.events.filter(e=>e.workspace_id===WS).length,4);assert.equal(recipient.events.filter(e=>e.workspace_id===WS).length,4);
+    assert.equal(recipient.graphInvocations,3);assert.equal(seals,3);assert.ok(opens>=3);assert.equal(wire.lists,0);
+    assert.equal([...wire.frames.values()].filter(b=>decodeT4CandidateFrame(b).messageType==='APPLIED_ACK').length,3);
+  }finally{clearTimeout(deadline);await stop();sender.relay.close();receiver.relay.close();key.fill(0);}
 });

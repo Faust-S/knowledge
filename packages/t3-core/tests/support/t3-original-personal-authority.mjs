@@ -2,9 +2,9 @@
 // implementation or installed issuer. Uses the ORIGINAL T3 Access evaluator
 // now owned by knowledge and keeps ephemeral private keys on the Node host.
 import {generateKeyPairSync} from "node:crypto";
-import {PROFILE,signRecord,keyObjectSigner,digest}
+import {PROFILE,signRecord,keyObjectSigner,digest,makeProof}
   from "../../src/t3/access/core.mjs";
-import {emptyVault,generateVaultKey,encryptVault}
+import {emptyVault,generateVaultKey,encryptVault,vaultPrivateKey}
   from "../../src/t3/access/local-vault.mjs";
 import {createOriginalVaultProofSigner}
   from "../../src/t3/access/original-vault-proof.mjs";
@@ -57,9 +57,9 @@ function createSigner(name,subject,uses,now){
 export function createTemporaryOriginalPersonalAuthority({
   workspaceId,now=Date.now(),readSignedState=null,clock=()=>now,
   operations=["t1.putObject"],agentActorId=null,
-  purpose="purpose:work",operationActions=null,
+  purpose="purpose:work",operationActions=null,testProofInMemory=false,
 }={}){
-  if(typeof workspaceId!=="string"||workspaceId.length<6||
+  if(typeof testProofInMemory!=="boolean"||typeof workspaceId!=="string"||workspaceId.length<6||
      !Number.isSafeInteger(now)||typeof clock!=="function"||
      (readSignedState!==null&&typeof readSignedState!=="function")||
      !Array.isArray(operations)||operations.length===0||
@@ -173,7 +173,13 @@ export function createTemporaryOriginalPersonalAuthority({
     statusFloor:{"authority:personal":1},tombstones:{},
   };
   let proofCount=0,registryReads=0;
-  const signProof=async input=>{proofCount++;return vaultProof(input);};
+  // Protocol-only long-running integration tests may use their own ephemeral
+  // actor key directly. Every proof is still fresh Ed25519 and the actual
+  // evaluator still checks the signed registry. Default exercises the real
+  // encrypted Vault path, as do the dedicated Vault qualification tests.
+  const testSigner=testProofInMemory?keyObjectSigner(actorKeyId,vaultPrivateKey(actorVault,actorKeyId)):null;
+  const signProof=async input=>{proofCount++;return testSigner?
+    makeProof(input.request,input.challenge,Date.parse(input.asOf),testSigner):vaultProof(input);};
   const createAccess=check=>createSignedAccessHostPort({
     currentContext:()=>selected,
     actionFor:operation=>{
