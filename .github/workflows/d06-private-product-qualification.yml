@@ -3,12 +3,7 @@ name: d06-private-product-qualification
 # Isolated public CI control plane. Private source, dist, logs, and secrets
 # remain on the ephemeral Windows runner. No PR trigger or artifact upload.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-private-product-qualification.yml
-
+  workflow_dispatch:
 permissions:
   contents: read
 

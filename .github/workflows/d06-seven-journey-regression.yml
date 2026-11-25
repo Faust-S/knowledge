@@ -3,11 +3,7 @@ name: d06-seven-journey-regression
 # Qualify the seven independently failing long-route E2E specs from D06.
 # Private source, dist, browser traces and reports never leave the runner.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-seven-journey-regression.yml
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

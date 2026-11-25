@@ -1,10 +1,6 @@
 name: d06-private-format-candidate
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-private-format-candidate.yml
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

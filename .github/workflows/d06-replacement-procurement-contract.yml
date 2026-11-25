@@ -1,11 +1,7 @@
 name: d06-replacement-procurement-contract
 
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-replacement-procurement-contract.yml
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

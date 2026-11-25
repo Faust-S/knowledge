@@ -3,12 +3,7 @@ name: d06-static-source-diagnostics
 # Runs private site checks on an ephemeral Windows machine only.
 # No source, HTML, dist, sensitive URLs, or logs are uploaded.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-static-diagnostics.yml
-
+  workflow_dispatch:
 permissions:
   contents: read
 

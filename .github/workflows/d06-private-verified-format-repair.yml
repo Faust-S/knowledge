@@ -2,12 +2,7 @@ name: d06-private-verified-format-repair
 
 # Public CI control plane only. No private source, logs, dist or artifacts.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-private-verified-format-repair.yml
-
+  workflow_dispatch:
 permissions:
   contents: read
 

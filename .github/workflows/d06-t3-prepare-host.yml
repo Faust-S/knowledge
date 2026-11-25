@@ -1,10 +1,6 @@
 name: d06-t3-prepare-host
 on:
-  push:
-    branches:
-      - test/2026-11-24-d06-t3-preparation
-    paths:
-      - .github/d06/diagnostic-requests/d06-t3-prepare-host.request
+  workflow_dispatch:
 concurrency:
   group: d06-t3-qualification-${{ github.ref }}
   cancel-in-progress: false

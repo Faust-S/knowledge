@@ -3,12 +3,7 @@ name: d06-native-material-race
 # Qualified T2 and Kernel stay on the ephemeral runner. No private artifacts
 # or full logs are uploaded into this public repository.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-native-material-race.yml
-
+  workflow_dispatch:
 permissions:
   contents: read
 

@@ -2,12 +2,7 @@ name: d06-pd09-kit-binding-browser
 
 # Independent targeted original UI route, private files remain runner-local.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-pd09-kit-binding-browser.yml
-
+  workflow_dispatch:
 permissions:
   contents: read
 

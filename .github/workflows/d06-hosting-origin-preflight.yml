@@ -3,12 +3,7 @@ name: d06-hosting-origin-preflight
 # Test the release-origin BUILD in an ephemeral runner, never publish dist or
 # private source. Final hosting artifact is assembled separately by Codex.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-hosting-origin-preflight.yml
-
+  workflow_dispatch:
 permissions:
   contents: read
 

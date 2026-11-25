@@ -3,12 +3,7 @@ name: d06-workflow-progress-regression
 # Exact source-level regression isolated from Prettier-only lint changes.
 # Private code, stdout and test fixtures stay on ephemeral Windows runner.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-workflow-progress-regression.yml
-
+  workflow_dispatch:
 permissions:
   contents: read
 

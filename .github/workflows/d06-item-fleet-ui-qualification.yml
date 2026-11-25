@@ -3,11 +3,7 @@ name: d06-item-fleet-ui-qualification
 # Tests current physical-item Workspace UI against a real static site build.
 # All D06/domain sources, dist, screenshots and raw test logs stay on runner.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-item-fleet-ui-qualification.yml
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

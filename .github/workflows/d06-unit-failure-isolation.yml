@@ -3,12 +3,7 @@ name: d06-private-unit-failure-isolation
 # Diagnose unit scripts independently. No private source, assertions or
 # command logs are emitted, uploaded, cached, or committed in public.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-unit-failure-isolation.yml
-
+  workflow_dispatch:
 permissions:
   contents: read
 

@@ -2,12 +2,7 @@ name: d06-pd16-schema-qualification
 
 # Public control plane, private D06 source stays only on the Windows runner.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-pd16-schema-qualification.yml
-
+  workflow_dispatch:
 permissions:
   contents: read
 

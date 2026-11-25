@@ -3,11 +3,7 @@ name: d06-unit-matrix-qualification
 # Independent private-source diagnostics; public output contains only
 # registered npm script IDs and their PASS/FAIL results.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-unit-matrix-qualification.yml
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

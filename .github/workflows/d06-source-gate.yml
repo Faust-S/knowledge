@@ -2,11 +2,7 @@ name: d06-source-gate
 
 # Full source quality on private checkout, ephemeral public Windows runner.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-source-gate.yml
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

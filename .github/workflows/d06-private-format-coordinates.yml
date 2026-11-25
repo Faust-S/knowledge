@@ -3,11 +3,7 @@ name: d06-private-format-coordinates
 # the disposable runner. Never print private source, filenames, patch text,
 # ESLint messages, raw logs, package archives or credentials.
 on:
-  push:
-    branches:
-      - test/2026-11-18-d06-qualification
-    paths:
-      - .github/workflows/d06-private-format-coordinates.yml
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
