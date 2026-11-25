@@ -1,11 +1,15 @@
 name: d06-t3-release-gate
-# Manual continuation of the exact frozen D06 release candidate.
-# No push or schedule triggers. Preserve previous positive evidence.
+# One deliberate release request. No routine source, workflow or schedule triggers.
 on:
+  push:
+    branches:
+      - 'ci/once/d06-t3-release-gate/*'
+    paths:
+      - '.github/ci-requests/d06-t3-release-gate.json'
   workflow_dispatch:
 
 concurrency:
-  group: d06-t3-qualification-${{ github.ref }}
+  group: d06-t3-qualification
   cancel-in-progress: false
 permissions:
   contents: read
@@ -22,14 +26,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 2
           persist-credentials: false
           sparse-checkout: |
+            .github/ci-requests/d06-t3-release-gate.json
+            .github/d06/verify-d06-once.mjs
             .github/d06/t3-release-request.json
             .github/d06/reuse-static-evidence.mjs
             scripts/d06-static-reconcile.sh
             scripts/d06-private-git-transport.sh
           sparse-checkout-cone-mode: false
           path: pipeline
+      - name: Validate one-shot trigger before any private checkout
+        working-directory: pipeline
+        shell: bash
+        run: node .github/d06/verify-d06-once.mjs
       - name: Validate explicit release request
         id: request
         shell: pwsh
