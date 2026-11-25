@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_GROUPED_QUALIFICATION_REQUEST/1",
-  "siteCommit": "da34426f759c47c17013cdc0efdcc9c256f119e9",
+  "siteCommit": "b6faaa0bfd21bfde621f77fa6e1d305044fe1c4b",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
   "assistantCommit": "1c6d077c45d0ccfa9f07f6718e475c1f2ee553fd",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
@@ -29,7 +29,7 @@
     45655978598
   ],
   "scopeExpansionAllowed": false,
-  "reason": "Complete the unchanged frozen 1.6.0 release after exact formatter-only corrections. The previous source attempt passed 1579 subject and 105 assistant tests, types, native contexts and module contracts. It stopped before platform assembly and hardware because of formatting only.",
+  "reason": "Complete the unchanged frozen 1.6.0 release. Product sources remain unchanged after the formatter-only correction; this candidate adds diagnostic stage reporting only to the existing browser qualification script to isolate the 375 px material-detail timeout. No product scope expansion.",
   "productAccepted": false,
   "remotePublicationVerified": false,
   "formatOnlyCorrection": true
