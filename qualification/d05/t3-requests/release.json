@@ -1,22 +1,34 @@
 {
   "schema": "IWXA_D05_T3_GROUPED_QUALIFICATION_REQUEST/1",
-  "siteCommit": "c31a6431105776dfdef8a5221f6fc04c867ad477",
-  "subjectCommit": "53d3f79b6e3c1bc36f3c507c065283181c1c0132",
-  "assistantCommit": "5e3083788aa541921559de29d3457d4a52bbba00",
+  "siteCommit": "0d88c6822a224cb54d8f7908b216e41f98dfd550",
+  "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
+  "assistantCommit": "1c6d077c45d0ccfa9f07f6718e475c1f2ee553fd",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+  "witnessCommit": "3af00278ef77eb38084df4e9c7854528380dc615",
+  "evaluatorCommit": "d506577539a4ca530a02f548fa2b225221a6af11",
   "expectedRetainedBase": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
-  "reason": "One grouped candidate: scoped native cost, price and missing-input results; exact canonical 1.4.1 pack; retain original T3 and protected product checks; add one price inference within the existing online model session. Prior real-model quality remains unaccepted. Keep private publication separate from semantic acceptance.",
+  "skillsVersion": "1.6.0",
+  "profile": "light",
+  "counts": {
+    "skills": 11,
+    "forms": 11,
+    "resultContexts": 15,
+    "choices": 46,
+    "detailRoutes": 4
+  },
+  "fullRelease": true,
+  "crossService": true,
+  "requiredQuality": {
+    "exactSource": 7,
+    "correctChoice": 7
+  },
   "priorReceipts": [
     45612942218,
-    45620770485,
-    45624009478
+    45633634092,
+    45639203256
   ],
+  "scopeExpansionAllowed": false,
+  "reason": "Complete the frozen 1.6.0 release. Existing full source, protected production, cold offline, hardware advice, reproducibility and private publication gates remain required. No additional product features.",
   "productAccepted": false,
-  "remotePublicationVerified": false,
-  "witnessCommit": "a27b765e55dc5fea9fa15b2537b0f21ec1b2149a",
-  "evaluatorCommit": "2f97a32d82231a5866cac80d44646e22015fc25c",
-  "skillsVersion": "1.4.1",
-  "profile": "balanced",
-  "comparableQualityChecks": 11,
-  "additionalPriceChecks": 5
+  "remotePublicationVerified": false
 }
