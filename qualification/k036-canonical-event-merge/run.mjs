@@ -133,7 +133,8 @@ try{
     'import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])',zip,qualified],temp);
   const idb=join(candidate,'node_modules/fake-indexeddb/build/esm/index.js');
   need(existsSync(idb),'K036_TEST_INDEXEDDB_REQUIRED');
-  const cross=run(node,['--test','--test-force-exit','tests/t3-company-original-runtime-roundtrip.test.mjs'],corePackage,
+  npm('K036_ONE_CORE_DEPENDENCIES',['ci','--no-audit','--no-fund'],corePackage);
+  const cross=run(node,['--test','--test-reporter=tap','--test-force-exit','tests/t3-company-original-runtime-roundtrip.test.mjs'],corePackage,
     {...process.env,IWXA_COMPANY_TEST_QUALIFIED_T2:qualified,IWXA_COMPANY_TEST_IDB_MODULE:idb,
       IWXA_COMPANY_TEST_CANDIDATE_T2:dist,IWXA_COMPANY_TEST_CANDIDATE_RECEIPT:receiptPath});
   const counts=Object.fromEntries([...cross.output.matchAll(/^# (tests|pass|fail|skipped) (\d+)\s*$/gm)]
@@ -143,7 +144,9 @@ try{
     // Only finite error code names. Never relay raw diagnostics.
     for(const code of ['IMPORT_EVENT_ID_COLLISION','CANDIDATE_BUILD_BYTES_MISMATCH',
       'CANDIDATE_UNRELATED_RUNTIME_FILE_CHANGED','ERR_ASSERTION','KERNEL_UNAVAILABLE',
-      'T3_CORPORATE_EXCHANGE_BUSINESS_ARCHIVE_REQUIRED','T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY'])
+      'T3_CORPORATE_EXCHANGE_BUSINESS_ARCHIVE_REQUIRED','T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY',
+      'ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND','ERR_UNKNOWN_FILE_EXTENSION','ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING',
+      'ERR_INVALID_ARG_VALUE','SyntaxError','ReferenceError','TypeError','ENOENT'])
       if(cross.output.includes(code))console.log('K036_CROSS_PRODUCT_DIAGNOSTIC='+code);
   }
   need(cross.code===0&&counts.tests===2&&counts.pass===2&&counts.fail===0,
