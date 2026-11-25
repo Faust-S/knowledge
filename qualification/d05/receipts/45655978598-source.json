@@ -1,0 +1,58 @@
+{
+  "schema": "IWXA_D05_T3_RELEASE_SOURCE_RECEIPT/1",
+  "runId": 45655978598,
+  "jobId": 139352632690,
+  "siteCommit": "0d88c6822a224cb54d8f7908b216e41f98dfd550",
+  "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
+  "assistantCommit": "1c6d077c45d0ccfa9f07f6718e475c1f2ee553fd",
+  "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+  "witnessCommit": "3af00278ef77eb38084df4e9c7854528380dc615",
+  "skillsVersion": "1.6.0",
+  "commonAssistantTests": {
+    "passed": 105,
+    "total": 105
+  },
+  "subjectTests": {
+    "passed": 1579,
+    "total": 1579
+  },
+  "fieldPolicyTests": {
+    "passed": 35,
+    "total": 35
+  },
+  "nativeContexts": "PASS",
+  "bindings": "PASS",
+  "types": "PASS",
+  "existingModule": "PASS",
+  "sourceGate": "FAIL",
+  "failure": "FORMAT_ONLY",
+  "formatErrors": 14,
+  "formatterEvidence": [
+    {
+      "path": "scripts/check-t3-assistant-browser.ts",
+      "edits": 5,
+      "before": "84a51cca6c9847850acda234619d250a0cd9b52f36be576ddb6f4095ba87fec8",
+      "after": "0eafa398b65caac2f6dfb4d11c1150207d3c48229badcc21639ac2eebdfe7a30",
+      "exactFormatterOutputApplied": true
+    },
+    {
+      "path": "src/lib/t3-result-detail.test.ts",
+      "edits": 32,
+      "before": "23759a4c79864c974ca25cc371e222a39431656d6ebceea017d0662e42ab4946",
+      "after": "6116811a43e1e3b612e1192dfd79f16cee2c9a284f9dbb2afe06b7f4a5b2994d",
+      "exactFormatterOutputApplied": true
+    },
+    {
+      "path": "src/lib/t3-result-detail.ts",
+      "edits": 3,
+      "before": "c2265732ebc37d4188da1f5a8c62d870187f4ccc842059534b4c35edd91553d9",
+      "after": "302cede8a2a7c872e02651312c0a790cf7d785b92d65d1241e99e76070fb0a02",
+      "exactFormatterOutputApplied": true
+    }
+  ],
+  "correctedSiteCommit": "da34426f759c47c17013cdc0efdcc9c256f119e9",
+  "correctedWitnessCommit": "f910f003c633822cbc96648020848555e74e9479",
+  "hardware": "NOT_RUN",
+  "publication": "NOT_RUN",
+  "productAccepted": false
+}

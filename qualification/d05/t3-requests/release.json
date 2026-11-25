@@ -1,10 +1,10 @@
 {
   "schema": "IWXA_D05_T3_GROUPED_QUALIFICATION_REQUEST/1",
-  "siteCommit": "0d88c6822a224cb54d8f7908b216e41f98dfd550",
+  "siteCommit": "da34426f759c47c17013cdc0efdcc9c256f119e9",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
   "assistantCommit": "1c6d077c45d0ccfa9f07f6718e475c1f2ee553fd",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
-  "witnessCommit": "3af00278ef77eb38084df4e9c7854528380dc615",
+  "witnessCommit": "f910f003c633822cbc96648020848555e74e9479",
   "evaluatorCommit": "d506577539a4ca530a02f548fa2b225221a6af11",
   "expectedRetainedBase": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
   "skillsVersion": "1.6.0",
@@ -25,10 +25,12 @@
   "priorReceipts": [
     45612942218,
     45633634092,
-    45639203256
+    45639203256,
+    45655978598
   ],
   "scopeExpansionAllowed": false,
-  "reason": "Complete the frozen 1.6.0 release. Existing full source, protected production, cold offline, hardware advice, reproducibility and private publication gates remain required. No additional product features.",
+  "reason": "Complete the unchanged frozen 1.6.0 release after exact formatter-only corrections. The previous source attempt passed 1579 subject and 105 assistant tests, types, native contexts and module contracts. It stopped before platform assembly and hardware because of formatting only.",
   "productAccepted": false,
-  "remotePublicationVerified": false
+  "remotePublicationVerified": false,
+  "formatOnlyCorrection": true
 }
