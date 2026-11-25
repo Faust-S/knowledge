@@ -1,5 +1,4 @@
 import test from 'node:test';
-import {prepareT4OriginalSupersessionControl} from '../src/network/original-network-session-supersession.mjs';
 import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync,sign,verify} from 'node:crypto';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame}
@@ -7,13 +6,13 @@ import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFra
 import {prepareT4CandidateOpaqueChunks}
   from '../src/network/standard-network-opaque-chunks.mjs';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
-import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
+import {createT4OriginalNetworkSessionPhasePort,requireT4OriginalRetiredAttemptStatus} from '../src/network/original-network-session-phases.mjs';
 import {createT4CandidateFrameTransport}
   from '../src/network/standard-network-wire-transport.mjs';
 import {prepareT4OriginalSupersessionControl,publishT4OriginalSupersessionRequest}
   from '../src/network/original-network-session-supersession.mjs';
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,readT4OriginalPublicationMigrationInventory,
-  deriveT4OriginalSupersessionPublicationSession}
+  deriveT4OriginalSupersessionPublicationSession,createT4OriginalPublicationIndexMigrationStepper}
   from '../src/network/original-network-publication.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID} from '../src/network/original-network-technical-schema.mjs';
 import {createT4OriginalHostDispatchTaskBinding}
@@ -830,4 +829,51 @@ test('K54 source cold task stops on the original terminal phase before reopening
   assert.equal(stop.liveNetworkAuthorityGranted,false);assert.equal(stop.sourceCursorAdvanced,false);
   assert.equal(f.counts().putCalls,counts.putCalls);assert.equal(f.counts().networkCalls,counts.networkCalls);
   assert.deepEqual(f.sourceCounts(),sourceCounts);
+});
+
+test('K55 migration retains retired original publication without reviving indexes, signer, or subject writes',async()=>{
+  const f=fixture(task(),{indexed:true,initialLegacy:true});await f.stageHeads();await f.port().publishPreparedFrame({sequence:1});
+  f.enableIndexed();const session=f.session;
+  const phase=createT4OriginalNetworkSessionPhasePort({
+    originalKernel:f.kernel,technicalWorkspaceId:technical,originalWriteOwnerRef:owner,
+    sourceNodeRef:source,recipientNodeRef:recipient,localNodeRef:source,scopeRef:scope,
+    sessionRef:session.sessionRef,changeId:session.changeId,ownerEpoch:session.ownerEpoch,
+    getMode:f.mode,readOriginalHostContext:async()=>({workspaceId:technical,originalWriteOwnerRef:owner,
+      nodeRef:source,scopeRef:scope,hostSessionRef:f.host()}),
+    authorizeOriginalTechnicalRead:f.auth,authorizeOriginalTechnicalWrite:f.auth,
+    verifyOriginalPhaseEvidence:async()=>true,verifyOriginalRecipientApplied:async()=>false,
+    authorizeOriginalSourceSupersession:async()=>true});
+  const before=await phase.inspectOriginalSession();
+  const plan=prepareT4OriginalSupersessionControl({session,expectedPhaseRevision:0,
+    expectedPhaseChainHash:H('fixture genesis'),decisionRef:'decision:k55',requestRef:'request:k55'});
+  const retirement={...plan.claim.body,retirementCheckpointRef:'t4:net:session:recipient-fixture',
+    retirementRevision:1,retirementChainHash:H('retired'),retirementEventId:'event:k55:recipient'};
+  await phase.recordOriginalSourceSupersession({expectedRevision:before.revision,expectedChainHash:before.chainHash,
+    retirementAckDigest:H('retirement ack'),retirement});
+  const inspect=async({session:s})=>{
+    const status=await phase.inspectOriginalRetiredAttempt();
+    return {...requireT4OriginalRetiredAttemptStatus(status,s,'SOURCE',phase.checkpointRef),
+      sessionRef:s.sessionRef,changeId:s.changeId,role:'SOURCE'};
+  };
+  const inventoryPorts={technicalSchemaId:T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,technicalWorkspaceId:technical,
+    sourceWorkspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef:source,recipientNodeRef:recipient,
+    localNodeRef:source,scopeRef:scope,ownerEpoch:session.ownerEpoch,
+    originalKernel:f.kernel,getMode:f.mode,readOriginalHostContext:async()=>({workspaceId:technical,
+      originalWriteOwnerRef:owner,nodeRef:source,scopeRef:scope,hostSessionRef:f.host()}),
+    authorizeOriginalTechnicalRead:f.auth};
+  f.denyIndexMigration();f.restart();
+  const counts=f.counts(),indexCalls=f.indexCalls();
+  const step=createT4OriginalPublicationIndexMigrationStepper({...inventoryPorts,
+    inspectOriginalRetiredAttempt:inspect,createOriginalPublicationPort:async()=>f.port()});
+  const result=await step();
+  assert.equal(result.state,'NETWORK_INDEX_MIGRATION_COMPLETE');
+  assert.equal(result.skippedRetiredPublicationCount,1);assert.equal(result.migratedPublicationCount,0);
+  assert.equal(result.verifiedMigratedFrameCount,0);assert.equal(result.skippedRetiredIndexesRepaired,false);
+  assert.equal(f.counts().putCalls,counts.putCalls);assert.equal(f.counts().networkCalls,counts.networkCalls);
+  assert.equal(f.counts().signCalls,counts.signCalls);assert.equal(f.indexCalls(),indexCalls);
+  let reads=0;
+  const contradictory=createT4OriginalPublicationIndexMigrationStepper({...inventoryPorts,
+    inspectOriginalRetiredAttempt:async p=>++reads===1?inspect(p):null,createOriginalPublicationPort:async()=>f.port()});
+  await assert.rejects(contradictory(),err('NATIVE_INDEX_MIGRATION_RETIREMENT_CONFLICT'));
+  assert.equal(f.indexCalls(),indexCalls);
 });

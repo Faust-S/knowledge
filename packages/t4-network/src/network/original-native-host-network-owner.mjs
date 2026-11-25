@@ -6,7 +6,7 @@ import {createT4OriginalHostCaptureLedgerPort} from './original-host-capture-led
 import {createT4OriginalHostCaptureAdapter} from './original-host-capture-adapter.mjs';
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort}
   from './original-network-host-cursor.mjs';
-import {createT4OriginalNetworkSessionPhasePort} from './original-network-session-phases.mjs';
+import {createT4OriginalNetworkSessionPhasePort,requireT4OriginalRetiredAttemptStatus} from './original-network-session-phases.mjs';
 import {createT4OriginalNetworkPublicationPort,isT4RecoverablePublicationWakeError,createT4OriginalPublicationIndexMigrationStepper} from './original-network-publication.mjs';
 import {createT4OriginalNetworkReplayPort} from './original-network-replay-checkpoint.mjs';
 import {isT4NativeTopologyTransport} from './network-topology.mjs';
@@ -224,14 +224,19 @@ export function createT4OriginalNativeHostNetworkOwner({
       verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature'),
       ...(scopedVault?.verifyOriginalHistoricalNodeSignature?{verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature')}:{ }),
       ...(role==='SOURCE'&&scopedSealed?{authorizeOriginalSealedPublication:callback('authorizeOriginalSealedPublication')}:{})});
-    let migrateNextPublication=enablePublicationIndexMigration?
-      createT4OriginalPublicationIndexMigrationStepper({...tech,localNodeRef:nodeRef,
-        createOriginalPublicationPort:publication}):async()=>null;
     const phase=async({session})=>createT4OriginalNetworkSessionPhasePort({...tech,
       localNodeRef:nodeRef,sessionRef:session.sessionRef,changeId:session.changeId,
       changeKind:session.changeKind,recipientApplyIntentRequired:role==='RECIPIENT',
       verifyOriginalPhaseEvidence:callback('verifyOriginalPhaseEvidence'),
       verifyOriginalRecipientApplied:callback('verifyOriginalRecipientApplied')});
+    const inspectRetired=async({session})=>{
+      const port=await phase({session}),status=await port.inspectOriginalRetiredAttempt();
+      return status===null?null:Object.freeze({...requireT4OriginalRetiredAttemptStatus(status,session,role,port.checkpointRef),
+        sessionRef:session.sessionRef,changeId:session.changeId,role});
+    };
+    let migrateNextPublication=enablePublicationIndexMigration?
+      createT4OriginalPublicationIndexMigrationStepper({...tech,localNodeRef:nodeRef,
+        createOriginalPublicationPort:publication,inspectOriginalRetiredAttempt:inspectRetired}):async()=>null;
     const common={workspaceId:sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
       scopeRef,ownerEpoch,originalKernel,getMode,isHostActive,
       readOriginalHostContext:context(sourceWorkspaceId),authorizeOriginalHostTask:callback('authorizeOriginalHostTask'),
@@ -253,7 +258,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       const resetSourceMigration=()=>{
         if(enablePublicationIndexMigration&&enableHistoricalAcknowledgementRecovery)
           migrateNextPublication=createT4OriginalPublicationIndexMigrationStepper({...tech,localNodeRef:nodeRef,
-            createOriginalPublicationPort:publication,
+            createOriginalPublicationPort:publication,inspectOriginalRetiredAttempt:inspectRetired,
             inspectOriginalCommittedSourceAcknowledgements:sourceCursorPort.inspectOriginalCommittedSourceAcknowledgements});
       };
       resetSourceMigration();
@@ -534,12 +539,19 @@ export function createT4OriginalNativeHostNetworkOwner({
           sourceCursorAdvanced:result.sourceCursorAdvanced===true,
           originalRecipientCursorAdvanced:result.originalRecipientCursorAdvanced===true,
           originalSubjectMutationInvoked:result.originalSubjectMutationInvoked===true,
+          ...(result.state==='WAITING_FOR_REPLACEMENT_ADMISSION'?{
+            originalSupersessionEventId:(result.step??result).originalSupersessionEventId,
+            replacementSessionRef:(result.step??result).replacementSessionRef,
+            originalNewAttemptAdmissionStillRequired:true}:{}),
           ...(ID(result.captureRef)?{captureRef:result.captureRef}:{}),
           ...(ID(result.originalSourceEventId)?{originalSourceEventId:result.originalSourceEventId}:{}),
           ...(Number.isSafeInteger(result.pendingCaptureCount)?{pendingCaptureCount:result.pendingCaptureCount}:{}),
           ...(Number.isSafeInteger(result.migratedPublicationCount)?{
             migratedPublicationCount:result.migratedPublicationCount,pendingPublicationCount:result.pendingPublicationCount,
             verifiedMigratedFrameCount:result.verifiedMigratedFrameCount}:{ }),
+          ...(Number.isSafeInteger(result.skippedRetiredPublicationCount)?{
+            skippedRetiredPublicationCount:result.skippedRetiredPublicationCount,
+            skippedRetiredIndexesRepaired:false}:{}),
           ...(Number.isSafeInteger(result.skippedCompletedSourcePublicationCount)?{
             processedPublicationCount:result.processedPublicationCount,
             skippedCompletedSourcePublicationCount:result.skippedCompletedSourcePublicationCount,

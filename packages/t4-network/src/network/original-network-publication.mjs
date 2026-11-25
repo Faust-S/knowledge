@@ -356,15 +356,17 @@ export async function readT4OriginalPublicationMigrationInventory({
 // persisted position or authority. A cold original Host creates a fresh
 // instance and reconstructs the inventory from the SAME original Kernel.
 export function createT4OriginalPublicationIndexMigrationStepper({
-  createOriginalPublicationPort,inspectOriginalCommittedSourceAcknowledgements=null,...originalInventoryPorts
+  createOriginalPublicationPort,inspectOriginalCommittedSourceAcknowledgements=null,
+  inspectOriginalRetiredAttempt=null,...originalInventoryPorts
 }={}){
   if(typeof createOriginalPublicationPort!=='function'||
+    (inspectOriginalRetiredAttempt!==null&&typeof inspectOriginalRetiredAttempt!=='function')||
     (inspectOriginalCommittedSourceAcknowledgements!==null&&
       (typeof inspectOriginalCommittedSourceAcknowledgements!=='function'||
         originalInventoryPorts.localNodeRef!==originalInventoryPorts.sourceNodeRef)))
     fail('PUBLICATION_MIGRATION_ORIGINAL_PORT_REQUIRED');
   let migrationInventory=null,migrationPosition=0,migratedFrames=0,migrationDone=false,
-    completedSourceRecords=null,skippedCompleted=0;
+    completedSourceRecords=null,skippedCompleted=0,retiredRecords=new Map(),skippedRetired=0;
   const readMigrationInventory=()=>readT4OriginalPublicationMigrationInventory(originalInventoryPorts);
   async function readCompleted(records){
     const out=new Map();
@@ -395,6 +397,21 @@ export function createT4OriginalPublicationIndexMigrationStepper({
     }
     return out;
   }
+  async function readRetired(record){
+    if(inspectOriginalRetiredAttempt===null)return null;
+    const proof=clone(await inspectOriginalRetiredAttempt({session:record.session}));
+    if(proof===null)return null;
+    const c=record.session,role=originalInventoryPorts.localNodeRef===c.sourceNodeRef?'SOURCE':'RECIPIENT';
+    if(proof?.originalAttemptSuperseded!==true||!ID(proof.originalSupersessionEventId)||
+      !ID(proof.originalRetiredPhaseCheckpointRef)||!DIG(proof.originalRetiredPhaseChainHash)||
+      !Number.isSafeInteger(proof.originalRetiredPhaseRevision)||proof.originalRetiredPhaseRevision<1||
+      proof.originalRetiredPhaseRevision>3||proof.replacementSessionRef!==deriveT4OriginalReplacementAttempt(c).replacementSessionRef||
+      proof.originalNewAttemptAdmissionStillRequired!==true||proof.liveNetworkAuthorityGranted!==false||
+      proof.originalSubjectMutationInvoked!==false||proof.sourceCursorAdvanced!==false||
+      proof.sessionRef!==c.sessionRef||proof.changeId!==c.changeId||proof.role!==role)
+      fail('NATIVE_INDEX_MIGRATION_RETIREMENT_CONFLICT');
+    return proof;
+  }
   // The original native owner serializes wake and local operations. Also
   // refuse concurrent calls at this narrower boundary; never race a PUT.
   let running=false;
@@ -416,7 +433,11 @@ export function createT4OriginalPublicationIndexMigrationStepper({
           saved.chainHash!==record.chainHash||saved.originalT3EventChainVerified!==true)
           fail('NATIVE_INDEX_MIGRATION_INVENTORY_CHANGED');
         const sequences=saved.frames.filter(f=>f.state==='PRESENT').map(f=>f.sequence);
-        if(completedSourceRecords.has(record.session.changeId)){
+        const retired=await readRetired(record);
+        if(retired!==null){
+          if(completedSourceRecords.has(record.session.changeId))fail('NATIVE_INDEX_MIGRATION_RETIREMENT_CONFLICT');
+          retiredRecords.set(record.checkpointRef,retired);skippedRetired++;
+        }else if(completedSourceRecords.has(record.session.changeId)){
           // The original source already committed this exact recipient
           // Result. Old addresses are not needed for its delivery. This
           // deliberately does NOT claim a remote repair or live authority.
@@ -454,10 +475,17 @@ export function createT4OriginalPublicationIndexMigrationStepper({
         const completedAfter=await readCompleted(after.records);
         for(const [changeId,prior] of completedSourceRecords)
           if(!same(completedAfter.get(changeId),prior))fail('NATIVE_INDEX_MIGRATION_COMPLETION_CONFLICT');
-        migrationDone=true;migrationInventory=null;completedSourceRecords=null;
+        for(const record of after.records){
+          const prior=retiredRecords.get(record.checkpointRef);
+          if(prior!==undefined&&(!same(await readRetired(record),prior)||completedAfter.has(record.session.changeId)))
+            fail('NATIVE_INDEX_MIGRATION_RETIREMENT_CONFLICT');
+        }
+        migrationDone=true;migrationInventory=null;completedSourceRecords=null;retiredRecords.clear();
       }
       return Object.freeze({state:migrationDone?'NETWORK_INDEX_MIGRATION_COMPLETE':'NETWORK_INDEX_MIGRATION_PROGRESS',
-        migratedPublicationCount:migrationPosition-skippedCompleted,pendingPublicationCount:records.length-migrationPosition,
+        migratedPublicationCount:migrationPosition-skippedCompleted-skippedRetired,pendingPublicationCount:records.length-migrationPosition,
+        ...(inspectOriginalRetiredAttempt!==null?{processedPublicationCount:migrationPosition,
+          skippedRetiredPublicationCount:skippedRetired,skippedRetiredIndexesRepaired:false}:{}),
         ...(inspectOriginalCommittedSourceAcknowledgements!==null?{processedPublicationCount:migrationPosition,
           skippedCompletedSourcePublicationCount:skippedCompleted,
           skippedCompletedSourceIndexesRepaired:false}:{}),

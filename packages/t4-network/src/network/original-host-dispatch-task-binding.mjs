@@ -469,8 +469,8 @@ export function createT4OriginalHostDispatchTaskBinding({
     const intent={evidenceRef:session.sourceEventId,evidenceDigest:session.capturedWindowDigest};
     const evidenceMatches=(a,b)=>a?.evidenceRef===b?.evidenceRef&&a?.evidenceDigest===b?.evidenceDigest;
     const status=await phase.inspectOriginalSession();
-    await refresh();
     if(status?.currentPhase==='SUPERSEDED'){
+      await refresh();
       const retired=requireT4OriginalRetiredAttemptStatus(status,session,'SOURCE',phase.checkpointRef);
       if(status.revision>1&&!evidenceMatches(status.sourceIntentEvidence,intent))
         fail('HOST_TASK_NATIVE_SOURCE_DURABLE_STATE_INVALID');
