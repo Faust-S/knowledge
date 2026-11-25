@@ -1,18 +1,5 @@
 name: T3 PWA offline and installability source qualification (OS native install HOLD)
 on:
-  push:
-    branches:
-      - work/2026-11-13-t3-pwa-integration
-      - work/2026-11-10-t3-t2-activity-projection
-    paths:
-      - packages/t3-core/scripts/materialize-t3-domain-mode.mjs
-      - packages/t3-core/scripts/t3-pwa-manifest.mjs
-      - packages/t3-core/src/t3/domain-mode/**
-      - packages/t3-core/tests/t3-pwa-install.test.mjs
-      - packages/t3-core/tests/t3-domain-offline.test.mjs
-      - packages/t3-core/tests/t3-domain-switch.browser.mjs
-      - packages/t3-core/tests/t3-pwa-os-install.browser.mjs
-      - .github/workflows/t3-pwa-installation.yml
   workflow_dispatch:
 permissions:
   contents: read

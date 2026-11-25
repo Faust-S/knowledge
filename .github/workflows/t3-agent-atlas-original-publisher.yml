@@ -1,12 +1,5 @@
 name: T3 Agent Atlas original publisher qualification
 on:
-  push:
-    branches:
-      - work/2026-11-17-t3-agent06-native-source-publication
-    paths:
-      - packages/t3-core/src/t3/native-agent-atlas-source-publisher.mjs
-      - packages/t3-core/tests/t3-d6-native-agent-source-publisher.test.mjs
-      - .github/workflows/t3-agent-atlas-original-publisher.yml
   workflow_dispatch:
 permissions:
   contents: read

@@ -1,13 +1,5 @@
 name: T3 original Windows DPAPI provider probe
 on:
-  push:
-    branches:
-      - work/2026-11-10-t3-t2-activity-projection
-    paths:
-      - .github/workflows/t3-original-windows-dpapi-probe.yml
-      - packages/t3-core/scripts/probe-original-windows-dpapi.mjs
-      - packages/t3-core/scripts/probe-original-private-windows-credential.mjs
-      - packages/t3-core/scripts/probe-original-private-windows-credential-child.mjs
   workflow_dispatch:
 permissions:
   contents: read

@@ -1,24 +1,5 @@
 name: T3 Windows native original corporate employee process
 on:
-  push:
-    branches:
-      - work/2026-11-10-t3-t2-activity-projection
-    paths:
-      - .github/workflows/t3-native-original-employee.yml
-      # A changed installed Agent/One Core pin must requalify the identical
-      # original signed source, never borrow historical 26/26 evidence.
-      - .github/workflows/t3-g4-installed-current-agent06.yml
-      - packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
-      - packages/t3-core/scripts/qualify-original-agent-d3-port.mjs
-      - packages/t3-core/tests/g4-native-original-owner-pin-parity.test.mjs
-      - packages/t3-core/tests/g4-original-agent-native-windows.mjs
-      - packages/t3-core/tests/g4-original-agent-native-driver.py
-      - packages/t3-core/tests/g4-native-two-windows-sids.ps1
-      - packages/t3-core/tests/g4-original-agent-second-windows-sid.ps1
-      - packages/t3-core/scripts/qualify-original-agent-second-sid.mjs
-      - packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
-      - packages/t3-core/tests/g4-original-employee-real-task-driver.py
-      - packages/t3-core/tests/g4-production-original-kernel.browser.mjs
   workflow_dispatch:
 
 permissions:
