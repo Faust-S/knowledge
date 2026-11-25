@@ -1200,10 +1200,15 @@ jobs:
             grep -Eo 'D06_T3_(HOST|PLATFORM)_[A-Z0-9_]+|D06_SITE_ONLY_[A-Z0-9_]+|D06_BUILD_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z_]+|T2_QUALIFIED_KERNEL_STAGE_[A-Z_]+|TS[0-9]{4}' "$RUNNER_TEMP/d06-host-private.log" | sort -u | head -25 || true
             node --input-type=module - "$RUNNER_TEMP/d06-host-private.log" <<'NODE'
           import {readFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const paths=execFileSync('git',['ls-files','--','src'],{encoding:'utf8'}).split(/\r?\n/).filter(Boolean).sort();
           const lines=readFileSync(process.argv[2],'utf8').split(/\r?\n/);
           const matches=lines.map(line=>line.match(/^(src\/[A-Za-z0-9_./-]+\.(?:ts|tsx|mts))\((\d+),(\d+)\): error (TS\d+):/)).filter(Boolean);
           console.log("D06_T3_COMPILE_DIAGNOSTICS="+matches.length);
-          for(const m of matches.slice(0,40))console.log("D06_T3_COMPILE_COORD="+m[4]+" "+m[1]+":"+m[2]+":"+m[3]);
+          for(const m of matches.slice(0,40)){
+            const ordinal=paths.indexOf(m[1])+1;
+            if(ordinal>0)console.log("D06_T3_COMPILE_COORD="+m[4]+":"+ordinal+":"+m[2]+":"+m[3]);
+          }
           NODE
             exit 1
           }
@@ -1313,7 +1318,8 @@ jobs:
         run: |
           set -euo pipefail
           node --experimental-strip-types tests/t3/verify-native-offline.mjs --real-model > "$RUNNER_TEMP/d06-real-model-private.log" 2>&1 || {
-            grep -E '^D06_T3_REAL_MODEL_GPU_PROBE=(unavailable|software|compute-failed|unknown|nonfallback-reported):[A-Z_]+ "$RUNNER_TEMP/d06-real-model-private.log" || true
+            grep -E '^D06_T3_REAL_MODEL_GPU_PROBE=(unavailable|software|compute-failed|unknown|nonfallback-reported):[A-Z_]+$' "$RUNNER_TEMP/d06-real-model-private.log" || true
+            grep -E '^D06_T3_(OFFLINE|REAL_MODEL)_[A-Z0-9_]+=(PASS|BLOCKED)$' "$RUNNER_TEMP/d06-real-model-private.log" || true
             if grep -q '^D06_T3_REAL_MODEL_HARDWARE_UNAVAILABLE=BLOCKED$' "$RUNNER_TEMP/d06-real-model-private.log"; then
               echo D06_T3_REAL_MODEL_NATIVE_OFFLINE=BLOCKED
             else
@@ -1323,39 +1329,8 @@ jobs:
             exit 1
           }
           grep -E '^D06_T3_(OFFLINE|REAL_MODEL)_[A-Z0-9_]+=PASS$' "$RUNNER_TEMP/d06-real-model-private.log"
-          grep -q '^D06_T3_REAL_MODEL_GPU_COMPUTE=PASS "$RUNNER_TEMP/d06-real-model-private.log"
- "$RUNNER_TEMP/d06-real-model-private.log"
-          grep -q '^D06_T3_REAL_MODEL_NATIVE_OFFLINE=PASS "$RUNNER_TEMP/d06-real-model-private.log"
- "$RUNNER_TEMP/d06-real-model-private.log"
- "$RUNNER_TEMP/d06-real-model-private.log" || true
-            grep -E '^D06_T3_(OFFLINE|REAL_MODEL)_[A-Z0-9_]+=(PASS|BLOCKED) "$RUNNER_TEMP/d06-real-model-private.log" || true
-            if grep -q '^D06_T3_REAL_MODEL_HARDWARE_UNAVAILABLE=BLOCKED$' "$RUNNER_TEMP/d06-real-model-private.log"; then
-              echo D06_T3_REAL_MODEL_NATIVE_OFFLINE=BLOCKED
-            else
-              echo D06_T3_REAL_MODEL_NATIVE_OFFLINE=FAIL
-              grep -Eo 'D06_T3_REAL_MODEL_[A-Z0-9_]+' "$RUNNER_TEMP/d06-real-model-private.log" | sort -u | head -15 || true
-            fi
-            exit 1
-          }
-          grep -E '^D06_T3_(OFFLINE|REAL_MODEL)_[A-Z0-9_]+=PASS$' "$RUNNER_TEMP/d06-real-model-private.log"
-          grep -q '^D06_T3_REAL_MODEL_GPU_COMPUTE=PASS "$RUNNER_TEMP/d06-real-model-private.log"
- "$RUNNER_TEMP/d06-real-model-private.log"
-          grep -q '^D06_T3_REAL_MODEL_NATIVE_OFFLINE=PASS "$RUNNER_TEMP/d06-real-model-private.log"
- "$RUNNER_TEMP/d06-real-model-private.log"
- "$RUNNER_TEMP/d06-real-model-private.log" || true
-            if grep -q '^D06_T3_REAL_MODEL_HARDWARE_UNAVAILABLE=BLOCKED$' "$RUNNER_TEMP/d06-real-model-private.log"; then
-              echo D06_T3_REAL_MODEL_NATIVE_OFFLINE=BLOCKED
-            else
-              echo D06_T3_REAL_MODEL_NATIVE_OFFLINE=FAIL
-              grep -Eo 'D06_T3_REAL_MODEL_[A-Z0-9_]+' "$RUNNER_TEMP/d06-real-model-private.log" | sort -u | head -15 || true
-            fi
-            exit 1
-          }
-          grep -E '^D06_T3_(OFFLINE|REAL_MODEL)_[A-Z0-9_]+=PASS$' "$RUNNER_TEMP/d06-real-model-private.log"
-          grep -q '^D06_T3_REAL_MODEL_GPU_COMPUTE=PASS "$RUNNER_TEMP/d06-real-model-private.log"
- "$RUNNER_TEMP/d06-real-model-private.log"
-          grep -q '^D06_T3_REAL_MODEL_NATIVE_OFFLINE=PASS "$RUNNER_TEMP/d06-real-model-private.log"
- "$RUNNER_TEMP/d06-real-model-private.log"
+          grep -Fxq 'D06_T3_REAL_MODEL_GPU_COMPUTE=PASS' "$RUNNER_TEMP/d06-real-model-private.log"
+          grep -Fxq 'D06_T3_REAL_MODEL_NATIVE_OFFLINE=PASS' "$RUNNER_TEMP/d06-real-model-private.log"
       - name: Privacy and evidence boundary
         if: always()
         shell: bash
