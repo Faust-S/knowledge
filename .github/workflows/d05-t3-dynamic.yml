@@ -15,14 +15,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod
-          ref: 957a052b826ad69b3b2d71ac291ff4b71711ef47
+          ref: 7d44995b536bc57eb0acff63d876d255c034fb77
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: ed40ac6196d9c68f168a4ba436b4ee442d93f791
+          ref: 317fd73fd77dea0c27d6a5d20974648c9b119635
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -90,7 +90,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node --test scripts/lib/t3-webgpu-probe.test.mjs scripts/prepare-t3-retained-commit.test.mjs
+          node --test scripts/lib/t3-webgpu-probe.test.mjs scripts/prepare-t3-retained-commit.test.mjs scripts/lib/cehovod-product-invocation.test.mjs scripts/serve-cehovod-t2.test.mjs
+          node --check scripts/verify-cehovod-t3-product.mjs
           node --experimental-strip-types --test scripts/lib/t3-assistant-vite-config.test.mjs
           node --check public/assets/cehovod-t3-bootstrap.mjs
           node --check scripts/check-t3-hardware-webgpu.mjs
@@ -280,7 +281,7 @@ jobs:
           // strings, identifiers, patches containing code, or formatter diagnostics.
           const layout=/^[ \t\r\n"'\x60,;(){}\[\]\\]*$/u;
           const isLayout=c=>c!==undefined&&layout.test(c);
-          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts","scripts/d05-first-use-real-kernel-witness.mjs","scripts/d05-t3-real-model-witness.mjs","scripts/prerender.ts","src/lib/static-router-freshness.ts","src/lib/static-router-freshness.test.ts","scripts/lib/loopback-tls-pin.mjs","scripts/lib/t3-webgpu-probe.mjs","scripts/lib/t3-webgpu-probe.test.mjs","scripts/lib/t3-assistant-vite-config.mjs","scripts/lib/t3-assistant-vite-config.test.mjs","scripts/prepare-t3-retained-commit.test.mjs","scripts/prepare-t3-retained-commit.mjs","src/styles.css","scripts/check-t3-retained-checkout.mjs","scripts/check-t3-assistant-dynamic.ts","scripts/check-t3-native-context.mjs","src/components/site/T3ContextActions.tsx","src/routes/instrumenty.sebestoimost-zakaza.tsx","src/routes/instrumenty.marshrut-i-srok.tsx","src/routes/instrumenty.make-or-buy.tsx"]);
+          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts","scripts/d05-first-use-real-kernel-witness.mjs","scripts/d05-t3-real-model-witness.mjs","scripts/prerender.ts","src/lib/static-router-freshness.ts","src/lib/static-router-freshness.test.ts","scripts/lib/loopback-tls-pin.mjs","scripts/lib/t3-webgpu-probe.mjs","scripts/lib/t3-webgpu-probe.test.mjs","scripts/lib/cehovod-product-invocation.mjs","scripts/lib/cehovod-product-invocation.test.mjs","scripts/serve-cehovod-t2.mjs","scripts/serve-cehovod-t2.test.mjs","scripts/verify-cehovod-t3-product.mjs","scripts/lib/t3-assistant-vite-config.mjs","scripts/lib/t3-assistant-vite-config.test.mjs","scripts/prepare-t3-retained-commit.test.mjs","scripts/prepare-t3-retained-commit.mjs","src/styles.css","scripts/check-t3-retained-checkout.mjs","scripts/check-t3-assistant-dynamic.ts","scripts/check-t3-native-context.mjs","src/components/site/T3ContextActions.tsx","src/routes/instrumenty.sebestoimost-zakaza.tsx","src/routes/instrumenty.marshrut-i-srok.tsx","src/routes/instrumenty.make-or-buy.tsx"]);
           for(const row of rows.filter(r=>r.errorCount)){
             const path=relative(process.cwd(),row.filePath);
             if(!allow.has(path)||row.messages.some(m=>m.severity===2&&m.ruleId!=="prettier/prettier"))continue;
