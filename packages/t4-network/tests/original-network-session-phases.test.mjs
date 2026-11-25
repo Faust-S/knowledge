@@ -22,7 +22,7 @@ import {prepareT4OriginalSupersessionControl,signT4OriginalSupersessionRequest,
   discoverT4OriginalReplacementRecipientDiff,publishT4OriginalReplacementSourceContent,confirmT4OriginalReplacementSourcePublication,
   readT4OriginalReplacementSourceAckEvidence,confirmT4OriginalReplacementSourceAcknowledgement}
   from '../src/network/original-network-session-supersession.mjs';
-import {createT4OriginalNetworkSessionPhasePort,deriveT4OriginalReplacementAttempt} from
+import {createT4OriginalNetworkSessionPhasePort,createT4OriginalReplacementHistoricalPhasePort,deriveT4OriginalReplacementAttempt} from
   '../src/network/original-network-session-phases.mjs';
 
 const workspace='t4:network:technical:session',
@@ -693,6 +693,12 @@ async function controlFixture({indexed=false,realSourceHistory=false}={}){
     durableRetire,signatureCount:()=>signatures,loseControlWrite:()=>{loseControlWrite=true;},
     eligibility,eligibilityOptions,sourceCursorBefore,sourceCursorAfter,transport,indexes,
     realSourceCursor,realRecipientCursor,setFrontierWriteAllowed:v=>{frontierWriteAllowed=v;},
+    historicalReadOptions:node=>{
+      const technicalWorkspaceId=node===sourceNodeRef?technical:workspace,kernel=node===sourceNodeRef?sourceStore.kernel:f.kernel.kernel;
+      return {technicalWorkspaceId,localNodeRef:node,originalKernel:{hasOperation:op=>['t1.getObject','t1.listEventsSince'].includes(op),
+        getObject:kernel.getObject,listEventsSince:kernel.listEventsSince},getMode,readOriginalHostContext:context(node,technicalWorkspaceId),
+        authorizeOriginalTechnicalRead:async()=>true};
+    },historicalSignature,verifySourceApplied:async()=>sourceApplied,
     publishReplacement,discoverReplacement,createReplacementPort,createReplacementRecipientPort,
     recipientAdmissionOptions,publishReplacementDiff,
     changeRecipientFrontier:()=>{recipientFrontierChanged=true;},restoreRecipientFrontier:()=>{recipientFrontierChanged=false;},
@@ -1396,7 +1402,7 @@ test('K63 successor source PUBLISHED binds complete original publication and pre
 
 
 for(const order of ['RECIPIENT_FIRST_LOST_RESPONSES','SOURCE_FIRST_NORMAL'])
-test('K67 K68 K69 source confirms successor ACK and both original frontiers recover independently: '+order,async()=>{
+test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers recover from fresh read-only ports: '+order,async()=>{
   const q=await replacementRecipientFixture({realSourceHistory:true}),{x,c}=q;await q.diff();await q.publish();
   const getMode=x.eligibilityOptions().getMode,source=q.source;
   let allowed=true,recipientResult=true;
@@ -1489,6 +1495,60 @@ test('K67 K68 K69 source confirms successor ACK and both original frontiers reco
   x.rotateSource();x.rotateRecipient();x.offline();x.f.restart();
   const counts={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
   assert.deepEqual(await recover(),historical);
+  // K70: reconstruct fresh original owner ports solely from canonical
+  // session identities and the two original read-only Kernel interfaces.
+  // No live admission, signing, transport or technical write callback.
+  const peerResult=async p=>recipientResult&&p.originalRecipientEventId===actualEvent&&p.originalRecipientStateDigest===B;
+  const originalReadOptions={SOURCE:x.historicalReadOptions(sourceNodeRef),RECIPIENT:x.historicalReadOptions(recipientNodeRef)};
+  function coldPhase(session,role){
+    const base={...originalReadOptions[role],verifyOriginalRecipientApplied:role==='SOURCE'?x.verifySourceApplied:peerResult};
+    return session.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_SESSION_CANDIDATE_V1'?
+      createT4OriginalReplacementHistoricalPhasePort({...base,session}):createT4OriginalNetworkSessionPhasePort({...base,
+        originalWriteOwnerRef:session.originalWriteOwnerRef,sourceNodeRef:session.sourceNodeRef,recipientNodeRef:session.recipientNodeRef,
+        scopeRef:session.scopeRef,sessionRef:session.sessionRef,changeId:session.changeId,ownerEpoch:session.ownerEpoch,
+        changeKind:session.changeKind,recipientApplyIntentRequired:role==='RECIPIENT',historicalReadOnly:true});
+  }
+  const coldPublication=role=>createT4OriginalNetworkPublicationPort({...originalReadOptions[role],session:c,historicalReadOnly:true,
+    verifyOriginalHistoricalNodeSignature:x.historicalSignature(originalReadOptions[role].localNodeRef)});
+  const sourceRead=originalReadOptions.SOURCE;
+  const coldReplay=createT4OriginalNetworkReplayPort({...sourceRead,originalWriteOwnerRef:c.originalWriteOwnerRef,
+    scopeRef:c.scopeRef,historicalReadOnly:true});
+  const coldFrame=createT4CandidateFrameTransport({getMode,readOriginalHostContext:sourceRead.readOriginalHostContext,
+    originalHostNodeRef:sourceNodeRef,originalHostScopeRef:c.scopeRef,authorizeOriginalHostWire:async()=>true,
+    historicalReadOnly:true,verifyOriginalHistoricalNodeSignature:x.historicalSignature(sourceNodeRef),
+    readOriginalHistoricalReplayEvidence:coldReplay.readOriginalHistoricalReplayEvidence,
+    readOriginalHistoricalAppliedAckSlot:coldReplay.readOriginalHistoricalAppliedAckSlot});
+  assert.equal(coldReplay.persistOriginalReplayDecision,undefined);assert.equal(coldFrame.publishSignedFrame,undefined);
+  assert.equal(coldFrame.readOriginalHistoricalReceivedFrame,undefined);assert.equal(coldFrame.readAndVerifySignedFrame,undefined);
+  const cold={sourcePhasePort:coldPhase(c,'SOURCE'),recipientPhasePort:coldPhase(c,'RECIPIENT'),
+    retiredSourcePhasePort:coldPhase(x.session,'SOURCE'),retiredRecipientPhasePort:coldPhase(x.session,'RECIPIENT'),
+    sourcePublicationPort:coldPublication('SOURCE'),recipientPublicationPort:coldPublication('RECIPIENT'),historicalFramePort:coldFrame};
+  for(const port of [cold.sourcePhasePort,cold.recipientPhasePort,cold.retiredSourcePhasePort,cold.retiredRecipientPhasePort]){
+    assert.equal(port.originalHistoricalReadOnly,true);assert.equal(port.advanceOriginalSessionPhase,undefined);
+  }
+  for(const port of [cold.sourcePublicationPort,cold.recipientPublicationPort]){
+    assert.equal(port.originalHistoricalReadOnly,true);assert.equal(port.prepareSignedBatch,undefined);
+    assert.equal(port.publishPreparedFrame,undefined);assert.equal(port.readOriginalPublishedFrame,undefined);
+  }
+  assert.deepEqual(await recover(cold),historical);
+  const sourceObject=x.sourceStore.objects.get(originalReadOptions.SOURCE.technicalWorkspaceId+':'+cold.sourcePhasePort.checkpointRef);
+  const storedBinding=sourceObject.object.data.replacementSourceAdmission.binding;
+  sourceObject.object.data.replacementSourceAdmission.binding={...storedBinding,decisionDigest:H};
+  await assert.rejects(cold.sourcePhasePort.inspectOriginalSession(),isCode('PHASE_ORIGINAL_REPLACEMENT_HISTORY_IDENTITY_MISMATCH'));
+  sourceObject.object.data.replacementSourceAdmission.binding=storedBinding;
+  const recipientObject=x.f.kernel.objects.get(workspace+':'+cold.recipientPhasePort.checkpointRef);
+  const admission=recipientObject.object.data.replacementRecipientAdmission;
+  delete recipientObject.object.data.replacementRecipientAdmission;
+  await assert.rejects(cold.recipientPhasePort.inspectOriginalSession(),isCode('PHASE_ORIGINAL_REPLACEMENT_HISTORY_IDENTITY_MISMATCH'));
+  recipientObject.object.data.replacementRecipientAdmission=admission;
+  let active=true;const scoped=cold.sourcePhasePort.forOriginalHostLifetime(()=>active),scopedPublication=cold.sourcePublicationPort.forOriginalHostLifetime(()=>active);
+  assert.deepEqual(await scoped.inspectOriginalSession(),historical.originalSourcePhase);
+  active=false;await assert.rejects(scoped.inspectOriginalSession(),isCode('ORIGINAL_HOST_LIFETIME_ENDED'));
+  await assert.rejects(scopedPublication.readOriginalHistoricalPublishedBatch(),isCode('ORIGINAL_HOST_LIFETIME_ENDED'));
+  assert.throws(()=>createT4OriginalNetworkPublicationPort({...originalReadOptions.SOURCE,session:c,historicalReadOnly:true,
+    verifyOriginalHistoricalNodeSignature:x.historicalSignature(sourceNodeRef),authorizeOriginalTechnicalWrite:async()=>true}),
+    isCode('PUBLICATION_ORIGINAL_HOST_PORTS_REQUIRED'));
+  Object.assign(historyArgs,cold);
   // A later unrelated source Event cannot invalidate the exact captured prefix.
   x.sourceEvents.push({...x.sourceEvents[1],event_id:'event:k68:later',revision:8,payload:{title:'later'}});
   assert.deepEqual(await recover(),historical);

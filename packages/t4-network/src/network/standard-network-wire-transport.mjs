@@ -43,14 +43,13 @@ export function createT4CandidateFrameTransport({
   authorizeOriginalHostWire,originalHostNodeRef,originalHostScopeRef,
   verifyOriginalNodeSignature,authorizeOriginalNetwork,
   persistOriginalReplayDecision,verifyOriginalHistoricalNodeSignature=null,readOriginalHistoricalReplayEvidence=null,
-  readOriginalHistoricalAppliedAckSlot=null,
+  readOriginalHistoricalAppliedAckSlot=null,historicalReadOnly=false,
 }={}){
-  if(wireTransport?.wireKind!=='T4_NETWORK_CANDIDATE'||
-    ![wireTransport.putSnapshot,wireTransport.getSnapshot,
-      wireTransport.inspectOutcome].every(f=>typeof f==='function')||
-    ![getMode,readOriginalHostContext,authorizeOriginalHostWire,
-      verifyOriginalNodeSignature,authorizeOriginalNetwork,
-      persistOriginalReplayDecision].every(f=>typeof f==='function')||
+  if(typeof historicalReadOnly!=='boolean'||![getMode,readOriginalHostContext,authorizeOriginalHostWire].every(f=>typeof f==='function')||
+    (historicalReadOnly?([wireTransport,verifyOriginalNodeSignature,authorizeOriginalNetwork,persistOriginalReplayDecision].some(x=>x!==undefined)||
+      ![verifyOriginalHistoricalNodeSignature,readOriginalHistoricalReplayEvidence,readOriginalHistoricalAppliedAckSlot].every(f=>typeof f==='function')):
+      (wireTransport?.wireKind!=='T4_NETWORK_CANDIDATE'||![wireTransport.putSnapshot,wireTransport.getSnapshot,wireTransport.inspectOutcome,
+        verifyOriginalNodeSignature,authorizeOriginalNetwork,persistOriginalReplayDecision].every(f=>typeof f==='function')))||
     !ID(originalHostNodeRef)||!ID(originalHostScopeRef))
     fail('WIRE_ORIGINAL_HOST_NETWORK_PORTS_REQUIRED');
   const historical=verifyOriginalHistoricalNodeSignature!==null||readOriginalHistoricalReplayEvidence!==null;
@@ -59,8 +58,8 @@ export function createT4CandidateFrameTransport({
   const historicalAck=readOriginalHistoricalAppliedAckSlot!==null;
   if(historicalAck&&(!historical||typeof readOriginalHistoricalAppliedAckSlot!=='function'))
     fail('WIRE_ORIGINAL_HISTORICAL_PORTS_REQUIRED');
-  const indexed=wireTransport.nativeFrameIndexVersion===1;
-  if((wireTransport.nativeFrameIndexVersion!==undefined&&![0,1].includes(wireTransport.nativeFrameIndexVersion))||
+  const indexed=wireTransport?.nativeFrameIndexVersion===1;
+  if((wireTransport?.nativeFrameIndexVersion!==undefined&&![0,1].includes(wireTransport.nativeFrameIndexVersion))||
     (indexed&&![wireTransport.getNativeFrameIndex,wireTransport.putNativeFrameIndex].every(f=>typeof f==='function')))
     fail('WIRE_NATIVE_INDEX_PROFILE_INVALID');
   const mode=()=>{
@@ -304,6 +303,7 @@ export function createT4CandidateFrameTransport({
     }else{
       // Legacy original checkpoints did not retain wire bytes. No
       // migration write, collection listing or live replay CAS is allowed.
+      if(historicalReadOnly)fail('WIRE_HISTORICAL_ACK_BYTES_UNAVAILABLE');
       sha256=expectedSha256;
       if(sha256===null){
         if(!indexed)fail('WIRE_HISTORICAL_ACK_BYTES_UNAVAILABLE');
@@ -626,19 +626,19 @@ export function createT4CandidateFrameTransport({
   }
   return frozen({
     schema:'IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1',nativeFrameIndexVersion:indexed?1:0,
-    publishSignedFrame,inspectUnknownPublication,
-    ...(historical?{readOriginalHistoricalReceivedFrame}:{}),
+    ...(historicalReadOnly?{originalHistoricalReadOnly:true}:{publishSignedFrame,inspectUnknownPublication,
+      ...(historical?{readOriginalHistoricalReceivedFrame}:{}),
+      readAndVerifySignedFrame,discoverAndVerifySignedFrames,discoverUniqueSignedFrame,discoverSessionContent,
+      discoverSourceSessionHeads,discoverReplacementSourceHead}),
     ...(historicalAck?{readOriginalHistoricalAppliedAck}:{}),
-    readAndVerifySignedFrame,discoverAndVerifySignedFrames,discoverUniqueSignedFrame,discoverSessionContent,
-    discoverSourceSessionHeads,discoverReplacementSourceHead,
     forOriginalHostLifetime:isHostActive=>createT4CandidateFrameTransport({
-      wireTransport:scopeOriginalHostPort(wireTransport,isHostActive,['wireKind','nativeFrameIndexVersion'],
-        'WIRE_ORIGINAL_TRANSPORT_LIFETIME_REQUIRED'),
+      ...(!historicalReadOnly?{wireTransport:scopeOriginalHostPort(wireTransport,isHostActive,['wireKind','nativeFrameIndexVersion'],
+        'WIRE_ORIGINAL_TRANSPORT_LIFETIME_REQUIRED')}:{}),
       getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalHostWire,
       originalHostNodeRef,originalHostScopeRef,verifyOriginalNodeSignature,
       authorizeOriginalNetwork,persistOriginalReplayDecision,
-      verifyOriginalHistoricalNodeSignature,readOriginalHistoricalReplayEvidence,readOriginalHistoricalAppliedAckSlot,
+      verifyOriginalHistoricalNodeSignature,readOriginalHistoricalReplayEvidence,readOriginalHistoricalAppliedAckSlot,historicalReadOnly,
     }),
     originalT3ExchangeDependency:false,
     createsSubjectStore:false,createsSubjectIAM:false,

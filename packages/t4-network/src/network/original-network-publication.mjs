@@ -861,6 +861,7 @@ export function createT4OriginalNetworkPublicationPort({
   verifyOriginalHistoricalNodeSignature=null,authorizeOriginalControlPublication=null,
   readOriginalReplacementEligibility=null,readOriginalReplacementRecipientAdmission=null,
   readOriginalReplacementDiffAcceptance=null,readOriginalReplacementAppliedAckAdmission=null,
+  historicalReadOnly=false,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   const control=session?.schema===CONTROL_SESSION,replacement=session?.schema===REPLACEMENT_SESSION;
@@ -868,21 +869,24 @@ export function createT4OriginalNetworkPublicationPort({
   if(!same(identity,session)||
     ![identity.sourceNodeRef,identity.recipientNodeRef].includes(localNodeRef)||
     !ID(technicalWorkspaceId)||
-    ![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,
-      authorizeOriginalTechnicalWrite,authorizeOriginalFramePublish,
-      verifyOriginalNodeSignature].every(f=>typeof f==='function')||
-    !['publishSignedFrame','inspectUnknownPublication'].every(
-      op=>typeof frameTransport?.[op]==='function')||
-    !['t1.getObject','t1.listEventsSince','t1.putObject'].every(
+    typeof historicalReadOnly!=='boolean'||
+    ![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead].every(f=>typeof f==='function')||
+    (historicalReadOnly?([authorizeOriginalTechnicalWrite,authorizeOriginalFramePublish,verifyOriginalNodeSignature,frameTransport].some(x=>x!==undefined)||
+      typeof verifyOriginalHistoricalNodeSignature!=='function'||[authorizeOriginalSealedPublication,authorizeOriginalControlPublication,
+        readOriginalReplacementEligibility,readOriginalReplacementRecipientAdmission,readOriginalReplacementDiffAcceptance,
+        readOriginalReplacementAppliedAckAdmission].some(x=>x!==null)):
+      (![authorizeOriginalTechnicalWrite,authorizeOriginalFramePublish,verifyOriginalNodeSignature].every(f=>typeof f==='function')||
+        !['publishSignedFrame','inspectUnknownPublication'].every(op=>typeof frameTransport?.[op]==='function')))||
+    !(historicalReadOnly?['t1.getObject','t1.listEventsSince']:['t1.getObject','t1.listEventsSince','t1.putObject']).every(
       op=>originalKernel?.hasOperation?.(op)===true)||
-    !['getObject','listEventsSince','putObject'].every(
+    !(historicalReadOnly?['getObject','listEventsSince']:['getObject','listEventsSince','putObject']).every(
       op=>typeof originalKernel[op]==='function'))
     fail('PUBLICATION_ORIGINAL_HOST_PORTS_REQUIRED');
   if(verifyOriginalHistoricalNodeSignature!==null&&typeof verifyOriginalHistoricalNodeSignature!=='function')
     fail('PUBLICATION_ORIGINAL_HISTORY_PORT_INVALID');
   const source=localNodeRef===identity.sourceNodeRef;
-  if(control?(frameTransport.nativeFrameIndexVersion!==1||typeof authorizeOriginalControlPublication!=='function'||
-      authorizeOriginalSealedPublication!==null):authorizeOriginalControlPublication!==null)
+  if(!historicalReadOnly&&(control?(frameTransport.nativeFrameIndexVersion!==1||typeof authorizeOriginalControlPublication!=='function'||
+      authorizeOriginalSealedPublication!==null):authorizeOriginalControlPublication!==null))
     fail('PUBLICATION_ORIGINAL_CONTROL_AUTHORITY_REQUIRED');
   const replacementContent=replacement&&source&&typeof readOriginalReplacementDiffAcceptance==='function';
   const replacementAck=replacement&&!source&&typeof readOriginalReplacementAppliedAckAdmission==='function';
@@ -890,11 +894,11 @@ export function createT4OriginalNetworkPublicationPort({
     fail('PUBLICATION_ORIGINAL_REPLACEMENT_ACK_ADMISSION_REQUIRED');
   if(readOriginalReplacementDiffAcceptance!==null&&!replacementContent)
     fail('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED');
-  if(replacement?(frameTransport.nativeFrameIndexVersion!==1||
+  if(!historicalReadOnly&&(replacement?(frameTransport.nativeFrameIndexVersion!==1||
       (replacementContent?typeof authorizeOriginalSealedPublication!=='function':authorizeOriginalSealedPublication!==null)||
       (source?(typeof readOriginalReplacementEligibility!=='function'||readOriginalReplacementRecipientAdmission!==null):
         (readOriginalReplacementEligibility!==null||typeof readOriginalReplacementRecipientAdmission!=='function'))):
-      (readOriginalReplacementEligibility!==null||readOriginalReplacementRecipientAdmission!==null))
+      (readOriginalReplacementEligibility!==null||readOriginalReplacementRecipientAdmission!==null)))
     fail('PUBLICATION_ORIGINAL_REPLACEMENT_ELIGIBILITY_REQUIRED');
   if(authorizeOriginalSealedPublication!==null&&(!source||typeof authorizeOriginalSealedPublication!=='function'))
     fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_INVALID');
@@ -924,6 +928,7 @@ export function createT4OriginalNetworkPublicationPort({
       nodeRef:v.nodeRef,scopeRef:v.scopeRef,hostSessionRef:v.hostSessionRef};
   }
   async function guard(ctx,operation,purpose,frame=null){
+    if(historicalReadOnly&&!['t1.getObject','t1.listEventsSince'].includes(operation))fail('PUBLICATION_ORIGINAL_HISTORY_READ_ONLY');
     if(!same(await context(),ctx))
       fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED',{automaticRetryAllowed:false});
     const signedFrame=frame===null?null:frameFor(frame);
@@ -1625,9 +1630,8 @@ export function createT4OriginalNetworkPublicationPort({
   }
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1',
     session:identity,checkpointRef,inspectOriginalPublication,
-    prepareSignedBatch,publishPreparedFrame,readOriginalPublishedFrame,
+    ...(historicalReadOnly?{originalHistoricalReadOnly:true}:{prepareSignedBatch,publishPreparedFrame,readOriginalPublishedFrame,reconcileOriginalPublishedFrameIndexes}),
     ...(verifyOriginalHistoricalNodeSignature!==null?{readOriginalHistoricalPublishedFrame,readOriginalHistoricalPublishedBatch}:{}),
-    reconcileOriginalPublishedFrameIndexes,
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkPublicationPort({
       technicalSchemaId,
       session:identity,localNodeRef,technicalWorkspaceId,originalKernel,
@@ -1635,10 +1639,10 @@ export function createT4OriginalNetworkPublicationPort({
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       authorizeOriginalFramePublish,verifyOriginalNodeSignature,authorizeOriginalSealedPublication,
       verifyOriginalHistoricalNodeSignature,authorizeOriginalControlPublication,readOriginalReplacementEligibility,
-      readOriginalReplacementRecipientAdmission,readOriginalReplacementDiffAcceptance,readOriginalReplacementAppliedAckAdmission,
-      frameTransport:scopeOriginalHostPort(frameTransport,isHostActive,
+      readOriginalReplacementRecipientAdmission,readOriginalReplacementDiffAcceptance,readOriginalReplacementAppliedAckAdmission,historicalReadOnly,
+      ...(!historicalReadOnly?{frameTransport:scopeOriginalHostPort(frameTransport,isHostActive,
         ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
-        'PUBLICATION_ORIGINAL_WIRE_LIFETIME_REQUIRED'),
+        'PUBLICATION_ORIGINAL_WIRE_LIFETIME_REQUIRED')}:{}),
     }),
     ...(control?{originalControlPublication:true,originalNewAttemptAdmissionStillRequired:true}:{}),
     ...(replacement?{...(source?{originalReplacementAnnouncementPublication:true}:

@@ -69,16 +69,16 @@ export function createT4OriginalNetworkReplayPort({
   technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
   originalKernel,technicalWorkspaceId,originalWriteOwnerRef,
   localNodeRef,scopeRef,getMode,readOriginalHostContext,
-  authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
+  authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,historicalReadOnly=false,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   if(![technicalWorkspaceId,originalWriteOwnerRef,localNodeRef,scopeRef]
-    .every(ID)||![getMode,readOriginalHostContext,
-      authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite]
+    .every(ID)||typeof historicalReadOnly!=='boolean'||![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead]
     .every(x=>typeof x==='function')||
-    !['t1.getObject','t1.putObject','t1.listEventsSince'].every(
+    (historicalReadOnly?authorizeOriginalTechnicalWrite!==undefined:typeof authorizeOriginalTechnicalWrite!=='function')||
+    !(historicalReadOnly?['t1.getObject','t1.listEventsSince']:['t1.getObject','t1.putObject','t1.listEventsSince']).every(
       op=>originalKernel?.hasOperation?.(op)===true)||
-    !['getObject','putObject','listEventsSince'].every(
+    !(historicalReadOnly?['getObject','listEventsSince']:['getObject','putObject','listEventsSince']).every(
       op=>typeof originalKernel[op]==='function'))
     fail('REPLAY_ORIGINAL_T3_PORTS_REQUIRED');
   function mode(){
@@ -100,6 +100,7 @@ export function createT4OriginalNetworkReplayPort({
   }
   async function guard(phase,initial,ref){
     mode();
+    if(historicalReadOnly&&phase==='write')fail('REPLAY_ORIGINAL_HISTORY_READ_ONLY');
     const now=await context();
     if(!same(now,initial))fail('REPLAY_ORIGINAL_HOST_CONTEXT_CHANGED',{
       automaticRetryAllowed:false,
@@ -292,7 +293,8 @@ export function createT4OriginalNetworkReplayPort({
   }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_T3_NETWORK_REPLAY_BINDING_V1',
-    persistOriginalReplayDecision,readOriginalHistoricalReplayEvidence,readOriginalHistoricalAppliedAckSlot,
+    ...(historicalReadOnly?{originalHistoricalReadOnly:true}:{persistOriginalReplayDecision}),
+    readOriginalHistoricalReplayEvidence,readOriginalHistoricalAppliedAckSlot,
     originalT3OnlyStore:true,originalT3EventRequired:true,
     createsStore:false,createsNewIAM:false,createsTaskEngine:false,
   });
