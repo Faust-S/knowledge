@@ -34,7 +34,7 @@ function verify(event, env, git, read) {
   assert.deepEqual(git("rev-list", "--parents", "-n", "1", head).trim().split(/\s+/), [head,prepared]);
   assert.deepEqual(git("diff", "--name-status", "-z", "--no-renames", prepared, head).split("\0").filter(Boolean), ["A",path]);
   const request = JSON.parse(read(path));
-  assert.deepEqual(request, {schema:"IWXA_CI_ONCE/1",workflow,prepared,owner,site,retention,profile:"resume-final-closure",priorRun:45669214673,reason:"Reconcile static source integrity and qualify remaining native Exchange and production delivery"});
+  assert.deepEqual(request, {schema:"IWXA_CI_ONCE/1",workflow,prepared,owner,site,retention,profile:"finish-production-delivery",priorRun:45683033434,reason:"Reconcile generated route contract and qualify final production delivery"});
 }
 try {
   const event=JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH,"utf8"));
