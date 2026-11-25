@@ -21,6 +21,8 @@ import {companyWorkRecordKeyParts,companyWorkEventPayload,readOriginalCompanyWor
 
 const qualified=process.env.IWXA_COMPANY_TEST_QUALIFIED_T2;
 const idbModule=process.env.IWXA_COMPANY_TEST_IDB_MODULE;
+const candidateDir=process.env.IWXA_COMPANY_TEST_CANDIDATE_T2;
+const candidateReceipt=process.env.IWXA_COMPANY_TEST_CANDIDATE_RECEIPT;
 const artifactId='iwxa-kernel-k036-same-store-history-20261019-qualified.1';
 const ws='ws:corporate-roundtrip',org='org:corporate-roundtrip';
 const sha=s=>createHash('sha256').update(s).digest('hex');
@@ -63,7 +65,36 @@ test('event wire equality only ignores absent original optional fields',()=>{
   assert.throws(()=>assertHistoryContains([],[event]),{code:'ERR_ASSERTION'});
 });
 
-test('original qualified T2 cross-product complete archive and repeated same-Workspace merge',async()=>{
+// Candidate use is confined to this disposable source qualification. The
+// product materializers must FIRST verify the immutable accepted artifact.
+// Only then can the test execute separately built original successor bytes
+// inside its own temporary test directory. No product admission is relaxed.
+function candidateRuntime(verified){
+  assert.equal(Boolean(candidateDir),Boolean(candidateReceipt),'CANDIDATE_INPUT_PAIR_REQUIRED');
+  if(!candidateDir)return null;
+  const receipt=JSON.parse(readFileSync(candidateReceipt,'utf8'));
+  assert.equal(receipt.schema,'IWXA_K036_CANONICAL_EVENT_MERGE_BUILD_WITNESS/1');
+  assert.equal(receipt.status,'SOURCE_AND_BUILD_PASS_CANDIDATE_UNACCEPTED');
+  assert.equal(receipt.baseQualifiedArtifactId,artifactId);
+  assert.equal(receipt.productionActivation,false);
+  assert.match(receipt.sourceCommit,/^[a-f0-9]{40}$/);
+  assert.ok(Array.isArray(receipt.files));
+  assert.deepEqual(receipt.files.map(f=>f.path).sort(),verified.files.map(f=>f.path).sort());
+  let bytes=null;
+  for(const original of verified.files){
+    const row=receipt.files.find(f=>f.path===original.path);
+    const data=readFileSync(join(candidateDir,...row.path.split('/')));
+    assert.equal(sha(data),row.sha256,'CANDIDATE_BUILD_BYTES_MISMATCH');
+    if(row.path==='_iwxa/runtime/0.3.6/runtime.js'){
+      assert.notEqual(row.sha256,original.sha256,'CANDIDATE_RUNTIME_NOT_CHANGED');
+      bytes=data;
+    }else assert.equal(row.sha256,original.sha256,'CANDIDATE_UNRELATED_RUNTIME_FILE_CHANGED');
+  }
+  assert.ok(bytes);
+  return bytes;
+}
+test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product complete archive and repeated same-Workspace merge':
+  'original qualified T2 cross-product complete archive and repeated same-Workspace merge',async()=>{
   assert.ok(qualified&&existsSync(join(qualified,'_iwxa/runtime/0.3.6/runtime.js')),
     'QUALIFIED_ORIGINAL_T2_REQUIRED');
   assert.ok(idbModule&&existsSync(idbModule),'TEST_INDEXEDDB_PLATFORM_REQUIRED');
@@ -81,6 +112,7 @@ test('original qualified T2 cross-product complete archive and repeated same-Wor
   const originalFetch=globalThis.fetch;
   try{
     const verified=assertQualifiedKernelArtifact(qualified,{kernel:'0.3.6',contract:'1.3.0',artifactId});
+    const candidate=candidateRuntime(verified);
     const compiled=join(tmp,'compiled');
     for(const file of ['signed-workspace.html','isolated-signed-workspace.html','trusted-kernel-realm.html'])
       put(compiled,file,'<base href="/workspace/"><script type="module" src="/workspace/assets/fixture.js"></script>');
@@ -102,7 +134,13 @@ test('original qualified T2 cross-product complete archive and repeated same-Wor
         ...(agent?{installedOriginalAgentD6:true,desktopAgentControlOnly:true}:{installedOriginalAdminD3:true,desktopAdminControlOnly:true})});
       assert.equal(assembled.original_kernel,'0.3.6');
       assert.equal(assertQualifiedKernelArtifact(dist,{kernel:'0.3.6',contract:'1.3.0',artifactId}).artifactSha256,verified.artifactSha256);
-      const runtime=await import(pathToFileURL(join(dist,'_iwxa/runtime/0.3.6/runtime.js')).href);
+      const runtimePath=join(dist,'_iwxa/runtime/0.3.6/runtime.js');
+      if(candidate){
+        // Dist here is an unpublishable temporary fixture, not a real build.
+        writeFileSync(runtimePath,candidate);
+        assert.equal(sha(readFileSync(runtimePath)),sha(candidate));
+      }
+      const runtime=await import(pathToFileURL(runtimePath).href);
       return {runtime,serviceId,origin,dist,db:new idb.IDBFactory(),domain:json(dist,'_iwxa/domain.json'),current:json(dist,'_iwxa/current.json')};
     }
     const source=await stage('agent'),recipient=await stage('admin');
