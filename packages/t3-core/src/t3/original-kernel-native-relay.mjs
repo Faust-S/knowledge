@@ -168,6 +168,10 @@ export function createOriginalKernelNativeRelay({
     check(networkActive(state)&&attaching!==state&&network.names.includes(method),
       "T3_ORIGINAL_NETWORK_RELAY_NOT_CONNECTED");
     check(pending===null&&reservation===null,"T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS");
+    if(method==="listEventCommitWindow")check(network.resolveAccess&&
+      state.grants.granted_operations.includes("t1.listEventsSince")&&
+      state.grants.granted_operations.includes("t1.listEventCommitWindow"),
+      "T3_ORIGINAL_NETWORK_RELAY_AUTHORITY_DENIED");
     const held={};reservation=held;
     try{
       // Snapshot BEFORE asynchronous authorization. The owner sees exactly
@@ -204,7 +208,8 @@ export function createOriginalKernelNativeRelay({
         };
         const original=Object.freeze({
           sessionInfo:state.kernel.sessionInfo,
-          hasOperation:id=>active()&&id===operation&&state.grants.granted_operations.includes(id),
+          hasOperation:id=>active()&&state.grants.granted_operations.includes(id)&&
+            (id===operation||(operation==="t1.listEventCommitWindow"&&id==="t1.listEventsSince")),
           [method]:async(...checkedArgs)=>{
             check(!invoked&&isDeepStrictEqual(normalize(checkedArgs),normalize(exact)),
               "T3_ORIGINAL_NETWORK_RELAY_AUTHORIZED_COMMAND_MISMATCH");
@@ -231,6 +236,7 @@ export function createOriginalKernelNativeRelay({
     // Capability discovery is available while the owner constructs its
     // original task binding; no command may execute before admission.
     hasOperation:id=>!closed&&live===state&&state.networkStarted&&
+      state.grants.granted_operations.includes(id)&&
       network.names.some(name=>NETWORK_METHODS[name]===id),
     ...Object.fromEntries(network.names.map(name=>[name,(...args)=>networkDispatch(state,name,args)])),
   });

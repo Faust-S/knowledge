@@ -2,7 +2,7 @@
 // Asset bytes require a representation change, not a new network protocol.
 export const ORIGINAL_NETWORK_RELAY_METHODS=Object.freeze({
   getWorkspace:"t1.getWorkspace",getObject:"t1.getObject",listObjects:"t1.listObjects",
-  listEventsSince:"t1.listEventsSince",putObject:"t1.putObject",
+  listEventsSince:"t1.listEventsSince",listEventCommitWindow:"t1.listEventCommitWindow",putObject:"t1.putObject",
   commitObjectGraph:"t1.commitObjectGraph",deleteObject:"t1.deleteObject",
   listAssets:"t1.listAssets",getAsset:"t1.getAsset",putAsset:"t1.putAsset",
   deleteAsset:"t1.deleteAsset",putRelation:"t1.putRelation",deleteRelation:"t1.deleteRelation",

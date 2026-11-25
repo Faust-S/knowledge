@@ -181,3 +181,31 @@ describe("K20 original signed source mutation binding",()=>{
       .toThrow("T3_D1_ACCESS_OWNER_REQUIRED");
   });
 });
+
+describe("K111 optional original commit-order history",()=>{
+  const op="t1.listEventCommitWindow",ws="ws:original";
+  const page={entries:[],next_after_event_id:null,has_more:false,
+    order:"LOCAL_TRANSACTION_COMMIT_ORDER" as const,legacy_history_causal_proven:false as const};
+  it("does not invent the new method on DB8 or a grant-only declaration",()=>{
+    const legacy={...makeSession(["t1.listEventsSince",op]),contract_version:"1.3.0"} as KernelSession;
+    expect(createKernelFacade({session:legacy}).hasOperation(op)).toBe(false);
+    expect(createKernelFacade({session:legacy}).listEventCommitWindow).toBeUndefined();
+  });
+  it("requires both grants, actual method and matching contract",async()=>{
+    const calls:unknown[][]=[];
+    const reader:NonNullable<KernelSession["t1"]["listEventCommitWindow"]>=async(...args)=>{
+      calls.push(args);return page;
+    };
+    for(const [version,grants] of [
+      ["1.2.0",["t1.listEventsSince",op]],["1.3.0",[op]],["1.3.0",["t1.listEventsSince"]]
+    ] as const){
+      const session={...makeSession([...grants],{listEventCommitWindow:reader}),contract_version:version} as KernelSession;
+      expect(createKernelFacade({session}).listEventCommitWindow).toBeUndefined();
+    }
+    const session={...makeSession(["t1.listEventsSince",op],{listEventCommitWindow:reader}),contract_version:"1.3.0"} as KernelSession;
+    const facade=createKernelFacade({session});
+    expect(facade.hasOperation(op)).toBe(true);
+    expect(await facade.listEventCommitWindow!(ws,null,16)).toBe(page);
+    expect(calls).toEqual([[ws,null,16]]);
+  });
+});

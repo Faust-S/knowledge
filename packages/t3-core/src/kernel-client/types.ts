@@ -1,6 +1,19 @@
 /** Public Kernel UI boundary: the single normative Runtime Contract 1.3.0. */
 import type { IWXAClient } from "./contracts/runtime-1.3.0";
-export type KernelSession = IWXAClient;
+// Optional original successor surface; keep the accepted Runtime snapshot intact.
+export type OriginalEventCommitWindow = {
+  entries: Array<{event: import("./contracts/runtime-1.3.0").EventRecord; legacy_history: boolean}>;
+  next_after_event_id: string | null;
+  has_more: boolean;
+  order: "LOCAL_TRANSACTION_COMMIT_ORDER";
+  legacy_history_causal_proven: false;
+};
+export type OriginalEventCommitReader = (
+  workspaceId: string, afterEventId: string | null, limit: number,
+) => Promise<OriginalEventCommitWindow>;
+export type KernelSession = IWXAClient & {
+  t1: IWXAClient["t1"] & { listEventCommitWindow?: OriginalEventCommitReader };
+};
 export type OperationId = import("./contracts/runtime-1.3.0").OperationId;
 
 export type KernelStatus =

@@ -607,3 +607,63 @@ test("async native owner can consume each original Kernel purge/import token onl
     "T3_SUBJECT_IMPORT_PREVIEW_REQUIRED");
   assert.equal(f.calls.filter(x=>x[0]==="importCommit").length,1);
 });
+
+const commitWindowOperation="t1.listEventCommitWindow";
+const commitPage=(entries=[],anchor=null,more=false)=>({
+  entries,next_after_event_id:entries.at(-1)?.event.event_id??anchor,
+  has_more:more,order:"LOCAL_TRANSACTION_COMMIT_ORDER",legacy_history_causal_proven:false,
+});
+test("K111 original commit page requires both grants and exact signed command",async()=>{
+  const f=fixture(),signed=[];
+  f.kernel.listEventCommitWindow=async(...args)=>{
+    f.calls.push(["listEventCommitWindow",...args]);
+    return commitPage([{event:{event_id:"event:2",workspace_id:ws},legacy_history:false}]);
+  };
+  const digestFor=f.owner.operationDigest;
+  f.owner.operationDigest=arg=>{signed.push(arg);return digestFor(arg);};
+  await assert.rejects(f.bound.listEventCommitWindow(ws,"event:1",1),{code:"T3_KERNEL_OPERATION_NOT_GRANTED"});
+  f.allowed.add(commitWindowOperation);
+  f.allowed.delete("t1.listEventsSince");
+  await assert.rejects(f.bound.listEventCommitWindow(ws,"event:1",1),{code:"T3_KERNEL_OPERATION_NOT_GRANTED"});
+  f.allowed.add("t1.listEventsSince");
+  const page=await f.bound.listEventCommitWindow(ws,"event:1",1);
+  assert.equal(page.next_after_event_id,"event:2");
+  assert.deepEqual(f.calls,[["listEventCommitWindow",ws,"event:1",1]]);
+  assert.deepEqual(signed[0].input,{workspace_id:ws,after_event_id:"event:1",limit:1});
+  assert.equal(signed[0].operation,commitWindowOperation);
+});
+test("K111 commit page rejects foreign workspace, invalid arguments and foreign results",async()=>{
+  const f=fixture();f.allowed.add(commitWindowOperation);
+  f.kernel.listEventCommitWindow=async()=>{f.calls.push("kernel");return commitPage([
+    {event:{event_id:"event:2",workspace_id:"ws:other"},legacy_history:false}]);};
+  await assert.rejects(f.bound.listEventCommitWindow("ws:other",null,1),{code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
+  assert.throws(()=>f.bound.listEventCommitWindow(ws,null,1025),{code:"T3_SUBJECT_EVENT_WINDOW_LIMIT_INVALID"});
+  assert.throws(()=>f.bound.listEventCommitWindow(ws,undefined,1),{code:"T3_SUBJECT_EVENT_CURSOR_INVALID"});
+  assert.equal(f.calls.length,0);
+  await assert.rejects(f.bound.listEventCommitWindow(ws,null,1),{code:"T3_KERNEL_EVENT_SCOPE_MISMATCH"});
+  assert.equal(f.calls.length,1);
+});
+test("K111 commit page rejects forged position, duplicate and historical-order claims",async()=>{
+  const f=fixture();f.allowed.add(commitWindowOperation);
+  const row={event:{event_id:"event:2",workspace_id:ws},legacy_history:false};
+  for(const page of [
+    {...commitPage([row]),legacy_history_causal_proven:true},
+    {...commitPage([row]),next_after_event_id:"other"},
+    commitPage([row,row]),
+    commitPage([{...row,event:{...row.event,event_id:"event:1"}}]),
+    commitPage([row,{event:{event_id:"event:3",workspace_id:ws},legacy_history:true}]),
+    commitPage([{...row,position:10}]),
+    commitPage([], "event:1",true),
+  ]){
+    f.kernel.listEventCommitWindow=async()=>page;
+    await assert.rejects(f.bound.listEventCommitWindow(ws,"event:1",2),{code:"T3_KERNEL_EVENT_COMMIT_WINDOW_INVALID"});
+  }
+});
+test("K111 original history grant revocation during signed decision stops the last hop",async()=>{
+  const f=fixture();f.allowed.add(commitWindowOperation);
+  f.kernel.listEventCommitWindow=async()=>{f.calls.push("kernel");return commitPage();};
+  const original=f.owner.authorize;
+  f.owner.authorize=async req=>{const result=await original(req);f.allowed.delete("t1.listEventsSince");return result;};
+  await assert.rejects(f.bound.listEventCommitWindow(ws,null,1),{code:"T3_KERNEL_OPERATION_NOT_GRANTED"});
+  assert.equal(f.calls.length,0);
+});

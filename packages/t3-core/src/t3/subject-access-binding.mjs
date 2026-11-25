@@ -16,6 +16,7 @@ const OPERATIONS = Object.freeze({
   deleteAsset: "t1.deleteAsset",
   commitObjectGraph: "t1.commitObjectGraph",
   listEventsSince: "t1.listEventsSince",
+  listEventCommitWindow: "t1.listEventCommitWindow",
   softDeleteWorkspace: "t1.softDeleteWorkspace",
   restoreWorkspace: "t1.restoreWorkspace",
   exportPreview: "t2.exportPreview",
@@ -227,6 +228,8 @@ export function createSubjectKernelBinding({
       refused("T3_KERNEL_INPUT_SCOPE_MISMATCH");
     }
     const operation = OPERATIONS[method];
+    if (method === "listEventCommitWindow" && !kernel.hasOperation("t1.listEventsSince"))
+      refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (typeof kernel[method] !== "function") refused("T3_KERNEL_OPERATION_UNAVAILABLE");
     const action = await access.actionFor(operation);
@@ -297,6 +300,8 @@ export function createSubjectKernelBinding({
       refused("T3_SUBJECT_CONTEXT_CHANGED");
     }
     requireActive();
+    if (method === "listEventCommitWindow" && !kernel.hasOperation("t1.listEventsSince"))
+      refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (method === "commitObjectGraph" && commitObjectGraphPrecondition !== null) {
       // The original recipient's ledger and independent human APPLY are
@@ -322,6 +327,8 @@ export function createSubjectKernelBinding({
           ? await kernel.getAsset(workspace_id,command.asset_id)
           : method === "listEventsSince"
             ? await kernel.listEventsSince(workspace_id,command.since)
+            : method === "listEventCommitWindow"
+              ? await kernel.listEventCommitWindow(workspace_id,command.after_event_id,command.limit)
             : method === "softDeleteWorkspace" || method === "restoreWorkspace"
               ? await kernel[method](workspace_id)
               : method === "purgeCancel"
@@ -348,6 +355,32 @@ export function createSubjectKernelBinding({
         scoped(record,method === "listEventsSince"
           ? "T3_KERNEL_EVENT_SCOPE_MISMATCH" : "T3_KERNEL_LIST_SCOPE_MISMATCH");
       }
+    }
+    if (method === "listEventCommitWindow") {
+      const keys = (v,names) => v && typeof v === "object" && !Array.isArray(v) &&
+        Object.keys(v).length === names.length && names.every(k=>Object.hasOwn(v,k));
+      if (!keys(result,["entries","next_after_event_id","has_more","order","legacy_history_causal_proven"]) ||
+          result.order !== "LOCAL_TRANSACTION_COMMIT_ORDER" ||
+          result.legacy_history_causal_proven !== false ||
+          typeof result.has_more !== "boolean" ||
+          !Array.isArray(result.entries) || result.entries.length > command.limit ||
+          (result.has_more && result.entries.length !== command.limit))
+        refused("T3_KERNEL_EVENT_COMMIT_WINDOW_INVALID");
+      let last = command.after_event_id, modern = false;
+      const seen = new Set(last === null ? [] : [last]);
+      for (const row of result.entries) {
+        if (!keys(row,["event","legacy_history"]) || typeof row.legacy_history !== "boolean" ||
+            (modern && row.legacy_history))
+          refused("T3_KERNEL_EVENT_COMMIT_WINDOW_INVALID");
+        if (!row.legacy_history) modern = true;
+        checkEvent(row.event);
+        if (!id(row.event.event_id) || seen.has(row.event.event_id))
+          refused("T3_KERNEL_EVENT_COMMIT_WINDOW_INVALID");
+        seen.add(row.event.event_id);
+        last = row.event.event_id;
+      }
+      if (result.next_after_event_id !== last)
+        refused("T3_KERNEL_EVENT_COMMIT_WINDOW_INVALID");
     }
     if (["createWorkspace","getWorkspace","softDeleteWorkspace","restoreWorkspace"]
       .includes(method) && result != null)
@@ -587,6 +620,13 @@ export function createSubjectKernelBinding({
     listEventsSince: (workspace_id, since) =>
       invoke("listEventsSince",since === undefined ? {workspace_id} :
         {workspace_id,since:requiredId(since,"SINCE")},workspace_id),
+    listEventCommitWindow: (workspace_id, after_event_id, limit) => {
+      if (after_event_id !== null && !id(after_event_id))
+        refused("T3_SUBJECT_EVENT_CURSOR_INVALID");
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1024)
+        refused("T3_SUBJECT_EVENT_WINDOW_LIMIT_INVALID");
+      return invoke("listEventCommitWindow",{workspace_id,after_event_id,limit},workspace_id);
+    },
     softDeleteWorkspace: workspace_id =>
       invoke("softDeleteWorkspace",{workspace_id},workspace_id),
     restoreWorkspace: workspace_id =>

@@ -36,8 +36,15 @@ export interface KernelFacadeInput {
 export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
   const { session } = input;
   const atomicAvailable = negotiateAtomicGraph(session).available;
+  const commitWindowAvailable = session.contract_version === "1.3.0" &&
+    session.granted_operations?.includes("t1.listEventsSince") === true &&
+    session.granted_operations?.includes("t1.listEventCommitWindow") === true &&
+    typeof session.t1?.listEventsSince === "function" &&
+    typeof session.t1?.listEventCommitWindow === "function";
   const grantedOperations = Object.freeze(
-    [...(session.granted_operations ?? [])].filter(op => op !== "t1.commitObjectGraph" || atomicAvailable),
+    [...(session.granted_operations ?? [])].filter(op =>
+      (op !== "t1.commitObjectGraph" || atomicAvailable) &&
+      (op !== "t1.listEventCommitWindow" || commitWindowAvailable)),
   ) as readonly OperationId[];
   const grantedLevels = Object.freeze(
     [...(session.granted_levels ?? [])],
@@ -46,6 +53,10 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
 
   const facade: KernelFacade = {
     ...(atomicAvailable ? { commitObjectGraph: async (value: import("@/kernel-client/contracts/runtime-1.3.0").CommitObjectGraphInput) => adapter.commitObjectGraph(session, value) } : {}),
+    ...(commitWindowAvailable ? {
+      listEventCommitWindow: async (ws: string, after: string | null, limit: number) =>
+        adapter.listEventCommitWindow(session,ws,after,limit),
+    } : {}),
     hasOperation(op) {
       return grantedOpSet.has(op);
     },
@@ -155,6 +166,7 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     "importPreview","importCommit","importCancel",
     "purgePreview","purgeCommit","purgeCancel",
     ...(atomicAvailable ? ["commitObjectGraph"] : []),
+    ...(commitWindowAvailable ? ["listEventCommitWindow"] : []),
   ];
   const routeOriginalMutation = input.routeOriginalMutation;
   const mutationMethods = new Set(["createWorkspace","putObject","deleteObject","putRelation","deleteRelation",

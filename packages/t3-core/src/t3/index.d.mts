@@ -50,7 +50,7 @@ export function createSubjectKernelBinding(input: {
   "createWorkspace" | "getWorkspace" | "getObject" | "listObjects" |
   "putObject" | "deleteObject" | "putRelation" | "deleteRelation" |
   "listAssets" | "getAsset" | "putAsset" | "deleteAsset" |
-  "listEventsSince" | "softDeleteWorkspace" | "restoreWorkspace" |
+  "listEventsSince" | "listEventCommitWindow" | "softDeleteWorkspace" | "restoreWorkspace" |
   "exportPreview" | "exportPackage" | "confirmExport" |
   "importPreview" | "importCommit" | "importCancel" |
   "purgePreview" | "purgeCommit" | "purgeCancel" | "commitObjectGraph">;
