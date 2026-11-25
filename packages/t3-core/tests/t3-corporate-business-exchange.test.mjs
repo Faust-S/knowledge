@@ -36,9 +36,9 @@ function fixture(){
           status:'embedded_equal',object_count:1}],totals:structuredClone(counts),
         included:structuredClone(counts),excluded_by_permission:structuredClone(zero),
         unsupported:[],invalid:{envelopes:0,dependencies:0,schema_validation:0,
-          schema_conflicts:0},scope_mode:'writable_objects'}}};
+          schema_conflicts:0},scope_mode:'workspace'}}};
   f.artifact={bytes:bytes(),size:2,validation:{ok:true},manifest:structuredClone(manifest),
-    package_digest:dg,semantic_digest:sd,summary:{scope_mode:'readable_objects',
+    package_digest:dg,semantic_digest:sd,summary:{scope_mode:'workspace',
       included:structuredClone(counts),excluded_by_permission:structuredClone(zero)}};
   const kernel={sessionInfo:{contract_version:'1.3.0'},hasOperation:()=>true,
     getObject:async()=>f.old,listEventsSince:async()=>f.events,listObjects:async()=>f.rows,
@@ -116,6 +116,7 @@ test('denied import previews are cancelled before any write or new local authori
 test('partial, skip-conflict and remapped imports fail before original commit',async()=>{
   for(const [patch,code] of [
     [{include_history:false},'T3_CORPORATE_EXCHANGE_COMPLETE_WORKSPACE_REQUIRED'],
+    [{conflict:'overwrite'},'T3_CORPORATE_EXCHANGE_COMPLETE_WORKSPACE_REQUIRED'],
     [{conflict:'skip'},'T3_CORPORATE_EXCHANGE_COMPLETE_WORKSPACE_REQUIRED'],
     [{include_objects:[ws+'/one']},'T3_CORPORATE_EXCHANGE_COMPLETE_WORKSPACE_REQUIRED'],
     [{target_workspace:'ws:other'},'T3_SUBJECT_IMPORT_PLAN_OUT_OF_SCOPE'],

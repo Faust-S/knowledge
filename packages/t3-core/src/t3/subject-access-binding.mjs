@@ -71,7 +71,7 @@ function requireCompleteBusinessArchive(handle,workspace){
      m.workspaces[0]!==workspace||m.workspace_states?.length!==1||
      m.workspace_states[0]?.workspace_id!==workspace||
      !COMPLETE_OPTIONS.every(k=>m.options?.[k]===true)||
-     m.counts?.workspaces!==1||p.scope_mode!=="writable_objects"||
+     m.counts?.workspaces!==1||p.scope_mode!=="workspace"||
      !Array.isArray(m.files)||m.files.some(f=>
        typeof f?.path!=="string"||f.path.startsWith("technical/"))||
      !completeCounts(p.totals,p.included,p.excluded_by_permission)||
@@ -115,7 +115,7 @@ async function inspectBusinessExport(kernel,artifact,workspace){
      artifact.size!==artifact.bytes.byteLength||artifact.validation?.ok!==true||
      !HEX.test(artifact.package_digest??"")||
      manifest?.package_digest!==artifact.package_digest||
-     artifact.summary?.scope_mode!=="readable_objects"||
+     artifact.summary?.scope_mode!=="workspace"||
      !completeCounts(manifest?.counts,artifact.summary?.included,artifact.summary?.excluded_by_permission))
     refused("T3_CORPORATE_EXCHANGE_EXPORT_INCOMPLETE");
   // Inspect the exact generated archive with the ORIGINAL T2 parser.
@@ -337,6 +337,7 @@ export function createSubjectKernelBinding({
         if(business&&(foreign||boundImport.business!==true||
            plan?.mode!=="merge"||plan.target_workspace!==workspace_id||
            (plan?.conflict??"fail")!=="fail"||
+           Object.keys(plan??{}).some(k=>!["mode","target_workspace","conflict","include_workspaces","include_objects","include_history","include_assets","include_relations"].includes(k))||
            !Array.isArray(plan.include_workspaces)||plan.include_workspaces.length!==1||
            plan.include_workspaces[0]!==workspace_id||
            (plan.include_objects?.length??0)!==0||
@@ -644,7 +645,7 @@ export function createSubjectKernelBinding({
       }
     }
     if(business&&method==="exportPreview"&&
-       (result.summary?.scope_mode!=="readable_objects"||
+       (result.summary?.scope_mode!=="workspace"||
         !completeCounts(result.counts,result.summary?.included,result.summary?.excluded_by_permission)))
       refused("T3_CORPORATE_EXCHANGE_EXPORT_INCOMPLETE");
     if(business&&method==="exportPackage"){

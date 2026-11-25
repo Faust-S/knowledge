@@ -11,6 +11,7 @@ import {assertQualifiedKernelArtifact}
 import {registerT3LocalInferenceService}
   from './register-t3-local-inference.mjs';
 import {materializeDomainMode} from './materialize-t3-domain-mode.mjs';
+import {companyExchangeServiceId,originalCompanyExchangePassport} from "../src/t3/company-exchange-profile.mjs";
 
 // The original D3 recipient writes this exact Object through T2
 // commitObjectGraph. Register only in an installed original Admin D3 dist.
@@ -366,6 +367,24 @@ export function assembleSignedControlDist({
     if(installedOriginalAgentD6)
       registerInstalledAgentAcceptedResult({domain,config,passport:servicePassport});
   }
+  // Keep the original product entry first. Only exact installed product IDs
+  // get the second original T2 service connection. Web domains are unchanged.
+  const exchangeServiceId=servicePassport&&companyExchangeServiceId(servicePassport.service_id);
+  let exchangePassport=null,exchangePath=null,exchangeControl=null;
+  if(exchangeServiceId){
+    if(!Array.isArray(domain.modules)||!domain.modules.some(m=>m.service_id===servicePassport.service_id)||
+       domain.modules.some(m=>m.service_id===exchangeServiceId)||
+       catalog.entries.some(m=>m.service_id===exchangeServiceId))fail("COMPANY_EXCHANGE_CONFIG_COLLISION");
+    exchangePassport=originalCompanyExchangePassport(servicePassport);
+    exchangePath="_iwxa/services/"+exchangeServiceId+".json";
+    if(existsSync(join(source,exchangePath)))fail("COMPANY_EXCHANGE_PASSPORT_COLLISION");
+    exchangeControl=JSON.parse(readFileSync(required(source,"_iwxa/security/capability-control-plane.json"),"utf8"));
+    if(!Array.isArray(exchangeControl.services)||exchangeControl.services.some(s=>s.service_id===exchangeServiceId)||
+       !exchangeControl.services.some(s=>s.service_id===servicePassport.service_id))fail("COMPANY_EXCHANGE_CONTROL_REQUIRED");
+    domain.modules.push({service_id:exchangeServiceId,base_path:"/workspace/"});
+    exchangeControl.services.push({schema_version:"0.3.1",service_id:exchangeServiceId,
+      capability_control:"NONE",capability_ceiling:[],activation_any_of:[],operation_guards:[]});
+  }
   const staged=[];
   for(const path of assets){
     const dest=join('workspace','assets',relative(assetRoot,path));
@@ -434,6 +453,14 @@ export function assembleSignedControlDist({
       writeFileSync(join(temp,'workspace/workspace.config.json'),JSON.stringify(config));
       writeFileSync(join(temp,passportPath),JSON.stringify(servicePassport));
       serviceEntry.sha256=hash(join(temp,passportPath));
+      if(exchangePassport){
+        writeFileSync(join(temp,exchangePath),JSON.stringify(exchangePassport),{flag:"wx"});
+        catalog.entries.push({service_id:exchangePassport.service_id,
+          service_version:exchangePassport.service_version,base_path:exchangePassport.base_path,
+          supported_levels:exchangePassport.supported_levels,file:exchangePath,
+          sha256:hash(join(temp,exchangePath))});
+        writeFileSync(join(temp,"_iwxa/security/capability-control-plane.json"),JSON.stringify(exchangeControl));
+      }
       writeFileSync(join(temp,'_iwxa/service-catalog.json'),JSON.stringify({
         ...catalog,count:catalog.entries.length,
       }));
