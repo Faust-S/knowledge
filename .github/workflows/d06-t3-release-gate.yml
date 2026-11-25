@@ -114,8 +114,8 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_PD12_SELECTION_CASES=44\r?$') { throw "D06_PD12_CANONICAL_SELECTION_FAILED" }
           Write-Host "D06_PD12_CANONICAL_SELECTION_CASES=44"
           & node --experimental-strip-types private/domain/scripts/test-current-purchase-decision.mjs *> $log
-          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_CURRENT_PURCHASE_DECISION_CASES=39\r?$') { throw "D06_CURRENT_PURCHASE_DECISION_FAILED" }
-          Write-Host "D06_CURRENT_PURCHASE_DECISION_CASES=39"
+          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_CURRENT_PURCHASE_DECISION_CASES=51\r?$') { throw "D06_CURRENT_PURCHASE_DECISION_FAILED" }
+          Write-Host "D06_CURRENT_PURCHASE_DECISION_CASES=51"
       - name: Check exact original assistant files and owner pack
         shell: pwsh
         run: |
@@ -259,6 +259,13 @@ jobs:
               }
               $stages = [regex]::Matches($body, '(?m)^>\s+\S+@\S+\s+((?:check|test|build)(?::[a-z0-9.-]+)*)\s*$')
               $names = @($stages | ForEach-Object { $_.Groups[1].Value })
+              $remaining = @(@("test:session","test:workflow-progress","test:native") | Where-Object { $_ -notin $names })
+              if ($remaining.Count -gt 0) {
+                Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value ("remaining-subject=" + ($remaining -join ","))
+              }
+              foreach ($m in [regex]::Matches($body,'(?m)^D06_(?:SESSION|WORKFLOW)_ASSERT_FAIL=\d+\r?$')) {
+                Write-Host $m.Value.Trim()
+              }
               Write-Host ("D06_FULL_LAST_STAGES=" + (($names | Select-Object -Last 5) -join ","))
               foreach ($kind in @("TimeoutError","AssertionError","Test timeout","not ok","prettier/prettier","error TS")) {
                 $count = ([regex]::Matches($body, [regex]::Escape($kind))).Count
@@ -405,6 +412,36 @@ jobs:
           }
           if ($code -ne 0) { Write-Host "D06_FMT_COORD_RESULT=FAIL"; exit 1 }
           Write-Host "D06_FMT_COORD_RESULT=PASS"
+      - name: Collect only unexecuted subject witnesses after failed mandatory gate
+        if: ${{ !cancelled() && steps.static-gate.outcome == 'failure' && steps.static-gate.outputs.remaining-subject != '' }}
+        shell: pwsh
+        working-directory: private/site
+        env:
+          REMAINING_SUBJECT: ${{ steps.static-gate.outputs.remaining-subject }}
+        run: |
+          $tasks = @($env:REMAINING_SUBJECT.Split(","))
+          if ($tasks.Count -gt 3 -or @($tasks | Select-Object -Unique).Count -ne $tasks.Count) { throw "D06_DIAGNOSTIC_SCOPE" }
+          $failed = 0
+          foreach ($task in $tasks) {
+            if ($task -notin @("test:session","test:workflow-progress","test:native")) { throw "D06_DIAGNOSTIC_SCOPE" }
+            $log = Join-Path $env:RUNNER_TEMP "d06-remaining-subject.private.log"
+            & cmd.exe /d /c ("npm run " + $task + " > """ + $log + """ 2>&1")
+            $passed = $LASTEXITCODE -eq 0
+            Write-Host ("D06_REMAINING_" + $task.Replace(":","_").Replace("-","_").ToUpperInvariant() + "=" + $(if ($passed) {"PASS"} else {"FAIL"}))
+            if (-not $passed) {
+              $failed++
+              $body = Get-Content -LiteralPath $log -Raw
+              foreach ($m in [regex]::Matches($body,'(?m)^D06_(?:SESSION|WORKFLOW)_ASSERT_FAIL=\d+\r?$')) {
+                Write-Host $m.Value.Trim()
+              }
+              foreach ($m in [regex]::Matches($body,'(?m)^not ok (\d+)(?: -|\s*$)')) {
+                Write-Host ("D06_REMAINING_TAP_FAILURE_INDEX=" + $m.Groups[1].Value)
+              }
+              $codes = [regex]::Matches($body,'TS\d{4}') | ForEach-Object {$_.Value} | Select-Object -Unique -First 10
+              Write-Host ("D06_REMAINING_TYPE_CODES=" + ($codes -join ","))
+            }
+          }
+          if ($failed -gt 0) { exit 1 }
       - name: Evidence boundary
         if: always()
         shell: pwsh
@@ -520,8 +557,8 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_PD12_SELECTION_CASES=44\r?$') { throw "D06_PD12_CANONICAL_SELECTION_FAILED" }
           Write-Host "D06_PD12_CANONICAL_SELECTION_CASES=44"
           & node --experimental-strip-types private/domain/scripts/test-current-purchase-decision.mjs *> $log
-          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_CURRENT_PURCHASE_DECISION_CASES=39\r?$') { throw "D06_CURRENT_PURCHASE_DECISION_FAILED" }
-          Write-Host "D06_CURRENT_PURCHASE_DECISION_CASES=39"
+          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_CURRENT_PURCHASE_DECISION_CASES=51\r?$') { throw "D06_CURRENT_PURCHASE_DECISION_FAILED" }
+          Write-Host "D06_CURRENT_PURCHASE_DECISION_CASES=51"
       - name: Check exact original assistant files and owner pack
         shell: pwsh
         run: |
@@ -651,12 +688,20 @@ jobs:
         working-directory: private/site
         run: |
           $log = Join-Path $env:RUNNER_TEMP "d06-pd12-projection.private.log"
+          $failed = 0
           foreach ($task in @("test:pd12:evidence", "test:pd12:selection", "test:pd12:current-decision", "test:workflow:offers", "test:pd12:readiness", "test:replacement-procurement", "test:replacement-write-guard", "test:session", "test:workflow-progress", "test:native", "check:schemas", "check:type")) {
             & npm run $task *> $log
             $passed = $LASTEXITCODE -eq 0
             Write-Host ("D06_PD12_TASK_" + $task.Replace(":","_").Replace("-","_").ToUpperInvariant() + "=" + $(if ($passed) {"PASS"} else {"FAIL"}))
             if (-not $passed) {
+              $failed++
               $raw = (Get-Content $log -Raw).Replace([char]92,[char]47)
+              foreach ($m in [regex]::Matches($raw,'(?m)^D06_(?:SESSION|WORKFLOW)_ASSERT_FAIL=\d+\r?$')) {
+                Write-Host $m.Value.Trim()
+              }
+              foreach ($m in [regex]::Matches($raw,'(?m)^not ok (\d+)(?: -|\s*$)')) {
+                Write-Host ("D06_PD12_TAP_FAILURE_INDEX=" + $m.Groups[1].Value)
+              }
               $tracked = @(& git ls-files -- scripts src tests | Sort-Object)
               foreach ($m in ([regex]::Matches($raw,'(?<file>(?:scripts|src|tests)/[A-Za-z0-9._/-]+\.(?:mjs|mts|ts|tsx))(?::|\()(?<line>\d+)(?::|,)(?<column>\d+)') | Select-Object -Last 20)) {
                 $index = [array]::IndexOf($tracked,$m.Groups["file"].Value)+1
@@ -664,9 +709,9 @@ jobs:
               }
               $codes = [regex]::Matches($raw,'TS\d{4}') | ForEach-Object {$_.Value} | Select-Object -Unique -First 10
               Write-Host ("D06_PD12_TYPE_CODES=" + ($codes -join ","))
-              exit 1
             }
           }
+          if ($failed -gt 0) { exit 1 }
       - name: Verify original public portable input
         env:
           GH_TOKEN: ${{ github.token }}

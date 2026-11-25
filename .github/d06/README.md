@@ -20,6 +20,11 @@ does not start D06 T3 runners on this branch.
 - If the mandatory Windows gate fails on Prettier, compute the existing exact
   non-content formatting coordinates in that same runner. The gate stays failed;
   do not start a separate formatting job for this result.
+- A failed Windows mandatory gate also runs only the three subject suites
+  that have not been reached (session, workflow progress, native). The Linux
+  targeted gate collects every independent suite result before failing.
+  Publish only bounded numeric assertion ordinals and existing sanitized
+  evidence, never private test names, source or logs.
 - All D06 T3 workflows share one concurrency group on this branch. Running
   work is not canceled; do not issue multiple pending requests.
 - Individual diagnostic workflows remain available by explicitly committing
