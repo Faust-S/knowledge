@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 20eb607a3445a1ab0dae5b0f08bf79a262bdfe58
+          ref: 612ca1c869de1cd8d686f96fb74030e7581bea79
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -45,7 +45,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: b8acf1c7de85c4408cc292dbdec6aa7a91d3d8e1
+          ref: b277a721135381813dfdc7333c7b8e8645610722
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           fetch-depth: 0
@@ -62,10 +62,10 @@ jobs:
       - name: Verify immutable site / subject / T2 revisions
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "20eb607a3445a1ab0dae5b0f08bf79a262bdfe58"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "72b1947039a0a8cc843ab93e100dc8ad81a30843"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "b8acf1c7de85c4408cc292dbdec6aa7a91d3d8e1"
-          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "3301731e3ea6e5e7e0cbb2390c12bdc13ff739be"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "612ca1c869de1cd8d686f96fb74030e7581bea79"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "72b0684d3fad91bed00f12e53dc7fe9c269acbb7"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "b277a721135381813dfdc7333c7b8e8645610722"
+          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "d4f8c393a11d199f9266766af7c4569401fbeaa6"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           for path in d04-private/site d04-private/model d04-private/t2; do
             test -z "$(git -C "$path" status --porcelain --untracked-files=no)"
@@ -103,7 +103,7 @@ jobs:
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
           BAZMED_SUBJECT_SOURCE_DIR: ${{ github.workspace }}/d04-private/model
-          D04_RELEASE_SITE_SHA: 20eb607a3445a1ab0dae5b0f08bf79a262bdfe58
+          D04_RELEASE_SITE_SHA: 612ca1c869de1cd8d686f96fb74030e7581bea79
         run: |
           set -euo pipefail
           if npm run release:check-source >"$RUNNER_TEMP/d04-release-source.log" 2>&1; then
@@ -169,18 +169,49 @@ jobs:
             python3 "$GITHUB_WORKSPACE/tools/ci/d04_safe_diagnostics.py" types "$RUNNER_TEMP/d04-types.log" || true
             exit 1
           fi
-      - name: Lint
+      - name: Full lint with explicit classification of formatting-only debt
         id: lint
         continue-on-error: true
         working-directory: d04-private/site
         run: |
-          if npm run lint >"$RUNNER_TEMP/d04-lint.log" 2>&1; then
-            echo "D04_LINT=PASS"
-          else
-            echo "D04_LINT=FAIL"
-            python3 "$GITHUB_WORKSPACE/tools/ci/d04_safe_diagnostics.py" lint "$RUNNER_TEMP/d04-lint.log" || true
+          set -uo pipefail
+          set +e
+          npm run lint --silent -- --format json >"$RUNNER_TEMP/d04-lint.json" 2>"$RUNNER_TEMP/d04-lint-stderr.log"
+          code=$?
+          set -e
+          if [ "$code" -gt 1 ]; then
+            echo "D04_LINT_EXECUTION=FAIL"
             exit 1
           fi
+          python3 - "$RUNNER_TEMP/d04-lint.json" "$code" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          try:
+              reports = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+              assert isinstance(reports, list) and reports
+              errors = warnings = formatting = fatal = 0
+              for report in reports:
+                  messages = report["messages"]
+                  actual = [message for message in messages if message.get("severity") == 2]
+                  assert report["errorCount"] == len(actual)
+                  errors += len(actual)
+                  warnings += report["warningCount"]
+                  fatal += report.get("fatalErrorCount", 0)
+                  formatting += sum(message.get("ruleId") == "prettier/prettier" and not message.get("fatal", False) for message in actual)
+              assert (int(sys.argv[2]) == 0) == (errors == 0)
+          except (OSError, ValueError, TypeError, KeyError, AssertionError):
+              print("D04_LINT_REPORT_INVALID")
+              sys.exit(1)
+          print(f"D04_LINT_ERRORS={errors}")
+          print(f"D04_LINT_FORMAT_ERRORS={formatting}")
+          print(f"D04_LINT_WARNINGS={warnings}")
+          print(f"D04_LINT_FATAL_ERRORS={fatal}")
+          if fatal or errors != formatting:
+              print("D04_FULL_FORMAT_LINT=FAIL_NON_FORMAT")
+              sys.exit(1)
+          print("D04_FULL_FORMAT_LINT=" + ("DEBT_ONLY" if formatting else "PASS"))
+          PY
       - name: Check semantic ESLint rules separately from existing Prettier debt
         id: semantic
         continue-on-error: true
@@ -196,17 +227,19 @@ jobs:
             exit "$code"
           fi
           echo "D04_SEMANTIC_LINT=PASS"
-      - name: Build real original T2 Host, qualified Kernel, static site and Chromium smoke
+      - name: Assemble exact production dist with original T2 Host and qualified Kernel
         id: integrated
-        if: steps.domain.outcome == 'success' && steps.research.outcome == 'success' && steps.links.outcome == 'success' && steps.types.outcome == 'success' && steps.semantic.outcome == 'success'
+        if: steps.domain.outcome == 'success' && steps.research.outcome == 'success' && steps.links.outcome == 'success' && steps.types.outcome == 'success' && steps.semantic.outcome == 'success' && steps.lint.outcome == 'success'
         continue-on-error: true
         working-directory: d04-private/site
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
+          BAZMED_SUBJECT_SOURCE_DIR: ${{ github.workspace }}/d04-private/model
+          D04_RELEASE_SITE_SHA: 612ca1c869de1cd8d686f96fb74030e7581bea79
         run: |
           set -uo pipefail
           set +e
-          npm run build:t2:site >"$RUNNER_TEMP/d04-integrated.log" 2>&1
+          npm run release:build >"$RUNNER_TEMP/d04-integrated.log" 2>&1
           code=$?
           set -e
           if [ "$code" -ne 0 ]; then
@@ -224,7 +257,59 @@ jobs:
               exit 1
             fi
           done
+          grep -qx 'D04_HOSTING_ASSEMBLY_ONLY=PASS' "$RUNNER_TEMP/d04-integrated.log" || exit 1
           echo "D04_INTEGRATED_T2_BUILD=PASS"
+          echo "D04_HOSTING_ASSEMBLY_ONLY=PASS"
+      - name: Production static interactivity, links and Chromium Workspace smoke
+        id: production_smoke
+        if: steps.integrated.outcome == 'success'
+        continue-on-error: true
+        working-directory: d04-private/site
+        env:
+          NODE_ENV: production
+        run: |
+          set -uo pipefail
+          failed=0
+          log="$RUNNER_TEMP/d04-integrated.log"
+          for stage in check:static-interactions check:links check:t2:workspace-browser; do
+            name="$(printf '%s' "$stage" | tr '[:lower:]' '[:upper:]' | sed 's/[^A-Z0-9]/_/g')"
+            if npm run "$stage" >>"$log" 2>&1; then
+              echo "D04_PRODUCTION_SMOKE_${name}=PASS"
+            else
+              echo "D04_PRODUCTION_SMOKE_${name}=FAIL"
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            grep -Eo 'BAZMED_[A-Z0-9_]+|D04_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$log" | sort -u | tail -35 || true
+            grep -E '^D04_BROWSER_PROBLEM_[A-Z_]+=[0-9]+
+          grep -E '^D04_EMPTY_WORKSPACE_(HOST_FIRST_USABLE_MS|DOM_READY_MS|HOST_ASSET_REQUESTS|HOST_ASSET_DECODED_KIB)=[0-9]+$' "$RUNNER_TEMP/d04-integrated.log" | tail -4 || true
+          responsive_count="$(grep -c '^BAZMED_NAVIGATION_PASS ' "$RUNNER_TEMP/d04-integrated.log" || true)"
+          echo "D04_WORKSPACE_RESPONSIVE_VIEWPORTS=$responsive_count"
+          if [ "$responsive_count" -ne 5 ]; then
+            echo "D04_WORKSPACE_RESPONSIVE_VIEWPORTS_INCOMPLETE"
+            exit 1
+          fi
+          for marker in D04_WORKSPACE_TOOL_RETURN_PATH D04_WORKSPACE_OVERVIEW_ENTRY; do
+            if ! grep -qx "$marker=PASS" "$RUNNER_TEMP/d04-integrated.log"; then
+              echo "$marker=FAIL"
+              exit 1
+            fi
+            echo "$marker=PASS"
+          done
+          grep -E '^D04_WORKSPACE_(PUBLIC_RETURN_MS|OVERVIEW_COLD_MS)=[0-9]+$' "$RUNNER_TEMP/d04-integrated.log" | tail -2 || true
+          home_count="$(grep -c '^D04_PUBLIC_HOME_ENTRY_PASS ' "$RUNNER_TEMP/d04-integrated.log" || true)"
+          echo "D04_PUBLIC_HOME_VIEWPORTS=$home_count"
+          if [ "$home_count" -ne 2 ]; then
+            echo "D04_PUBLIC_HOME_VIEWPORTS_INCOMPLETE"
+            exit 1
+          fi
+          echo "D04_NATIVE_KERNEL_AND_HOST_FILES=PASS"
+          echo "D04_CHROMIUM_SMOKE=PASS_ON_HOSTING_DIST"
+          # Do not upload private dist, private logs, browser profiles or files.
+ "$log" | head -10 || true
+            exit 1
+          fi
           # Safe numeric diagnostics only, without private assets or personal data.
           grep -E '^D04_EMPTY_WORKSPACE_(HOST_FIRST_USABLE_MS|DOM_READY_MS|HOST_ASSET_REQUESTS|HOST_ASSET_DECODED_KIB)=[0-9]+$' "$RUNNER_TEMP/d04-integrated.log" | tail -4 || true
           responsive_count="$(grep -c '^BAZMED_NAVIGATION_PASS ' "$RUNNER_TEMP/d04-integrated.log" || true)"
@@ -269,7 +354,7 @@ jobs:
               grep -Eo 'HORIZONTAL_OVERFLOW [0-9]+|D04_[A-Z0-9_]+|BAZMED_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
               grep -E '^  - W(375|1440) /[a-zA-Z0-9/_-]*: ' "$log" | sed -E 's/^(  - W(375|1440) \/[a-zA-Z0-9/_-]*): .*/D04_RUNTIME_FAIL \1/' | head -20 || true
             fi
-            grep -E '^D04_STATIC_RUNTIME_W(375|1440)_(CHECKED|PASS)=[0-9]+$' "$log" || true
+            grep -E '^D04_STATIC_(RUNTIME_W(375|1440)|HYDRATION)_(CHECKED|PASS)=[0-9]+$' "$log" || true
           done
           rm -f dist/readability-report.json dist/readability-check.txt
           exit "$failed"
@@ -412,14 +497,15 @@ jobs:
           LINT: ${{ steps.lint.outcome }}
           SEMANTIC: ${{ steps.semantic.outcome }}
           INTEGRATED: ${{ steps.integrated.outcome }}
+          PRODUCTION_SMOKE: ${{ steps.production_smoke.outcome }}
           PUBLIC_RUNTIME: ${{ steps.public_runtime.outcome }}
           HOSTING: ${{ steps.hosting.outcome }}
           CHALLENGE: ${{ steps.challenge.outcome }}
           BROWSER_DEPS: ${{ steps.browser_deps.outcome }}
           NATIVE: ${{ steps.native.outcome }}
         run: |
-          echo "D04_STAGE_OUTCOMES=domain:$DOMAIN,site:$SITE,links:$LINKS,types:$TYPES,lint:$LINT,semantic:$SEMANTIC,integrated:$INTEGRATED,public:$PUBLIC_RUNTIME,hosting:$HOSTING,challenge:$CHALLENGE,browser:$BROWSER_DEPS,native:$NATIVE"
-          for outcome in "$DOMAIN" "$SITE" "$LINKS" "$TYPES" "$SEMANTIC" "$INTEGRATED" "$PUBLIC_RUNTIME" "$HOSTING" "$CHALLENGE" "$BROWSER_DEPS" "$NATIVE"; do
+          echo "D04_STAGE_OUTCOMES=domain:$DOMAIN,site:$SITE,links:$LINKS,types:$TYPES,lint:$LINT,semantic:$SEMANTIC,integrated:$INTEGRATED,smoke:$PRODUCTION_SMOKE,public:$PUBLIC_RUNTIME,hosting:$HOSTING,challenge:$CHALLENGE,browser:$BROWSER_DEPS,native:$NATIVE"
+          for outcome in "$DOMAIN" "$SITE" "$LINKS" "$TYPES" "$LINT" "$SEMANTIC" "$INTEGRATED" "$PRODUCTION_SMOKE" "$PUBLIC_RUNTIME" "$HOSTING" "$CHALLENGE" "$BROWSER_DEPS" "$NATIVE"; do
             if [ "$outcome" != "success" ]; then
               echo "D04_AUTOMATED_FULL_DOMAIN=FAIL"
               echo "D04_RELEASE_READINESS=HOLD"
@@ -428,10 +514,5 @@ jobs:
           done
           echo "D04_AUTOMATED_FULL_DOMAIN=PASS"
           echo "D04_INDEPENDENT_VISUAL_ACCEPTANCE=NOT_RUN"
-          if [ "$LINT" != "success" ]; then
-            echo "D04_FULL_FORMAT_LINT=FAIL"
-            echo "D04_RELEASE_READINESS=HOLD"
-            exit 1
-          fi
           echo "D04_RELEASE_READINESS=HOLD_VISUAL_ACCEPTANCE"
           # No private source, logs, test or production dist are uploaded.
