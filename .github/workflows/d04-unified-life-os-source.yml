@@ -31,14 +31,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 745158965cab3556bddb5c3d9f9cb7162e0f7d27
+          ref: 1536bcca8a94197392caa29ca8725c40a9e74e0c
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: 147b91230f4dcd625a6a0c540a7d3bcbfe0aa0b6
+          ref: e5d201da976aa6fce7aaabd32d99fd2e5ea0d472
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           persist-credentials: false
@@ -48,16 +48,16 @@ jobs:
       - name: Check exact revisions and canonical model
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "745158965cab3556bddb5c3d9f9cb7162e0f7d27"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "0cf3ca2da38245f4b69e89554e085ce28ae0c0df"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "147b91230f4dcd625a6a0c540a7d3bcbfe0aa0b6"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "1536bcca8a94197392caa29ca8725c40a9e74e0c"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "aef5cc33aedcfc0ecd4b943089d0ff20bdb6f1a5"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "e5d201da976aa6fce7aaabd32d99fd2e5ea0d472"
           for name in LIFE_RETROSPECTIVE_V0_1.mjs LIFE_RETROSPECTIVE_V0_1.d.mts PERSONAL_STUDY_RESULT_V0_1.mjs PERSONAL_STUDY_RESULT_V0_1.d.mts LIFE_GOAL_RESULT_REFS_V0_1.mjs LIFE_GOAL_RESULT_REFS_V0_1.d.mts PERSONAL_CUSTOM_MEASURE_V0_1.mjs PERSONAL_CUSTOM_MEASURE_V0_1.d.mts LIFE_PERIOD_COMPARISON_V0_1.mjs LIFE_PERIOD_COMPARISON_V0_1.d.mts LIFE_ACTION_BOARD_V0_1.mjs LIFE_ACTION_BOARD_V0_1.d.mts PERSONAL_MEDICAL_EVIDENCE_V0_1.mjs PERSONAL_MEDICAL_EVIDENCE_V0_1.d.mts LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.mjs LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.d.mts PERSONAL_GOAL_PROFILE_V0_1.mjs PERSONAL_GOAL_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_PROFILE_V0_1.mjs PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts LIFE_DASHBOARD_CALCULATIONS_V0_1.mjs LIFE_DASHBOARD_CALCULATIONS_V0_1.d.mts LIFE_DIARY_BATCH_V0_1.mjs LIFE_DIARY_BATCH_V0_1.d.mts; do
             cmp "d04-private/model/docs/life-os/$name" "d04-private/site/t2-site-module/bazmed/$name"
           done
-          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "43e443e31151f6155fbb90f04b4e878d5d163437"
+          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "11a5d13248f8ca5fe36cf4ed7fc0c804a99ace90"
           cmp d04-private/model/docs/life-os/RECOVERY_PROCESS_PROFILE_V0_7.ts d04-private/site/src/lib/life-os-recovery-process.ts
           # The release preflight must pin the same subject as this qualification.
-          grep -Fqx 'const expectedSubject="147b91230f4dcd625a6a0c540a7d3bcbfe0aa0b6";' d04-private/site/scripts/check-hosting-source.mjs || { echo "D04_RELEASE_SUBJECT_PIN=FAIL"; exit 1; }
+          grep -Fqx 'const expectedSubject="e5d201da976aa6fce7aaabd32d99fd2e5ea0d472";' d04-private/site/scripts/check-hosting-source.mjs || { echo "D04_RELEASE_SUBJECT_PIN=FAIL"; exit 1; }
           echo "D04_RELEASE_SUBJECT_PIN=PASS"
           echo "D04_UNIFIED_PINNED_PARITY=PASS"
           if (cd d04-private/model && node --experimental-strip-types --test docs/life-os/tests/life-retrospective.test.mjs docs/life-os/tests/recovery-process-profile.test.mjs docs/life-os/tests/personal-study-result.test.mjs docs/life-os/tests/life-dashboard-model.test.mjs docs/life-os/tests/life-dashboard-selection.test.mjs docs/life-os/tests/life-dashboard-projection.test.mjs docs/life-os/tests/personal-observation-dynamics.test.mjs docs/life-os/tests/life-dashboard-calculations.test.mjs docs/life-os/tests/life-diary-batch.test.mjs docs/life-os/tests/life-observation-methods.test.mjs docs/life-os/tests/personal-goal-profile.test.mjs docs/life-os/tests/life-dashboard-sleep-schedule.test.mjs docs/life-os/tests/personal-medical-evidence.test.mjs docs/life-os/tests/life-action-board.test.mjs docs/life-os/tests/life-period-comparison.test.mjs docs/life-os/tests/personal-custom-measure.test.mjs docs/life-os/tests/goal-observation-refs.test.mjs docs/life-os/tests/goal-result-refs.test.mjs docs/life-os/tests/life-daily-study.test.mjs) >"$RUNNER_TEMP/d04-domain.log" 2>&1; then
