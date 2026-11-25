@@ -39,8 +39,8 @@ jobs:
           set -euo pipefail
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d02-personal-activity-full \
-            --profile full-release-after-navigation-fixes \
-            --revision site=f31f04ed1a4c5067ec6a48be389346b4e4467d6c \
+            --profile full-release-after-first-step-fix \
+            --revision site=8301f94aa86444bb3b70a4823dd79f0a15e4727a \
             --revision subject=76ed326b21392836f4ff0ed376baea7b3f555ac5 \
             --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17 \
             --revision platform=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
@@ -58,7 +58,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: f31f04ed1a4c5067ec6a48be389346b4e4467d6c
+          ref: 8301f94aa86444bb3b70a4823dd79f0a15e4727a
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -478,7 +478,7 @@ jobs:
           if ! timeout 35m node t3-club-navigation-audit.mjs "$GITHUB_WORKSPACE/site" "$GITHUB_WORKSPACE/site/dist" > "$RUNNER_TEMP/private-nav-audit.log" 2>&1; then
             nav_status=1
           fi
-          grep -E '^CLUB_NAV_(PAGE |SUMMARY |FAILURE |ASSISTANT |EXTERNAL_BROKEN |EXTERNAL_UNVERIFIED |INTERNAL=PASS$|EXTERNAL=(PASS|PARTIAL)$)' "$RUNNER_TEMP/private-nav-audit.log" || true
+          grep -E '^CLUB_NAV_(PAGE |SUMMARY |FAILURE |ASSISTANT |FIRST_STEP |EXTERNAL_BROKEN |EXTERNAL_UNVERIFIED |INTERNAL=PASS$|EXTERNAL=(PASS|PARTIAL)$)' "$RUNNER_TEMP/private-nav-audit.log" || true
           echo "D02_NAVIGATION_AUDIT_EXIT=$nav_status; D02_ROUNDTRIP_EXIT=$browser_status"
           [ "$browser_status" = 0 ] && [ "$nav_status" = 0 ]
       - name: Retain qualified local build inputs only in private Club candidate branch
@@ -493,7 +493,7 @@ jobs:
           # Use the existing scoped credential only if the intended repository is private
           # and the credential already grants push. Never modify main or an existing ref.
           [ "$(gh api repos/Faust-S/club.iwxa.ru --jq '.private')" = true ]
-          [ "$(git rev-parse HEAD)" = "f31f04ed1a4c5067ec6a48be389346b4e4467d6c" ]
+          [ "$(git rev-parse HEAD)" = "8301f94aa86444bb3b70a4823dd79f0a15e4727a" ]
           case "$(git remote get-url origin)" in
             https://github.com/Faust-S/club.iwxa.ru|https://github.com/Faust-S/club.iwxa.ru.git) ;;
             *) echo D02_T3_PRIVATE_RETENTION_REMOTE=FAIL; exit 1 ;;
@@ -502,7 +502,7 @@ jobs:
           if ! node scripts/retain-club-t3-inputs.mjs "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/t3-platform.zip" > "$RUNNER_TEMP/private-retain.log" 2>&1; then
             echo D02_T3_PRIVATE_RETENTION_PREPARE=FAIL; exit 1
           fi
-          target=refs/heads/work/2026-11-25-club-t3-navigation-fixed-inputs
+          target=refs/heads/work/2026-11-25-club-t3-first-step-qualified-inputs
           root=runtime/t3-platform/0.3.1-rc.1
           git add -- "$root/club-host" "$root/kernel-support" "$root/platform-inputs.zip"
           # Limit the new private commit to the original retained build inputs.
@@ -531,8 +531,8 @@ jobs:
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Retain qualified Club T3 local inputs for run $GITHUB_RUN_ID [skip ci]" > "$RUNNER_TEMP/private-retain-commit.log" 2>&1
           # Authorized GitHub connector created the isolated target at the exact source.
           # This is a normal fast-forward, never force, and the runner must still have write permission.
-          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-navigation-fixed-inputs --jq '.object.sha')" = "f31f04ed1a4c5067ec6a48be389346b4e4467d6c" ]
-          [ "$(git rev-parse HEAD^)" = "f31f04ed1a4c5067ec6a48be389346b4e4467d6c" ]
+          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-first-step-qualified-inputs --jq '.object.sha')" = "8301f94aa86444bb3b70a4823dd79f0a15e4727a" ]
+          [ "$(git rev-parse HEAD^)" = "8301f94aa86444bb3b70a4823dd79f0a15e4727a" ]
           gh auth setup-git --hostname github.com > "$RUNNER_TEMP/private-retain-credential.log" 2>&1
           if ! git push --porcelain origin "HEAD:$target" > "$RUNNER_TEMP/private-retain-push.log" 2>&1; then
             if grep -Eqi 'rate limit|HTTP 429|abuse detection' "$RUNNER_TEMP/private-retain-push.log"; then
@@ -544,7 +544,7 @@ jobs:
             fi
             exit 1
           fi
-          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-navigation-fixed-inputs --jq '.object.sha')" = "$(git rev-parse HEAD)" ]
+          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-first-step-qualified-inputs --jq '.object.sha')" = "$(git rev-parse HEAD)" ]
           echo "D02_T3_QUALIFIED_INPUT_COMMIT=$(git rev-parse HEAD)"
           echo D02_T3_PRIVATE_RETENTION=PASS
       - name: Remove temporary private compilation and logs
