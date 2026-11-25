@@ -2,7 +2,7 @@ name: D04 growing diary 520 original Results (private source)
 on:
   push:
     branches:
-      - work/2026-11-25-d04-dashboard-selection-qualification
+      - work/2026-11-25-d04-local-time-qualification
     paths:
       - .github/workflows/d04-growing-diary-qualification.yml
       - scripts/d04-private-source-preflight.sh
@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 1536bcca8a94197392caa29ca8725c40a9e74e0c
+          ref: adb41a9fce8d93ba412e11648c85b293374ef182
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -47,8 +47,8 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = 1536bcca8a94197392caa29ca8725c40a9e74e0c
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = aef5cc33aedcfc0ecd4b943089d0ff20bdb6f1a5
+          test "$(git -C d04-private/site rev-parse HEAD)" = adb41a9fce8d93ba412e11648c85b293374ef182
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 3a7ebbb1137cb4cea95351c77d9b5dbff2a1c827
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
           echo "D04_GROWING_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4

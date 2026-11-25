@@ -2,7 +2,7 @@ name: D04 home and bidirectional Life OS native qualification (private source)
 on:
   push:
     branches:
-      - work/2026-11-25-d04-dashboard-selection-qualification
+      - work/2026-11-25-d04-local-time-qualification
     paths:
       - .github/workflows/d04-home-dashboard-qualification.yml
       - scripts/d04-private-source-preflight.sh
@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: bc6f5c82964eacead0fa5b7c725b3fda0d81279c
+          ref: adb41a9fce8d93ba412e11648c85b293374ef182
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -47,9 +47,9 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = bc6f5c82964eacead0fa5b7c725b3fda0d81279c
+          test "$(git -C d04-private/site rev-parse HEAD)" = adb41a9fce8d93ba412e11648c85b293374ef182
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 5db71c69b28662574b8b282de53bb07b7e7cbb45
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 3a7ebbb1137cb4cea95351c77d9b5dbff2a1c827
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
         with:
@@ -164,6 +164,7 @@ jobs:
           node --check qualification/life-os-observation-exchange.browser.mjs
           node --check qualification/life-os-daily-study.browser.mjs
           node --check qualification/life-os-home-dashboard.browser.mjs
+          node --check qualification/life-os-local-time.browser.mjs
           node --check qualification/life-os-unified-exchange.browser.mjs
           node --check qualification/life-os-entry-responsive.browser.mjs
           echo "D04_HOME_NATIVE_WITNESS_SYNTAX=PASS"
@@ -187,10 +188,23 @@ jobs:
           const {runLifeOsCustomMeasureBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-custom-measure.browser.mjs')).href);
           const {runLifeOsGoalObservationRefsBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-goal-observation-refs.browser.mjs')).href);
           const {runLifeOsDailyStudyBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-daily-study.browser.mjs')).href);
+          const {runLifeOsLocalTimeBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-local-time.browser.mjs')).href);
           console.log('D04_HOME_BROWSER_STAGE=SERVER_BOOT');
           const server=await serveRealKernelHost(join(site,'dist'),{independentWitness:true,previewOrigin:true});
           try{
-            let customPassed=false,linkedPassed=false,studyPassed=false,personalPassed=false,entryPassed=false;
+            let customPassed=false,linkedPassed=false,studyPassed=false,personalPassed=false,entryPassed=false,timePassed=false;
+            console.log('D04_HOME_BROWSER_STAGE=LOCAL_TIME');
+            try {
+              const time=await runLifeOsLocalTimeBrowser({chromium,origin:server.origin,selectWitnessOption});
+              if(time.status!=='PASS'||time.objects!==3||time.events!==4||time.gapRejected!==true||time.explicitFold!==true||time.originalPreserved!==true||time.batchOffsets!==true||time.cold!==true||time.chronology!==true)throw Error('D04_LOCAL_TIME_WITNESS_RESULT_INCOMPLETE');
+              timePassed=true;
+              console.log('D04_HOME_LOCAL_TIME=PASS');
+            }catch(error){
+              console.log('D04_HOME_LOCAL_TIME=FAIL');
+              const code=error instanceof Error?error.message:'';
+              if(/^D04_LOCAL_TIME_WITNESS_[A-Z0-9_]{1,220}$/.test(code))console.log(code);
+              else console.log('D04_LOCAL_TIME_WITNESS_ERROR_CLASS_UNCLASSIFIED');
+            }
             console.log('D04_HOME_BROWSER_STAGE=CUSTOM_MEASURES_AND_PERIODS');
             try {
               const custom=await runLifeOsCustomMeasureBrowser({chromium,origin:server.origin,selectWitnessOption});
@@ -254,7 +268,7 @@ jobs:
             console.log('D04_HOME_INTERACTIVE_ENTRY=PASS');
               entryPassed=true;
             }catch{console.log('D04_HOME_INTERACTIVE_ENTRY=FAIL')}
-            if(!customPassed||!linkedPassed||!studyPassed||!personalPassed||!entryPassed)throw Error('D04_HOME_CASES_INCOMPLETE');
+            if(!customPassed||!linkedPassed||!studyPassed||!personalPassed||!entryPassed||!timePassed)throw Error('D04_HOME_CASES_INCOMPLETE');
           }finally{
             await new Promise(done=>server.server.close(done));
           }
@@ -262,14 +276,14 @@ jobs:
           code=$?
           set -e
           if [ "$code" -ne 0 ]; then
-            grep -E '^D04_HOME_(CUSTOM_(MEASURES|PERIODS|COLD_EXCHANGE|INDEPENDENT)|GOAL_(REFS|REVERSE_NAVIGATION|REFS_INDEPENDENT)|DAILY_STUDY(_COLD_EXCHANGE)?|PERSONAL_CASE|INTERACTIVE_ENTRY)=(PASS|FAIL)$' "$RUNNER_TEMP/d04-home-browser.log" || true
+            grep -E '^D04_HOME_(CUSTOM_(MEASURES|PERIODS|COLD_EXCHANGE|INDEPENDENT)|GOAL_(REFS|REVERSE_NAVIGATION|REFS_INDEPENDENT)|DAILY_STUDY(_COLD_EXCHANGE)?|PERSONAL_CASE|INTERACTIVE_ENTRY|LOCAL_TIME)=(PASS|FAIL)$' "$RUNNER_TEMP/d04-home-browser.log" || true
             echo "D04_HOME_REAL_BROWSER=FAIL"
             grep -E '^D04_HOME_(BROWSER_STAGE|VIEWPORT_W[0-9]+_FULL_JOURNEY)' "$RUNNER_TEMP/d04-home-browser.log" | tail -6 || true
             # Keep independent fixed stage and error codes from every case.
             # Never print the raw exception, source contents or private logs.
-            grep -E '^D04_(GOAL_REF|STUDY|CUSTOM|HOME)_WITNESS_(STAGE|ERROR_CLASS|ERROR|SAFE_CAUSE|CAUSE|OUTER)_[A-Za-z0-9_]+$' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -40 || true
-            grep -Eo 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_STUDY_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -40 || true
-            if ! grep -Eq 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_STUDY_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log"; then
+            grep -E '^D04_(GOAL_REF|STUDY|CUSTOM|HOME|LOCAL_TIME)_WITNESS_(STAGE|ERROR_CLASS|ERROR|SAFE_CAUSE|CAUSE|OUTER)_[A-Za-z0-9_]+$' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -40 || true
+            grep -Eo 'D04_UI_[A-Za-z0-9_]+|D04_LOCAL_TIME_WITNESS_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_STUDY_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -40 || true
+            if ! grep -Eq 'D04_UI_[A-Za-z0-9_]+|D04_LOCAL_TIME_WITNESS_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_STUDY_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log"; then
               if grep -q 'TimeoutError' "$RUNNER_TEMP/d04-home-browser.log"; then
                 echo "D04_HOME_BROWSER_ERROR_CLASS=TIMEOUT"
               elif grep -q 'ERR_MODULE_NOT_FOUND' "$RUNNER_TEMP/d04-home-browser.log"; then
@@ -290,5 +304,6 @@ jobs:
           grep -E '^D04_HOME_CUSTOM_(MEASURES|PERIODS|COLD_EXCHANGE)=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
           grep -E '^D04_HOME_GOAL_(REFS|REVERSE_NAVIGATION)=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
           grep -E '^D04_HOME_DAILY_STUDY(_COLD_EXCHANGE)?=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
+          grep -x 'D04_HOME_LOCAL_TIME=PASS' "$RUNNER_TEMP/d04-home-browser.log"
           echo "D04_HOME_REAL_BROWSER=PASS"
       # No public artifact, private dist, screenshots, code, or private logs are uploaded.
