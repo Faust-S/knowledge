@@ -237,7 +237,15 @@ jobs:
               console.log('D04_HOME_PERF_W'+item.width+'_COLD_MS='+item.coldRestoreMs);
             }
               personalPassed=true;
-            }catch{console.log('D04_HOME_PERSONAL_CASE=FAIL')}
+            }catch(error){
+              console.log('D04_HOME_PERSONAL_CASE=FAIL');
+              const code=error instanceof Error?error.message:'';
+              // The private witness generates fixed stage/assertion codes.
+              // Reject everything else, including raw browser exception text.
+              if(/^D04_HOME_WITNESS_[A-Z0-9_]{1,220}$/.test(code))console.log(code);
+              else if(code==='D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE'||code==='D04_HOME_LATENCY_INVALID')console.log('D04_HOME_WITNESS_ERROR_'+code);
+              else console.log('D04_HOME_WITNESS_ERROR_CLASS_UNCLASSIFIED');
+            }
             console.log('D04_HOME_BROWSER_STAGE=PUBLIC_ENTRY');
             try{
             const result=await runLifeOsEntryResponsiveBrowser({chromium,origin:server.origin});
