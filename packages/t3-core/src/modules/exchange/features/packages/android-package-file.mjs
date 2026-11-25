@@ -12,10 +12,11 @@ export async function saveAndroidPackageFile(bytes, filename, { scope = globalTh
   const plugin = scope.Capacitor?.Plugins?.IwxaPackageFile;
   if (!isAndroidPackageFileRuntime(scope) || !plugin ||
       ['begin','append','finish','abort'].some(name => typeof plugin[name] !== 'function') ||
-      typeof scope.crypto?.randomUUID !== 'function' || typeof scope.btoa !== 'function') fail('IWXA_FILE_BRIDGE_UNAVAILABLE');
+      typeof scope.crypto?.randomUUID !== 'function' || typeof scope.crypto?.subtle?.digest !== 'function' ||
+      typeof scope.btoa !== 'function') fail('IWXA_FILE_BRIDGE_UNAVAILABLE');
   if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || bytes.byteLength > maxBytes) fail('IWXA_FILE_SIZE_INVALID');
   if (typeof filename !== 'string' || filename.length < 6 || filename.length > 180 ||
-      !/\.iwxa$/i.test(filename) || /[\\/\x00-\x1f\x7f]/.test(filename) || filename !== filename.trim()) fail('IWXA_FILE_NAME_INVALID');
+      !/\.iwxa$/i.test(filename) || /[\\/\x00-\x1f\x7f-\x9f]/.test(filename) || filename !== filename.trim()) fail('IWXA_FILE_NAME_INVALID');
   const transferId = scope.crypto.randomUUID();
   if (!transferIdPattern.test(transferId)) fail('IWXA_FILE_TRANSFER_INVALID');
   const current = () => { if (!isCurrent()) fail('IWXA_FILE_SELECTION_CHANGED'); };
@@ -26,9 +27,14 @@ export async function saveAndroidPackageFile(bytes, filename, { scope = globalTh
     for (let offset = 0; offset < bytes.byteLength;) {
       current();
       const end = Math.min(offset + chunkBytes, bytes.byteLength);
+      // Snapshot only this bounded chunk. The native side independently checks
+      // its hash before writing; a same-length damaged bridge payload fails.
+      const part = bytes.slice(offset, end);
+      const sha256 = Array.from(new Uint8Array(await scope.crypto.subtle.digest('SHA-256', part)), b => b.toString(16).padStart(2, '0')).join('');
+      current();
       let binary = '';
-      for (let i = offset; i < end; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + 8192, end)));
-      const reply = await plugin.append({ transferId, offset, chunk: scope.btoa(binary) });
+      for (let i = 0; i < part.length; i += 8192) binary += String.fromCharCode(...part.subarray(i, i + 8192));
+      const reply = await plugin.append({ transferId, offset, chunk: scope.btoa(binary), sha256 });
       if (reply?.transferId !== transferId || reply.nextOffset !== end) fail('IWXA_FILE_RECEIPT_INVALID');
       offset = end;
     }
@@ -56,6 +62,7 @@ export function androidPackageFileMessage(error) {
     IWXA_FILE_SIZE_INVALID: 'Размер архива превышает допустимый объём (200 МиБ) или архив пуст.',
     IWXA_FILE_NAME_INVALID: 'Имя архива недопустимо для сохранения.',
     IWXA_FILE_SELECTION_CHANGED: 'Выбранный архив изменился. Повторите сохранение для текущего выбора.',
+    IWXA_FILE_CHUNK_HASH_MISMATCH: 'Переданные байты не совпали с исходным архивом. Сохранение остановлено.',
     IWXA_FILE_UNCONFIRMED: 'Не удалось подтвердить записанный файл. Возможно, он уже создан. Проверьте его отдельно.',
     IWXA_FILE_RECEIPT_INVALID: 'Подтверждение сохранения не получено. Проверьте файл отдельно.',
   })[code] || 'Сохранение файла не подтверждено. Проверьте выбранное место.';

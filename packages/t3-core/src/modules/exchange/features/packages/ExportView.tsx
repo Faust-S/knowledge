@@ -260,7 +260,10 @@ export function ExportView({ kernel, scopedWorkspaceId,
     const artifact=state.artifact;
     if(!scopeReady||!artifact||nativeSavingRef.current)return;
     if(!nativeDelivery){triggerDownload(artifact.bytes,artifact.filename,true);return;}
+    if(!["package-ready","download-initiated"].includes(state.status))return;
     nativeSavingRef.current=true;setNativeSaving(true);setNativeSaveError(null);
+    setNativeSaveMessage(null);setDownloadedName(null);
+    dispatch({type:"ack-file-saved",value:false});
     void saveAndroidPackageFile(artifact.bytes,artifact.filename,{
       isCurrent:()=>mountedRef.current&&artifactRef.current===artifact,
     }).then(saved=>{
@@ -271,9 +274,10 @@ export function ExportView({ kernel, scopedWorkspaceId,
       }
       setDownloadedName(saved.filename);
       setNativeSaveMessage(saved.filenameConfirmed
-        ? "Файл записан и повторно прочитан: "+saved.filename
-        : "Файл записан и повторно прочитан. Проверьте выбранное имя.");
-      if(state.status==="download-initiated")dispatch({type:"ack-file-saved",value:false});
+        ? (/\.iwxa$/i.test(saved.filename)
+          ? "Файл записан и повторно прочитан: "+saved.filename
+          : "Файл записан: "+saved.filename+". Перед импортом переименуйте его, сохранив расширение .iwxa.")
+        : "Файл записан и повторно прочитан. Проверьте выбранное имя и расширение .iwxa.");
       // Use the original state machine; manual acknowledgement and Kernel
       // confirmExport still remain separate explicit user actions.
       dispatch({type:"download-initiated"});
@@ -312,7 +316,7 @@ export function ExportView({ kernel, scopedWorkspaceId,
     }
   };
   const runConfirm = async () => {
-    if (nativeSavingRef.current || !scopeReady || state.status !== "download-initiated" ||
+    if (nativeSavingRef.current || (nativeDelivery && !nativeSaveMessage) || !scopeReady || state.status !== "download-initiated" ||
         !state.fileSavedConfirmed) return;
     if (!state.artifact) return;
     if (!canConfirm) return;
@@ -375,10 +379,11 @@ function renderExport(p: RenderProps) {
   const previewDisabled = !canPreview || selection.workspaces.length === 0 || !scopeReady || busy;
   const packageDisabled = !canPackage || !state.preview ||
     !state.ackSensitive || !scopeReady || busy;
-  const downloadDisabled = !state.artifact || !scopeReady || busy || protectedBusy;
+  const downloadDisabled = !state.artifact || !scopeReady || busy || protectedBusy ||
+    (nativeDelivery && !["package-ready","download-initiated"].includes(state.status));
   const confirmDisabled =
     !state.artifact || !canConfirm || !scopeReady || !state.fileSavedConfirmed ||
-    busy || state.status !== "download-initiated";
+    busy || (nativeDelivery && !nativeSaveMessage) || state.status !== "download-initiated";
   const nativeAgeTooLarge=Boolean(protectedExchange && state.artifact &&
     state.artifact.bytes.byteLength>protectedExchange.maxArchiveBytes);
 
@@ -492,11 +497,11 @@ function renderExport(p: RenderProps) {
         <label className="flex items-start gap-2 text-xs text-slate-300">
           <input type="checkbox" data-testid="export-confirm-saved-file"
             checked={state.fileSavedConfirmed}
-            disabled={nativeSaving||state.status !== "download-initiated"}
+            disabled={nativeSaving||(nativeDelivery&&!nativeSaveMessage)||state.status !== "download-initiated"}
             onChange={(e) => dispatch({ type: "ack-file-saved", value: e.target.checked })}
             className="mt-0.5" />
           <span>Я проверил, что файл {downloadedName ?? state.artifact.filename} действительно сохранён
-            на устройстве. Начало скачивания само по себе не подтверждает наличие копии.</span>
+            на устройстве. {nativeDelivery?"Файл должен иметь расширение .iwxa.":"Начало скачивания само по себе не подтверждает наличие копии."}</span>
         </label>
       )}
 

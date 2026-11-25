@@ -1,17 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
+import {createHash,webcrypto} from 'node:crypto';
 import {isAndroidPackageFileRuntime,saveAndroidPackageFile,androidPackageFileMessage} from '../src/modules/exchange/features/packages/android-package-file.mjs';
 const id='00000000-0000-0000-0000-000000000001';
 function fixture(){
   const chunks=[],calls=[];let total=0,name='';
   const plugin={
     async begin(q){calls.push(['begin',q]);name=q.filename;return {transferId:q.transferId,nextOffset:0};},
-    async append(q){calls.push(['append',q.offset]);assert.equal(q.transferId,id);assert.equal(q.offset,total);const part=Buffer.from(q.chunk,'base64');chunks.push(part);total+=part.length;return {transferId:id,nextOffset:total};},
+    async append(q){calls.push(['append',q.offset]);assert.equal(q.transferId,id);assert.equal(q.offset,total);const part=Buffer.from(q.chunk,'base64');if(createHash('sha256').update(part).digest('hex')!==q.sha256)throw Error('IWXA_FILE_CHUNK_HASH_MISMATCH');chunks.push(part);total+=part.length;return {transferId:id,nextOffset:total};},
     async finish(q){calls.push(['finish',q.transferId]);return {transferId:id,bytes:total,verified:true,filename:name,filenameConfirmed:true,sha256:createHash('sha256').update(Buffer.concat(chunks)).digest('hex')};},
     async abort(q){calls.push(['abort',q.transferId]);return {discarded:true};},
   };
-  const scope={location:{origin:'https://localhost'},Capacitor:{getPlatform:()=> 'android',isNativePlatform:()=>true,Plugins:{IwxaPackageFile:plugin}},crypto:{randomUUID:()=>id},btoa:s=>Buffer.from(s,'latin1').toString('base64')};
+  const scope={location:{origin:'https://localhost'},Capacitor:{getPlatform:()=> 'android',isNativePlatform:()=>true,Plugins:{IwxaPackageFile:plugin}},crypto:{randomUUID:()=>id,subtle:webcrypto.subtle},btoa:s=>Buffer.from(s,'latin1').toString('base64')};
   return {scope,plugin,calls,chunks};
 }
 const save=(f,bytes=new Uint8Array([1,2,3]),options={})=>saveAndroidPackageFile(bytes,'workspace.iwxa',{scope:f.scope,...options});
@@ -56,4 +56,20 @@ test('false or mismatched final confirmation is not accepted and is never replay
     const f=fixture(),finish=f.plugin.finish;f.plugin.finish=async q=>({...await finish(q),...wrong});
     await assert.rejects(save(f),/IWXA_FILE_RECEIPT_INVALID/);assert.equal(f.calls.filter(x=>x[0]==='finish').length,1);assert.equal(f.calls.at(-1)[0],'abort');
   }
+});
+test('same length bridge corruption fails independently checked chunk hash',async()=>{
+  const f=fixture(),append=f.plugin.append;
+  f.plugin.append=q=>append({...q,chunk:Buffer.from([1,2,4]).toString('base64')});
+  await assert.rejects(save(f),/IWXA_FILE_CHUNK_HASH_MISMATCH/);
+  assert.deepEqual(f.calls.map(x=>x[0]),['begin','append','abort']);
+});
+test('selection change during chunk hashing cannot send stale bytes',async()=>{
+  const f=fixture();let live=true;
+  f.scope.crypto.subtle={digest:async(...args)=>{const hash=await webcrypto.subtle.digest(...args);live=false;return hash;}};
+  await assert.rejects(save(f,new Uint8Array([1,2,3]),{isCurrent:()=>live}),/IWXA_FILE_SELECTION_CHANGED/);
+  assert.deepEqual(f.calls.map(x=>x[0]),['begin','abort']);
+});
+test('unavailable chunk hashing fails before staging any bytes',async()=>{
+  const f=fixture();delete f.scope.crypto.subtle;
+  await assert.rejects(save(f),/IWXA_FILE_BRIDGE_UNAVAILABLE/);assert.equal(f.calls.length,0);
 });

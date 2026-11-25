@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import {isAndroidPackageFileRuntime} from "./android-package-file.mjs";
 import type {
   CommandsFacade,
   KernelFacade,
@@ -902,7 +903,7 @@ function renderImport(p: RenderProps) {
       )}
       <input
         type="file"
-        accept={ALLOWED_EXTENSION}
+        accept={isAndroidPackageFileRuntime()?"*/*":ALLOWED_EXTENSION}
         disabled={!canPlainPreview || busy}
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];
