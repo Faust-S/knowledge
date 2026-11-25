@@ -409,6 +409,8 @@ function corporateRegistryPort({kernel,workspaceId,objectId,trustedPolicy,clock,
     return entry.port;
   };
   const api=Object.freeze({
+    // Deterministic expected address, not proof of creation or registry state.
+    expectedStorageWorkspaceId:storageId,
     readStoragePlacement:async()=>placement(await locate()),
     initializeStorage,
     readState:async()=> (await bound()).readState(),

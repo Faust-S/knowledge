@@ -67,12 +67,13 @@ const identity=c=>JSON.stringify(["kind","context_id","actor_id","principal_id",
 
 export function createTrustedReconciliationKernelApply({
   admission,kernel,access,stageFromOriginalOwner,
-  confirmSeparateApply,isHostActive,
+  confirmSeparateApply,isHostActive,resolveReceiptWorkspace=null,
 }={}){
   check(admission&&typeof admission.inspectAcceptedApplication==="function"&&
     typeof stageFromOriginalOwner==="function"&&
     typeof confirmSeparateApply==="function"&&
-    typeof isHostActive==="function",
+    typeof isHostActive==="function"&&
+    (resolveReceiptWorkspace===null||typeof resolveReceiptWorkspace==="function"),
     "T3_D3_TRUSTED_APPLICATION_HOST_REQUIRED");
   // Always enforce the EXISTING D1 signed Access owner on BOTH original
   // Kernel commitObjectGraph and getObject. Accepting a caller-supplied
@@ -93,6 +94,42 @@ export function createTrustedReconciliationKernelApply({
   }
   async function unchanged(c){
     check(identity(await selected())===identity(c),"T3_D3_APPLY_CONTEXT_CHANGED");
+  }
+  // Only the native original Admin owner selects the already provisioned
+  // administrative partition. A caller cannot supply a physical destination.
+  async function receiptWorkspace(c){
+    if(resolveReceiptWorkspace===null)return null;
+    const value=await resolveReceiptWorkspace();
+    await unchanged(c);
+    check(value===null||typeof value==="string"&&
+      /^workspace:registry:[a-f0-9]{64}$/.test(value)&&value!==c.workspace_id,
+      "T3_D3_ADMIN_RECEIPT_WORKSPACE_INVALID");
+    return value;
+  }
+  function receiptBinding(c,binding,storage,extra={}){
+    return createSubjectKernelBinding({kernel,access,isHostActive,...extra,
+      applicationReceiptScope:storage===null?null:
+        {workspaceId:storage,effectKey:binding.effectKey}});
+  }
+  async function readAbsentObject(port,workspace,objectId,{missingWorkspace=false}={}){
+    try{return await port.getObject(workspace,objectId);}
+    catch(error){
+      if(error?.code==="OBJECT_NOT_FOUND"||
+         missingWorkspace&&error?.code==="WORKSPACE_NOT_FOUND")return null;
+      throw error;
+    }
+  }
+  function sameEffect(event,binding,objInput){
+    return event?.idempotency_key===binding.effectKey||
+      event?.object_id===objInput.object_id;
+  }
+  async function assertNoPrior(port,c,binding,objInput,strict=false){
+    const history=await port.listEventsSince(c.workspace_id);
+    check(Array.isArray(history),"T3_D3_ORIGINAL_EVENT_HISTORY_UNAVAILABLE");
+    check(!history.some(event=>sameEffect(event,binding,objInput)),
+      "T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY");
+    if(strict)check(await readAbsentObject(port,c.workspace_id,objInput.object_id)===null,
+      "T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY");
   }
   // Read and validate the ORIGINAL accepted selection and sealed effect once.
   // Recovery and first Apply share precisely the same source/recipient binding.
@@ -184,8 +221,12 @@ export function createTrustedReconciliationKernelApply({
     // Reconciliation source during JIT must prevent original writes.
     // Distinguish definite pre-dispatch denials from lost post-write ACKs.
     let kernelWriteEntered=false;
-    const signedKernel=createSubjectKernelBinding({
-      kernel,access,isHostActive,
+    const storage=await receiptWorkspace(c);
+    check(resolveReceiptWorkspace===null||storage!==null,
+      "T3_D3_ADMIN_RECEIPT_WORKSPACE_REQUIRED");
+    const physicalWorkspace=storage??c.workspace_id;
+    const businessKernel=receiptBinding(c,binding,null);
+    const signedKernel=receiptBinding(c,binding,storage,{
       commitObjectGraphPrecondition:()=>binding.commitPrecondition(ctx),
       onCommitObjectGraphDispatch:()=>{
         kernelWriteEntered=true;
@@ -197,7 +238,7 @@ export function createTrustedReconciliationKernelApply({
     // fresh install, a missing Workspace must prompt its independent
     // signed creation, not consume a decision or issue a graph write.
     let workspace;
-    try { workspace=await signedKernel.getWorkspace(c.workspace_id); }
+    try { workspace=await businessKernel.getWorkspace(c.workspace_id); }
     catch(error){
       if(error?.code==="WORKSPACE_NOT_FOUND")
         deny("T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED");
@@ -206,14 +247,24 @@ export function createTrustedReconciliationKernelApply({
     check(workspace!==null,"T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED");
     check(!workspace.deleted_at,"T3_D3_ORIGINAL_WORKSPACE_DELETED");
     check(workspace.read_only!==true,"T3_D3_ORIGINAL_WORKSPACE_READ_ONLY");
+    if(storage!==null){
+      let admin;
+      try{admin=await signedKernel.getWorkspace(c.workspace_id);}
+      catch(error){
+        if(error?.code==="WORKSPACE_NOT_FOUND")
+          deny("T3_D3_ADMIN_RECEIPT_WORKSPACE_REQUIRED");
+        throw error;
+      }
+      check(admin?.workspace_id===storage&&admin.profile==="generic"&&
+        admin.deleted_at==null&&admin.read_only!==true,
+        "T3_D3_ADMIN_RECEIPT_WORKSPACE_REQUIRED");
+    }
     // On a new Host the volatile no-replay guard is empty. Consult the
     // ORIGINAL durable Kernel Event history BEFORE asking for Human APPLY.
     // A previous effect with this sealed idempotency key must be recovered,
     // not submitted again. An unavailable history cannot be treated as empty.
-    const history=await signedKernel.listEventsSince(c.workspace_id);
-    check(Array.isArray(history),"T3_D3_ORIGINAL_EVENT_HISTORY_UNAVAILABLE");
-    check(!history.some(event=>event?.idempotency_key===binding.effectKey),
-      "T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY");
+    if(storage!==null)await assertNoPrior(businessKernel,c,binding,objInput,true);
+    await assertNoPrior(signedKernel,c,binding,objInput,storage!==null);
     await unchanged(c);
     // Independent, explicit APPLY approval is NOT the preceding ACCEPT.
     // Read-only preflight cannot authorize the original Kernel graph write.
@@ -228,10 +279,12 @@ export function createTrustedReconciliationKernelApply({
     // manager reviews the Human APPLY prompt. Re-read durable T2 Event
     // history AFTER consent, not just before it. This is not an alternate
     // journal; the original Kernel remains the sole durable authority.
-    const afterConsent=await signedKernel.listEventsSince(c.workspace_id);
-    check(Array.isArray(afterConsent),"T3_D3_ORIGINAL_EVENT_HISTORY_UNAVAILABLE");
-    check(!afterConsent.some(event=>event?.idempotency_key===binding.effectKey),
-      "T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY");
+    if(storage!==null){
+      check(await receiptWorkspace(c)===storage,
+        "T3_D3_ADMIN_RECEIPT_WORKSPACE_CHANGED");
+      await assertNoPrior(businessKernel,c,binding,objInput,true);
+    }
+    await assertNoPrior(signedKernel,c,binding,objInput,storage!==null);
     await unchanged(c);
     // Kernel's own revision/idempotency semantics remain authoritative for
     // any race after this read and before the final signed JIT dispatch.
@@ -249,7 +302,7 @@ export function createTrustedReconciliationKernelApply({
         values.length===revisionIds.length&&values.every(hex)&&
         JSON.stringify([...values].sort())===
           JSON.stringify([...revisionIds].sort());
-      const sameEvent=event=>event?.workspace_id===c.workspace_id&&
+      const sameEvent=event=>event?.workspace_id===physicalWorkspace&&
         id(event.event_id)&&event.event_type===command.event.event_type&&
         event.idempotency_key===binding.effectKey&&
         event.object_id===objInput.object_id&&
@@ -260,13 +313,13 @@ export function createTrustedReconciliationKernelApply({
         sameJson(event.payload,command.event.payload);
       const verifiedEvents=Array.isArray(events)?
         events.filter(sameEvent):[];
-      check(receipt?.workspace_id===c.workspace_id&&
-        receipt.object?.workspace_id===c.workspace_id&&
+      check(receipt?.workspace_id===physicalWorkspace&&
+        receipt.object?.workspace_id===physicalWorkspace&&
         receipt.object?.object_id===objInput.object_id&&
         receipt.object.revision===expectedRevision&&
         receipt.object.schema_id===objInput.schema_id&&
         sameEvent(receipt.event)&&
-        read?.object?.workspace_id===c.workspace_id&&
+        read?.object?.workspace_id===physicalWorkspace&&
         read.object.object_id===objInput.object_id&&
         read.object.revision===expectedRevision&&
         read.object.schema_id===objInput.schema_id&&
@@ -275,6 +328,11 @@ export function createTrustedReconciliationKernelApply({
         verifiedEvents.length===1&&
         verifiedEvents[0].event_id===receipt.event.event_id,
         "T3_D3_ORIGINAL_KERNEL_READBACK_MISMATCH");
+      if(storage!==null){
+        check(await receiptWorkspace(c)===storage,
+          "T3_D3_ADMIN_RECEIPT_WORKSPACE_CHANGED");
+        await assertNoPrior(businessKernel,c,binding,objInput,true);
+      }
       // Recheck accepted source and current authority. Failure AFTER commit
       // remains uncertain, not a reason to retry a non-idempotent command.
       await admission.inspectAcceptedApplication({
@@ -296,7 +354,7 @@ export function createTrustedReconciliationKernelApply({
       const uncertain=Object.assign(
         new Error("T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"),
         {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED",
-          workspace_id:c.workspace_id,object_id:objInput.object_id,
+          workspace_id:physicalWorkspace,object_id:objInput.object_id,
           effectKey:binding.effectKey,
           reason:typeof error?.code==="string"?error.code:"UNCONFIRMED"});
       throw uncertain;
@@ -314,43 +372,35 @@ export function createTrustedReconciliationKernelApply({
       kernel.hasOperation("t1.listEventsSince"),
       "T3_D3_ORIGINAL_KERNEL_HISTORY_REQUIRED");
     await unchanged(c);
-    const signedKernel=createSubjectKernelBinding({
-      kernel,access,isHostActive,
-    });
-    // The inherited T2 Kernel reports an absent Object/Workspace through
-    // OBJECT_NOT_FOUND / WORKSPACE_NOT_FOUND. After a lost write ACK this is
-    // an unconfirmed outcome, not a transport failure and not proof of a
-    // safe retry. Denied access, revoked credentials and any other Kernel
-    // error MUST still propagate unchanged.
-    const missingOriginal=async()=>{
-      try{return await signedKernel.getObject(c.workspace_id,objInput.object_id);}
-      catch(error){
-        if(error?.code==="OBJECT_NOT_FOUND"||
-           error?.code==="WORKSPACE_NOT_FOUND")return null;
-        throw error;
-      }
-    };
     const unknown=()=>Object.freeze({
       status:"OUTCOME_UNKNOWN",effectKey:binding.effectKey,
       kernelWriteReadback:"NOT_CONFIRMED",automaticRetryAllowed:false,
     });
+    const storage=await receiptWorkspace(c);
+    // Recovery reads both the historical business location and the private
+    // receipt partition. A duplicate or inconsistent placement is not
+    // successful recovery. Never migrate, delete or repeat the effect.
+    const recoverAt=async(physicalWorkspace,partition,checkPresence)=>{
+    const signedKernel=receiptBinding(c,binding,partition);
+    const missingOriginal=()=>readAbsentObject(signedKernel,c.workspace_id,
+      objInput.object_id,{missingWorkspace:true});
     const first=await missingOriginal();
     await unchanged(c);
-    if(first===null)return unknown();
-    // If the Workspace disappears between the first Object read and its
-    // original Event history read, the lost write remains UNKNOWN. A missing
-    // history is never proof that the earlier commit did not happen.
+    if(first===null&&!checkPresence)return {present:false,result:unknown()};
     let events;
     try{events=await signedKernel.listEventsSince(c.workspace_id);}
     catch(error){
-      if(error?.code==="WORKSPACE_NOT_FOUND")return unknown();
-      throw error; // Revoked signed owner, permission denial, and other faults.
+      if(error?.code==="WORKSPACE_NOT_FOUND")return {present:first!==null,result:unknown()};
+      throw error;
     }
     await unchanged(c);
     const second=await missingOriginal();
     await unchanged(c);
+    const evidence=Array.isArray(events)?
+      events.filter(event=>sameEffect(event,binding,objInput)):[];
+    const present=first!==null||second!==null||evidence.length>0;
     const expectedRevision=objInput.base_revision+1;
-    const matchObject=value=>value?.object?.workspace_id===c.workspace_id&&
+    const matchObject=value=>value?.object?.workspace_id===physicalWorkspace&&
       value.object.object_id===objInput.object_id&&
       value.object.schema_id===objInput.schema_id&&
       value.object.schema_version===objInput.schema_version&&
@@ -358,7 +408,7 @@ export function createTrustedReconciliationKernelApply({
       sameJson(value.object.data,objInput.data);
     const matching=Array.isArray(events)?events.filter(event=>{
       const provenance=event?.payload;
-      return event?.workspace_id===c.workspace_id&&
+      return event?.workspace_id===physicalWorkspace&&
         event.event_type===command.event.event_type&&
         event.idempotency_key===binding.effectKey&&
         event.object_id===objInput.object_id&&
@@ -370,9 +420,10 @@ export function createTrustedReconciliationKernelApply({
           JSON.stringify([...revisionIds].sort())&&
         sameJson(provenance,command.event.payload);
     }):[];
-    if(!matchObject(first)||!matchObject(second)||matching.length!==1)
-      return unknown();
-    return Object.freeze({
+    if(!matchObject(first)||!matchObject(second)||matching.length!==1||
+       evidence.length!==1)
+      return {present,result:unknown()};
+    return {present:true,result:Object.freeze({
       status:"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED",
       effectKey:binding.effectKey,
       originalKernelReadback:copy(second,"T3_D3_KERNEL_READBACK_INVALID"),
@@ -381,7 +432,14 @@ export function createTrustedReconciliationKernelApply({
       reconciliationLedgerSync:"OWNER_FOLLOWUP_REQUIRED",
       externalProductAcceptance:"NOT_ACCEPTED",
       automaticRetryAllowed:false,
-    });
+    })};
+    };
+    const legacy=await recoverAt(c.workspace_id,null,storage!==null);
+    if(storage===null)return legacy.result;
+    const separate=await recoverAt(storage,storage,true);
+    check(await receiptWorkspace(c)===storage,"T3_D3_ADMIN_RECEIPT_WORKSPACE_CHANGED");
+    if(legacy.present&&separate.present)return unknown();
+    return separate.present?separate.result:legacy.result;
   }
   return Object.freeze({applyAccepted,recoverApplied});
 }
