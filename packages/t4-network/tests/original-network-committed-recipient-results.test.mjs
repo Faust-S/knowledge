@@ -171,3 +171,51 @@ test('K91 migration reads only committed original recipient publications, never 
   f.revoke();
   await assert.rejects(p.inspectOriginalCommittedRecipientResults({selections:query,allowUncommitted:true}),err('RECIPIENT_CURSOR_ORIGINAL_ACCESS_DENIED'));
 });
+
+test('K103 exact recipient Result and ACK are read from one committed frontier record through the existing owner carrier',async()=>{
+  const {createT4OriginalRecipientResultRequest,readT4OriginalRecipientResult,createT4OriginalRemoteRecipientAppliedVerifier,
+    validateT4OriginalRecipientResultSnapshot,T4_RECIPIENT_RESULT_OWNER_ACTION}=await import('../src/network/original-recipient-result-read.mjs');
+  const {createT4OriginalReplacementHistoryClient,createT4OriginalReplacementHistoryServer}=await import('../src/network/original-replacement-owner-history-carrier.mjs');
+  const f=await fixture(),p=f.port(),getMode=()=> 'T4_NETWORK';
+  let host='host:k103:recipient',allowed=true,reads=0,guardCalls=0,busy=false;
+  const readOriginalHostContext=async()=>({workspaceId:tech,originalWriteOwnerRef:owner,nodeRef:recipient,scopeRef:scope,hostSessionRef:host});
+  const reader=request=>readT4OriginalRecipientResult({request,technicalWorkspaceId:tech,getMode,readOriginalHostContext,originalCursorPort:p,
+    authorizeOriginalOwnerHistoryRead:async proof=>{guardCalls++;return allowed&&proof.operation===T4_RECIPIENT_RESULT_OWNER_ACTION&&proof.originalOwnerReadOnly===true;}});
+  const common={workspaceId:ws,originalWriteOwnerRef:owner,scopeRef:scope,ownerEpoch:2,getMode};
+  const peer=nodeRef=>async()=>({nodeRef,scopeRef:scope,ownerEpoch:2,originalPeerSessionRef:'peer:k103:authenticated',contextEpoch:1,
+    originalPeerAuthenticated:true,originalConfidentialChannelVerified:true});
+  const server=createT4OriginalReplacementHistoryServer({...common,localNodeRef:recipient,peerNodeRef:source,readOriginalPeerContext:peer(source),
+    readOriginalReplacementOwnerHistory:async({request,peerContext})=>{assert.equal(peerContext.nodeRef,source);reads++;return busy?null:reader(request);}});
+  const client=createT4OriginalReplacementHistoryClient({...common,localNodeRef:source,peerNodeRef:recipient,readOriginalPeerContext:peer(recipient),
+    invokeOriginalPeerHistory:({requestBytes})=>server(requestBytes)});
+  // Every supported subject kind, including null revision and a historical
+  // result superseded by a subsequent graph revision. No current bytes used.
+  for(const record of f.records){
+    const c=record.session,request=createT4OriginalRecipientResultRequest({session:c,requesterNodeRef:source,ownerNodeRef:recipient});
+    const v=await client(request);
+    assert.equal(v.originalEventPayloadReturned,false);assert.equal(v.currentSubjectStateClaimed,false);
+    assert.equal(v.result.signedAppliedAckDigest,record.signedAppliedAckDigest);assert.equal(v.result.originalRecipientEventId,record.originalRecipientEventId);
+    assert.equal(v.result.originalRecipientRevision,c.sourceRevision);assert.equal(v.result.session,undefined);assert.equal(v.result.payload,undefined);
+  }
+  const r=f.records[0],c=r.session,request=createT4OriginalRecipientResultRequest({session:c,requesterNodeRef:source,ownerNodeRef:recipient});
+  const verifier=createT4OriginalRemoteRecipientAppliedVerifier({session:c,getMode,readOriginalRecipientResult:client});
+  const proof={operation:'t4.original.network.session.applied.verify',checkpointRef:'phase:source:k103',sessionRef:c.sessionRef,
+    changeId:c.changeId,changeKind:c.changeKind,sourceNodeRef:source,recipientNodeRef:recipient,localNodeRef:source,scopeRef:scope,ownerEpoch:2,
+    originalRecipientEventId:r.originalRecipientEventId,originalRecipientRevision:r.originalRecipientRevision,originalRecipientStateDigest:r.originalRecipientStateDigest,
+    evidenceDigest:r.signedAppliedAckDigest,evidenceRef:r.signedAppliedAckDigest.slice(7)+'.t4n',
+    originalRecipientEventAndStateReadbackRequired:true,signedAppliedAckAloneIsInsufficient:true};
+  assert.equal(await verifier(proof),true);
+  const forged=H('forged ack');assert.equal(await verifier({...proof,evidenceDigest:forged,evidenceRef:forged.slice(7)+'.t4n'}),false);
+  assert.equal(await verifier({...proof,originalRecipientEventId:'event:forged'}),false);
+  assert.equal(await verifier({...proof,sessionRef:'session:foreign'}),false);
+  busy=true;await assert.rejects(verifier(proof),err('RECIPIENT_RESULT_OWNER_NOT_READY'));busy=false;
+  allowed=false;await assert.rejects(verifier(proof),err('RECIPIENT_RESULT_AUTHORITY_DENIED'));allowed=true;
+  const valid=await client(request);assert.throws(()=>validateT4OriginalRecipientResultSnapshot({...valid,result:{...valid.result,payload:{secret:true}}},request),err('RECIPIENT_RESULT_EVIDENCE_INVALID'));
+  assert.throws(()=>createT4OriginalRecipientResultRequest({session:c,requesterNodeRef:recipient,ownerNodeRef:source}),err('RECIPIENT_RESULT_REQUEST_INVALID'));
+  const g=await fixture(),last=g.records.at(-1);g.technical.pop();g.business.pop();g.row.object.revision--;g.row.object.data.last=copy(g.records.at(-2));
+  const absent=createT4OriginalRecipientResultRequest({session:last.session,requesterNodeRef:source,ownerNodeRef:recipient});
+  assert.equal(await readT4OriginalRecipientResult({request:absent,technicalWorkspaceId:tech,getMode,readOriginalHostContext,
+    originalCursorPort:g.port(),authorizeOriginalOwnerHistoryRead:allow}),null);
+  f.revoke();await assert.rejects(verifier(proof),err('RECIPIENT_CURSOR_ORIGINAL_ACCESS_DENIED'));
+  assert.ok(reads>=13);assert.ok(guardCalls>=20);
+});

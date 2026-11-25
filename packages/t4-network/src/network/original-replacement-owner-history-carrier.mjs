@@ -12,6 +12,7 @@ import {createT4OriginalReplacementOwnerHistoryRequest,validateT4OriginalReplace
 import {T4_REPLACEMENT_ELIGIBILITY_REQUEST,createT4OriginalReplacementOwnerEligibilityRequest,validateT4OriginalReplacementOwnerEligibilitySnapshot}
   from './original-network-replacement-owner-eligibility.mjs';
 import {T4_SOURCE_EVENT_WINDOW_REQUEST,createT4OriginalSourceEventWindowRequest,validateT4OriginalSourceEventWindowSnapshot} from './original-source-event-window.mjs';
+import {T4_RECIPIENT_RESULT_REQUEST,createT4OriginalRecipientResultRequest,validateT4OriginalRecipientResultSnapshot} from './original-recipient-result-read.mjs';
 import {decodeT4CandidateFrame} from './standard-network-wire-candidate.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 
@@ -30,7 +31,8 @@ function exactKeys(v,keys){return v&&typeof v==='object'&&!Array.isArray(v)&&
 // Each profile has its own canonical request and response validator. A
 // historical terminal receipt cannot be substituted for current eligibility.
 export function normalizeT4OriginalReplacementOwnerRequest(raw){
-  const r=raw?.schema===T4_SOURCE_EVENT_WINDOW_REQUEST?createT4OriginalSourceEventWindowRequest(raw):
+  const r=raw?.schema===T4_RECIPIENT_RESULT_REQUEST?createT4OriginalRecipientResultRequest(raw):
+    raw?.schema===T4_SOURCE_EVENT_WINDOW_REQUEST?createT4OriginalSourceEventWindowRequest(raw):
     raw?.schema===T4_REPLACEMENT_ELIGIBILITY_REQUEST?createT4OriginalReplacementOwnerEligibilityRequest(raw):
     raw?.schema===T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST?createT4OriginalReplacementOwnerSourceAdmissionRequest(raw):
       raw?.schema===T4_REPLACEMENT_RECIPIENT_DIFF_REQUEST?createT4OriginalReplacementOwnerRecipientDiffRequest(raw):
@@ -55,6 +57,9 @@ export function encodeT4OriginalReplacementHistoryRequest(raw){const r=request(r
 export function decodeT4OriginalReplacementHistoryRequest(bytes){const r=request(decode(bytes,REQUEST_LIMIT));snapshot(r);return r;}
 function mapSnapshot(raw,r,encoding){
   if(raw===null)return null;
+  if(r.schema===T4_RECIPIENT_RESULT_REQUEST){
+    const v=validateT4OriginalRecipientResultSnapshot(raw,r);snapshot(v);return v;
+  }
   if(r.schema===T4_SOURCE_EVENT_WINDOW_REQUEST){
     const v=validateT4OriginalSourceEventWindowSnapshot(raw,r);snapshot(v);return v;
   }

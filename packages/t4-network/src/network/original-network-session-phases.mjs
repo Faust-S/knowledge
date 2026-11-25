@@ -319,6 +319,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       operation:'t4.original.network.session.applied.verify',
       checkpointRef,sessionRef,changeId,changeKind,sourceNodeRef,recipientNodeRef,
       localNodeRef,scopeRef,ownerEpoch,
+      evidenceRef:evidence.evidenceRef,evidenceDigest:evidence.evidenceDigest,
       originalRecipientEventId:evidence.originalRecipientEventId,
       originalRecipientRevision:evidence.originalRecipientRevision,
       originalRecipientStateDigest:evidence.originalRecipientStateDigest,
