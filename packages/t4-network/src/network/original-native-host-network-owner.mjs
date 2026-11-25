@@ -1,3 +1,4 @@
+import {requireT4OriginalObjectCatalog,visitT4OriginalObjectCatalog} from './original-object-catalog-pages.mjs';
 import {createHash,randomUUID} from 'node:crypto';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {readT4OriginalCommitHistoryForCompatibility} from './original-event-window.mjs';
@@ -70,7 +71,7 @@ export function createT4OriginalNativeHostNetworkOwner({
   role,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
   recipientNodeRef,scopeRef,ownerEpoch,requiredCryptoSuite,getMode,wireTransport,nativeTopologyTransport=null,
   originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
-  enableOriginalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,enableLocalSourceCapture=false,enablePublicationIndexMigration=false,enableLocalRecipientResultVerification=false,enableRecipientResultRead=false,
+  enableOriginalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,enableOriginalObjectCatalogWindow=false,enableLocalSourceCapture=false,enablePublicationIndexMigration=false,enableLocalRecipientResultVerification=false,enableRecipientResultRead=false,
   enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,requireSignedTopologyAccess=false,
   enableHistoricalAcknowledgementRecovery=false,enableLocalRetiredRecipientRecovery=false,enableLocalReplacementRecovery=false,
   enableReplacementTerminalRecovery=false,enableReplacementEligibilityRead=false,enableSourceEventWindowRead=false,enableSourceCaptureBinding=false,enableReplacementSourceAdmission=false,enableReplacementRecipientAdmission=false,enableReplacementSourceContent=false,enableReplacementRecipientContent=false,enableReplacementRecipientApply=false,enableReplacementSourceAckConfirmation=false,
@@ -82,6 +83,8 @@ export function createT4OriginalNativeHostNetworkOwner({
   // Enable only on the source using the existing signed source-window
   // protocol, with the original Host exclusion boundary. Legacy peers must
   // not independently reinterpret the source order by wall-clock time.
+  if(typeof enableOriginalObjectCatalogWindow!=='boolean'||(enableOriginalObjectCatalogWindow&&!enableOriginalTechnicalObjectHistory))
+    fail('NATIVE_NETWORK_OWNER_OBJECT_CATALOG_PROFILE_INVALID');
   if(typeof enableOriginalTechnicalObjectHistory!=='boolean'||
     (enableOriginalTechnicalObjectHistory&&role==='SOURCE'&&!enableOriginalCommitOrder))
     fail('NATIVE_NETWORK_OWNER_TECHNICAL_OBJECT_HISTORY_PROFILE_INVALID');
@@ -253,7 +256,8 @@ export function createT4OriginalNativeHostNetworkOwner({
   const operations=Object.freeze([...new Set([...(role==='SOURCE'?[...SOURCE,
     ...(enableLocalSourceCapture?LOCAL_METHODS.map(m=>'t1.'+m):[])]:RECIPIENT),
     ...(enableOriginalTechnicalCommitOrder?['t1.listEventCommitWindow']:[]),
-    ...(enableOriginalTechnicalObjectHistory?['t1.listEventObjectCommitWindow']:[])])]);
+    ...(enableOriginalTechnicalObjectHistory?['t1.listEventObjectCommitWindow']:[]),
+    ...(enableOriginalObjectCatalogWindow?['t1.listObjectWindow']:[])])]);
   const nodeRef=role==='SOURCE'?sourceNodeRef:recipientNodeRef;
   let live=null;
   function mode(){
@@ -300,7 +304,8 @@ export function createT4OriginalNativeHostNetworkOwner({
     };
     // The mutation boundary callback must retain the exact function supplied
     // by the existing recipient task; it is not implemented or emulated here.
-    const tech={technicalSchemaId,...identity,originalKernel,getMode,enableOriginalTechnicalObjectHistory,enableOriginalTechnicalCommitOrder,
+    requireT4OriginalObjectCatalog(enableOriginalObjectCatalogWindow,originalKernel);
+    const tech={technicalSchemaId,...identity,originalKernel,getMode,enableOriginalTechnicalObjectHistory,enableOriginalTechnicalCommitOrder,enableOriginalObjectCatalogWindow,
       readOriginalHostContext:context(technicalWorkspaceId),
       authorizeOriginalTechnicalRead:callback('authorizeOriginalTechnicalRead'),
       authorizeOriginalTechnicalWrite:callback('authorizeOriginalTechnicalWrite')};
@@ -867,6 +872,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     ...(enableSourceEventWindowRead?{originalSourceEventWindowReadEnabled:true}:{}),
     ...(enableOriginalCommitOrder?{originalCommitOrderEnabled:true}:{}),
     ...(enableOriginalTechnicalObjectHistory?{originalTechnicalObjectHistoryEnabled:true}:{}),
+    ...(enableOriginalObjectCatalogWindow?{originalObjectCatalogWindowEnabled:true}:{}),
     ...(enableSourceCaptureBinding?{originalSourceCaptureBindingEnabled:true}:{}),
     ...(enableLocalRecipientResultVerification?{originalLocalRecipientResultVerificationEnabled:true}:{}),
     ...(enableRecipientResultRead?{originalRecipientResultReadEnabled:true}:{}),
@@ -914,7 +920,9 @@ export function createT4OriginalNativeHostNetworkOwner({
         (!enableOriginalTechnicalObjectHistory||workspaceId!==technicalWorkspaceId||
           !ID(proof.args?.[1])||!proof.args[1].startsWith('t4:net:')||
           (!state.waking&&!state.localMutation&&!state.historyReading)))return null;
-      const write=!['t1.getObject','t1.listObjects','t1.listEventsSince','t1.listEventCommitWindow',
+      if(proof.operation==='t1.listObjectWindow'&&(!enableOriginalObjectCatalogWindow||workspaceId!==technicalWorkspaceId||
+        first?.include_deleted!==true||first.schema_id!==undefined||(!state.waking&&!state.localMutation&&!state.historyReading)))return null;
+      const write=!['t1.getObject','t1.listObjects','t1.listObjectWindow','t1.listEventsSince','t1.listEventCommitWindow',
         't1.listEventObjectCommitWindow','t1.listAssets','t1.getAsset'].includes(proof.operation);
       if(workspaceId===technicalWorkspaceId&&write&&
         (proof.operation!=='t1.putObject'||first?.schema_id!==technicalSchemaId||!first.object_id?.startsWith('t4:net:')))

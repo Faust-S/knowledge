@@ -152,7 +152,7 @@ function publicationInventoryFixture(){
   };
   const read=extra=>readT4OriginalPublicationMigrationInventory({...f.base,technicalSchemaId,localNodeRef:sourceNodeRef,
     enableOriginalTechnicalCommitOrder:true,originalTechnicalPageSize:1024,...extra});
-  return {...f,read,port,pageCalls:calls};
+  return {...f,read,port,pageCalls:calls,get writes(){return f.writes;}};
 }
 const canonical=x=>Array.isArray(x)?x.map(canonical):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,canonical(x[k])])):x;
 test('K128 paged publication inventory preserves original digest and crosses unrelated technical history ceiling',async()=>{
@@ -177,5 +177,24 @@ test('K128 paged publication inventory fails closed on orphan, revision gaps and
   await assert.rejects(()=>f.read(),code('PUBLICATION_ORIGINAL_AUTHORITY_DENIED'));
   f.deny(null);f.grants.delete('t1.listEventCommitWindow');
   await assert.rejects(()=>f.read(),code('PUBLICATION_MIGRATION_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED'));
+  assert.equal(f.writes,0);
+});
+
+test('K132 original publication inventory pages preserve exact catalog and Event digest and find orphan outside selection',async()=>{
+  const f=publicationInventoryFixture(),first=await f.read(),kernel=f.base.originalKernel;
+  const catalog=[...Array.from({length:100001},(_,i)=>({workspace_id:technicalWorkspaceId,
+    object_id:'other:'+String(i).padStart(6,'0'),schema_id:'iwxa.demo.note'})),...Array.from(f.rows.values(),r=>r.object)];
+  const order=(a,b)=>a.object_id<b.object_id?-1:a.object_id>b.object_id?1:0;catalog.sort(order);
+  const calls=[];f.grants.add('t1.listObjectWindow');
+  kernel.listObjects=async()=>{throw Error('legacy catalog forbidden');};
+  kernel.listObjectWindow=async q=>{
+    calls.push(q);const start=q.after_object_id===null?0:catalog.findIndex(r=>r.object_id===q.after_object_id)+1;
+    const entries=catalog.slice(start,start+q.limit);return {entries,next_after_object_id:entries.at(-1)?.object_id??q.after_object_id,
+      has_more:start+entries.length<catalog.length,order:'WORKSPACE_OBJECT_ID_ASC'};
+  };
+  const options={enableOriginalObjectCatalogWindow:true,originalObjectCatalogPageSize:1024};
+  assert.deepEqual(await f.read(options),first);assert.equal(calls.length,98);
+  catalog.splice(catalog.findIndex(o=>o.object_id===f.port.checkpointRef),1);
+  await assert.rejects(()=>f.read(options),code('PUBLICATION_MIGRATION_ORIGINAL_EVENT_NOT_PROVEN'));
   assert.equal(f.writes,0);
 });

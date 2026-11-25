@@ -1,3 +1,4 @@
+import {requireT4OriginalObjectCatalog,visitT4OriginalObjectCatalog} from './original-object-catalog-pages.mjs';
 import {createHash} from 'node:crypto';
 import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID} from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
@@ -45,8 +46,11 @@ export function createT4OriginalHostCaptureLedgerPort({
   originalKernel,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
   getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   enableOriginalTechnicalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,originalTechnicalPageSize=256,
+  enableOriginalObjectCatalogWindow=false,originalObjectCatalogPageSize=16,
 }={}){
   requireT4OriginalTechnicalObjectHistory(enableOriginalTechnicalObjectHistory,originalKernel);
+  requireT4OriginalObjectCatalog(enableOriginalObjectCatalogWindow,originalKernel,originalObjectCatalogPageSize);
+  if(enableOriginalObjectCatalogWindow&&!enableOriginalTechnicalCommitOrder)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_PROFILE_INVALID');
   if(enableOriginalTechnicalObjectHistory&&!enableOriginalTechnicalCommitOrder)
     fail('CAPTURE_LEDGER_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
   if(typeof enableOriginalTechnicalCommitOrder!=='boolean'||
@@ -208,24 +212,32 @@ export function createT4OriginalHostCaptureLedgerPort({
     // Intent and Outbox belong to the same original technical Workspace.
     // Check both role grants around the same original reads instead of
     // fetching an entire catalog and Event stream independently per role.
-    for(const role of roles)await guard(initial,'t1.listObjects',role);
-    const catalog=await originalKernel.listObjects({workspace_id:technicalWorkspaceId,include_deleted:true});
-    for(const role of roles)await guard(initial,'t1.listObjects',role);
-    if(!Array.isArray(catalog)||catalog.length>100000)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
     const partitions=new Map(roles.map(role=>[role,{rows:new Map(),witnesses:new Map()}]));
     const roleOf=objectId=>{
       if(typeof objectId!=='string'||!objectId.startsWith(prefix))return null;
       const role=objectId.slice(prefix.length).split(':',1)[0];
       return partitions.has(role)&&objectId.startsWith(prefix+role+':')?role:null;
     };
-    for(const o of catalog){
-      const role=roleOf(o?.object_id);if(role===null)continue;
+    const visitObject=o=>{
+      const role=roleOf(o?.object_id);if(role===null)return;
       const {rows}=partitions.get(role);
       if(o.workspace_id!==technicalWorkspaceId||o.schema_id!==T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID||
         o.schema_version!=='1.0.0'||o.revision!==1||o.deleted===true||
         (!enableOriginalTechnicalCommitOrder&&rows.size>=4096)||rows.has(o.object_id))
         fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
       rows.set(o.object_id,copy(o));
+    };
+    if(enableOriginalObjectCatalogWindow){
+      await visitT4OriginalObjectCatalog({originalKernel,workspaceId:technicalWorkspaceId,
+        pageSize:originalObjectCatalogPageSize,includeDeleted:true,
+        authorizeOriginalOperation:async operation=>{for(const role of roles)await guard(initial,operation,role);return true;},
+        visitOriginalObject:visitObject});
+    }else{
+      for(const role of roles)await guard(initial,'t1.listObjects',role);
+      const catalog=await originalKernel.listObjects({workspace_id:technicalWorkspaceId,include_deleted:true});
+      for(const role of roles)await guard(initial,'t1.listObjects',role);
+      if(!Array.isArray(catalog)||catalog.length>100000)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
+      for(const o of catalog)visitObject(o);
     }
     const eventIds=new Set();
     await visitEvents(initial,roles,null,e=>{
@@ -272,6 +284,15 @@ export function createT4OriginalHostCaptureLedgerPort({
       if(query.sourceEventId!==undefined&&e.payload.sourceEventId!==query.sourceEventId)continue;
       if(query.kindFilter!==undefined&&!query.kindFilter.includes(e.payload.kind))continue;
       result.push(await readIndexed('outbox',e,i,initial));
+    }
+    if(enableOriginalObjectCatalogWindow){
+      // Pages do not constitute an atomic catalog snapshot. Preserve exact
+      // catalog/Event correspondence through a second independent observation.
+      const next=await index(initial,'outbox');
+      if(next.fingerprint!==i.fingerprint||next.rows.size!==i.rows.size)
+        fail('CAPTURE_LEDGER_ORIGINAL_INDEX_CHANGED',{automaticRetryAllowed:false});
+      for(const [id,row] of i.rows)if(!same(next.rows.get(id),row))
+        fail('CAPTURE_LEDGER_ORIGINAL_RECORD_CHANGED');
     }
     return result;
   }
@@ -342,6 +363,7 @@ export function createT4OriginalHostCaptureLedgerPort({
       originalKernel,...identity,getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       enableOriginalTechnicalCommitOrder,enableOriginalTechnicalObjectHistory,originalTechnicalPageSize,
+      enableOriginalObjectCatalogWindow,originalObjectCatalogPageSize,
     }),
   });
 }

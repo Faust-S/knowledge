@@ -209,7 +209,7 @@ function pagedFixture(size=2){
     return {entries,next_after_event_id:entries.at(-1)?.event.event_id??after,
       has_more:start+limit<f.events.length,order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
   };
-  return {...f,calls};
+  return {...f,calls,get writes(){return f.writes;}};
 }
 test('K122 selected DB9 ledger crosses technical history ceiling and survives a cold original owner read',async()=>{
   const f=pagedFixture(1024),p=f.port();
@@ -321,4 +321,58 @@ test('K127 commit-order capture inventory crosses 4096 pairs without deleting or
   f.objects.delete(f.events[1].object_id);
   await assert.rejects(cold.listOriginalOutbox({...scope,sourceEventId:'event:source:'+count}),
     {code:'CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING'});
+});
+
+function pagedCatalogFixture(extra=0){
+  const f=pagedFixture(1024),kernel=f.params.originalKernel,calls=[];
+  f.params.enableOriginalObjectCatalogWindow=true;f.params.originalObjectCatalogPageSize=1024;
+  const unrelated=Array.from({length:extra},(_,i)=>({workspace_id:'ws:technical',object_id:'other:'+String(i).padStart(6,'0'),schema_id:'iwxa.demo.note'}));
+  let current=[];
+  kernel.listObjects=async()=>{throw Error('whole catalog forbidden');};
+  kernel.listObjectWindow=async q=>{
+    calls.push(q);assert.equal(q.workspace_id,'ws:technical');assert.equal(q.include_deleted,true);
+    if(q.after_object_id===null)current=[...unrelated,...[...f.objects.values()].map(r=>structuredClone(r.object))]
+      .sort((a,b)=>a.object_id<b.object_id?-1:a.object_id>b.object_id?1:0);
+    const start=q.after_object_id===null?0:current.findIndex(r=>r.object_id===q.after_object_id)+1;
+    assert.ok(q.after_object_id===null||start>0);
+    const entries=current.slice(start,start+q.limit);
+    return {entries,next_after_object_id:entries.at(-1)?.object_id??q.after_object_id,
+      has_more:start+entries.length<current.length,order:'WORKSPACE_OBJECT_ID_ASC'};
+  };
+  return {...f,catalogCalls:calls,get writes(){return f.writes;}};
+}
+test('K132 capture inventory crosses 100000 catalog Objects using original pages and preserves both historical directions',async()=>{
+  const f=pagedCatalogFixture(100001),p=f.port();
+  await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  f.restart();const cold=f.port(),inventory=await cold.readOriginalCaptureInventory(scope);
+  assert.equal(inventory.pairs.length,1);assert.equal(inventory.pending.length,0);
+  assert.deepEqual(inventory.pairs[0].outbox,outbox);assert.equal(f.catalogCalls.length,196);
+  assert.deepEqual(await cold.listOriginalOutbox({...scope,sourceEventId:outbox.sourceEventId}),[outbox]);
+  assert.equal(f.catalogCalls.length,392);assert.equal(f.writes,2);
+  f.objects.delete(f.events[1].object_id);
+  await assert.rejects(cold.listOriginalOutbox({...scope,sourceEventId:'unrelated:event'}),{code:'CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING'});
+});
+test('K132 paged filtered outbox detects catalog mutation between independent observations',async()=>{
+  const f=pagedCatalogFixture(),p=f.port();
+  await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  const read=f.params.originalKernel.listObjectWindow;let scans=0;
+  f.params.originalKernel.listObjectWindow=async q=>{
+    if(q.after_object_id===null&&++scans===2)f.objects.get(f.events[1].object_id).object.data.payload.changed=true;
+    return read(q);
+  };
+  await assert.rejects(p.listOriginalOutbox(scope),{code:'CAPTURE_LEDGER_ORIGINAL_RECORD_CHANGED'});
+});
+test('K132 capture catalog requires both original role grants on every page and lifetime',async()=>{
+  const f=pagedCatalogFixture(),p=f.port();await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  const kernel=f.params.originalKernel,read=kernel.listObjectWindow;let received=false;
+  kernel.listObjectWindow=async q=>{const page=await read(q);received=true;return page;};
+  for(const role of ['intent','outbox']){
+    received=false;
+    f.params.authorizeOriginalTechnicalRead=proof=>!(received&&proof.recordRole===role&&proof.operation==='t1.listObjectWindow');
+    await assert.rejects(f.port().readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_ORIGINAL_AUTHORITY_DENIED'});
+  }
+  f.params.authorizeOriginalTechnicalRead=()=>true;
+  const scoped=f.port().forOriginalHostLifetime(()=>false);await assert.rejects(scoped.listOriginalOutbox(scope));
+  f.params.enableOriginalTechnicalCommitOrder=false;
+  assert.throws(()=>f.port(),{code:'CAPTURE_LEDGER_ORIGINAL_CATALOG_PROFILE_INVALID'});
 });

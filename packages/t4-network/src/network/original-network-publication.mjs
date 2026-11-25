@@ -1,3 +1,4 @@
+import {requireT4OriginalObjectCatalog,visitT4OriginalObjectCatalog} from './original-object-catalog-pages.mjs';
 import {readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHistory,visitT4OriginalTechnicalCommitEvents} from './original-technical-event-pages.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
   from './original-network-technical-schema.mjs';
@@ -259,8 +260,11 @@ export async function readT4OriginalPublicationMigrationInventory({
   recipientNodeRef,scopeRef,ownerEpoch,localNodeRef,originalKernel,getMode,
   readOriginalHostContext,authorizeOriginalTechnicalRead,inventoryPurpose='index-migration-inventory',
   enableOriginalTechnicalCommitOrder=false,originalTechnicalPageSize=256,
+  enableOriginalObjectCatalogWindow=false,originalObjectCatalogPageSize=16,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
+  requireT4OriginalObjectCatalog(enableOriginalObjectCatalogWindow,originalKernel,originalObjectCatalogPageSize);
+  if(enableOriginalObjectCatalogWindow&&!enableOriginalTechnicalCommitOrder)fail('PUBLICATION_MIGRATION_ORIGINAL_CATALOG_PROFILE_INVALID');
   if(typeof enableOriginalTechnicalCommitOrder!=='boolean'||!Number.isSafeInteger(originalTechnicalPageSize)||
     originalTechnicalPageSize<1||originalTechnicalPageSize>1024||(enableOriginalTechnicalCommitOrder&&
       (originalKernel?.hasOperation?.('t1.listEventCommitWindow')!==true||typeof originalKernel.listEventCommitWindow!=='function')))
@@ -297,14 +301,9 @@ export async function readT4OriginalPublicationMigrationInventory({
       fail('PUBLICATION_ORIGINAL_AUTHORITY_DENIED',{operation,purpose:inventoryPurpose});
     if(!same(await context(),initial))fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED');
   }
-  await guard('t1.listObjects');
-  const catalog=await originalKernel.listObjects({workspace_id:technicalWorkspaceId,include_deleted:true});
-  await guard('t1.listObjects');
-  if(!Array.isArray(catalog)||catalog.length>100000)
-    fail('PUBLICATION_MIGRATION_ORIGINAL_INVENTORY_INVALID');
   const records=new Map(),events=new Map(),eventIds=new Set();
-  for(const o of catalog){
-    if(typeof o?.object_id!=='string'||!o.object_id.startsWith(PUBLICATION_PREFIX))continue;
+  const visitObject=o=>{
+    if(typeof o?.object_id!=='string'||!o.object_id.startsWith(PUBLICATION_PREFIX))return;
     const d=o.data,r=d?.identity;
     if(o.workspace_id!==technicalWorkspaceId||o.schema_id!==technicalSchemaId||
       o.schema_version!=='1.0.0'||o.deleted===true||!Number.isSafeInteger(o.revision)||o.revision<1||
@@ -321,6 +320,17 @@ export async function readT4OriginalPublicationMigrationInventory({
       session.scopeRef===scopeRef&&session.ownerEpoch===ownerEpoch&&r.localNodeRef===localNodeRef;
     records.set(o.object_id,{session,checkpointRef:o.object_id,revision:o.revision,chainHash:d.chainHash,
       ...(matches?{originalObjectDigest:digest('PUBLICATION-MIGRATION-OBJECT',o)}:{}),matches});
+  };
+  if(enableOriginalObjectCatalogWindow){
+    await visitT4OriginalObjectCatalog({originalKernel,workspaceId:technicalWorkspaceId,
+      pageSize:originalObjectCatalogPageSize,includeDeleted:true,
+      authorizeOriginalOperation:async operation=>{await guard(operation);return true;},visitOriginalObject:visitObject});
+  }else{
+    await guard('t1.listObjects');
+    const catalog=await originalKernel.listObjects({workspace_id:technicalWorkspaceId,include_deleted:true});
+    await guard('t1.listObjects');
+    if(!Array.isArray(catalog)||catalog.length>100000)fail('PUBLICATION_MIGRATION_ORIGINAL_INVENTORY_INVALID');
+    for(const o of catalog)visitObject(o);
   }
   // Match the prior canonical digest byte for byte while retaining only
   // per-publication revision state, not every original Event payload.
