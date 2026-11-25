@@ -1,6 +1,7 @@
 # Deliberate milestone qualification; editing harness files alone is not a trigger.
 # Milestone 2026-11-25: saved goal horizon, cash risks, exact fact observations.
 name: d02-personal-activity-full
+# Qualification: canonical result-hint contract 1.22.3; safe failure-code diagnostics.
 on:
   push:
     branches:
@@ -85,6 +86,7 @@ jobs:
           echo D02_T3_CANONICAL_FACT_AND_SKILLS=PASS
           if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 9974b4ff9fd43095c92d029ca2759d137485d93e && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 9974b4ff9fd43095c92d029ca2759d137485d93e --apply && npm run t3:skills:check) > "$RUNNER_TEMP/private-fact-import.log" 2>&1; then
             echo D02_T3_OFFICIAL_FACT_SKILLS_IMPORT=FAIL
+            grep -oE 'CLUB_(SKILL_IMPORT|T3_SKILLS|SKILL_AUTHORING)_[A-Z_]+' "$RUNNER_TEMP/private-fact-import.log" | sort -u || true
             grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/private-fact-import.log" | sort -u | head -20 || true
             exit 1
           fi
