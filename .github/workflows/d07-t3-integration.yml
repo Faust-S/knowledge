@@ -5,6 +5,13 @@ on:
     # Update the qualification request only for a complete candidate.
     paths: [.github/qualification/d07-t3-release-request.json]
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "Qualification scope (push requests always use release)"
+        type: choice
+        required: true
+        default: release
+        options: [release, transport-only, source-only, build-only]
 permissions:
   contents: read
   actions: read
@@ -14,6 +21,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   private-transport:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.mode == 'release' || inputs.mode == 'transport-only' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -24,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 4a4d57d8f6769877008ed3ae81614c573c46b867
+          ref: 16542fb02ce1574e052c8e1cd497d7c742d59eb5
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -34,8 +42,12 @@ jobs:
         working-directory: site
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
-        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 4a4d57d8f6769877008ed3ae81614c573c46b867
+        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 16542fb02ce1574e052c8e1cd497d7c742d59eb5
   t3-source:
+    needs: private-transport
+    # A blocked release must not spend runner time on product qualification.
+    # Explicit diagnostic modes still allow source or build-only evidence.
+    if: ${{ !cancelled() && ((needs.private-transport.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'release')) || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'source-only' || inputs.mode == 'build-only'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -49,7 +61,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 4a4d57d8f6769877008ed3ae81614c573c46b867
+          ref: 16542fb02ce1574e052c8e1cd497d7c742d59eb5
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -69,7 +81,7 @@ jobs:
       - name: Preserve exact T2 subject and Workspace module
         run: |
           test "$(git -C domain rev-parse HEAD)" = "f73a5f0e877c1d8c30c56d5ee82f472b55c0f1c2"
-          test "$(git -C site rev-parse HEAD)" = "4a4d57d8f6769877008ed3ae81614c573c46b867"
+          test "$(git -C site rev-parse HEAD)" = "16542fb02ce1574e052c8e1cd497d7c742d59eb5"
           cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             cmp "$path" "site/src/domain/$(basename "$path")"
@@ -165,13 +177,14 @@ jobs:
           node --check scripts/t3-platform-inputs.mjs
           node --check scripts/build-d07-t3-local-site.mjs
           node --check scripts/lib/d07-local-build-environment.mjs
+          node --check scripts/lib/d07-qualified-build-command.mjs
           node --check scripts/prepare-d07-local-kernel-input.mjs
           node --check scripts/retain-d07-t3-inputs.mjs
           node --check scripts/build-d07-integrated-site.mjs
           node --check scripts/build-d07-clean.mjs
           node --check scripts/audit-d07-t3-context.mjs
           npm run t3:test-local > "$RUNNER_TEMP/local-tests.log" 2>&1 || { echo D07_T3_LOCAL_TESTS=FAIL; grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"; exit 1; }
-          node --test scripts/tests/d07-local-build-environment.test.mjs scripts/tests/d07-t3-preview.test.mjs scripts/tests/d07-retained-byte-attributes.test.mjs scripts/tests/d07-retained-index.test.mjs scripts/tests/d07-private-release.test.mjs > "$RUNNER_TEMP/preview-tests.log" 2>&1 || {
+          node --test scripts/tests/d07-local-build-environment.test.mjs scripts/tests/d07-qualified-build-command.test.mjs scripts/tests/d07-t3-preview.test.mjs scripts/tests/d07-retained-byte-attributes.test.mjs scripts/tests/d07-retained-index.test.mjs scripts/tests/d07-private-release.test.mjs > "$RUNNER_TEMP/preview-tests.log" 2>&1 || {
             echo D07_T3_PREVIEW_TESTS=FAIL
             grep -E '^# (tests|pass|fail) [0-9]+$|^not ok [0-9]+ ' "$RUNNER_TEMP/preview-tests.log" | cut -c1-160 | head -20
             exit 1
@@ -183,9 +196,9 @@ jobs:
           echo D07_T3_ASSEMBLY_SYNTAX=PASS
   original-t3-integration:
     needs: [t3-source, private-transport]
-    # Qualification is independent of publication permission. Do not write if
-    # the explicit receive-pack gate failed. Never upload private artifacts.
-    if: ${{ !cancelled() && needs.t3-source.result == 'success' }}
+    # For an ordinary release, qualify only after the private write preflight.
+    # The explicit build-only mode never publishes any prepared private bytes.
+    if: ${{ !cancelled() && needs.t3-source.result == 'success' && (needs.private-transport.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'build-only')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     outputs:
@@ -200,7 +213,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 4a4d57d8f6769877008ed3ae81614c573c46b867
+          ref: 16542fb02ce1574e052c8e1cd497d7c742d59eb5
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -314,7 +327,7 @@ jobs:
           # Both builds use the exact package manifest that would be published.
           # Only scripts.build is excluded from the retained Host input receipt.
           trap 'git restore --worktree -- package.json' EXIT
-          node --input-type=module -e 'import {readFileSync,writeFileSync} from "node:fs";const p="package.json",m=JSON.parse(readFileSync(p,"utf8"));if(m.scripts.build!=="node scripts/build-d07-integrated-site.mjs"||m.scripts["t3:build"]!=="node --import tsx scripts/build-d07-t3-local-site.mjs")process.exit(1);m.scripts.build=m.scripts["t3:build"];writeFileSync(p,JSON.stringify(m,null,2)+"\n")'
+          node --input-type=module -e 'import {readFileSync,writeFileSync} from "node:fs";import {qualifiedReleaseManifest} from "./scripts/lib/d07-qualified-build-command.mjs";const p="package.json";writeFileSync(p,qualifiedReleaseManifest(readFileSync(p,"utf8")))'
           cp package.json "$RUNNER_TEMP/d07-qualified-package.json"
           # Keep only the authenticated private validator for the separate post-build audit.
           validator="$RUNNER_TEMP/validator/browser-local-inference/domain-assistant"
@@ -401,7 +414,7 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "4a4d57d8f6769877008ed3ae81614c573c46b867"
+          test "$(git rev-parse HEAD)" = "16542fb02ce1574e052c8e1cd497d7c742d59eb5"
           test -z "$(git status --porcelain --untracked-files=no)"
           local="runtime/t3-platform/0.3.1-rc.1"
           node --import tsx --input-type=module -e 'import {verifyPreparedD07Host} from "./scripts/prepare-d07-t3-host.mjs";import {verifyPreparedKernelSupport} from "./scripts/prepare-d07-local-kernel-input.mjs";import {verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs";const root=process.argv[1];verifyPreparedD07Host(root+"/d07-host");verifyPreparedKernelSupport(root+"/kernel-support");verifyPlatformArchive(root+"/platform-inputs.zip")' "$local" > "$RUNNER_TEMP/d07-retain-recheck.log" 2>&1 || {
@@ -441,7 +454,7 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "4a4d57d8f6769877008ed3ae81614c573c46b867"
+          test "$(git rev-parse HEAD)" = "16542fb02ce1574e052c8e1cd497d7c742d59eb5"
           test -z "$(git diff --name-only)"
           node scripts/verify-d07-retained-index.mjs
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: retain qualified local T3 platform inputs [skip ci] [skip actions]'
@@ -460,13 +473,13 @@ jobs:
           GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           candidate="$(git rev-parse HEAD)"
-          bash ../pipeline/scripts/d07-private-git-transport.sh publish 4a4d57d8f6769877008ed3ae81614c573c46b867 "$candidate"
+          bash ../pipeline/scripts/d07-private-git-transport.sh publish 16542fb02ce1574e052c8e1cd497d7c742d59eb5 "$candidate"
           echo "retained_commit=$candidate" >> "$GITHUB_OUTPUT"
           echo "dist_sha256=$(sha256sum "$RUNNER_TEMP/d07-local-2.sha" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
-      - name: Preserve qualification outcome without unauthorized publication
-        if: ${{ success() && needs.private-transport.result != 'success' }}
+      - name: Preserve explicit build-only qualification without private publication
+        if: ${{ success() && github.event_name == 'workflow_dispatch' && inputs.mode == 'build-only' }}
         run: |
-          echo D07_T3_PRIVATE_RETENTION=BLOCKED_BY_TRANSPORT
+          echo D07_T3_PRIVATE_RETENTION=NOT_REQUESTED
           echo D07_T3_PRODUCT_ACCEPTED=false
       # Never upload private source, prepared inputs, dist, logs or model data.
   retained-private-readback:

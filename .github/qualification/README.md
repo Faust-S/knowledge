@@ -22,3 +22,26 @@ the authority for reproducible checkouts.
 No private artifacts or source belong in these request files. Do not update a
 request marker until the exact pinned candidate is ready. The workflow checks,
 not the request marker, determine qualification status.
+
+## Select the smallest useful qualification
+
+A release request first checks the exact private branch and the existing
+DOMEN transport. A failure skips both the expensive source and integrated
+jobs; it cannot result in private retention. A successful preflight retains
+all previous source, isolated byte comparison, corruption, HTTP and fresh
+checkout gates. A source or build result is never product acceptance.
+
+Where manual workflow dispatch is available, the same integration workflow
+accepts four explicit modes:
+
+- `transport-only`: exact private receive-pack probe, no source/build jobs.
+- `source-only`: source qualification, no full integration and no publication.
+- `build-only`: source plus full original-platform build qualification,
+  without private publication or retained checkout claim.
+- `release` (default and all release-marker pushes): all gates and authorized
+  private retention/readback of the exact qualified bytes.
+
+Use transport-only to investigate a changed credential rather than repeating
+an entire release. Do not request additional jobs merely to repeat evidence.
+The local and CI release procedures use the same final-manifest transform;
+both compare one direct and one real npm-dispatched ordinary build.
