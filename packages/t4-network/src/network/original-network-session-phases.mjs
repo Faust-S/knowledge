@@ -283,18 +283,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     if(await verifyOriginalRecipientApplied(p)!==true)
       fail('PHASE_ORIGINAL_APPLIED_NOT_PROVEN');
   }
-  async function inspectOriginalSession(){
-    const initial=await context();
-    const current=await verifiedRead(initial);
-    if(!eq(await context(),initial))
-      fail('PHASE_ORIGINAL_HOST_CONTEXT_CHANGED');
-    if(appliedPhase(current.stages.at(-1)?.phase)){
-      await appliedGate(current.stages.at(-1).evidence,'cold-readback');
-      const after=await verifiedRead(initial);
-      if(after.chainHash!==current.chainHash||after.revision!==current.revision)
-        fail('PHASE_ORIGINAL_CHECKPOINT_CHANGED');
-    }
-    if(!eq(await context(),initial))fail('PHASE_ORIGINAL_HOST_CONTEXT_CHANGED');
+  function statusFor(current){
     const terminal=current.stages.at(-1)?.phase===TERMINAL;
     return frozen({
       schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1',
@@ -335,6 +324,25 @@ export function createT4OriginalNetworkSessionPhasePort({
       signedNetworkReceiptIsNotResult:true,
       sessionWriteRetried:false,
     });
+  }
+  async function inspectOriginalSession(){
+    const initial=await context(),current=await verifiedRead(initial);
+    if(!eq(await context(),initial))fail('PHASE_ORIGINAL_HOST_CONTEXT_CHANGED');
+    if(appliedPhase(current.stages.at(-1)?.phase)){
+      await appliedGate(current.stages.at(-1).evidence,'cold-readback');
+      const after=await verifiedRead(initial);
+      if(after.chainHash!==current.chainHash||after.revision!==current.revision)
+        fail('PHASE_ORIGINAL_CHECKPOINT_CHANGED');
+    }
+    if(!eq(await context(),initial))fail('PHASE_ORIGINAL_HOST_CONTEXT_CHANGED');
+    return statusFor(current);
+  }
+  // An early stop probe never claims an applied result. In particular it
+  // does not need an old ciphertext/key merely to recognize retirement.
+  async function inspectOriginalRetiredAttempt(){
+    const initial=await context(),current=await verifiedRead(initial);
+    if(!eq(await context(),initial))fail('PHASE_ORIGINAL_HOST_CONTEXT_CHANGED');
+    return current.stages.at(-1)?.phase===TERMINAL?statusFor(current):null;
   }
   async function replacementGate(initial,evidence){
     if(!replacement)return;
@@ -560,7 +568,7 @@ export function createT4OriginalNetworkSessionPhasePort({
   }
   return frozen({
     schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1',
-    inspectOriginalSession,advanceOriginalSessionPhase,
+    inspectOriginalSession,inspectOriginalRetiredAttempt,advanceOriginalSessionPhase,
     ...(authorizeOriginalRecipientSupersession!==null?{retireOriginalRecipientAttempt}:{}),
     ...(authorizeOriginalSourceSupersession!==null?{recordOriginalSourceSupersession}:{}),
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkSessionPhasePort({
@@ -580,4 +588,30 @@ export function createT4OriginalNetworkSessionPhasePort({
     createsSecondStore:false,createsNewIAM:false,
     createsScheduler:false,originalT3ExchangeRequired:false,
   });
+}
+
+/** Validate the terminal status of an already independently read original
+ * phase port. This is a stop fence, never an admission or a write grant. */
+export function requireT4OriginalRetiredAttemptStatus(status,session,role,checkpointRef){
+  if(status?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||status.role!==role||
+    status.checkpointRef!==checkpointRef||status.currentPhase!==TERMINAL||
+    !['sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch','sessionRef','changeId'].every(k=>status[k]===session[k])||
+    (status.changeKind??'OBJECT_PUT')!==session.changeKind||!Number.isSafeInteger(status.revision)||
+    status.revision<1||status.revision>3||!HASH(status.chainHash)||!HASH(status.originalSupersessionPreviousChainHash)||
+    !ID(status.originalSupersessionEventId)||status.originalT3EventChainVerified!==true||
+    status.originalT3OnlyStore!==true||status.originalBusinessApplied!==false||
+    status.verifiedOriginalRecipientApplication!==false||status.originalNewAttemptAdmissionStillRequired!==true||
+    status.liveNetworkAuthorityGranted!==false||
+    (role==='SOURCE'?(status.originalSourceAttemptSuperseded!==true||status.originalSourceCursorAdvanced!==false||
+      !eq(status.currentEvidence,status.originalSourceSupersessionEvidence)):
+      role!=='RECIPIENT'||status.recipientApplyIntentRequired!==true||
+      status.originalRecipientAttemptSuperseded!==true||status.originalRecipientApplyIntentAbsent!==true||
+      status.recipientApplyIntentEvidence!==null||!eq(status.currentEvidence,status.originalRecipientSupersessionEvidence)))
+    fail('PHASE_ORIGINAL_RETIREMENT_STOP_FENCE_INVALID');
+  const evidence=proofEvidence(TERMINAL,status.currentEvidence,session.changeKind,{...session,role});
+  return frozen({originalAttemptSuperseded:true,originalSupersessionEventId:status.originalSupersessionEventId,
+    originalRetiredPhaseCheckpointRef:checkpointRef,originalRetiredPhaseRevision:status.revision,
+    originalRetiredPhaseChainHash:status.chainHash,replacementSessionRef:evidence.replacementSessionRef,
+    originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false,
+    originalSubjectMutationInvoked:false,sourceCursorAdvanced:false});
 }

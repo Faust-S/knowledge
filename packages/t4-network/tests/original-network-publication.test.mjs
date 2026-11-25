@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {prepareT4OriginalSupersessionControl} from '../src/network/original-network-session-supersession.mjs';
 import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync,sign,verify} from 'node:crypto';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame}
@@ -459,7 +460,7 @@ async function sourceStepFixture(){
   data.capture.prepared.delta.windowDigest=w.windowDigest;
   const f=fixture(data),session=f.session;
   let sealCalls=0,sourceSignCalls=0,subjectProof=true;
-  const phase=()=>createT4OriginalNetworkSessionPhasePort({
+  const phase=(patch={})=>createT4OriginalNetworkSessionPhasePort({
     originalKernel:f.kernel,technicalWorkspaceId:technical,originalWriteOwnerRef:owner,
     sourceNodeRef:source,recipientNodeRef:recipient,localNodeRef:source,scopeRef:scope,
     sessionRef:session.sessionRef,changeId:session.changeId,ownerEpoch:session.ownerEpoch,
@@ -474,7 +475,7 @@ async function sourceStepFixture(){
         return p.evidence.evidenceRef===local.key&&p.evidence.evidenceDigest==='sha256:'+local.sha256;
       }
       return false;
-    },verifyOriginalRecipientApplied:async()=>false,
+    },verifyOriginalRecipientApplied:async()=>false,...patch,
   });
   const options={
     createOriginalSourcePhasePort:async()=>phase(),
@@ -808,4 +809,25 @@ test('K49 revoked control authority after frame PUT blocks index write; exact or
   const result=await port().publishPreparedFrame({sequence:1});
   assert.equal(result.state,'REMOTE_READBACK_RECOVERED');
   assert.equal(f.counts().networkCalls,1);assert.equal(f.indexCalls(),1);
+});
+
+test('K54 source cold task stops on the original terminal phase before reopening old publication or signing',async()=>{
+  const f=await sourceStepFixture();await f.step();await f.step();
+  const before=await f.phase().inspectOriginalSession();
+  const plan=prepareT4OriginalSupersessionControl({session:f.session,expectedPhaseRevision:0,
+    expectedPhaseChainHash:H('fixture recipient genesis'),decisionRef:'decision:k54',requestRef:'request:k54'});
+  const retirement={...plan.claim.body,retirementCheckpointRef:'t4:net:session:recipient-fixture',
+    retirementRevision:1,retirementChainHash:H('fixture recipient retirement'),retirementEventId:'event:k54:recipient'};
+  const terminal=await f.phase({authorizeOriginalSourceSupersession:async()=>true}).recordOriginalSourceSupersession({
+    expectedRevision:before.revision,expectedChainHash:before.chainHash,
+    retirementAckDigest:H('verified retirement ack fixture'),retirement});
+  f.restart();const counts=f.counts(),sourceCounts=f.sourceCounts();
+  const stop=await f.binding({createOriginalNativePublicationPort:async()=>assert.fail('old publication reopened')})
+    .runNativeSourceStep(f.options);
+  assert.equal(stop.state,'WAITING_FOR_REPLACEMENT_ADMISSION');
+  assert.equal(stop.originalSupersessionEventId,terminal.originalSupersessionEventId);
+  assert.equal(stop.replacementSessionRef,plan.claim.body.replacementSessionRef);
+  assert.equal(stop.liveNetworkAuthorityGranted,false);assert.equal(stop.sourceCursorAdvanced,false);
+  assert.equal(f.counts().putCalls,counts.putCalls);assert.equal(f.counts().networkCalls,counts.networkCalls);
+  assert.deepEqual(f.sourceCounts(),sourceCounts);
 });

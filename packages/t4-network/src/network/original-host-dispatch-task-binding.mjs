@@ -1,4 +1,5 @@
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
+import {requireT4OriginalRetiredAttemptStatus} from './original-network-session-phases.mjs';
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalSourceSessionHead,readT4OriginalSourceSessionHead}
   from './original-network-publication.mjs';
 import {confirmT4OriginalNetworkSourceAcknowledgement,confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement}
@@ -459,6 +460,23 @@ export function createT4OriginalHostDispatchTaskBinding({
     const phase=scopeOriginalHostPort(rawPhase,lifetime,
       ['schema','role','checkpointRef','originalT3TechnicalWorkspaceOnly'],
       'HOST_TASK_NATIVE_SOURCE_PHASE_REQUIRED');
+    const phaseMatches=p=>p?.schema==='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'&&
+      p.checkpointRef===phase.checkpointRef&&p.role==='SOURCE'&&
+      p.originalT3OnlyStore===true&&p.sourceNodeRef===session.sourceNodeRef&&
+      p.recipientNodeRef===session.recipientNodeRef&&p.scopeRef===session.scopeRef&&
+      p.sessionRef===session.sessionRef&&p.changeId===session.changeId&&
+      p.ownerEpoch===session.ownerEpoch&&(p.changeKind??'OBJECT_PUT')===session.changeKind;
+    const intent={evidenceRef:session.sourceEventId,evidenceDigest:session.capturedWindowDigest};
+    const evidenceMatches=(a,b)=>a?.evidenceRef===b?.evidenceRef&&a?.evidenceDigest===b?.evidenceDigest;
+    const status=await phase.inspectOriginalSession();
+    await refresh();
+    if(status?.currentPhase==='SUPERSEDED'){
+      const retired=requireT4OriginalRetiredAttemptStatus(status,session,'SOURCE',phase.checkpointRef);
+      if(status.revision>1&&!evidenceMatches(status.sourceIntentEvidence,intent))
+        fail('HOST_TASK_NATIVE_SOURCE_DURABLE_STATE_INVALID');
+      return result('WAITING_FOR_REPLACEMENT_ADMISSION',{sessionRef:session.sessionRef,changeId:session.changeId,
+        originalHostFrontierRevision:expected.frontierRevision,...retired});
+    }
     const rawPublication=await createOriginalNativePublicationPort(request);
     await refresh();
     if(rawPublication?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
@@ -477,15 +495,6 @@ export function createT4OriginalHostDispatchTaskBinding({
     const discovery=scopeOriginalHostPort(frameDiscoveryPort,lifetime,
       ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
       'HOST_TASK_NATIVE_SOURCE_DISCOVERY_REQUIRED');
-    const phaseMatches=p=>p?.schema==='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'&&
-      p.checkpointRef===phase.checkpointRef&&p.role==='SOURCE'&&
-      p.originalT3OnlyStore===true&&p.sourceNodeRef===session.sourceNodeRef&&
-      p.recipientNodeRef===session.recipientNodeRef&&p.scopeRef===session.scopeRef&&
-      p.sessionRef===session.sessionRef&&p.changeId===session.changeId&&
-      p.ownerEpoch===session.ownerEpoch&&(p.changeKind??'OBJECT_PUT')===session.changeKind;
-    const intent={evidenceRef:session.sourceEventId,evidenceDigest:session.capturedWindowDigest};
-    const evidenceMatches=(a,b)=>a?.evidenceRef===b?.evidenceRef&&a?.evidenceDigest===b?.evidenceDigest;
-    const status=await phase.inspectOriginalSession();
     const saved=await publication.inspectOriginalPublication();
     await refresh();
     const stage=[null,'INTENT','PUBLISHED','APPLIED_CONFIRMED'].indexOf(status?.currentPhase);

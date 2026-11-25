@@ -174,7 +174,7 @@ async function fixture(){
   });
   const publication=()=>createT4OriginalNetworkPublicationPort({...tech,session,localNodeRef:recipient,
     authorizeOriginalFramePublish:allow,verifyOriginalNodeSignature:signature,frameTransport:transport()});
-  const phase=()=>createT4OriginalNetworkSessionPhasePort({...tech,sourceNodeRef:source,recipientNodeRef:recipient,
+  const phase=(patch={})=>createT4OriginalNetworkSessionPhasePort({...tech,sourceNodeRef:source,recipientNodeRef:recipient,
     localNodeRef:recipient,scopeRef:scope,sessionRef:session.sessionRef,changeId:session.changeId,ownerEpoch:epoch,
     recipientApplyIntentRequired:true,verifyOriginalPhaseEvidence:async p=>{
       const r=observed?.received,c=observed?.verifiedContent;
@@ -194,7 +194,7 @@ async function fixture(){
         getMode,authorizeOriginalRead:allow});
       return r.state==='APPLIED_VERIFIED'&&r.originalRecipientEventId===p.originalRecipientEventId&&
         r.originalRecipientRevision===p.originalRecipientRevision&&r.originalRecipientStateDigest===p.originalRecipientStateDigest;
-    }});
+    },...patch});
   const binding=(overrides={})=>createT4OriginalHostRecipientDispatcher({
     workspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef:source,recipientNodeRef:recipient,scopeRef:scope,
     ownerEpoch:epoch,originalKernel,getMode,isHostActive:()=>active,readOriginalHostContext:context(ws),
@@ -623,4 +623,21 @@ test('K13 recipient owner recovers admitted baseline from original Object/Event 
   assert.equal((await wake()).state,'WAITING_FOR_HEADS');
   assert.equal(f.counters.subjectWrites,1);
   assert.equal(f.events.filter(e=>e.event_type==='t4.network.original.baseline.admitted').length,1);
+});
+
+test('K54 cold recipient stops a retired VERIFIED attempt before any old transport read or Vault open',async()=>{
+  const f=await fixture();await f.full();await f.step();await f.step();
+  const before=await f.phase().inspectOriginalSession();assert.equal(before.currentPhase,'VERIFIED');
+  const terminal=await f.phase({authorizeOriginalRecipientSupersession:async()=>true}).retireOriginalRecipientAttempt({
+    expectedRevision:before.revision,expectedChainHash:before.chainHash,
+    decisionRef:'decision:k54:recipient',decisionDigest:H('independently authorized fixture decision')});
+  f.restart();const counters=clone(f.counters),cursor=f.cursor();
+  const result=await f.ownerStep();
+  assert.equal(result.state,'WAITING_FOR_REPLACEMENT_ADMISSION');
+  assert.equal(result.step.originalSupersessionEventId,terminal.originalSupersessionEventId);
+  assert.equal(result.step.replacementSessionRef,terminal.replacement.replacementSessionRef);
+  assert.equal(result.step.liveNetworkAuthorityGranted,false);
+  assert.equal(result.originalRecipientCursorAdvanced,false);assert.deepEqual(f.cursor(),cursor);
+  for(const key of ['puts','lists','gets','opens','signatures','subjectWrites','technicalWrites','replayWrites'])
+    assert.equal(f.counters[key],counters[key],key);
 });

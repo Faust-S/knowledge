@@ -1,4 +1,5 @@
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
+import {requireT4OriginalRetiredAttemptStatus} from './original-network-session-phases.mjs';
 import {createHash} from 'node:crypto';
 import {fetchT4OriginalObjectDelta,applyT4OriginalObjectDelta,
   advanceT4OriginalObjectDeltaCursor} from './original-object-delta.mjs';
@@ -708,6 +709,8 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
       'originalT3TechnicalWorkspaceOnly'],'RECIPIENT_NATIVE_STEP_ORIGINAL_PHASE_REQUIRED');
     async function inspect(){
       const status=await live(()=>port.inspectOriginalSession(),'inspect-recipient-phase')();
+      if(status?.currentPhase==='SUPERSEDED')return {status,stage:-1,
+        retired:requireT4OriginalRetiredAttemptStatus(status,session,'RECIPIENT',port.checkpointRef)};
       const stage=[null,'RECEIVED','VERIFIED','APPLY_INTENT','APPLIED'].indexOf(status?.currentPhase);
       if(status?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||
         status.checkpointRef!==port.checkpointRef||status.role!=='RECIPIENT'||
@@ -730,7 +733,11 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
         !same(after.status.currentEvidence,evidence))
         fail('RECIPIENT_NATIVE_STEP_ORIGINAL_PHASE_READBACK_MISMATCH');
     }
-    return {raw,inspect,advance};
+    const inspectRetirement=typeof port.inspectOriginalRetiredAttempt==='function'?async()=>{
+      const status=await live(()=>port.inspectOriginalRetiredAttempt(),'inspect-retired-recipient-phase')();
+      return status===null?null:requireT4OriginalRetiredAttemptStatus(status,session,'RECIPIENT',port.checkpointRef);
+    }:null;
+    return {raw,inspect,advance,inspectRetirement};
   }
   const validHead=r=>r?.schema==='IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1'&&
     r.signedMessageType==='HEADS'&&r.verifiedSequence===1&&
@@ -771,8 +778,9 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
   const saved=await inspectPublication();
   if(saved.frames[0]?.state!=='PRESENT'){
     const phase=await makePhase({received:null,verifiedContent:null,sourceHeadProof:null});
-    if((await phase.inspect()).stage!==0)
-      fail('RECIPIENT_NATIVE_STEP_PHASE_WITHOUT_DIFF');
+    const first=await phase.inspect();
+    if(first.retired)return result('WAITING_FOR_REPLACEMENT_ADMISSION',first.retired);
+    if(first.stage!==0)fail('RECIPIENT_NATIVE_STEP_PHASE_WITHOUT_DIFF');
     const found=await live(a=>discovery.discoverUniqueSignedFrame(a),'discover-heads')({
       selector:{sourceNodeRef:session.sourceNodeRef,ownerEpoch:session.ownerEpoch,
         sessionRef:session.sessionRef,messageType:'HEADS',sequence:1},
@@ -800,6 +808,14 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
       fail('RECIPIENT_NATIVE_STEP_ORIGINAL_DIFF_READBACK_MISMATCH');
     return result('DIFF_PRESENT',{originalSignedDiffReused:saved.frames.length===1,
       publication:sent,recipientDiffRemoteReceiptProven:false});
+  }
+  // A retired original attempt must stop before old DIFF/HEADS signature
+  // checks, ciphertext access or Vault open. Applied outcome verification
+  // remains on the existing witnessed path below, never on this probe.
+  const early=await makePhase({received:null,verifiedContent:null,sourceHeadProof:null});
+  if(early.inspectRetirement){
+    const retired=await early.inspectRetirement();
+    if(retired)return result('WAITING_FOR_REPLACEMENT_ADMISSION',retired);
   }
   const diff=await localDiff();
   const content=await discoverT4OriginalNetworkSessionContent({session,
@@ -845,7 +861,8 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     received.sourceChangeFrameKey!==content.verifiedChangeRef.key)
     fail('RECIPIENT_NATIVE_STEP_ORIGINAL_CAPTURE_MISMATCH');
   const phase=await makePhase({received,verifiedContent:content,sourceHeadProof});
-  const {status,stage}=await phase.inspect();
+  const {status,stage,retired}=await phase.inspect();
+  if(retired)return result('WAITING_FOR_REPLACEMENT_ADMISSION',retired);
   const transportEvidence={evidenceRef:content.verifiedChunks[0].key,
     evidenceDigest:'sha256:'+content.verifiedChunks[0].sha256};
   const verifiedEvidence={evidenceRef:received.sourceChangeFrameKey,evidenceDigest:received.originalStateDigest};
