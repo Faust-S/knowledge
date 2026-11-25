@@ -15,14 +15,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod
-          ref: b0bfb8c0f21a5826a3491db36fbec9050567b9f1
+          ref: 957a052b826ad69b3b2d71ac291ff4b71711ef47
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: fd746a5a13b715ba946752b336207fd0c106a231
+          ref: ed40ac6196d9c68f168a4ba436b4ee442d93f791
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -58,7 +58,7 @@ jobs:
           import {readFileSync} from "node:fs";
           import {validateSkillPack} from "./assistant/browser-local-inference/domain-assistant/skill-runtime.mjs";
           const pack=validateSkillPack(JSON.parse(readFileSync("site/public/assets/cehovod-assistant-skills.json","utf8")));
-          if(pack.skills.length!==11||pack.formHints.length!==11||pack.resultHints.length!==11)throw Error("D05_T3_PACK_COUNTS");
+          if(pack.skills.length!==11||pack.formHints.length!==11||pack.resultHints.length!==12)throw Error("D05_T3_PACK_COUNTS");
           console.log("D05_T3_ORIGINAL_RUNTIME_SKILLS_PASS");
           JS
           if ! (cd domain && T3_ASSISTANT_SOURCE="$GITHUB_WORKSPACE/assistant/browser-local-inference/domain-assistant" node --test tests/assistant-field-policy.test.mjs) >"$log" 2>&1; then
@@ -91,6 +91,7 @@ jobs:
         run: |
           set -euo pipefail
           node --test scripts/lib/t3-webgpu-probe.test.mjs scripts/prepare-t3-retained-commit.test.mjs
+          node --experimental-strip-types --test scripts/lib/t3-assistant-vite-config.test.mjs
           node --check public/assets/cehovod-t3-bootstrap.mjs
           node --check scripts/check-t3-hardware-webgpu.mjs
       - name: Verify deterministic static hydration and model witness syntax
@@ -157,7 +158,7 @@ jobs:
           if(errors)process.exitCode=1;
           else console.log("D05_T3_TSX_PARSE_11_PASS");
           JS
-      - name: Verify eleven native form and result scopes
+      - name: Verify eleven native form scopes and twelve result scopes
         id: native_context
         continue-on-error: true
         working-directory: site
@@ -170,7 +171,7 @@ jobs:
             echo D05_T3_NATIVE_CONTEXT_FAIL
             exit 1
           fi
-          grep -Fqx '{"status":"CEHOVOD_T3_NATIVE_CONTEXT_SOURCE_PASS","forms":11,"results":11,"productAccepted":false}' "$log"
+          grep -Fqx '{"status":"CEHOVOD_T3_NATIVE_CONTEXT_SOURCE_PASS","forms":11,"results":12,"productAccepted":false}' "$log"
           echo D05_T3_NATIVE_CONTEXT_PASS
       - name: Verify real JSX bindings and source types
         working-directory: site
@@ -279,7 +280,7 @@ jobs:
           // strings, identifiers, patches containing code, or formatter diagnostics.
           const layout=/^[ \t\r\n"'\x60,;(){}\[\]\\]*$/u;
           const isLayout=c=>c!==undefined&&layout.test(c);
-          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts","scripts/d05-first-use-real-kernel-witness.mjs","scripts/d05-t3-real-model-witness.mjs","scripts/prerender.ts","src/lib/static-router-freshness.ts","src/lib/static-router-freshness.test.ts","scripts/lib/loopback-tls-pin.mjs","src/styles.css","scripts/check-t3-retained-checkout.mjs","scripts/check-t3-assistant-dynamic.ts","scripts/check-t3-native-context.mjs","src/components/site/T3ContextActions.tsx","src/routes/instrumenty.sebestoimost-zakaza.tsx","src/routes/instrumenty.marshrut-i-srok.tsx","src/routes/instrumenty.make-or-buy.tsx"]);
+          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts","scripts/d05-first-use-real-kernel-witness.mjs","scripts/d05-t3-real-model-witness.mjs","scripts/prerender.ts","src/lib/static-router-freshness.ts","src/lib/static-router-freshness.test.ts","scripts/lib/loopback-tls-pin.mjs","scripts/lib/t3-webgpu-probe.mjs","scripts/lib/t3-webgpu-probe.test.mjs","scripts/lib/t3-assistant-vite-config.mjs","scripts/lib/t3-assistant-vite-config.test.mjs","scripts/prepare-t3-retained-commit.test.mjs","scripts/prepare-t3-retained-commit.mjs","src/styles.css","scripts/check-t3-retained-checkout.mjs","scripts/check-t3-assistant-dynamic.ts","scripts/check-t3-native-context.mjs","src/components/site/T3ContextActions.tsx","src/routes/instrumenty.sebestoimost-zakaza.tsx","src/routes/instrumenty.marshrut-i-srok.tsx","src/routes/instrumenty.make-or-buy.tsx"]);
           for(const row of rows.filter(r=>r.errorCount)){
             const path=relative(process.cwd(),row.filePath);
             if(!allow.has(path)||row.messages.some(m=>m.severity===2&&m.ruleId!=="prettier/prettier"))continue;
@@ -445,6 +446,8 @@ jobs:
           for case in 0_1 1_0 1_1; do
             grep -Fx "CEHOVOD_T3_ASSISTANT_PARTIAL_MOUNT_PASS_$case" "$log"
           done
+          grep -Fx CEHOVOD_T3_ASSISTANT_MISSING_COST_PASS_1440 "$log"
+          grep -Fx CEHOVOD_T3_ASSISTANT_MISSING_COST_PASS_375 "$log"
           grep -Fx CEHOVOD_T3_ASSISTANT_SESSION_RESTORE_PASS_1440 "$log"
           grep -Fx CEHOVOD_T3_ASSISTANT_SESSION_RESTORE_PASS_375 "$log"
           echo D05_T3_ASSISTANT_BROWSER_PASS
