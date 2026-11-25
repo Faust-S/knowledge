@@ -88,69 +88,110 @@ async function auditResponsive(){
  check(routes.length===40&&new Set(routes).size===routes.length,"RESPONSIVE_ROUTE_REGISTRY");
  const paths=[...routes,"/workspace/exchange/","/workspace/lifecycle/"];
  const page=await launch("responsive");
- let errors=0;
+ let errors=0,failures=0;
  page.on("pageerror",()=>{errors++});
+ // The routes, fragment links and menu checks are independent. Collect
+ // their actual failures in the same browser profile and still qualify
+ // the separate native functional route. Never turn a failed check into PASS.
+ const attempt=async(href,run)=>{
+  try{await run();return true}
+  catch(e){
+   if(page.isClosed())throw e;
+   failures++;
+   const safeHref=typeof href==="string"&&/^\/[a-z0-9\/-]*(?:#[a-z0-9-]+)?$/.test(href)?href:"unexpected-route";
+   const id=safeHref.includes("#")?safeHref.split("#")[1]:"";
+   let observed={};
+   try{observed=await page.evaluate(id=>{
+    const target=id?document.getElementById(id):null;
+    let details=target?.closest("details"),closed=0;
+    while(details){if(!details.open)closed++;details=details.parentElement?.closest("details")}
+    return {viewport:window.innerWidth,documentWidth:Math.max(document.documentElement.scrollWidth,document.body?.scrollWidth||0),
+     targetPresent:!!target,targetHidden:target?.hidden??null,
+     targetLayout:!!target?.getClientRects().length,closedDisclosures:closed,
+     navExpanded:document.querySelector("[data-nav-toggle]")?.getAttribute("aria-expanded")==="true",
+     navLinks:document.querySelectorAll("[data-nav] a").length};
+   },id)}catch{}
+   const code=typeof e?.message==="string"&&/^CLUB_DIST_[A-Z_]+$/.test(e.message)?e.message:"CLUB_DIST_UNEXPECTED";
+   console.log("CLUB_DIST_RESPONSIVE_FAILURE "+JSON.stringify({phase,href:safeHref,code,timeout:e?.name==="TimeoutError",observed}));
+   return false;
+  }
+ };
  try{
   for(const [mode,viewport] of [["DESKTOP",desktop],["PHONE",phone]]){
    await page.setViewportSize(viewport);
+   const beforeGroup=failures;
    for(const [index,path] of paths.entries()){
     phase="RESPONSIVE_"+mode+"_ROUTE_"+String(index+1).padStart(2,"0");
-    const before=errors;
-    await visit(page,path);
-    await page.locator("[data-nav]").waitFor({state:"attached"});
-    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
-    check(await page.evaluate(()=>document.title.trim().length>0&&!!document.querySelector("main,#root")),"RESPONSIVE_REAL_PAGE");
-    check(errors===before,"RESPONSIVE_UNCAUGHT_PAGE_ERROR");
-    await fitViewport(page,"RESPONSIVE_HORIZONTAL_OVERFLOW");
+    await attempt(path,async()=>{
+     const before=errors;
+     await visit(page,path);
+     await page.locator("[data-nav]").waitFor({state:"attached"});
+     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+     check(await page.evaluate(()=>document.title.trim().length>0&&!!document.querySelector("main,#root")),"RESPONSIVE_REAL_PAGE");
+     check(errors===before,"RESPONSIVE_UNCAUGHT_PAGE_ERROR");
+     await fitViewport(page,"RESPONSIVE_HORIZONTAL_OVERFLOW");
+    });
    }
-   log("RESPONSIVE_"+mode+"_ALL_"+paths.length+"_ROUTES");
+   if(failures===beforeGroup)log("RESPONSIVE_"+mode+"_ALL_"+paths.length+"_ROUTES");
   }
-  // Test every catalogue anchor and all six newly discoverable helpers on
-  // the narrow viewport. The real target must have a layout box, not just
-  // exist as an element hidden inside an unopened disclosure.
+  // Test every catalogue anchor and all six discoverable helpers on the
+  // narrow viewport. A hidden anchor is a failure, not a successful load.
   phase="RESPONSIVE_PHONE_CATALOG";
-  await visit(page,"/tools/");
-  const cards=await page.evaluate(()=>Array.from(document.querySelectorAll("[data-tool-level]"))
-   .map(card=>({href:card.querySelector("a[href]")?.getAttribute("href")||null})));
-  check(cards.length===25&&cards.filter(x=>x.href).length===22,"RESPONSIVE_CATALOG_22_AVAILABLE");
-  const catalogLinks=cards.map(x=>x.href).filter(x=>x&&x.includes("#"));
-  const helperLinks=await page.locator(".club-support-tools a[href]").evaluateAll(links=>links.map(a=>a.getAttribute("href")));
-  check(helperLinks.length===6,"RESPONSIVE_SUPPORT_TOOLS");
-  const links=[...new Set([...catalogLinks,...helperLinks,"/tools/personal-economy/#club-cash-until-payday",
-   "/tools/personal-economy/#club-money-calendar-start","/tools/personal-economy/#club-cash-entry","/tools/action-route/#club-week-plan"])];
+  let links=[];
+  const catalogueOK=await attempt("/tools/",async()=>{
+   await visit(page,"/tools/");
+   const cards=await page.evaluate(()=>Array.from(document.querySelectorAll("[data-tool-level]"))
+    .map(card=>({href:card.querySelector("a[href]")?.getAttribute("href")||null})));
+   check(cards.length===25&&cards.filter(x=>x.href).length===22,"RESPONSIVE_CATALOG_22_AVAILABLE");
+   const catalogLinks=cards.map(x=>x.href).filter(x=>x&&x.includes("#"));
+   const helperLinks=await page.locator(".club-support-tools a[href]").evaluateAll(links=>links.map(a=>a.getAttribute("href")));
+   check(helperLinks.length===6,"RESPONSIVE_SUPPORT_TOOLS");
+   links=[...new Set([...catalogLinks,...helperLinks,"/tools/personal-economy/#club-cash-until-payday",
+    "/tools/personal-economy/#club-money-calendar-start","/tools/personal-economy/#club-cash-entry","/tools/action-route/#club-week-plan"])];
+  });
+  const beforeAnchors=failures;
   for(const [index,href] of links.entries()){
    phase="RESPONSIVE_PHONE_ANCHOR_"+String(index+1).padStart(2,"0");
-   await visit(page,href);
-   const id=new URL(origin+href).hash.slice(1);
-   await page.locator("#"+id).waitFor({state:"visible"});
-   await poll(async()=>await page.locator("#"+id).evaluate(el=>{
-    let parent=el.closest("details");while(parent){if(!parent.open)return false;parent=parent.parentElement?.closest("details")}
-    return el.getClientRects().length>0;
-   }),"RESPONSIVE_OPEN_EXACT_DISCLOSURE",10000);
-   await fitViewport(page,"RESPONSIVE_OPEN_FORM_OVERFLOW");
+   await attempt(href,async()=>{
+    const before=errors;
+    await visit(page,href);
+    const id=new URL(origin+href).hash.slice(1);
+    check(/^[a-z0-9-]+$/.test(id),"RESPONSIVE_ANCHOR_ID");
+    await page.locator("#"+id).waitFor({state:"visible"});
+    await poll(async()=>await page.locator("#"+id).evaluate(el=>{
+     let parent=el.closest("details");while(parent){if(!parent.open)return false;parent=parent.parentElement?.closest("details")}
+     return el.getClientRects().length>0;
+    }),"RESPONSIVE_OPEN_EXACT_DISCLOSURE",10000);
+    check(errors===before,"RESPONSIVE_UNCAUGHT_PAGE_ERROR");
+    await fitViewport(page,"RESPONSIVE_OPEN_FORM_OVERFLOW");
+   });
   }
-  log("RESPONSIVE_PHONE_ALL_"+links.length+"_FUNCTION_ANCHORS");
+  if(catalogueOK&&failures===beforeAnchors)log("RESPONSIVE_PHONE_ALL_"+links.length+"_FUNCTION_ANCHORS");
+  const beforeMenus=failures;
   for(const [index,viewport] of [{width:320,height:568},{width:667,height:320}].entries()){
    await page.setViewportSize(viewport);
    for(const [routeIndex,path] of ["/","/tools/","/workspace/","/workspace/exchange/"].entries()){
     phase="RESPONSIVE_MENU_"+index+"_"+routeIndex;
-    await visit(page,path);
-    const toggle=page.locator("[data-nav-toggle]"),nav=page.locator("[data-nav]");
-    await toggle.click();
-    await nav.waitFor({state:"visible"});
-    check(await nav.locator("a").count()===5,"RESPONSIVE_MENU_ALL_ACTIONS");
-    const last=nav.locator("a").last();
-    await last.scrollIntoViewIfNeeded();
-    const rect=await last.boundingBox(),size=page.viewportSize();
-    check(!!rect&&rect.x>=-1&&rect.y>=-1&&rect.x+rect.width<=size.width+1&&rect.y+rect.height<=size.height+1,"RESPONSIVE_LAST_MENU_ACTION_REACHABLE");
-    await page.keyboard.press("Escape");
-    await poll(async()=>await toggle.getAttribute("aria-expanded")==="false","RESPONSIVE_MENU_ESCAPE");
-    check(await toggle.evaluate(el=>document.activeElement===el),"RESPONSIVE_MENU_FOCUS");
-    await fitViewport(page,"RESPONSIVE_SMALL_SCREEN_OVERFLOW");
+    await attempt(path,async()=>{
+     await visit(page,path);
+     const toggle=page.locator("[data-nav-toggle]"),nav=page.locator("[data-nav]");
+     await toggle.click();
+     await nav.waitFor({state:"visible"});
+     check(await nav.locator("a").count()===5,"RESPONSIVE_MENU_ALL_ACTIONS");
+     const last=nav.locator("a").last();
+     await last.scrollIntoViewIfNeeded();
+     const rect=await last.boundingBox(),size=page.viewportSize();
+     check(!!rect&&rect.x>=-1&&rect.y>=-1&&rect.x+rect.width<=size.width+1&&rect.y+rect.height<=size.height+1,"RESPONSIVE_LAST_MENU_ACTION_REACHABLE");
+     await page.keyboard.press("Escape");
+     await poll(async()=>await toggle.getAttribute("aria-expanded")==="false","RESPONSIVE_MENU_ESCAPE");
+     check(await toggle.evaluate(el=>document.activeElement===el),"RESPONSIVE_MENU_FOCUS");
+     await fitViewport(page,"RESPONSIVE_SMALL_SCREEN_OVERFLOW");
+    });
    }
   }
-  log("RESPONSIVE_SMALL_AND_LANDSCAPE_MENU");
+  if(failures===beforeMenus)log("RESPONSIVE_SMALL_AND_LANDSCAPE_MENU");
  }finally{await close()}
+ return failures;
 }
 async function openExisting(page){
  await page.getByRole("heading",{name:"Моё в Клубе",exact:true}).waitFor({state:"visible"});
@@ -246,7 +287,7 @@ try{
    const m=await r.json();return m.domain_origin===origin&&m.complete_static_tree===true;
   }catch{return false;}
  },"ORIGINAL_PREVIEW_READY");
- await auditResponsive();
+ const responsiveFailures=await auditResponsive();
  phase="FIRST_USE_PHONE_LAUNCH";
  let page=await launch("source",phone);
  await visit(page,"/workspace/");
@@ -2210,6 +2251,9 @@ try{
 
  }
  log("INDEPENDENT_PERSONAL_FULL_KERNEL_READBACK");
+ log("FUNCTIONAL_ROUNDTRIP");
+ phase="RESPONSIVE_FINAL_GATE";
+ check(responsiveFailures===0,"RESPONSIVE_QUALIFICATION");
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; offline same Result update; no local model inference; no physical-phone claim");
 }catch(e){
  const code=typeof e?.message==="string"&&/^CLUB_DIST_[A-Z_]+$/.test(e.message)?e.message:"CLUB_DIST_UNEXPECTED";
