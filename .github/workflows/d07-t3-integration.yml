@@ -38,7 +38,7 @@ jobs:
             --repository Faust-S/knowledge --workflow d07-t3-integration \
             --profile release-navigation-corrected \
             --reason 'Qualify the corrected print route and retain exact private release inputs' \
-            --revision site=16f437f2c1402be7cdd30bbc30b533f31856af19 \
+            --revision site=20ca06ee2f07b430dbd6b59f72822b45f0527bd4 \
             --revision domain=11ec43898d025107174df0b2cde6024c340c1cc0 \
             --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17 \
             --revision assistant=5e3083788aa541921559de29d3457d4a52bbba00 \
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 16f437f2c1402be7cdd30bbc30b533f31856af19
+          ref: 20ca06ee2f07b430dbd6b59f72822b45f0527bd4
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -58,7 +58,7 @@ jobs:
         working-directory: site
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
-        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 16f437f2c1402be7cdd30bbc30b533f31856af19
+        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 20ca06ee2f07b430dbd6b59f72822b45f0527bd4
   t3-source:
     needs: private-transport
     # Only unchanged source scopes inherit the prior qualification. The print route needs a new build.
@@ -78,8 +78,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 16f437f2c1402be7cdd30bbc30b533f31856af19
-          fetch-depth: 3
+          ref: 20ca06ee2f07b430dbd6b59f72822b45f0527bd4
+          fetch-depth: 4
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -103,12 +103,13 @@ jobs:
           REQUEST_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'release' }}
         run: |
           set -euo pipefail
-          # The exact two-commit successor repairs only the legacy print journey and its guards.
-          # Changed UI, route generation and rendered package are qualified separately.
-          if [[ "$REQUEST_MODE" == source-only || "$(git -C site rev-parse HEAD)" != "16f437f2c1402be7cdd30bbc30b533f31856af19" ]]; then exit 0; fi
-          test "$(git -C site rev-parse HEAD^)" = "121916241d16f12ecb65c05bfe497335ab37d5dc"
-          test "$(git -C site rev-parse HEAD^^)" = "482fc878b4ac365241877fc03a9eeee84ae012a0"
-          test "$(git -C site diff --name-only --no-renames HEAD^^ HEAD | LC_ALL=C sort)" = "$(printf '%s\n' scripts/audit-d07-hosting-package.mjs scripts/tests/d07-hosting-package.test.mjs scripts/tests/d07-hosting-seo-legacy.test.mjs scripts/tests/d07-legacy-workspace-nav.test.mjs src/components/WorkspacePanel.tsx src/routes/rabochaya-oblast.pechat.tsx src/routes/rabochaya-oblast_.pechat.tsx src/site-routes.ts vite.config.ts)"
+          # The exact successor changes the legacy print journey and existing link audit.
+          # All changed navigation and release gates are qualified separately.
+          if [[ "$REQUEST_MODE" == source-only || "$(git -C site rev-parse HEAD)" != "20ca06ee2f07b430dbd6b59f72822b45f0527bd4" ]]; then exit 0; fi
+          test "$(git -C site rev-parse HEAD^)" = "16f437f2c1402be7cdd30bbc30b533f31856af19"
+          test "$(git -C site rev-parse HEAD^^)" = "121916241d16f12ecb65c05bfe497335ab37d5dc"
+          test "$(git -C site rev-parse HEAD^^^)" = "482fc878b4ac365241877fc03a9eeee84ae012a0"
+          test "$(git -C site diff --name-only --no-renames HEAD^^^ HEAD | LC_ALL=C sort)" = "$(printf '%s\n' scripts/audit-d07-hosting-package.mjs scripts/check-links.ts scripts/tests/d07-hosting-package.test.mjs scripts/tests/d07-hosting-seo-legacy.test.mjs scripts/tests/d07-legacy-workspace-nav.test.mjs src/components/WorkspacePanel.tsx src/routes/rabochaya-oblast.pechat.tsx src/routes/rabochaya-oblast_.pechat.tsx src/site-routes.ts vite.config.ts)"
           test "$(git -C domain rev-parse HEAD)" = "11ec43898d025107174df0b2cde6024c340c1cc0"
           test "$(git -C assistant rev-parse HEAD)" = "5e3083788aa541921559de29d3457d4a52bbba00"
           if [[ "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/45663645049 --jq .head_sha 2>/dev/null || true)" != "903f2bb3b9e7b75fe4b8bbbe60f552428c5ae831" ]]; then exit 0; fi
@@ -116,11 +117,11 @@ jobs:
           echo "reuse=true" >> "$GITHUB_OUTPUT"
           echo D07_T3_SOURCE_QUALIFICATION_REUSED=PASS
           echo D07_T3_SOURCE_QUALIFICATION_RUN=45663645049
-      - name: Qualify the changed legacy print navigation
+      - name: Qualify changed navigation and link resolution without dependencies
         if: ${{ steps.prior-source.outputs.reuse == 'true' }}
         working-directory: site
         run: |
-          node --test scripts/tests/d07-legacy-workspace-nav.test.mjs > "$RUNNER_TEMP/d07-print-nav.log" 2>&1 || {
+          node --experimental-strip-types --test scripts/tests/d07-legacy-workspace-nav.test.mjs > "$RUNNER_TEMP/d07-print-nav.log" 2>&1 || {
             echo D07_T3_PRINT_NAV_SOURCE=FAIL
             grep -E '^# (tests|pass|fail) [0-9]+$' "$RUNNER_TEMP/d07-print-nav.log" || true
             exit 1
@@ -131,7 +132,7 @@ jobs:
         if: ${{ steps.prior-source.outputs.reuse != 'true' }}
         run: |
           test "$(git -C domain rev-parse HEAD)" = "11ec43898d025107174df0b2cde6024c340c1cc0"
-          test "$(git -C site rev-parse HEAD)" = "16f437f2c1402be7cdd30bbc30b533f31856af19"
+          test "$(git -C site rev-parse HEAD)" = "20ca06ee2f07b430dbd6b59f72822b45f0527bd4"
           cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             cmp "$path" "site/src/domain/$(basename "$path")"
@@ -273,7 +274,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 16f437f2c1402be7cdd30bbc30b533f31856af19
+          ref: 20ca06ee2f07b430dbd6b59f72822b45f0527bd4
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -309,7 +310,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(git -C site rev-parse HEAD)" = "16f437f2c1402be7cdd30bbc30b533f31856af19"
+          test "$(git -C site rev-parse HEAD)" = "20ca06ee2f07b430dbd6b59f72822b45f0527bd4"
           test "$(git -C T2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           test "$(git -C assistant rev-parse HEAD)" = "5e3083788aa541921559de29d3457d4a52bbba00"
           test "$(git -C core rev-parse HEAD)" = "326f725c44d69ac99f6b912241e9e8a6c3d716a5"
@@ -335,9 +336,9 @@ jobs:
           VITE_D07_T3: '1'
         run: |
           bun install --frozen-lockfile > "$RUNNER_TEMP/install.log" 2>&1 || { echo D07_T3_INSTALL=FAIL; exit 1; }
-          # Only the changed print navigation, actual route types and package
-          # audit are new source evidence. Do not replay unchanged domain suites.
-          node --import tsx --test scripts/tests/d07-legacy-workspace-nav.test.mjs scripts/tests/d07-hosting-seo-legacy.test.mjs scripts/tests/d07-hosting-package.test.mjs > "$RUNNER_TEMP/d07-navigation.log" 2>&1 || {
+          # The source job already ran the exact navigation and link tests.
+          # Run only the remaining changed gates requiring site dependencies.
+          node --import tsx --test scripts/tests/d07-hosting-seo-legacy.test.mjs scripts/tests/d07-hosting-package.test.mjs > "$RUNNER_TEMP/d07-navigation.log" 2>&1 || {
             echo D07_T3_NAVIGATION_TESTS=FAIL
             grep -E '^# (tests|pass|fail) [0-9]+$' "$RUNNER_TEMP/d07-navigation.log" || true
             exit 1
@@ -527,13 +528,14 @@ jobs:
             grep -E '^\[check-links\]' "$RUNNER_TEMP/d07-links.log" | cut -c1-160 || true
             exit 1
           }
+          grep -E '^\[check-links\] OK \{' "$RUNNER_TEMP/d07-links.log"
           echo D07_T3_INTERNAL_LINKS=PASS
       - name: Verify staged retained bytes and fresh checkout in a disposable local index
         if: ${{ success() && needs.t3-source.result == 'success' }}
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "16f437f2c1402be7cdd30bbc30b533f31856af19"
+          test "$(git rev-parse HEAD)" = "20ca06ee2f07b430dbd6b59f72822b45f0527bd4"
           test -z "$(git status --porcelain --untracked-files=no)"
           local="runtime/t3-platform/0.3.1-rc.1"
           node --import tsx --input-type=module -e 'import {verifyPreparedD07Host} from "./scripts/prepare-d07-t3-host.mjs";import {verifyPreparedKernelSupport} from "./scripts/prepare-d07-local-kernel-input.mjs";import {verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs";const root=process.argv[1];verifyPreparedD07Host(root+"/d07-host");verifyPreparedKernelSupport(root+"/kernel-support");verifyPlatformArchive(root+"/platform-inputs.zip")' "$local" > "$RUNNER_TEMP/d07-retain-recheck.log" 2>&1 || {
@@ -573,7 +575,7 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "16f437f2c1402be7cdd30bbc30b533f31856af19"
+          test "$(git rev-parse HEAD)" = "20ca06ee2f07b430dbd6b59f72822b45f0527bd4"
           test -z "$(git diff --name-only)"
           node scripts/verify-d07-retained-index.mjs
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: retain qualified local T3 platform inputs [skip ci] [skip actions]'
@@ -592,7 +594,7 @@ jobs:
           GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           candidate="$(git rev-parse HEAD)"
-          bash ../pipeline/scripts/d07-private-git-transport.sh publish 16f437f2c1402be7cdd30bbc30b533f31856af19 "$candidate"
+          bash ../pipeline/scripts/d07-private-git-transport.sh publish 20ca06ee2f07b430dbd6b59f72822b45f0527bd4 "$candidate"
           echo "retained_commit=$candidate" >> "$GITHUB_OUTPUT"
           echo "dist_sha256=$(sha256sum "$RUNNER_TEMP/d07-local-2.sha" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - name: Record build qualification separately from publication
