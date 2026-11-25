@@ -11,7 +11,7 @@ export const LOCAL_INFERENCE_DRAFT_DECLARATION = Object.freeze({
       text: {type: "string", minLength: 1, maxLength: 64000},
       model_id: {type: "string", minLength: 1, maxLength: 256},
       engine: {type: "string", minLength: 1, maxLength: 256},
-      origin: {const: "BROWSER_LOCAL"},
+      origin: {enum: ["BROWSER_LOCAL", "ANDROID_NATIVE"]},
       source: {const: "USER_EXPLICIT_SAVE"},
       model_integrity: {const: "NOT_ATTESTED"},
     },
@@ -76,12 +76,31 @@ function watch(context, choice) {
   return { validate, unsubscribe };
 }
 
-export async function saveLocalInferenceDraft(context, {
+export async function saveLocalInferenceDraft(context, input = {}) {
+  // Existing browser callers cannot relabel their own output as native.
+  return saveInferenceDraft(context, input, "BROWSER_LOCAL");
+}
+
+/** The installed Android product explicitly binds its completed native
+ * llama.cpp receipt to this same D5 persistence path. This is still an
+ * untrusted draft, not an attested model result or a signed Task outcome. */
+export async function saveAndroidNativeInferenceDraft(context, {
+  expected_workspace_id, model_id, output,
+} = {}) {
+  if (typeof model_id !== "string" ||
+      !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}_[A-Za-z0-9._-]{1,80}\.gguf$/.test(model_id))
+    refuse("T3_D5_NATIVE_MODEL_ID_REQUIRED");
+  return saveInferenceDraft(context, {
+    expected_workspace_id, model_id, engine: "llama.cpp", output,
+  }, "ANDROID_NATIVE");
+}
+
+async function saveInferenceDraft(context, {
   expected_workspace_id,
   model_id,
   engine,
   output,
-} = {}) {
+} = {}, origin) {
   // This is called by an explicit Save action AFTER local inference. Neither
   // the prompt nor source workspace objects are copied into the draft.
   const { workspaceId, choice } = selected(context, expected_workspace_id);
@@ -108,7 +127,7 @@ export async function saveLocalInferenceDraft(context, {
       text: draftText,
       model_id: modelId,
       engine: engineId,
-      origin: "BROWSER_LOCAL",
+      origin,
       source: "USER_EXPLICIT_SAVE",
       model_integrity: "NOT_ATTESTED",
     };
@@ -236,7 +255,11 @@ export async function getLocalInferenceDraft(context, {
         object.schema_version!=="1.0.0" || object.deleted || object.deleted_at ||
         !Number.isInteger(object.revision) || object.revision<1 ||
         !data || data.status!=="DRAFT_UNTRUSTED" ||
-        data.origin!=="BROWSER_LOCAL" || data.source!=="USER_EXPLICIT_SAVE" ||
+        !["BROWSER_LOCAL","ANDROID_NATIVE"].includes(data.origin) ||
+        (data.origin==="ANDROID_NATIVE"&&(data.engine!=="llama.cpp"||
+          typeof data.model_id!=="string"||
+          !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}_[A-Za-z0-9._-]{1,80}\.gguf$/.test(data.model_id))) ||
+        data.source!=="USER_EXPLICIT_SAVE" ||
         data.model_integrity!=="NOT_ATTESTED" ||
         typeof data.text!=="string" || !data.text.trim() ||
         typeof data.model_id!=="string" || !data.model_id.trim() ||
@@ -245,7 +268,7 @@ export async function getLocalInferenceDraft(context, {
     }
     return Object.freeze({
       workspace_id:workspaceId,object_id,revision:object.revision,
-      status:"DRAFT_UNTRUSTED",model_id:data.model_id,engine:data.engine,text:data.text,
+      status:"DRAFT_UNTRUSTED",model_id:data.model_id,engine:data.engine,origin:data.origin,text:data.text,
       readback:true,
     });
   } finally {unsubscribe();}

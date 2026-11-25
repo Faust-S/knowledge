@@ -75,6 +75,10 @@ export function saveLocalInferenceDraft(
   context: { kernel: KernelFacade; currentWorkspace: Pick<CurrentWorkspaceFacade, "get" | "subscribe"> },
   input: T3LocalInferenceDraftInput,
 ): Promise<T3LocalInferenceDraftReceipt>;
+export function saveAndroidNativeInferenceDraft(
+  context: {kernel: KernelFacade; currentWorkspace: Pick<CurrentWorkspaceFacade, "get" | "subscribe">},
+  input: {expected_workspace_id: string; model_id: string; output: string},
+): Promise<T3LocalInferenceDraftReceipt>;
 export function listLocalInferenceDrafts(
   context: { kernel: KernelFacade; currentWorkspace: Pick<CurrentWorkspaceFacade, "get" | "subscribe"> },
   input: { expected_workspace_id: string },
@@ -86,7 +90,7 @@ export function getLocalInferenceDraft(
   context: {kernel: KernelFacade;currentWorkspace: Pick<CurrentWorkspaceFacade, "get" | "subscribe">},
   input: {expected_workspace_id: string;object_id: string},
 ): Promise<{workspace_id:string;object_id:string;revision:number;
-  status:"DRAFT_UNTRUSTED";model_id:string;engine:string;text:string;readback:true}>;
+  status:"DRAFT_UNTRUSTED";model_id:string;engine:string;origin:"BROWSER_LOCAL"|"ANDROID_NATIVE";text:string;readback:true}>;
 
 /** Add this declared schema to the ORIGINAL service passport before saving.
  * Declaring it does not grant any permission to use the schema. */

@@ -344,15 +344,22 @@ export function assembleSignedControlDist({
     fail("DESKTOP_AGENT_WEBGPU_WORKER_FORBIDDEN");
   if(desktopAdminControlOnly&&workers.length!==0)
     fail("DESKTOP_ADMIN_WEBGPU_WORKER_FORBIDDEN");
-  if(androidAgentAssets&&(workers.length!==0||marks.some(Boolean)))
-    fail("ANDROID_AGENT_BROWSER_INFERENCE_FORBIDDEN");
+  // The Agent-owned Android module contributes the EXISTING D5 panel IDs,
+  // but uses the installed Capacitor plugin, not WebLLM or a second engine.
+  const androidNativeMarker=jsBodies.some(body=>body.includes("IWXA_ANDROID_NATIVE_INFERENCE_V1"));
+  if(androidNativeMarker&&!androidAgentAssets)
+    fail("ANDROID_NATIVE_INFERENCE_WRONG_PRODUCT");
+  const androidNativeInference=androidAgentAssets&&androidNativeMarker;
+  if(androidAgentAssets&&(workers.length!==0||
+      (androidNativeInference?marks.some(mark=>!mark):marks.some(Boolean))))
+    fail("ANDROID_AGENT_BROWSER_OR_INCOMPLETE_INFERENCE_FORBIDDEN");
   const localInference=(desktopAgentControlOnly||desktopAdminControlOnly||androidAgentAssets)
     ?false:marks.some(Boolean)||workers.length>0;
   if(localInference && (workers.length!==1||marks.some(mark=>!mark)||
       !readFileSync(workers[0],'utf8').includes('IWXA_NETWORK_DENIED_IN_WORKER')))
     fail('LOCAL_INFERENCE_COMPILED_MODULE_INCOMPLETE');
   let servicePassport=null,passportPath=null,serviceEntry=null;
-  if(localInference||installedOriginalAdminD3||installedOriginalAgentD6){
+  if(localInference||androidNativeInference||installedOriginalAdminD3||installedOriginalAgentD6){
     serviceEntry=catalog.entries.find(row=>
       row.service_id===config.workspace_service_id);
     passportPath=serviceEntry?.file;
@@ -363,7 +370,7 @@ export function assembleSignedControlDist({
     if(serviceEntry.sha256!==hash(passportFile))
       fail('ORIGINAL_SERVICE_PASSPORT_INTEGRITY');
     servicePassport=JSON.parse(readFileSync(passportFile,'utf8'));
-    if(localInference)
+    if(localInference||androidNativeInference)
       registerT3LocalInferenceService({domain,workspaceConfig:config,
         passport:servicePassport});
     if(installedOriginalAdminD3)
@@ -432,7 +439,7 @@ export function assembleSignedControlDist({
     }
     if(!existsSync(join(temp,'workspace/favicon.ico')))
       copyFileSync(compiledFavicon,join(temp,'workspace/favicon.ico'));
-    if(localInference||installedOriginalAdminD3||installedOriginalAgentD6){
+    if(localInference||androidNativeInference||installedOriginalAdminD3||installedOriginalAgentD6){
       // Adjust only assembled configuration/permissions and update the
       // original service-catalog integrity digest for the new passport.
       writeFileSync(join(temp,'_iwxa/domain.json'),JSON.stringify(domain));
@@ -464,7 +471,7 @@ export function assembleSignedControlDist({
       original_runtime_unchanged:true,
       autonomous_domain_mode_staged:web&&!androidAgentAssets,
       ...(androidAgentAssets?{android_agent_assets_staged:true,
-        native_model_bridge_registered:false,
+        native_model_bridge_registered:androidNativeInference,
         signed_native_owner_registered:false}:{}),output};
   }catch(error){rmSync(temp,{recursive:true,force:true});throw error;}
 }

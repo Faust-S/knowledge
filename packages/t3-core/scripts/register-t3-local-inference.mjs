@@ -41,14 +41,24 @@ export function registerT3LocalInferenceService({domain,workspaceConfig,passport
     row.module_id===LOCAL_INFERENCE_MODULE_ID);
   if(existing.length>1||(existing.length===1&&!same(existing[0],module)))
     fail("MODULE_CONFLICT");
-  if(Object.hasOwn(passport.schemas,schema) &&
-     !same(passport.schemas[schema],LOCAL_INFERENCE_DRAFT_DECLARATION))
+  // Backwards-additive D5 provenance: every old BROWSER_LOCAL object
+  // remains valid. Only the exact previously published declaration may be
+  // upgraded in-place at assembly; unrelated same-ID schemas still fail.
+  const legacy={...LOCAL_INFERENCE_DRAFT_DECLARATION,json_schema:{
+    ...LOCAL_INFERENCE_DRAFT_DECLARATION.json_schema,properties:{
+      ...LOCAL_INFERENCE_DRAFT_DECLARATION.json_schema.properties,
+      origin:{const:"BROWSER_LOCAL"},
+    }}};
+  const existingSchema=passport.schemas[schema];
+  const legacySchema=Object.hasOwn(passport.schemas,schema)&&same(existingSchema,legacy);
+  if(Object.hasOwn(passport.schemas,schema)&&!legacySchema&&
+     !same(existingSchema,LOCAL_INFERENCE_DRAFT_DECLARATION))
     fail("SCHEMA_CONFLICT");
   // All preflight checks above run before the first mutation. Existing
   // service and other subject/module permissions are never replaced.
   if(existing.length===0)workspaceConfig.modules.push(module);
   for(const row of rows)append(row,schema);
-  if(!Object.hasOwn(passport.schemas,schema))
+  if(!Object.hasOwn(passport.schemas,schema)||legacySchema)
     passport.schemas[schema]=LOCAL_INFERENCE_DRAFT_DECLARATION;
   return {module_id:LOCAL_INFERENCE_MODULE_ID,schema_id:schema,
     registered:true,already_registered:existing.length===1};

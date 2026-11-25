@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   LOCAL_INFERENCE_DRAFT_SCHEMA, saveLocalInferenceDraft,
-  listLocalInferenceDrafts, getLocalInferenceDraft,
+  listLocalInferenceDrafts, getLocalInferenceDraft, saveAndroidNativeInferenceDraft,
+  LOCAL_INFERENCE_DRAFT_DECLARATION,
 } from "../src/t3/local-inference-draft.mjs";
 
 const WSA="ws:local-a",WSB="ws:foreign-b";
@@ -285,4 +286,40 @@ test("D5 remains recoverably uncertain when Kernel rejects putObject before comm
     expected_workspace_id:WSA,object_id:uncertain.object_id,
   }),{code:"T3_D5_DRAFT_READBACK_INVALID"});
   assert.equal(f.store.size,0,"no speculative duplicate or repair object");
+});
+
+test("Android native D5 uses the original object/event and is never a browser or signed result",async()=>{
+  const f=fixture();
+  const nativeModel="00000000-0000-0000-0000-000000000001_qa.gguf";
+  const receipt=await saveAndroidNativeInferenceDraft(f.context,{
+    expected_workspace_id:WSA,model_id:nativeModel,output:"native suggestion",
+  });
+  const object=f.store.get(receipt.object_id);
+  assert.equal(object.data.origin,"ANDROID_NATIVE");
+  assert.equal(object.data.engine,"llama.cpp");
+  assert.equal(object.data.status,"DRAFT_UNTRUSTED");
+  assert.equal(object.data.model_integrity,"NOT_ATTESTED");
+  assert.equal(object.schema_id,LOCAL_INFERENCE_DRAFT_SCHEMA);
+  assert.equal(object.schema_version,"1.0.0");
+  assert.deepEqual(LOCAL_INFERENCE_DRAFT_DECLARATION.json_schema.properties.origin.enum,
+    ["BROWSER_LOCAL","ANDROID_NATIVE"]);
+  const opened=await getLocalInferenceDraft(f.context,{
+    expected_workspace_id:WSA,object_id:receipt.object_id,
+  });
+  assert.equal(opened.origin,"ANDROID_NATIVE");
+  assert.equal(opened.engine,"llama.cpp");
+  assert.equal(opened.text,"native suggestion");
+  assert.equal(f.calls.filter(x=>x[0]==="putObject").length,1);
+});
+test("browser D5 cannot change provenance by passing an extra field",async()=>{
+  const f=fixture();
+  const receipt=await saveLocalInferenceDraft(f.context,{...INPUT,origin:"ANDROID_NATIVE"});
+  assert.equal(f.store.get(receipt.object_id).data.origin,"BROWSER_LOCAL");
+});
+test("Android D5 rejects non-native model identity before touching Kernel",async()=>{
+  const f=fixture();
+  await assert.rejects(saveAndroidNativeInferenceDraft(f.context,{
+    expected_workspace_id:WSA,model_id:"not-a-native-file",output:"text",
+  }),{code:"T3_D5_NATIVE_MODEL_ID_REQUIRED"});
+  assert.deepEqual(f.calls,[]);
 });

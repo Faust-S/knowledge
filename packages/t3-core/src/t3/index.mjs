@@ -65,7 +65,7 @@ export { createSignedAccessHostPort } from "./signed-access-host-port.mjs";
 
 export {
   LOCAL_INFERENCE_DRAFT_SCHEMA, LOCAL_INFERENCE_DRAFT_DECLARATION,
-  saveLocalInferenceDraft, listLocalInferenceDrafts, getLocalInferenceDraft,
+  saveLocalInferenceDraft, saveAndroidNativeInferenceDraft, listLocalInferenceDrafts, getLocalInferenceDraft,
 } from "./local-inference-draft.mjs";
 export { createTrustedReconciliationAdmission } from './reconciliation-owner-admission.mjs';
 export { createTrustedReconciliationKernelApply } from './reconciliation-kernel-apply.mjs';
