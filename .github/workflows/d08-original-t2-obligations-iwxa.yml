@@ -1,8 +1,5 @@
 name: D08 original T2 obligations full independent iwxa qualification
 on:
-  push:
-    branches: [work/2026-11-02-pipeline-foundation]
-    paths: [.github/workflows/d08-original-t2-obligations-iwxa.yml]
   workflow_dispatch:
 permissions:
   contents: read

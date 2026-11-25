@@ -1,8 +1,5 @@
 name: D11 full live Windows Linux acceptance
 on:
-  push:
-    branches: [work/2026-11-02-pipeline-foundation]
-    paths: [.github/workflows/d11-live-product-acceptance.yml]
   workflow_dispatch:
 permissions:
   contents: read

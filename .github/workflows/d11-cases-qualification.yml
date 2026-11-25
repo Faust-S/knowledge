@@ -1,8 +1,5 @@
 name: D11 CASE-001..010 qualification
 on:
-  push:
-    branches: [work/2026-11-02-pipeline-foundation]
-    paths: [.github/workflows/d11-cases-qualification.yml]
   workflow_dispatch:
 permissions:
   contents: read

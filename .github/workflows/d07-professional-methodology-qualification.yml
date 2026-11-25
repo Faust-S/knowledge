@@ -1,8 +1,5 @@
 name: D07 professional methodology V9.1 private-source qualification
 on:
-  push:
-    branches: [work/2026-11-02-pipeline-foundation]
-    paths: [.github/workflows/d07-professional-methodology-qualification.yml]
   workflow_dispatch:
 permissions:
   contents: read

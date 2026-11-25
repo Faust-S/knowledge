@@ -1,9 +1,5 @@
 name: D07 T3 local preview and retained byte portability
 on:
-  push:
-    branches: [work/2026-11-02-pipeline-foundation]
-    # Keep the cross-platform matrix for explicit portability milestones.
-    paths: [.github/qualification/d07-t3-portability-request.json]
   workflow_dispatch:
 permissions:
   contents: read

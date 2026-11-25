@@ -1,8 +1,5 @@
 name: D08 isolated native React obligation form
 on:
-  push:
-    branches: [work/2026-11-02-pipeline-foundation]
-    paths: [.github/workflows/d08-obligation-form-native-preflight.yml]
   workflow_dispatch:
 permissions:
   contents: read

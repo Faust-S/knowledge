@@ -1,9 +1,5 @@
 name: D07 T3 original-platform integration
 on:
-  push:
-    branches: [work/2026-11-02-pipeline-foundation]
-    # Update the qualification request only for a complete candidate.
-    paths: [.github/qualification/d07-t3-release-request.json]
   workflow_dispatch:
     inputs:
       mode:
