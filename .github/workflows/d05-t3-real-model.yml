@@ -8,7 +8,7 @@ on:
     inputs:
       site_sha:
         type: string
-        default: 'bb8f1bd09c987879a003a90a09d3dd965acabd55'
+        default: '6f75b3af3abecd8adc7b5678c9e3d36ebc7a3e0a'
       domain_sha:
         type: string
         default: '7d44995b536bc57eb0acff63d876d255c034fb77'
@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: ${{ inputs.site_sha || 'bb8f1bd09c987879a003a90a09d3dd965acabd55' }}
+          ref: ${{ inputs.site_sha || '6f75b3af3abecd8adc7b5678c9e3d36ebc7a3e0a' }}
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false

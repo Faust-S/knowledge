@@ -8,7 +8,7 @@ on:
     inputs:
       site_sha:
         type: string
-        default: 'bb8f1bd09c987879a003a90a09d3dd965acabd55'
+        default: '6f75b3af3abecd8adc7b5678c9e3d36ebc7a3e0a'
       domain_sha:
         type: string
         default: '7d44995b536bc57eb0acff63d876d255c034fb77'
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: ${{ inputs.site_sha || 'bb8f1bd09c987879a003a90a09d3dd965acabd55' }}
+          ref: ${{ inputs.site_sha || '6f75b3af3abecd8adc7b5678c9e3d36ebc7a3e0a' }}
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -85,25 +85,25 @@ jobs:
           const repo="repos/Faust-S/cehovod.ru";
           const fail=code=>{throw Error("D05_T3_RETAINED_PREFLIGHT_"+code);};
           const git=args=>execFileSync("git",args,{stdio:["ignore","pipe","pipe"]});
-          const api=(method,path,body)=>{
+          const api=(phase,method,path,body)=>{
             try{return JSON.parse(execFileSync("gh",["api","--method",method,repo+path,...(body===undefined?[]:["--input","-"])],{
               input:body===undefined?undefined:JSON.stringify(body),encoding:"utf8",
               maxBuffer:8*1024*1024,stdio:["pipe","pipe","pipe"]
             }));}catch(error){
               const status=String(error?.stderr||"").match(/\bHTTP\s+([1-5][0-9]{2})\b/)?.[1];
-              fail(status?"HTTP_"+status:"TRANSPORT_FAIL");
+              fail(phase+"_"+(status?"HTTP_"+status:"TRANSPORT_FAIL"));
             }
           };
           try{
             const base=process.env.SOURCE_SHA;
             if(!/^[a-f0-9]{40}$/.test(base)||git(["rev-parse","HEAD"]).toString().trim()!==base)fail("BASE");
-            const meta=api("GET","");
+            const meta=api("REPO","GET","");
             if(meta.full_name!=="Faust-S/cehovod.ru"||meta.private!==true||meta.permissions?.push!==true)fail("PRIVATE_PERMISSION");
-            const ref=api("GET","/git/ref/heads/work/2026-11-25-d05-t3-retained-inputs");
+            const ref=api("REF","GET","/git/ref/heads/work/2026-11-25-d05-t3-retained-inputs");
             const target=process.env.TARGET_BASE_SHA;
             if(!/^[a-f0-9]{40}$/.test(target||"")||ref.object?.sha!==target)fail("REMOTE_BASE_CHANGED");
             if(target!==base){
-              const comparison=api("GET","/compare/"+target+"..."+base);
+              const comparison=api("ANCESTRY","GET","/compare/"+target+"..."+base);
               if(comparison.status!=="ahead"||comparison.merge_base_commit?.sha!==target||comparison.behind_by!==0)
                 fail("REMOTE_BASE_NOT_ANCESTOR");
             }
@@ -113,7 +113,7 @@ jobs:
             const sha=git(["rev-parse","HEAD:"+path]).toString().trim();
             const bytes=git(["cat-file","blob",sha]);
             if(!/^[a-f0-9]{40}$/.test(sha)||!bytes.length||bytes.length>4096)fail("PROBE_BLOB");
-            const saved=api("POST","/git/blobs",{content:bytes.toString("base64"),encoding:"base64"});
+            const saved=api("BLOB_WRITE","POST","/git/blobs",{content:bytes.toString("base64"),encoding:"base64"});
             if(saved.sha!==sha)fail("BLOB_SHA");
             console.log("D05_T3_RETAINED_PREFLIGHT_WRITE_PASS");
           }catch(error){
@@ -169,7 +169,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node --test scripts/lib/t3-webgpu-probe.test.mjs scripts/prepare-t3-retained-commit.test.mjs
+          node --test scripts/lib/t3-webgpu-probe.test.mjs scripts/prepare-t3-retained-commit.test.mjs scripts/check-t3-preview.test.mjs
           node --check scripts/verify-cehovod-t3-product.mjs
           node --experimental-strip-types --test scripts/lib/t3-assistant-vite-config.test.mjs
           node --check public/assets/cehovod-t3-bootstrap.mjs
@@ -360,7 +360,7 @@ jobs:
           // strings, identifiers, patches containing code, or formatter diagnostics.
           const layout=/^[ \t\r\n"'\x60,;(){}\[\]\\]*$/u;
           const isLayout=c=>c!==undefined&&layout.test(c);
-          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts","scripts/d05-first-use-real-kernel-witness.mjs","scripts/d05-t3-real-model-witness.mjs","scripts/prerender.ts","src/lib/static-router-freshness.ts","src/lib/static-router-freshness.test.ts","scripts/lib/loopback-tls-pin.mjs","scripts/lib/t3-webgpu-probe.mjs","scripts/lib/t3-webgpu-probe.test.mjs","scripts/lib/cehovod-product-invocation.mjs","scripts/lib/cehovod-product-invocation.test.mjs","scripts/serve-cehovod-t2.mjs","scripts/serve-cehovod-t2.test.mjs","scripts/verify-cehovod-t3-product.mjs","scripts/lib/t3-assistant-vite-config.mjs","scripts/lib/t3-assistant-vite-config.test.mjs","scripts/prepare-t3-retained-commit.test.mjs","scripts/prepare-t3-retained-commit.mjs","src/styles.css","scripts/check-t3-retained-checkout.mjs","scripts/check-t3-assistant-dynamic.ts","scripts/check-t3-native-context.mjs","src/components/site/T3ContextActions.tsx","src/routes/instrumenty.sebestoimost-zakaza.tsx","src/routes/instrumenty.marshrut-i-srok.tsx","src/routes/instrumenty.make-or-buy.tsx"]);
+          const allow=new Set(["scripts/check-htaccess.ts","scripts/lib/cehovod-apache-assets.mjs","scripts/lib/cehovod-apache-assets.test.mjs","scripts/check-t3-preview.mjs","scripts/check-t3-preview.test.mjs","public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts","scripts/d05-first-use-real-kernel-witness.mjs","scripts/d05-t3-real-model-witness.mjs","scripts/prerender.ts","src/lib/static-router-freshness.ts","src/lib/static-router-freshness.test.ts","scripts/lib/loopback-tls-pin.mjs","scripts/lib/t3-webgpu-probe.mjs","scripts/lib/t3-webgpu-probe.test.mjs","scripts/lib/cehovod-product-invocation.mjs","scripts/lib/cehovod-product-invocation.test.mjs","scripts/serve-cehovod-t2.mjs","scripts/serve-cehovod-t2.test.mjs","scripts/verify-cehovod-t3-product.mjs","scripts/lib/t3-assistant-vite-config.mjs","scripts/lib/t3-assistant-vite-config.test.mjs","scripts/prepare-t3-retained-commit.test.mjs","scripts/prepare-t3-retained-commit.mjs","src/styles.css","scripts/check-t3-retained-checkout.mjs","scripts/check-t3-assistant-dynamic.ts","scripts/check-t3-native-context.mjs","src/components/site/T3ContextActions.tsx","src/routes/instrumenty.sebestoimost-zakaza.tsx","src/routes/instrumenty.marshrut-i-srok.tsx","src/routes/instrumenty.make-or-buy.tsx"]);
           for(const row of rows.filter(r=>r.errorCount)){
             const path=relative(process.cwd(),row.filePath);
             if(!allow.has(path)||row.messages.some(m=>m.severity===2&&m.ruleId!=="prettier/prettier"))continue;
@@ -468,6 +468,19 @@ jobs:
             exit 1
           fi
           echo D05_T3_PROTECTED_BUILD_PASS
+      - name: Read the already assembled product through the actual T3 preview CLI
+        if: inputs.full_release
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-preview.log"
+          if ! npm run check:t3-preview -- "$RUNNER_TEMP/d05-t3-protected-host" "$RUNNER_TEMP/platform-inputs.zip" >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_[A-Z0-9_]+|CEHOVOD_T2_[A-Z0-9_]+' "$log" | sort -u | head -30 || true
+            echo D05_T3_PREVIEW_FAIL
+            exit 1
+          fi
+          grep -Fx 'CEHOVOD_T3_PREVIEW_PASS {"files":10,"notFound":true,"exactBytes":true}' "$log"
       - name: Install original witness dependencies
         if: inputs.full_release
         working-directory: one-core/packages/t3-core

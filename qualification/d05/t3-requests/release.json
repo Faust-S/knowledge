@@ -1,12 +1,13 @@
 {
   "schema": "IWXA_D05_T3_GROUPED_QUALIFICATION_REQUEST/1",
-  "siteCommit": "bb8f1bd09c987879a003a90a09d3dd965acabd55",
+  "siteCommit": "6f75b3af3abecd8adc7b5678c9e3d36ebc7a3e0a",
   "subjectCommit": "7d44995b536bc57eb0acff63d876d255c034fb77",
   "assistantCommit": "5e3083788aa541921559de29d3457d4a52bbba00",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
   "expectedRetainedBase": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
-  "reason": "Freeze one integrated candidate after the complete skill 1.3.1 functional regression and exact formatter corrections. Owner requests grouped qualification with existing DOMEN.",
+  "reason": "One grouped retry after the exact source-gate failure in 45604303797: qualify actual Apache assets and trusted preview on the existing loopback dist. Existing DOMEN unchanged; no independent probe or duplicate build.",
   "priorReceipts": [
+    45604303797,
     45601192204,
     45593833064,
     45594346638,
