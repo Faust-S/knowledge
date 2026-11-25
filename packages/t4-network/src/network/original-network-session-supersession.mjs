@@ -11,6 +11,8 @@ import {createT4CandidateSupersessionClaim,T4_SESSION_SUPERSESSION_EXTENSION,
 import {prepareT4CandidateOpaqueChunks} from './standard-network-opaque-chunks.mjs';
 import {createT4OriginalReplacementOwnerEligibilityRequest,validateT4OriginalReplacementOwnerEligibilitySnapshot}
   from './original-network-replacement-owner-eligibility.mjs';
+import {createT4OriginalReplacementOwnerSourceAdmissionRequest,validateT4OriginalReplacementOwnerSourceAdmissionSnapshot}
+  from './original-network-replacement-owner-history.mjs';
 
 // A control exchange over the original wire/Vault/phase ports. This
 // qualifies retirement only. It does not publish a new transfer, grant
@@ -840,22 +842,36 @@ export async function advanceT4OriginalReplacementSourceHandshake({
 /** Fresh, original-owner admission of the recipient-side successor diff.
  * An authenticated HEADS alone does not prove source INTENT was committed. */
 export async function readT4OriginalReplacementRecipientAdmission({
-  sourceAdmissionPhasePort,authorizeOriginalReplacementRecipientAdmission,...headPorts
+  sourceAdmissionPhasePort=null,readOriginalSourceAdmission=null,authorizeOriginalReplacementRecipientAdmission,...headPorts
 }={}){
   const {getMode}=headPorts;
-  if(sourceAdmissionPhasePort?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||
-    sourceAdmissionPhasePort.role!=='SOURCE'||sourceAdmissionPhasePort.originalT3TechnicalWorkspaceOnly!==true||
-    sourceAdmissionPhasePort.createsSecondStore!==false||!ID(sourceAdmissionPhasePort.checkpointRef)||
-    typeof sourceAdmissionPhasePort.inspectOriginalSession!=='function'||
+  const ownerRead=readOriginalSourceAdmission!==null;
+  if((ownerRead?(sourceAdmissionPhasePort!==null||typeof readOriginalSourceAdmission!=='function'||
+      typeof headPorts.readOriginalOwnerEligibility!=='function'||headPorts.requesterNodeRef!==headPorts.originalCaptureSession?.recipientNodeRef):
+    (sourceAdmissionPhasePort?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||
+      sourceAdmissionPhasePort.role!=='SOURCE'||sourceAdmissionPhasePort.originalT3TechnicalWorkspaceOnly!==true||
+      sourceAdmissionPhasePort.createsSecondStore!==false||!ID(sourceAdmissionPhasePort.checkpointRef)||
+      typeof sourceAdmissionPhasePort.inspectOriginalSession!=='function'))||
     typeof authorizeOriginalReplacementRecipientAdmission!=='function')
     fail('REPLACEMENT_RECIPIENT_ADMISSION_PORTS_REQUIRED');
   const current=async()=>{
     const {eligibility,head}=await readReplacementSourceHeadEvidence(headPorts),c=eligibility.candidate;
     if(head===null)fail('REPLACEMENT_RECIPIENT_HEAD_NOT_PRESENT');
-    const sourceIntent=clone(await sourceAdmissionPhasePort.inspectOriginalSession());mode(getMode);
-    if(sourceIntent?.checkpointRef!==sourceAdmissionPhasePort.checkpointRef||
-      !same(sourceIntent.originalReplacementSourceAdmission,sourceAdmissionPhasePort.originalReplacementSourceAdmission))
-      fail('REPLACEMENT_RECIPIENT_SOURCE_ADMISSION_CHANGED');
+    let sourceIntent;
+    if(ownerRead){
+      const request=createT4OriginalReplacementOwnerSourceAdmissionRequest({session:c,requesterNodeRef:c.recipientNodeRef,ownerNodeRef:c.sourceNodeRef});
+      const raw=await readOriginalSourceAdmission(request);mode(getMode);
+      if(raw===null)fail('REPLACEMENT_RECIPIENT_SOURCE_ADMISSION_NOT_READY');
+      const verified=validateT4OriginalReplacementOwnerSourceAdmissionSnapshot(raw,request);
+      if(verified.state!=='ORIGINAL_SOURCE_INTENT_HISTORY_VERIFIED')fail('REPLACEMENT_RECIPIENT_SOURCE_ADMISSION_NOT_READY');
+      sourceIntent=verified.phase;
+      if(verified.head.key!==head.key||verified.head.sha256!==head.sha256)fail('REPLACEMENT_RECIPIENT_SOURCE_ADMISSION_CHANGED');
+    }else{
+      sourceIntent=clone(await sourceAdmissionPhasePort.inspectOriginalSession());mode(getMode);
+      if(sourceIntent?.checkpointRef!==sourceAdmissionPhasePort.checkpointRef||
+        !same(sourceIntent.originalReplacementSourceAdmission,sourceAdmissionPhasePort.originalReplacementSourceAdmission))
+        fail('REPLACEMENT_RECIPIENT_SOURCE_ADMISSION_CHANGED');
+    }
     return validateT4OriginalReplacementRecipientAdmissionEvidence({
       schema:'IWXA_T4_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_EVIDENCE_V1',eligibility,head,sourceIntent,
       originalRecipientAdmissionVerified:true,originalNewAttemptAdmissionStillRequired:true,
@@ -955,6 +971,65 @@ export async function publishT4OriginalReplacementRecipientDiff({
     originalSignedBytesRetained:true,networkPublished:true,originalNewAttemptAdmissionStillRequired:true,
     originalBusinessApplied:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,
     originalSubjectMutationInvoked:false,liveNetworkAuthorityGranted:false});
+}
+
+/** One recipient continuation. The authenticated owner read supplies only
+ * the source's original INTENT; actual HEADS still passes live verification
+ * and replay protection. No recipient subject or frontier write is allowed. */
+export async function advanceT4OriginalReplacementRecipientHandshake({originalCaptureSession,sourceCursorBefore,retired,selection=null,
+  readOriginalOwnerEligibility,readOriginalSourceAdmission,authorizeOriginalReplacement,authorizeOriginalReplacementRecipientAdmission,
+  createOriginalReplacementRecipientPublicationPort,resolveOriginalSigningContext,signOriginalNodeBytes,
+  frameDiscoveryPort,requiredCryptoSuite,getMode,retryMissing=false}={}){
+  const root=validateT4OriginalNativeCaptureSession(originalCaptureSession),before=freeze(clone(sourceCursorBefore)),
+    stop=freeze(clone(retired)),local=selection===null?null:freeze(clone(selection));
+  if(stop?.originalAttemptSuperseded!==true||!ID(stop.replacementSessionRef)||!ID(stop.originalSupersessionEventId)||
+    !ID(stop.originalRetiredPhaseCheckpointRef)||!DIG(stop.originalRetiredPhaseChainHash)||
+    !Number.isSafeInteger(stop.originalRetiredPhaseRevision)||stop.originalRetiredPhaseRevision<1||stop.originalRetiredPhaseRevision>3||
+    stop.originalNewAttemptAdmissionStillRequired!==true||stop.liveNetworkAuthorityGranted!==false||
+    stop.originalSubjectMutationInvoked!==false||stop.sourceCursorAdvanced!==false||
+    ![readOriginalOwnerEligibility,readOriginalSourceAdmission,authorizeOriginalReplacement,authorizeOriginalReplacementRecipientAdmission,
+      createOriginalReplacementRecipientPublicationPort,resolveOriginalSigningContext,signOriginalNodeBytes,getMode].every(f=>typeof f==='function')||
+    typeof retryMissing!=='boolean')fail('REPLACEMENT_HOST_RECIPIENT_HANDSHAKE_PORTS_REQUIRED');
+  const matches=c=>c.sessionRef===stop.replacementSessionRef&&same(c.originalCaptureSession,root)&&
+    c.replacement.recipientPhaseRef===stop.originalRetiredPhaseCheckpointRef&&
+    c.replacement.recipientPhaseEventId===stop.originalSupersessionEventId&&
+    c.replacement.recipientPhaseRevision===stop.originalRetiredPhaseRevision&&
+    c.replacement.recipientPhaseChainHash===stop.originalRetiredPhaseChainHash;
+  if(local!==null){
+    const c=validateT4OriginalReplacementSessionCandidate(local.session);
+    if(local.schema!=='IWXA_T4_ORIGINAL_LOCAL_REPLACEMENT_SELECTION_V1'||local.role!=='RECIPIENT'||!matches(c)||
+      !same(local.sourceCursorBefore,before)||!same(local.retired,stop)||local.originalLocalPhase!==null||local.originalLocalPhaseRevision!==0||
+      !Number.isSafeInteger(local.originalLocalPublicationRevision)||local.originalLocalPublicationRevision<1||
+      local.originalLocalPublicationChainVerified!==true||local.originalLocalRetirementEventVerified!==true||
+      local.originalLocalHistoricalSignaturesVerified!==true||local.originalPeerOwnerReadStillRequired!==true||
+      local.liveNetworkAuthorityGranted!==false||local.originalSubjectMutationInvoked!==false||local.sourceCursorAdvanced!==false||
+      local.recipientCursorAdvanced!==false||local.originalNewAttemptAdmissionStillRequired!==true||
+      local.originalLocalFrames?.length!==1||local.originalLocalFrames[0].sequence!==1||
+      local.originalLocalFrames[0].messageType!=='DIFF_REQUEST'||!SHA(local.originalLocalFrames[0].sha256)||
+      !['PREPARED','ATTEMPTED'].includes(local.originalLocalFrames[0].state))
+      fail('REPLACEMENT_HOST_RECIPIENT_HANDSHAKE_SELECTION_INVALID');
+  }
+  const result=(state,extra={})=>freeze({schema:'IWXA_T4_ORIGINAL_HOST_REPLACEMENT_RECIPIENT_HANDSHAKE_V1',state,
+    replacementSessionRef:stop.replacementSessionRef,originalSupersessionEventId:stop.originalSupersessionEventId,
+    originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,
+    originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false,...extra});
+  try{
+    const diff=await publishT4OriginalReplacementRecipientDiff({originalCaptureSession:root,sourceCursorBefore:before,
+      requesterNodeRef:root.recipientNodeRef,requiredCryptoSuite,getMode,readOriginalOwnerEligibility,
+      authorizeOriginalReplacement:async proof=>{
+        const c=validateT4OriginalReplacementSessionCandidate(proof.candidate);
+        if(!matches(c)||(local!==null&&!same(c,local.session)))fail('REPLACEMENT_HOST_RECIPIENT_HANDSHAKE_RETIREMENT_CHANGED');
+        return authorizeOriginalReplacement(proof);
+      },readOriginalSourceAdmission,authorizeOriginalReplacementRecipientAdmission,createOriginalReplacementRecipientPublicationPort,
+      resolveOriginalSigningContext,signOriginalNodeBytes,frameDiscoveryPort,retryMissing});
+    return result('ORIGINAL_REPLACEMENT_RECIPIENT_DIFF_PUBLISHED',{publicationState:diff.publicationState,originalLocalReadbackRequired:true});
+  }catch(error){
+    if(!['REPLACEMENT_ORIGINAL_OWNER_ELIGIBILITY_NOT_READY','REPLACEMENT_RECIPIENT_HEAD_NOT_PRESENT','REPLACEMENT_RECIPIENT_SOURCE_ADMISSION_NOT_READY'].includes(error?.code))throw error;
+    mode(getMode);
+    return result('WAITING_FOR_REPLACEMENT_ELIGIBILITY',{originalLocalReadbackRequired:true,automaticRetryAllowed:false,
+      replacementWake:{session:{sessionRef:stop.replacementSessionRef},originalLocalPhase:null,
+        originalLocalPublicationRevision:local?.originalLocalPublicationRevision??0}});
+  }
 }
 
 /** Read-only completion of the successor handshake on the source. The

@@ -1002,7 +1002,7 @@ async function executeNativeRecipientOwnerStep(p,options){
         fail('RECIPIENT_NATIVE_OWNER_LOCAL_RETIREMENT_CHANGED');
       return result('WAITING_FOR_REPLACEMENT_ADMISSION',{originalHostSessionRef:initial.hostSessionRef,
         originalHostTaskOwnerVerified:true,sourceCursorBefore:before,sourceCursorAfter:before,
-        sessionRef:session.sessionRef,changeId:session.changeId,originalLocalRetirementRecovered:true,...actual});
+        sessionRef:session.sessionRef,changeId:session.changeId,originalCaptureSession:session,originalLocalRetirementRecovered:true,...actual});
     }
   }
   const selected=structuredClone(useSignedSourceAnnouncement?await discoverT4OriginalSourceSessionAnnouncement({

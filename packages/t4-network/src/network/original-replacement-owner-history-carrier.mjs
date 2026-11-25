@@ -4,7 +4,8 @@
 import {createHash} from 'node:crypto';
 import {snapshot} from '../../../t3-core/src/t3/access/core.mjs';
 import {strictJson} from '../../../t3-core/src/t3/access/strict-json.mjs';
-import {createT4OriginalReplacementOwnerHistoryRequest,validateT4OriginalReplacementOwnerHistorySnapshot}
+import {createT4OriginalReplacementOwnerHistoryRequest,validateT4OriginalReplacementOwnerHistorySnapshot,
+  T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST,createT4OriginalReplacementOwnerSourceAdmissionRequest,validateT4OriginalReplacementOwnerSourceAdmissionSnapshot}
   from './original-network-replacement-owner-history.mjs';
 import {T4_REPLACEMENT_ELIGIBILITY_REQUEST,createT4OriginalReplacementOwnerEligibilityRequest,validateT4OriginalReplacementOwnerEligibilitySnapshot}
   from './original-network-replacement-owner-eligibility.mjs';
@@ -25,7 +26,8 @@ function exactKeys(v,keys){return v&&typeof v==='object'&&!Array.isArray(v)&&
 // historical terminal receipt cannot be substituted for current eligibility.
 export function normalizeT4OriginalReplacementOwnerRequest(raw){
   const r=raw?.schema===T4_REPLACEMENT_ELIGIBILITY_REQUEST?createT4OriginalReplacementOwnerEligibilityRequest(raw):
-    createT4OriginalReplacementOwnerHistoryRequest(raw);
+    raw?.schema===T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST?createT4OriginalReplacementOwnerSourceAdmissionRequest(raw):
+      createT4OriginalReplacementOwnerHistoryRequest(raw);
   if(!same(raw,r))fail('REPLACEMENT_HISTORY_CARRIER_REQUEST_INVALID');return r;
 }
 const request=normalizeT4OriginalReplacementOwnerRequest;
@@ -48,6 +50,9 @@ function mapSnapshot(raw,r,encoding){
   if(raw===null)return null;
   if(r.schema===T4_REPLACEMENT_ELIGIBILITY_REQUEST){
     const v=validateT4OriginalReplacementOwnerEligibilitySnapshot(raw,r);snapshot(v);return v;
+  }
+  if(r.schema===T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST){
+    const v=validateT4OriginalReplacementOwnerSourceAdmissionSnapshot(raw,r);snapshot(v);return v;
   }
   const v=validateT4OriginalReplacementOwnerHistorySnapshot(raw,r);
   if(!exactKeys(v,['schema','request','role','state','phaseCheckpointRef','originalHistoricalEvidenceOnly','originalOwnerReadOnly',
