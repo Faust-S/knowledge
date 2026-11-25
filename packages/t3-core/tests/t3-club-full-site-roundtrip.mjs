@@ -1811,6 +1811,36 @@ try{
  check(!(await page.locator("[data-club-goal-list]").textContent()).includes("Остались обязательства:")&&
   await page.locator("[data-club-goal-review-worklist] a[data-club-goal-review-source]").count()===0,"GOAL_REVIEW_RESOLVED_OBLIGATION_REMOVED");
  log("INDEPENDENT_GOAL_REVIEW_EXACT_CASH_AND_RETURN");
+ phase="INDEPENDENT_GOAL_REVIEW_SAVE_CORRECTION";
+ const journalSaves=page.locator("[data-club-goal-journal-saves]");
+ await poll(async()=>(await journalSaves.textContent()).includes("Денежный календарь: изменения пока в этой вкладке"),"GOAL_REVIEW_LOCAL_CORRECTION_VISIBLE");
+ const saveJournal=journalSaves.getByRole("link",{name:"Сохранить денежный календарь",exact:true});
+ const saveUrl=new URL(await saveJournal.getAttribute("href"),page.url());
+ check(saveUrl.pathname==="/workspace/"&&saveUrl.searchParams.get("save")==="personal-economy"&&
+  saveUrl.searchParams.get("workspace_id")===restoredCash.kernelSource.workspaceId,"GOAL_REVIEW_SAVE_EXACT_JOURNAL_SCOPE");
+ await saveJournal.click();
+ const correctionImport=page.getByTestId("club-t0-import-card");
+ await correctionImport.getByTestId("club-t0-import-preview").waitFor({state:"visible"});
+ const correctionScope=correctionImport.getByTestId("club-t0-import-workspace-choice").filter({visible:true});
+ await poll(async()=>await correctionScope.count()===1,"GOAL_REVIEW_SAVE_SCOPE_AVAILABLE");
+ check(await correctionScope.getAttribute("data-workspace-id")===restoredCash.kernelSource.workspaceId,"GOAL_REVIEW_SAVE_SCOPE");
+ if(await correctionScope.getAttribute("aria-pressed")!=="true")await correctionScope.click();
+ await poll(async()=>await correctionScope.getAttribute("aria-pressed")==="true","GOAL_REVIEW_SAVE_SCOPE_FOCUSED");
+ await correctionImport.getByLabel("Подтверждаю сохранение изменений. При конфликте прежняя запись останется без изменений.",{exact:true}).check();
+ const correctionSave=correctionImport.getByRole("button",{name:"Сохранить изменения",exact:true});
+ await poll(async()=>await correctionSave.isEnabled(),"GOAL_REVIEW_SAVE_READY");
+ await correctionSave.click();
+ await poll(async()=>{const row=await localCash();return row?.objectId===restoredCash.objectId&&
+  row.kernelSource?.workspaceId===restoredCash.kernelSource.workspaceId&&
+  row.kernelSource?.revision===restoredCash.kernelSource.revision+1&&row.kernelSource.syncedUpdatedAt===row.updatedAt;
+ },"GOAL_REVIEW_SAVE_EXACT_NEXT_REVISION");
+ check(isDeepStrictEqual((await localCash()).data,corrected.data)&&isDeepStrictEqual(await localGoal(),restoredGoal)&&
+  isDeepStrictEqual(await localProof(),restoredProof)&&isDeepStrictEqual(await localWeek(),restoredWeek),"GOAL_REVIEW_SAVE_OTHER_RESULTS_UNCHANGED");
+ await visit(page,"/projects/?club_goal="+encodeURIComponent(goalId)+"&workspace_id="+encodeURIComponent(restoredCash.kernelSource.workspaceId)+"#club-goal-map");
+ await poll(async()=>(await page.locator("[data-club-goal-journal-saves]").textContent()).includes("Денежный календарь: текущая версия сохранена"),"GOAL_REVIEW_SAVED_CORRECTION_VISIBLE");
+ check(await page.locator("[data-club-goal-journal-saves]").getByRole("link",{name:"Сохранить денежный календарь",exact:true}).count()===0,"GOAL_REVIEW_NO_REDUNDANT_SAVE");
+ log("INDEPENDENT_GOAL_REVIEW_CORRECTION_SAME_KERNEL_REVISION_SAVED");
+
  }
  log("INDEPENDENT_PERSONAL_FULL_KERNEL_READBACK");
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; offline same Result update; no local model inference; no physical-phone claim");
