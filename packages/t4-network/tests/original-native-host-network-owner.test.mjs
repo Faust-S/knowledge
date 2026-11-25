@@ -135,13 +135,13 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
   localCapture=false,localGraph=false,localAdmission=allow,frameAdmission=allow,
   indexMigration=false,technicalRead=allow,explicitResume=false,resumeInput=null,resumeAdmission=deny,
   nativeTopologyTransport=null,requireSignedTopologyAccess=false,originalVaultNodeSignaturePort=null,
-  replacementRecovery=false,terminalRecovery=false,peerHistoryRead=async()=>null,portOverrides={},canWake=()=>true,onResult=()=>{},testProofInMemory=false}){
+  replacementRecovery=false,terminalRecovery=false,peerHistoryRead=async()=>null,portOverrides={},canWake=()=>true,onResult=()=>{},testScopedVaultUnlock=false}){
   const tech=store.technicalWorkspaceId;
   const localOps=['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject',
     't1.commitObjectGraph','t1.deleteObject','t1.listAssets','t1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation'];
-  const local=createTemporaryOriginalPersonalAuthority({workspaceId:WS,operations:localOps,clock:Date.now,testProofInMemory});
+  const local=createTemporaryOriginalPersonalAuthority({workspaceId:WS,operations:localOps,clock:Date.now,testScopedVaultUnlock});
   const technical=createTemporaryOriginalPersonalAuthority({workspaceId:tech,
-    operations:['t1.getObject','t1.putObject','t1.listObjects','t1.listEventsSince'],clock:Date.now,testProofInMemory});
+    operations:['t1.getObject','t1.putObject','t1.listObjects','t1.listEventsSince'],clock:Date.now,testScopedVaultUnlock});
   const results=[],commands=[];let epoch=1,admitted=true,mode='T4_NETWORK',failure=null,accessResolutions=0,
     clock=1000,signatureCalls=0;
   const originalPorts={authorizeOriginalBinding:async p=>admitted&&p.contextEpoch===epoch&&p.role===role&&
@@ -191,13 +191,18 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     enableLocalReplacementRecovery:replacementRecovery,enableReplacementTerminalRecovery:terminalRecovery,
     readOriginalBaselineAdmissionInput:async()=>requestBaseline?baselineInput:null,
     onStep:r=>{results.push(r);onResult(r);}});
-  const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,networkOwner:{
+  const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,onDetach:()=>{local.closeOriginalVault();technical.closeOriginalVault();},networkOwner:{
     ...owner,async onIdleWake(p){try{if(canWake())await owner.onIdleWake(p)}catch(e){failure=e;throw e}}
   }});
   const info={contract_version:'1.3.0',runtime_version:'0.3.6',service_id:'iwxa.workspace.relay',mode:'ready',
     granted_operations:[...new Set(['t1.getWorkspace','t1.commitObjectGraph','t1.getObject','t1.listEventsSince',...owner.operations])]};
-  const attach=()=>relay.exchange({verb:'attach',payload:{sessionInfo:info,networkRelayVersion:1,
-    ...(localCapture?{localSourceMutationVersion:1,...(localGraph?{localSourceGraphVersion:1}:{})}:{})}},epoch);
+  const attach=async()=>{
+    try{
+      if(testScopedVaultUnlock)await Promise.all([local.unlockOriginalVault(),technical.unlockOriginalVault()]);
+      return await relay.exchange({verb:'attach',payload:{sessionInfo:info,networkRelayVersion:1,
+        ...(localCapture?{localSourceMutationVersion:1,...(localGraph?{localSourceGraphVersion:1}:{})}:{})}},epoch);
+    }catch(error){local.closeOriginalVault();technical.closeOriginalVault();throw error;}
+  };
   async function drive(session,target,after=0){
     // The production HTTP socket keeps the existing unref'ed long poll
     // alive. This in-process browser test has no socket, so bound its
@@ -904,7 +909,7 @@ test('K92 original signed native relays drain three causal captures, including t
       gates.delete(role);if(r.state!==g.target)g.reject(Error(r.errorCode??r.state));else g.resolve(r);
     }
   }});
-  const makeSource=()=>nativeFixture({...gate('SOURCE'),testProofInMemory:true,role:'SOURCE',store:source,wire,localCapture:true,localGraph:true,phaseEvidence,
+  const makeSource=()=>nativeFixture({...gate('SOURCE'),testScopedVaultUnlock:true,role:'SOURCE',store:source,wire,localCapture:true,localGraph:true,phaseEvidence,
     baselineInput:{sourceCursor:before,originalBaselineRef:sourceBaseline.event_id,originalBaselineDigest:hash(JSON.stringify(sourceBaseline))},
     portOverrides:{verifyOriginalRecipientApplied:verifyApplied,authorizeOriginalSealedContent:allow,
       readOriginalSealedContent:async p=>{
@@ -912,7 +917,7 @@ test('K92 original signed native relays drain three causal captures, including t
         const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv);cipher.setAAD(Buffer.from(p.session.sessionRef));
         return {ciphertext:Buffer.concat([iv,cipher.update(bytes),cipher.final(),cipher.getAuthTag()]),encryptionContextRef:'sealed:k92:epoch2'};
       }}});
-  const makeRecipient=(indexMigration=false)=>nativeFixture({...gate('RECIPIENT'),testProofInMemory:true,role:'RECIPIENT',store:recipient,source,wire,phaseEvidence,indexMigration,
+  const makeRecipient=(indexMigration=false)=>nativeFixture({...gate('RECIPIENT'),testScopedVaultUnlock:true,role:'RECIPIENT',store:recipient,source,wire,phaseEvidence,indexMigration,
     baselineInput:{sourceCursor:before,originalBaselineRef:recipientBaseline.event_id,originalBaselineDigest:hash(JSON.stringify(recipientBaseline))},
     portOverrides:{verifyOriginalRecipientApplied:verifyApplied,verifyOriginalSourceSubject:verifySource,verifyOriginalSourceBinding:verifySource,
       verifyOriginalSourceEvent:verifyEvent,authorizeOriginalSealedOpen:allow,
@@ -969,6 +974,10 @@ test('K92 original signed native relays drain three causal captures, including t
     assert.equal(source.events.filter(e=>e.workspace_id===WS).length,4);assert.equal(wire.puts,0);
     await transfer(1);assert.equal((await recipient.kernel.getObject(WS,a.object_id)).object.data.title,'revision one');
     await transfer(2);assert.equal((await recipient.kernel.getObject(WS,a.object_id)).object.data.title,'revision two');
+    for(const f of [sender,receiver]){
+      assert.equal(f.local.vaultUnlocks,1);assert.equal(f.technical.vaultUnlocks,1);
+      assert.ok(f.technical.proofCount>1);assert.ok(f.technical.registryReads>1);
+    }
     await stop();const priorPuts=wire.puts;
     sender=makeSource();receiver=makeRecipient(true);await start();
     await drive(receiver,'NETWORK_INDEX_MIGRATION_COMPLETE');
@@ -979,5 +988,9 @@ test('K92 original signed native relays drain three causal captures, including t
     assert.equal(source.events.filter(e=>e.workspace_id===WS).length,4);assert.equal(recipient.events.filter(e=>e.workspace_id===WS).length,4);
     assert.equal(recipient.graphInvocations,3);assert.equal(seals,3);assert.ok(opens>=3);assert.equal(wire.lists,0);
     assert.equal([...wire.frames.values()].filter(b=>decodeT4CandidateFrame(b).messageType==='APPLIED_ACK').length,3);
+    for(const f of [sender,receiver]){
+      assert.equal(f.local.vaultUnlocks,1);assert.equal(f.technical.vaultUnlocks,1);
+      assert.ok(f.technical.proofCount>1);assert.ok(f.technical.registryReads>1);
+    }
   }finally{clearTimeout(deadline);await stop();sender.relay.close();receiver.relay.close();key.fill(0);}
 });

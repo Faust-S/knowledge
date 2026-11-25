@@ -7,7 +7,9 @@
 // key vault and Ed25519 proof algorithm adopted in knowledge. It does NOT
 // create a registry, IAM, Store or new signing protocol. Private keys never
 // enter the Workspace, browser Worker, .iwxa package or user-facing response.
-import {makeProof,keyObjectSigner} from "./core.mjs";
+import {createHash} from "node:crypto";
+import {performance} from "node:perf_hooks";
+import {makeProof,keyObjectSigner,digest} from "./core.mjs";
 import {decryptVaultAsync,vaultPrivateKey} from "./local-vault.mjs";
 import {strictJson} from "./strict-json.mjs";
 
@@ -18,13 +20,8 @@ function refuse(code){
   e.code=code;e.outcome="DENIED";throw e;
 }
 function requireThat(ok,code){if(!ok)refuse(code);}
-export function createOriginalVaultProofSigner({
-  readEncryptedVault,unlockPassphrase,keyId,organizationId=null,
-  personalPrincipalId=null,
-}={}){
-  requireThat(typeof readEncryptedVault==="function"&&
-    typeof unlockPassphrase==="function"&&
-    typeof keyId==="string"&&IDENT.test(keyId)&&
+function proofOperation({keyId,organizationId=null,personalPrincipalId=null}={},prove){
+  requireThat(typeof keyId==="string"&&IDENT.test(keyId)&&
     (organizationId===null||
       (typeof organizationId==="string"&&IDENT.test(organizationId)))&&
     (personalPrincipalId===null||
@@ -93,6 +90,19 @@ export function createOriginalVaultProofSigner({
     requireThat(Number.isSafeInteger(now)&&now>0&&
       new Date(now).toISOString()===asOf,
       "T3_ACCESS_VAULT_CLOCK_INVALID");
+    return prove({request,context,challenge,asOf,now});
+  };
+}
+async function readVaultRecord(readEncryptedVault){
+  const encrypted=structuredClone(await readEncryptedVault());
+  return typeof encrypted==="string"?strictJson(encrypted):encrypted;
+}
+
+export function createOriginalVaultProofSigner(options={}){
+  const {readEncryptedVault,unlockPassphrase,keyId,organizationId=null}=options;
+  requireThat(typeof readEncryptedVault==="function"&&typeof unlockPassphrase==="function",
+    "T3_ACCESS_VAULT_CALLBACK_REQUIRED");
+  return proofOperation(options,async({request,context,challenge,asOf,now})=>{
     // Read the current encrypted vault on every request. An installed Host
     // decides how to unlock it (passphrase or OS-protected credential).
     // No plaintext persistence, default password, cache or remote service.
@@ -110,5 +120,99 @@ export function createOriginalVaultProofSigner({
       "T3_ACCESS_VAULT_SUBJECT_MISMATCH");
     return makeProof(request,challenge,now,
       keyObjectSigner(keyId,vaultPrivateKey(keys,keyId)));
-  };
+  });
+}
+
+// Explicit, bounded unlock of ONE proof credential for the existing native
+// Host. Never activated by a proof request or by the network. Unlike the
+// default per-proof KDF, this opt-in retains a native Ed25519 KeyObject until
+// lock, context/lifetime invalidation or expiry. The encrypted envelope and
+// owner consent are still checked per proof. No authorization result is cached.
+// The owner MUST close on detach; the independent deadline also releases the
+// reference if the owner disappears. Node cannot promise immediate erasure
+// of native KeyObject memory by the garbage collector.
+export function createOriginalVaultProofSession(options={}){
+  const {readEncryptedVault,unlockPassphrase,keyId,organizationId=null,
+    context:rawContext,lifetimeMs,isOriginalHostActive,authorizeOriginalVaultUse,
+    clock=Date.now}=options;
+  const bindings=[["actorId","actor_id"],["principalId","principal_id"],
+    ["roleId","role_id"],["grantId","grant_id"],["audience","audience"],
+    ["resource","resource"],["purpose","purpose"],["realmId","realm_id"]];
+  requireThat(typeof readEncryptedVault==="function"&&typeof unlockPassphrase==="function"&&
+    typeof isOriginalHostActive==="function"&&typeof authorizeOriginalVaultUse==="function"&&
+    typeof clock==="function"&&Number.isSafeInteger(lifetimeMs)&&lifetimeMs>0&&lifetimeMs<=300000&&
+    rawContext&&bindings.every(([,k])=>typeof rawContext[k]==="string"&&IDENT.test(rawContext[k]))&&
+    typeof rawContext.workspace_id==="string"&&IDENT.test(rawContext.workspace_id)&&
+    typeof rawContext.context_id==="string"&&IDENT.test(rawContext.context_id)&&
+    rawContext.kind===(organizationId===null?"PERSONAL":"CORP")&&rawContext.organization_id===organizationId,
+    "T3_ACCESS_VAULT_SESSION_REQUIRED");
+  const context=structuredClone(rawContext),contextDigest=digest(context);
+  // Exact decoded encrypted envelope, rather than the Access canonical
+  // digest (whose short-string limit is for signed Access records).
+  const envelopeDigest=record=>createHash("sha256").update(JSON.stringify(record)).digest("hex");
+  let state="LOCKED",provider=null,envelopeHash=null,timer=null,startedWall=null,startedMono=null,lastWall=null;
+  function close(){
+    state="CLOSED";provider=null;envelopeHash=null;
+    if(timer!==null){clearTimeout(timer);timer=null;}
+  }
+  function guard(operation,expectedState){
+    try{
+      requireThat(state===expectedState,"T3_ACCESS_VAULT_SESSION_LOCKED");
+      const wall=clock();
+      requireThat(Number.isSafeInteger(wall)&&wall>0&&
+        (lastWall===null||wall>=lastWall)&&
+        (startedWall===null||(wall-startedWall<lifetimeMs&&performance.now()-startedMono<lifetimeMs)),
+        "T3_ACCESS_VAULT_SESSION_EXPIRED");
+      lastWall=wall;
+      requireThat(isOriginalHostActive()===true&&authorizeOriginalVaultUse(Object.freeze({
+        operation,keyId,organizationId,actorId:context.actor_id,context:structuredClone(context),
+      }))===true,"T3_ACCESS_VAULT_SESSION_DENIED");
+      // Native owner callbacks can synchronously lock the session.
+      requireThat(state===expectedState,"T3_ACCESS_VAULT_SESSION_LOCKED");
+      return wall;
+    }catch(error){close();throw error;}
+  }
+  async function readCurrent(expectedState){
+    const record=await readVaultRecord(readEncryptedVault);
+    requireThat(state===expectedState,"T3_ACCESS_VAULT_SESSION_LOCKED");
+    requireThat(envelopeDigest(record)===envelopeHash,"T3_ACCESS_VAULT_SESSION_ENVELOPE_CHANGED");
+    return record;
+  }
+  const signProof=proofOperation(options,async({request,context:requestedContext,challenge,now})=>{
+    requireThat(state==="ACTIVE","T3_ACCESS_VAULT_SESSION_LOCKED");
+    try{
+      const wall=guard("PROVE","ACTIVE");
+      requireThat(digest(requestedContext)===contextDigest&&
+        bindings.every(([k,c])=>request[k]===context[c]),"T3_ACCESS_VAULT_SESSION_CONTEXT_CHANGED");
+      requireThat(now>=startedWall&&now<=wall,"T3_ACCESS_VAULT_SESSION_PROOF_TIME_INVALID");
+      await readCurrent("ACTIVE");
+      guard("PROVE","ACTIVE");
+      // No asynchronous boundary between this final guard and signing.
+      const proof=makeProof(request,challenge,now,provider);
+      await readCurrent("ACTIVE");
+      guard("PROVE","ACTIVE");
+      return proof;
+    }catch(error){close();throw error;}
+  });
+  async function unlock(){
+    requireThat(state==="LOCKED","T3_ACCESS_VAULT_SESSION_LOCKED");
+    state="UNLOCKING";
+    try{
+      startedWall=guard("UNLOCK","UNLOCKING");startedMono=performance.now();
+      timer=setTimeout(close,lifetimeMs);timer.unref?.();
+      const record=await readVaultRecord(readEncryptedVault);
+      guard("UNLOCK","UNLOCKING");
+      envelopeHash=envelopeDigest(record);
+      const passphrase=await unlockPassphrase({actorId:context.actor_id,keyId,organizationId,asOf:new Date(startedWall).toISOString()});
+      guard("UNLOCK","UNLOCKING");
+      const keys=await decryptVaultAsync(record,passphrase);
+      guard("UNLOCK","UNLOCKING");
+      requireThat(keys.keys[keyId]?.subjectId===context.actor_id,"T3_ACCESS_VAULT_SUBJECT_MISMATCH");
+      const candidate=keyObjectSigner(keyId,vaultPrivateKey(keys,keyId));
+      await readCurrent("UNLOCKING");
+      guard("UNLOCK","UNLOCKING");
+      provider=candidate;state="ACTIVE";
+    }catch(error){close();throw error;}
+  }
+  return Object.freeze({unlock,signProof,close,get active(){return state==="ACTIVE";}});
 }

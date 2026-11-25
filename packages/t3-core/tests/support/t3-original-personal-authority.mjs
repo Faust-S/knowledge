@@ -2,11 +2,11 @@
 // implementation or installed issuer. Uses the ORIGINAL T3 Access evaluator
 // now owned by knowledge and keeps ephemeral private keys on the Node host.
 import {generateKeyPairSync} from "node:crypto";
-import {PROFILE,signRecord,keyObjectSigner,digest,makeProof}
+import {PROFILE,signRecord,keyObjectSigner,digest}
   from "../../src/t3/access/core.mjs";
-import {emptyVault,generateVaultKey,encryptVault,vaultPrivateKey}
+import {emptyVault,generateVaultKey,encryptVault}
   from "../../src/t3/access/local-vault.mjs";
-import {createOriginalVaultProofSigner}
+import {createOriginalVaultProofSigner,createOriginalVaultProofSession}
   from "../../src/t3/access/original-vault-proof.mjs";
 import {createOriginalPersonalAccessCheck}
   from "../../src/t3/access/original-personal-evaluator.mjs";
@@ -57,9 +57,9 @@ function createSigner(name,subject,uses,now){
 export function createTemporaryOriginalPersonalAuthority({
   workspaceId,now=Date.now(),readSignedState=null,clock=()=>now,
   operations=["t1.putObject"],agentActorId=null,
-  purpose="purpose:work",operationActions=null,testProofInMemory=false,
+  purpose="purpose:work",operationActions=null,testScopedVaultUnlock=false,
 }={}){
-  if(typeof testProofInMemory!=="boolean"||typeof workspaceId!=="string"||workspaceId.length<6||
+  if(typeof testScopedVaultUnlock!=="boolean"||typeof workspaceId!=="string"||workspaceId.length<6||
      !Number.isSafeInteger(now)||typeof clock!=="function"||
      (readSignedState!==null&&typeof readSignedState!=="function")||
      !Array.isArray(operations)||operations.length===0||
@@ -173,13 +173,19 @@ export function createTemporaryOriginalPersonalAuthority({
     statusFloor:{"authority:personal":1},tombstones:{},
   };
   let proofCount=0,registryReads=0;
-  // Protocol-only long-running integration tests may use their own ephemeral
-  // actor key directly. Every proof is still fresh Ed25519 and the actual
-  // evaluator still checks the signed registry. Default exercises the real
-  // encrypted Vault path, as do the dedicated Vault qualification tests.
-  const testSigner=testProofInMemory?keyObjectSigner(actorKeyId,vaultPrivateKey(actorVault,actorKeyId)):null;
-  const signProof=async input=>{proofCount++;return testSigner?
-    makeProof(input.request,input.challenge,Date.parse(input.asOf),testSigner):vaultProof(input);};
+  // The long-running native integration explicitly unlocks the ORIGINAL
+  // encrypted credential for its Host lifetime. Never sign from the test
+  // setup's raw actor key. All fresh GRANT/STATUS checks still run.
+  let hostActive=false,vaultUnlocks=0;
+  const session=testScopedVaultUnlock?createOriginalVaultProofSession({
+    keyId:actorKeyId,personalPrincipalId:agentActorId?"person:local":null,
+    context:selected,lifetimeMs:300000,clock,
+    isOriginalHostActive:()=>hostActive,
+    authorizeOriginalVaultUse:()=>hostActive,
+    readEncryptedVault:async()=>JSON.stringify(encryptedActorVault),
+    unlockPassphrase:async()=>{vaultUnlocks++;return testPassphrase;},
+  }):null;
+  const signProof=async input=>{proofCount++;return session?session.signProof(input):vaultProof(input);};
   const createAccess=check=>createSignedAccessHostPort({
     currentContext:()=>selected,
     actionFor:operation=>{
@@ -195,6 +201,9 @@ export function createTemporaryOriginalPersonalAuthority({
     readState:async()=>{registryReads++;return readSignedState?readSignedState():state;}}));
   return Object.freeze({
     access,actorId,
+    async unlockOriginalVault(){if(session){hostActive=true;await session.unlock();}},
+    closeOriginalVault(){hostActive=false;session?.close();},
+    get vaultUnlocks(){return vaultUnlocks;},
     // Assemble the SAME actual evaluator and proof signer against a pinned
     // original Registry, not a second issuer or an arbitrary read callback.
     bindOriginalRegistry(registry){

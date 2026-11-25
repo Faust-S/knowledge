@@ -6,7 +6,7 @@ import {join} from "node:path";
 import {keyObjectSigner,signRecord,verifyRecord} from
   "../src/t3/access/core.mjs";
 import {strictJson} from "../src/t3/access/strict-json.mjs";
-import {createOriginalVaultProofSigner}
+import {createOriginalVaultProofSigner,createOriginalVaultProofSession}
   from "../src/t3/access/original-vault-proof.mjs";
 import {emptyVault,generateVaultKey,encryptVault,decryptVault,decryptVaultAsync,
   vaultPublicInventory,vaultPrivateKey}
@@ -199,4 +199,72 @@ test("K96 original encrypted Vault unlock leaves the original Host event loop re
   assert.deepEqual(decryptVault(original,passphrase),vault);
   await assert.rejects(decryptVaultAsync(original,passphrase+"wrong"),{code:"VAULT_UNLOCK_FAILED"});
   await assert.rejects(decryptVaultAsync({...original,kdf:{...original.kdf,N:16384}},passphrase),{code:"VAULT_KDF_INVALID"});
+});
+
+
+function scopedProofFixture(){
+  const vault=emptyVault();
+  const key=generateVaultKey(vault,{keyId:"key:personal",subjectId:"person:local"});
+  const envelope=encryptVault(vault,passphrase);
+  const context={kind:"PERSONAL",context_id:"context:local",actor_id:"person:local",
+    principal_id:"person:local",organization_id:null,workspace_id:"ws:original",resource:"ws:original",
+    role_id:"role:member",grant_id:"grant:original",realm_id:"realm:local",audience:"host:t3",
+    purpose:"purpose:work",scope_revision:1};
+  const request={id:"op:original",actorId:context.actor_id,principalId:context.principal_id,
+    roleId:context.role_id,grantId:context.grant_id,realmId:context.realm_id,audience:context.audience,
+    resource:context.resource,purpose:context.purpose,action:"object.read",operationDigest:"0".repeat(64)};
+  const policy={environment:"TEST",keys:{"key:personal":{subjectId:"person:local",environment:"TEST",
+    status:"ACTIVE",uses:["PROOF"],publicKey:key.publicKeyPem,notBefore:iso(now-2000),expiresAt:iso(now+86400000)}}};
+  let current=now,hostActive=true,allowed=true,unlocks=0,reads=0,record=envelope,readHook=null;
+  const session=createOriginalVaultProofSession({keyId:"key:personal",context,lifetimeMs:300000,
+    clock:()=>current,isOriginalHostActive:()=>hostActive,authorizeOriginalVaultUse:()=>allowed,
+    readEncryptedVault:async()=>{reads++;const value=structuredClone(record);await readHook?.(reads);return value;},
+    unlockPassphrase:async()=>{unlocks++;return passphrase;}});
+  return {session,context,request,policy,proof:(extra={})=>session.signProof({request,context,
+    challenge:"scope-proof-challenge-"+reads,asOf:iso(current),...extra}),
+    replace:()=>{record={...envelope,ciphertext:envelope.ciphertext+"A"};},
+    deactivate:()=>{hostActive=false;},deny:()=>{allowed=false;},advance:ms=>{current+=ms;},
+    hook:fn=>{readHook=fn;},get reads(){return reads;},get unlocks(){return unlocks;}};
+}
+
+test("K98 explicit original Vault proof lifetime unlocks one encrypted key and keeps fresh proof and exact context checks",async()=>{
+  const f=scopedProofFixture();
+  await assert.rejects(f.proof(),{code:"T3_ACCESS_VAULT_SESSION_LOCKED"});
+  // An attempt before explicit owner admission must not unlock the key.
+  assert.equal(f.unlocks,0);
+  const a=f;
+  try{
+    await a.session.unlock();assert.equal(a.unlocks,1);assert.equal(a.session.active,true);
+    const p1=await a.proof(),p2=await a.proof({request:{...a.request,id:"op:second"}});
+    assert.notEqual(p1.signature,p2.signature);
+    for(const p of [p1,p2])assert.equal(verifyRecord(p,a.policy,now,"PROOF").subjectId,"person:local");
+    assert.equal(a.unlocks,1);assert.equal(a.reads,6);
+    await assert.rejects(a.proof({request:{...a.request,resource:"ws:other"}}),{code:"T3_ACCESS_VAULT_SESSION_CONTEXT_CHANGED"});
+    assert.equal(a.session.active,false);
+    await assert.rejects(a.session.unlock(),{code:"T3_ACCESS_VAULT_SESSION_LOCKED"});
+  }finally{a.session.close();f.session.close();}
+});
+
+test("K98 explicit Vault session fails closed on changed envelope, revoked owner or expiry, including during proof",async()=>{
+  for(const [mutate,code] of [[f=>f.replace(),"T3_ACCESS_VAULT_SESSION_ENVELOPE_CHANGED"],
+    [f=>f.deactivate(),"T3_ACCESS_VAULT_SESSION_DENIED"],
+    [f=>f.deny(),"T3_ACCESS_VAULT_SESSION_DENIED"],
+    [f=>f.advance(300000),"T3_ACCESS_VAULT_SESSION_EXPIRED"]]){
+    const f=scopedProofFixture();
+    try{await f.session.unlock();mutate(f);await assert.rejects(f.proof(),{code});
+      assert.equal(f.session.active,false);assert.equal(f.unlocks,1);}
+    finally{f.session.close();}
+  }
+  const f=scopedProofFixture();
+  try{
+    await f.session.unlock();f.hook(n=>{if(n===3)f.replace();});
+    await assert.rejects(f.proof(),{code:"T3_ACCESS_VAULT_SESSION_ENVELOPE_CHANGED"});
+    assert.equal(f.session.active,false);
+  }finally{f.session.close();}
+  const g=scopedProofFixture();
+  try{
+    await g.session.unlock();g.hook(n=>{if(n===4)g.session.close();});
+    await assert.rejects(g.proof(),{code:"T3_ACCESS_VAULT_SESSION_LOCKED"});
+    assert.equal(g.session.active,false);
+  }finally{g.session.close();}
 });
