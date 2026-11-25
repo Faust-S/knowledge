@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "candidate": "d07-t3-release-fc42b94ecdf1",
-  "siteRevision": "fc42b94ecdf1b5febf6f000fae14363fe2ba7725",
+  "candidate": "d07-t3-release-482fc878b4ac",
+  "siteRevision": "482fc878b4ac365241877fc03a9eeee84ae012a0",
   "domainRevision": "11ec43898d025107174df0b2cde6024c340c1cc0",
-  "pipelineRevision": "c8fc6f7950227ac16ff91a38496217befadfa7c0",
-  "reason": "Existing release regression fixes only. All twelve failed checks reconciled with unchanged order behavior; explicit ServiceOrder type verified locally. Reuse the consolidated release qualification."
+  "pipelineRevision": "07127c7f5b28a05c1a3e325961b92ef45582f4a5",
+  "reason": "Canonical T3 static route export only; retain prior successful source regression for identical product sources and requalify the complete build."
 }
