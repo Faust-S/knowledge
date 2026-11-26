@@ -22,7 +22,7 @@ import {createT4OriginalSourceSessionHead,readT4OriginalSourceSessionHead,create
   createT4OriginalPublicationIndexMigrationStepper}
   from '../src/network/original-network-publication.mjs';
 import {readT4OriginalNativeMultipartAgreement as agreement,validateT4OriginalNativeMultipartAgreement as validate,
-  createT4OriginalNativeMultipartAgreementReader,createT4OriginalNativeMultipartAgreementBinding}
+  createT4OriginalNativeMultipartAgreementReader,createT4OriginalNativeMultipartAgreementBinding,T4OriginalMultipartPeerAgreementUnavailable}
   from '../src/network/original-network-multipart-agreement.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID} from '../src/network/original-network-technical-schema.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
@@ -588,8 +588,11 @@ test('K153 original cold migration reconciles multipart indexes in bounded pages
       scopeRef:session.scopeRef,hostSessionRef:f.host}),authorizeOriginalTechnicalRead:async()=>true,
     createOriginalPublicationPort:async({session:s})=>{assert.deepEqual(s,session);return f.port(source);}
   });
+  const head=await migrate();
+  assert.equal(head.state,'NETWORK_INDEX_MIGRATION_PROGRESS');assert.equal(head.verifiedMigratedFrameCount,1);
+  assert.equal(head.pendingPublicationCount,1);assert.equal(f.indexes.has(addresses[0]),false);
   const first=await migrate();
-  assert.equal(first.state,'NETWORK_INDEX_MIGRATION_PROGRESS');assert.equal(first.verifiedMigratedFrameCount,64);
+  assert.equal(first.state,'NETWORK_INDEX_MIGRATION_PROGRESS');assert.equal(first.verifiedMigratedFrameCount,65);
   assert.equal(first.pendingPublicationCount,1);
   assert.equal(f.indexes.get(addresses[0]),lost[0].sha256);assert.equal(f.indexes.has(addresses[1]),false);
   const last=await migrate();
@@ -702,4 +705,52 @@ test('K155 clearing the original wake selection during an asynchronous binding c
   const work=binding.readOriginalMultipartAgreement({session,originalSubjectAuthorityGranted:false});
   const denied=assert.rejects(work,code('MULTIPART_AGREEMENT_BINDING_WAKE_ENDED'));
   await pending;binding.clearOriginalPublication();release();await denied;
+});
+
+test('K157 cold native migration repairs HEADS before reading multipart backing and waits for independently restored DIFF',async()=>{
+  const f=fixture(),{sp,rp}=await f.negotiate();
+  await f.prepare(sp);await sp.publishOriginalMultipartFrames({limit:4});
+  const saved=await sp.inspectOriginalPublication(),firstChunk=saved.frames[2],recipientSaved=await rp.inspectOriginalPublication();
+  const headKeys=t4NativeFrameIndexKeys(decodeT4CandidateFrame(saved.frames[0].wireBytes)),
+    diffKeys=t4NativeFrameIndexKeys(decodeT4CandidateFrame(recipientSaved.frames[0].wireBytes)),
+    chunkKey=t4NativeFrameIndexKeys(decodeT4CandidateFrame(firstChunk.wireBytes))[0];
+  for(const k of [...headKeys,...diffKeys,chunkKey])assert.ok(f.indexes.delete(k));
+  const writes=f.writes,puts=f.puts;
+  f.selected.clear();f.restart();
+  function migration(node){
+    const technicalWorkspaceId='workspace:technical:'+node;
+    let wire;
+    const binding=createT4OriginalNativeMultipartAgreementBinding({
+      localRole:node===source?'SOURCE':'RECIPIENT',requiredCryptoSuite:suite,
+      originalHostSessionRef:f.host,technicalWorkspaceId,isOriginalWakeActive:()=>true,
+      assertOriginalOwnerBinding:async()=>true,discoverUniqueSignedFrame:p=>wire.discoverUniqueSignedFrame(p)});
+    wire=f.transport(node,true,{readOriginalMultipartAgreement:binding.readOriginalMultipartAgreement});
+    const step=createT4OriginalPublicationIndexMigrationStepper({...session,sourceWorkspaceId:session.workspaceId,
+      technicalWorkspaceId,localNodeRef:node,technicalSchemaId:T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
+      originalKernel:f.kernel,getMode:()=> 'T4_NETWORK',readOriginalHostContext:async()=>({
+        workspaceId:technicalWorkspaceId,originalWriteOwnerRef:session.originalWriteOwnerRef,nodeRef:node,
+        scopeRef:session.scopeRef,hostSessionRef:f.host}),authorizeOriginalTechnicalRead:async()=>true,
+      createOriginalPublicationPort:async({session:s})=>{
+        assert.deepEqual(s,session);
+        const port=f.port(node,true,{frameTransport:wire,...(node===source?
+          {readOriginalMultipartAgreement:binding.readOriginalMultipartAgreement}:{})});
+        binding.bindOriginalPublication({session:s,publication:port});return port;
+      }});
+    return async()=>{try{return await step();}finally{binding.clearOriginalPublication();}};
+  }
+  const sourceStep=migration(source),recipientStep=migration(recipient);
+  const head=await sourceStep();
+  assert.equal(head.state,'NETWORK_INDEX_MIGRATION_PROGRESS');assert.equal(head.verifiedMigratedFrameCount,1);
+  for(const k of headKeys)assert.equal(f.indexes.get(k),saved.frames[0].sha256);
+  assert.equal(f.indexes.has(chunkKey),false);
+  await assert.rejects(sourceStep(),e=>e instanceof T4OriginalMultipartPeerAgreementUnavailable&&e.sessionRef===session.sessionRef);
+  assert.equal(f.indexes.has(chunkKey),false);
+  for(const k of diffKeys)assert.equal(f.indexes.has(k),false);
+  assert.equal((await recipientStep()).state,'NETWORK_INDEX_MIGRATION_COMPLETE');
+  for(const k of diffKeys)assert.equal(f.indexes.get(k),recipientSaved.frames[0].sha256);
+  const done=await sourceStep();
+  assert.equal(done.state,'NETWORK_INDEX_MIGRATION_COMPLETE');
+  assert.equal(done.verifiedMigratedFrameCount,saved.frames.filter(x=>x.state==='PRESENT').length);
+  assert.equal(f.indexes.get(chunkKey),firstChunk.sha256);
+  assert.equal(f.writes,writes);assert.equal(f.puts,puts);
 });

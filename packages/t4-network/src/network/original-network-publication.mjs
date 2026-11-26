@@ -624,10 +624,14 @@ export function createT4OriginalPublicationIndexMigrationStepper({
           }else if(saved.frames.length<3)fail('NATIVE_INDEX_MIGRATION_COMPLETION_CONFLICT');
           skippedCompleted++;
         }else if(sequences.length){
-          // Multipart was already created under the indexed profile. Cold startup
-          // may still have to repair a missing address of an exact PRESENT
-          // frame. Bound that work to the same 64-slot wake as publication.
-          const page=multipart?sequences.slice(migrationFrameOffset,migrationFrameOffset+MAX_MULTIPART_PUBLISH_WAKE):sequences;
+          // First restore the original signed HEADS slot by itself. The
+          // live bilateral proof of any later multipart frame reads this
+          // exact index; preflighting content before restoring it deadlocks
+          // cold recovery. No content bytes or new agreement are created.
+          // The peer's own DIFF is repaired by its existing migration.
+          if(multipart&&sequences[0]!==1)fail('NATIVE_INDEX_MIGRATION_INVENTORY_CHANGED');
+          const page=multipart?(migrationFrameOffset===0?sequences.slice(0,1):
+            sequences.slice(migrationFrameOffset,migrationFrameOffset+MAX_MULTIPART_PUBLISH_WAKE)):sequences;
           const observed=await port.reconcileOriginalPublishedFrameIndexes({sequences:page});
           if(observed.state!=='ORIGINAL_PRESENT_FRAME_INDEXES_VERIFIED'||
             observed.checkpointRef!==record.checkpointRef||observed.originalPublicationRevision!==record.revision||

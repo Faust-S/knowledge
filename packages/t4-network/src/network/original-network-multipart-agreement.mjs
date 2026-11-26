@@ -14,6 +14,16 @@ const sorted=x=>Array.isArray(x)?x.map(sorted):x&&typeof x==='object'?
 const digest=x=>'sha256:'+createHash('sha256').update('IWXA-T4-NATIVE-MULTIPART-AGREEMENT-V1\0')
   .update(JSON.stringify(sorted(x))).digest('hex');
 const fail=code=>{throw Object.assign(Error(code),{code});};
+// Only the verified absence of the exact peer slot is a wait, never a
+// grant to recreate a frame, use historical authority or retry a write.
+export class T4OriginalMultipartPeerAgreementUnavailable extends Error{
+  constructor(sessionRef){
+    super('MULTIPART_AGREEMENT_READER_PEER_PROOF_REQUIRED');
+    this.name='T4OriginalMultipartPeerAgreementUnavailable';
+    this.code='MULTIPART_AGREEMENT_READER_PEER_PROOF_REQUIRED';
+    this.sessionRef=sessionRef;
+  }
+}
 const fields=['sessionRef','changeId','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch','sourceEventId',
   'sourcePrefixDigestBefore','sourcePrefixDigestAfter'];
 function checkIdentity(s){
@@ -158,6 +168,9 @@ export function createT4OriginalNativeMultipartAgreementReader({
       sessionRef:exact.sessionRef,ownerEpoch:exact.ownerEpoch,messageType:source?'DIFF_REQUEST':'HEADS',sequence:1},
       requiredCryptoSuite,supportedCriticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]});
     await requireCurrent();
+    if(remote?.schema==='IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1'&&remote.state==='NOT_FOUND'&&
+      remote.receipt===null&&remote.indexedLookup===true&&remote.originalBusinessApplied===false&&remote.sourceCursorAdvanced===false)
+      throw new T4OriginalMultipartPeerAgreementUnavailable(exact.sessionRef);
     if(remote?.schema!=='IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1'||remote.state!=='FOUND'||
       remote.originalBusinessApplied!==false||remote.sourceCursorAdvanced!==false)
       fail('MULTIPART_AGREEMENT_READER_PEER_PROOF_REQUIRED');

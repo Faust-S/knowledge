@@ -16,7 +16,7 @@ import {isT4NativeTopologyTransport} from './network-topology.mjs';
 import {isT4OriginalVaultNodeSignaturePort} from './original-vault-node-signature.mjs';
 import {isT4OriginalVaultSealedContentPort} from './original-vault-sealed-content.mjs';
 import {createT4CandidateFrameTransport} from './standard-network-wire-transport.mjs';
-import {createT4OriginalNativeMultipartAgreementBinding} from './original-network-multipart-agreement.mjs';
+import {createT4OriginalNativeMultipartAgreementBinding,T4OriginalMultipartPeerAgreementUnavailable} from './original-network-multipart-agreement.mjs';
 import {createT4OriginalHostOutboxDispatcher,readT4OriginalNativeCaptureSessionAtCursor} from './original-host-outbox-dispatcher.mjs';
 import {createT4OriginalHostDispatchTaskBinding} from './original-host-dispatch-task-binding.mjs';
 import {createT4OriginalHostRecipientDispatcher} from './original-host-recipient-dispatcher.mjs';
@@ -1243,17 +1243,19 @@ export function createT4OriginalNativeHostNetworkOwner({
         // suspend networking rather than replay an uncertain remote write.
         const waitingSourceWindow=error instanceof T4OriginalSourceEventWindowUnavailable&&enableSourceEventWindowRead&&role==='RECIPIENT';
         const waitingRecipientResult=error instanceof T4OriginalRecipientResultUnavailable&&enableRecipientResultRead&&role==='SOURCE';
-        if((waitingSourceWindow||waitingRecipientResult)&&active(state)&&mode()==='T4_NETWORK'){
+        const waitingMultipartAgreement=error instanceof T4OriginalMultipartPeerAgreementUnavailable&&enableOriginalMultipartNegotiation;
+        if((waitingSourceWindow||waitingRecipientResult||waitingMultipartAgreement)&&active(state)&&mode()==='T4_NETWORK'){
           try{
-            const step=waitingSourceWindow?'source-window-wait':'recipient-result-wait';
+            const step=waitingSourceWindow?'source-window-wait':waitingRecipientResult?'recipient-result-wait':'multipart-agreement-wait';
             await requireBinding(state,step);const observed=monotonicNow();
             if(!Number.isFinite(observed)||observed<now)fail('NATIVE_NETWORK_OWNER_CLOCK_INVALID');
             state.replacementHistoryWait=deferT4OriginalReplacementHistoryWake({role,
               selection:{session:{sessionRef:error.sessionRef},originalLocalPhase:null,originalLocalPublicationRevision:0},
               previous:state.replacementHistoryWait,now:observed});
-            onStep(Object.freeze({...bindingProof(state,step),state:waitingSourceWindow?'WAITING_FOR_ORIGINAL_SOURCE_WINDOW':'WAITING_FOR_ORIGINAL_RECIPIENT_RESULT',
+            onStep(Object.freeze({...bindingProof(state,step),state:waitingSourceWindow?'WAITING_FOR_ORIGINAL_SOURCE_WINDOW':
+              waitingRecipientResult?'WAITING_FOR_ORIGINAL_RECIPIENT_RESULT':'WAITING_FOR_ORIGINAL_MULTIPART_AGREEMENT',
               retryAfterMs:state.replacementHistoryWait.retryAfterMs,sessionRef:error.sessionRef,
-              originalSubjectMutationMayHaveCommitted:true,originalFrameRetryAllowed:false}));
+              originalSubjectMutationMayHaveCommitted:role==='RECIPIENT'||!waitingMultipartAgreement,originalFrameRetryAllowed:false}));
           }catch(waitError){dispose(state);throw waitError;}
         }else if(isT4RecoverablePublicationWakeError(error)&&active(state)&&mode()==='T4_NETWORK'){
           // Existing relay wake only; reconstruct from durable T3 evidence.
