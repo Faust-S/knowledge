@@ -7,6 +7,8 @@ import {isT4NativeSubjectKind,validT4NativeSubjectRevision,deriveT4OriginalRepla
   validateT4CandidateSupersessionRetirementClaim,validateT4CandidateReplacementHeadBinding,decodeT4CandidateFrame,verifyT4CandidateHistoricalFrameSignature}
   from './standard-network-wire-candidate.mjs';
 import {readT4OriginalPublicationMigrationInventory,createT4OriginalNetworkPublicationPort,readT4OriginalReplacementSourceHead,validateT4OriginalReplacementSourceIntentStatus,validateT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementPublishedContent,validateT4OriginalReplacementRecipientApplyAdmission,validateT4OriginalReplacementAppliedAckAdmission,validateT4OriginalReplacementPublishedAck,validateT4OriginalReplacementSourceAckEvidence} from './original-network-publication.mjs';
+import {T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,validateT4NativeMultipartSelection} from './standard-network-multipart-opaque-chunks.mjs';
+import {readT4OriginalReplacementHandshakeProfile} from './original-network-publication.mjs';
 export {deriveT4OriginalReplacementAttempt} from './standard-network-wire-candidate.mjs';
 
 /**
@@ -901,11 +903,21 @@ export async function readT4OriginalLocalReplacementSelection({sourceCursorBefor
       requiredCryptoSuite,supportedCriticalExtensions:frame.criticalExtensions,verifyOriginalHistoricalNodeSignature});
   }
   const first=saved.frames[0],frame=decodeT4CandidateFrame(first.wireBytes);
-  if(role==='SOURCE')readT4OriginalReplacementSourceHead({identity:root,body:frame.body,sessionRef:c.sessionRef,
-    sourceCursorBefore:before,expectedCandidate:c});
+  const multipart=frame.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION);
+  if(multipart&&c.changeKind!=='ASSET_PUT')fail('PHASE_ORIGINAL_REPLACEMENT_SELECTION_CAPTURE_CONFLICT');
+  if(role==='SOURCE'){
+    readT4OriginalReplacementSourceHead({identity:root,body:frame.body,sessionRef:c.sessionRef,
+      sourceCursorBefore:before,expectedCandidate:c});
+    readT4OriginalReplacementHandshakeProfile({candidate:c,headBody:frame.body,headSha256:first.sha256,
+      headExtensions:frame.criticalExtensions,enableOriginalMultipartNegotiation:multipart});
+  }
   else if(!eq(frame.body,{familyRef:c.familyRef,fromHeads:[c.sourcePrefixDigestBefore],
     ...(frame.body.multipartSelection?{multipartSelection:frame.body.multipartSelection}:{})}))
     fail('PHASE_ORIGINAL_REPLACEMENT_SELECTION_CAPTURE_CONFLICT');
+  if(role==='RECIPIENT'){
+    if(multipart!==Object.hasOwn(frame.body,'multipartSelection'))fail('PHASE_ORIGINAL_REPLACEMENT_SELECTION_CAPTURE_CONFLICT');
+    if(multipart)validateT4NativeMultipartSelection(frame.body.multipartSelection);
+  }
   const phasePort=createT4OriginalReplacementHistoricalPhasePort({...base,session:c,verifyOriginalRecipientApplied});
   const phase=await phasePort.inspectOriginalSession();
   if(phase!==null){
@@ -938,6 +950,7 @@ export async function readT4OriginalLocalReplacementSelection({sourceCursorBefor
     originalLocalPhaseRevision:phase?.revision??0,originalLocalPublicationCheckpointRef:record.checkpointRef,
     originalLocalPublicationRevision:record.revision,originalLocalPublicationChainHash:record.chainHash,
     originalLocalFrames:saved.frames.map(({sequence,messageType,sha256,state})=>frozen({sequence,messageType,sha256,state})),
+    ...(multipart?{originalLocalMultipartNegotiated:true,originalLocalMultipartHeadSha256:role==='SOURCE'?first.sha256:frame.body.multipartSelection.headSha256}:{}),
     originalLocalPublicationChainVerified:true,originalLocalRetirementEventVerified:true,originalLocalHistoricalSignaturesVerified:true,
     originalPeerOwnerReadStillRequired:true,originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false,
     originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,remoteCollectionEnumerated:false});

@@ -638,9 +638,10 @@ export function createT4CandidateFrameTransport({
     // immutable original replay slot. This is an extra read restriction,
     // never a substitute for signature, Access or replay verification.
     if(expectedHandshake!==null&&
-      (frame.criticalExtensions.length!==expectedHandshake.extensions.length||
-        !expectedHandshake.extensions.every(e=>frame.criticalExtensions.includes(e))||
-        (expectedHandshake.body!==null&&canonicalBody(frame.body)!==canonicalBody(expectedHandshake.body))))
+      !(Array.isArray(expectedHandshake)?expectedHandshake:[expectedHandshake]).some(profile=>
+        frame.criticalExtensions.length===profile.extensions.length&&
+        profile.extensions.every(e=>frame.criticalExtensions.includes(e))&&
+        (profile.body===null||canonicalBody(frame.body)===canonicalBody(profile.body))))
       fail('WIRE_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH');
     return verifyDownloaded({ctx,key:frameKey,expectedSha256:sha256,downloaded:{bytes},
       requiredCryptoSuite,supportedCriticalExtensions,expectedMultipartChange});
@@ -787,8 +788,10 @@ export function createT4CandidateFrameTransport({
   // It performs one immutable lookup and normal live signature/Access/
   // replay verification. No scan and no permission to apply.
   async function discoverReplacementSourceHead({selector,requiredCryptoSuite,enableOriginalMultipartNegotiation:multipart=false,
-    expectedOriginalReplacementHead=null}={}){
+    expectedOriginalReplacementHead=null,expectedCompactReplacementHead=null}={}){
     if(typeof multipart!=='boolean'||(multipart&&!enableOriginalMultipartNegotiation)||
+      (expectedCompactReplacementHead!==null&&(!multipart||expectedOriginalReplacementHead===null||
+        typeof expectedCompactReplacementHead!=='object'||Array.isArray(expectedCompactReplacementHead)))||
       (expectedOriginalReplacementHead!==null&&(!multipart||typeof expectedOriginalReplacementHead!=='object'||Array.isArray(expectedOriginalReplacementHead)))||
       !indexed||!selector||Object.keys(selector).sort().join(',')!==
       'changeId,ownerEpoch,previousSessionRef,sessionRef,sourceNodeRef'||
@@ -797,7 +800,9 @@ export function createT4CandidateFrameTransport({
       fail('WIRE_DISCOVERY_REPLACEMENT_HEAD_SELECTOR_INVALID');
     const selected=Object.freeze({...selector,messageType:'HEADS',sequence:1});
     const extensions=[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,...(multipart?[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:[])];
-    const expectedHandshake=multipart?deepFreeze({extensions,body:structuredClone(expectedOriginalReplacementHead)}):null;
+    const offered={extensions,body:structuredClone(expectedOriginalReplacementHead)};
+    const expectedHandshake=multipart?deepFreeze(expectedCompactReplacementHead===null?offered:
+      [offered,{extensions:[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION],body:structuredClone(expectedCompactReplacementHead)}]):null;
     const found=await indexedRead({selector:selected,requiredCryptoSuite,replacementHead:true,
       supportedCriticalExtensions:extensions,expectedHandshake},await hostSnapshot());
     return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_REPLACEMENT_HEAD_V1',...indexedResult(found?[found]:[],1),

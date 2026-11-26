@@ -572,7 +572,8 @@ export async function publishT4OriginalReplacementSourceHead({
     return next;
   };
   const port=await createOriginalReplacementPublicationPort(freeze({session,
-    originalReplacementAnnouncementRequired:true,originalNewAttemptAdmissionStillRequired:true}),current);
+    originalReplacementAnnouncementRequired:true,originalNewAttemptAdmissionStillRequired:true,
+    ...(enableOriginalMultipartNegotiation?{originalReplacementMultipartHandshakeRequired:true}: {})}),current);
   mode(getMode);
   if(port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||!same(port.session,session)||
     !ID(port.checkpointRef)||port.originalT3OnlyStore!==true||port.createsScheduler!==false||
@@ -641,19 +642,23 @@ export async function publishT4OriginalReplacementSourceHead({
     originalBusinessApplied:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,
     originalSubjectMutationInvoked:false,liveNetworkAuthorityGranted:false});
 }
-async function readReplacementSourceHeadEvidence({frameDiscoveryPort,enableOriginalMultipartNegotiation=false,...eligibilityPorts}={}){
-  if(typeof enableOriginalMultipartNegotiation!=='boolean'||
+async function readReplacementSourceHeadEvidence({frameDiscoveryPort,enableOriginalMultipartNegotiation=false,acceptOriginalMultipartOffer=false,...eligibilityPorts}={}){
+  if(typeof enableOriginalMultipartNegotiation!=='boolean'||typeof acceptOriginalMultipartOffer!=='boolean'||
+    (acceptOriginalMultipartOffer&&!enableOriginalMultipartNegotiation)||
     (enableOriginalMultipartNegotiation&&frameDiscoveryPort?.originalMultipartNegotiationEnabled!==true)||frameDiscoveryPort?.schema!=='IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1'||
     frameDiscoveryPort.nativeFrameIndexVersion!==1||typeof frameDiscoveryPort.discoverReplacementSourceHead!=='function')
     fail('REPLACEMENT_ORIGINAL_DISCOVERY_PORT_REQUIRED');
   const first=await recoverT4OriginalReplacementEligibility(eligibilityPorts),c=first.candidate;
+  const canSelect=acceptOriginalMultipartOffer&&c.changeKind==='ASSET_PUT';
+  const multipart=enableOriginalMultipartNegotiation&&(!acceptOriginalMultipartOffer||canSelect);
+  const headBody=offerMultipart=>createT4OriginalReplacementSourceHead({candidate:c,sourceCursorBefore:first.sourceCursorBefore,
+    sourceCursorAfter:{...first.sourceCursorBefore,lastEventId:c.sourceEventId,
+      seenEventCount:first.sourceCursorBefore.seenEventCount+1,sourcePrefixDigest:c.sourcePrefixDigestAfter},offerMultipart});
   const found=await frameDiscoveryPort.discoverReplacementSourceHead({selector:{sourceNodeRef:c.sourceNodeRef,
     ownerEpoch:c.ownerEpoch,previousSessionRef:c.replacement.previousSessionRef,sessionRef:c.sessionRef,changeId:c.changeId},
     requiredCryptoSuite:eligibilityPorts.requiredCryptoSuite,
-    ...(enableOriginalMultipartNegotiation?{enableOriginalMultipartNegotiation:true,
-      expectedOriginalReplacementHead:createT4OriginalReplacementSourceHead({candidate:c,sourceCursorBefore:first.sourceCursorBefore,
-        sourceCursorAfter:{...first.sourceCursorBefore,lastEventId:c.sourceEventId,
-          seenEventCount:first.sourceCursorBefore.seenEventCount+1,sourcePrefixDigest:c.sourcePrefixDigestAfter},offerMultipart:true})}:{})});
+    ...(multipart?{enableOriginalMultipartNegotiation:true,
+      expectedOriginalReplacementHead:headBody(true),...(canSelect?{expectedCompactReplacementHead:headBody(false)}:{})}:{})});
   mode(eligibilityPorts.getMode);
   if(found?.schema!=='IWXA_T4_FRAME_DISCOVERY_REPLACEMENT_HEAD_V1'||!['FOUND','NOT_FOUND'].includes(found.state)||
     found.originalTransportScanOnly!==true||found.originalBusinessApplied!==false||found.sourceCursorAdvanced!==false||
@@ -675,7 +680,8 @@ async function readReplacementSourceHeadEvidence({frameDiscoveryPort,enableOrigi
     readT4OriginalReplacementSourceHead({identity:c.originalCaptureSession,body:receipt.verifiedBody,
       sessionRef:receipt.verifiedSessionRef,sourceCursorBefore:first.sourceCursorBefore,expectedCandidate:c});
     readT4OriginalReplacementHandshakeProfile({candidate:c,headBody:receipt.verifiedBody,headSha256:receipt.sha256,
-      headExtensions:receipt.verifiedCriticalExtensions,enableOriginalMultipartNegotiation});
+      headExtensions:receipt.verifiedCriticalExtensions,enableOriginalMultipartNegotiation:canSelect?
+        receipt.verifiedCriticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION):multipart});
   }
   if(!same(first,await recoverT4OriginalReplacementEligibility(eligibilityPorts)))
     fail('REPLACEMENT_ORIGINAL_EVIDENCE_CHANGED');
@@ -713,7 +719,8 @@ export async function admitT4OriginalReplacementSourcePhase({
     return next;
   };
   const publication=await createOriginalReplacementPublicationPort(freeze({session:candidate,
-    originalReplacementAnnouncementRequired:true,originalNewAttemptAdmissionStillRequired:true}),rereadEligibility);
+    originalReplacementAnnouncementRequired:true,originalNewAttemptAdmissionStillRequired:true,
+    ...(enableOriginalMultipartNegotiation?{originalReplacementMultipartHandshakeRequired:true}: {})}),rereadEligibility);
   mode(getMode);
   if(publication?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
     !same(publication.session,candidate)||publication.originalT3OnlyStore!==true||
@@ -794,7 +801,7 @@ export async function advanceT4OriginalReplacementSourceHandshake({
   originalCaptureSession,sourceCursorBefore,retired,selection=null,
   createOriginalReplacementPublicationPort,createOriginalReplacementSourcePhasePort,
   resolveOriginalSigningContext,signOriginalNodeBytes,authorizeOriginalReplacement,
-  readOriginalOwnerEligibility,requiredCryptoSuite,getMode,retryMissing=false,
+  readOriginalOwnerEligibility,requiredCryptoSuite,getMode,retryMissing=false,enableOriginalMultipartNegotiation=false,
 }={}){
   const root=validateT4OriginalNativeCaptureSession(originalCaptureSession),before=freeze(clone(sourceCursorBefore)),
     stop=freeze(clone(retired)),local=selection===null?null:freeze(clone(selection));
@@ -805,7 +812,8 @@ export async function advanceT4OriginalReplacementSourceHandshake({
     stop.originalSubjectMutationInvoked!==false||stop.sourceCursorAdvanced!==false||
     ![createOriginalReplacementPublicationPort,createOriginalReplacementSourcePhasePort,resolveOriginalSigningContext,
       signOriginalNodeBytes,authorizeOriginalReplacement,readOriginalOwnerEligibility,getMode].every(f=>typeof f==='function')||
-    typeof retryMissing!=='boolean')fail('REPLACEMENT_HOST_SOURCE_HANDSHAKE_PORTS_REQUIRED');
+    typeof retryMissing!=='boolean'||typeof enableOriginalMultipartNegotiation!=='boolean'||
+    (enableOriginalMultipartNegotiation&&root.changeKind!=='ASSET_PUT'))fail('REPLACEMENT_HOST_SOURCE_HANDSHAKE_PORTS_REQUIRED');
   const matches=c=>c.sessionRef===stop.replacementSessionRef&&same(c.originalCaptureSession,root)&&
     c.replacement.sourcePhaseRef===stop.originalRetiredPhaseCheckpointRef&&
     c.replacement.sourcePhaseEventId===stop.originalSupersessionEventId&&
@@ -814,6 +822,7 @@ export async function advanceT4OriginalReplacementSourceHandshake({
   if(local!==null){
     const c=validateT4OriginalReplacementSessionCandidate(local.session);
     if(local.schema!=='IWXA_T4_ORIGINAL_LOCAL_REPLACEMENT_SELECTION_V1'||local.role!=='SOURCE'||!matches(c)||
+      (local.originalLocalMultipartNegotiated===true)!==enableOriginalMultipartNegotiation||
       !same(local.sourceCursorBefore,before)||!same(local.retired,stop)||local.originalLocalPhase!==null||local.originalLocalPhaseRevision!==0||
       !Number.isSafeInteger(local.originalLocalPublicationRevision)||local.originalLocalPublicationRevision<1||
       local.originalLocalPublicationChainVerified!==true||local.originalLocalRetirementEventVerified!==true||
@@ -826,7 +835,7 @@ export async function advanceT4OriginalReplacementSourceHandshake({
       fail('REPLACEMENT_HOST_SOURCE_HANDSHAKE_SELECTION_INVALID');
   }
   const eligibility={originalCaptureSession:root,sourceCursorBefore:before,requesterNodeRef:root.sourceNodeRef,
-    requiredCryptoSuite,getMode,readOriginalOwnerEligibility,authorizeOriginalReplacement:async proof=>{
+    requiredCryptoSuite,getMode,readOriginalOwnerEligibility,enableOriginalMultipartNegotiation,authorizeOriginalReplacement:async proof=>{
       const c=validateT4OriginalReplacementSessionCandidate(proof.candidate);
       if(!matches(c)||(local!==null&&!same(c,local.session)))fail('REPLACEMENT_HOST_SOURCE_HANDSHAKE_RETIREMENT_CHANGED');
       return authorizeOriginalReplacement(proof);
@@ -895,7 +904,8 @@ export async function readT4OriginalReplacementRecipientAdmission({
       schema:'IWXA_T4_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_EVIDENCE_V1',eligibility,head,sourceIntent,
       originalRecipientAdmissionVerified:true,originalNewAttemptAdmissionStillRequired:true,
       originalSubjectMutationInvoked:false,liveNetworkAuthorityGranted:false},c,
-      {enableOriginalMultipartNegotiation:headPorts.enableOriginalMultipartNegotiation??false});
+      {enableOriginalMultipartNegotiation:headPorts.acceptOriginalMultipartOffer===true?
+        head.verifiedCriticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION):headPorts.enableOriginalMultipartNegotiation??false});
   };
   const first=await current();
   const proof={candidate:first.eligibility.candidate,headKey:first.head.key,
@@ -920,7 +930,8 @@ export async function publishT4OriginalReplacementRecipientDiff({
   if(![createOriginalReplacementRecipientPublicationPort,resolveOriginalSigningContext,signOriginalNodeBytes].every(f=>typeof f==='function')||
     typeof retryMissing!=='boolean')fail('REPLACEMENT_RECIPIENT_PUBLICATION_PORTS_REQUIRED');
   const first=await readT4OriginalReplacementRecipientAdmission(admissionPorts),session=first.eligibility.candidate;
-  const enableOriginalMultipartNegotiation=admissionPorts.enableOriginalMultipartNegotiation??false;
+  const enableOriginalMultipartNegotiation=admissionPorts.acceptOriginalMultipartOffer===true?
+    first.head.verifiedCriticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION):admissionPorts.enableOriginalMultipartNegotiation??false;
   const profile=readT4OriginalReplacementHandshakeProfile({candidate:session,headBody:first.head.verifiedBody,
     headSha256:first.head.sha256,headExtensions:first.head.verifiedCriticalExtensions,enableOriginalMultipartNegotiation});
   const body=profile.diffBody;
@@ -930,7 +941,8 @@ export async function publishT4OriginalReplacementRecipientDiff({
     return next;
   };
   const port=await createOriginalReplacementRecipientPublicationPort(freeze({session,
-    originalReplacementRecipientDiffRequired:true,originalNewAttemptAdmissionStillRequired:true}),current);mode(getMode);
+    originalReplacementRecipientDiffRequired:true,originalNewAttemptAdmissionStillRequired:true,
+    ...(enableOriginalMultipartNegotiation?{originalReplacementMultipartHandshakeRequired:true}: {})}),current);mode(getMode);
   if(port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||!same(port.session,session)||
     !ID(port.checkpointRef)||port.originalT3OnlyStore!==true||port.createsScheduler!==false||
     port.createsTaskEngine!==false||port.originalReplacementRecipientDiffPublication!==true||
@@ -1003,7 +1015,7 @@ export async function publishT4OriginalReplacementRecipientDiff({
 export async function advanceT4OriginalReplacementRecipientHandshake({originalCaptureSession,sourceCursorBefore,retired,selection=null,
   readOriginalOwnerEligibility,readOriginalSourceAdmission,authorizeOriginalReplacement,authorizeOriginalReplacementRecipientAdmission,
   createOriginalReplacementRecipientPublicationPort,resolveOriginalSigningContext,signOriginalNodeBytes,
-  frameDiscoveryPort,requiredCryptoSuite,getMode,retryMissing=false}={}){
+  frameDiscoveryPort,requiredCryptoSuite,getMode,retryMissing=false,enableOriginalMultipartNegotiation=false,acceptOriginalMultipartOffer=false}={}){
   const root=validateT4OriginalNativeCaptureSession(originalCaptureSession),before=freeze(clone(sourceCursorBefore)),
     stop=freeze(clone(retired)),local=selection===null?null:freeze(clone(selection));
   if(stop?.originalAttemptSuperseded!==true||!ID(stop.replacementSessionRef)||!ID(stop.originalSupersessionEventId)||
@@ -1013,7 +1025,10 @@ export async function advanceT4OriginalReplacementRecipientHandshake({originalCa
     stop.originalSubjectMutationInvoked!==false||stop.sourceCursorAdvanced!==false||
     ![readOriginalOwnerEligibility,readOriginalSourceAdmission,authorizeOriginalReplacement,authorizeOriginalReplacementRecipientAdmission,
       createOriginalReplacementRecipientPublicationPort,resolveOriginalSigningContext,signOriginalNodeBytes,getMode].every(f=>typeof f==='function')||
-    typeof retryMissing!=='boolean')fail('REPLACEMENT_HOST_RECIPIENT_HANDSHAKE_PORTS_REQUIRED');
+    typeof retryMissing!=='boolean'||typeof enableOriginalMultipartNegotiation!=='boolean'||typeof acceptOriginalMultipartOffer!=='boolean'||
+    (acceptOriginalMultipartOffer&&(!enableOriginalMultipartNegotiation||local!==null))||
+    (enableOriginalMultipartNegotiation&&!acceptOriginalMultipartOffer&&root.changeKind!=='ASSET_PUT'))
+    fail('REPLACEMENT_HOST_RECIPIENT_HANDSHAKE_PORTS_REQUIRED');
   const matches=c=>c.sessionRef===stop.replacementSessionRef&&same(c.originalCaptureSession,root)&&
     c.replacement.recipientPhaseRef===stop.originalRetiredPhaseCheckpointRef&&
     c.replacement.recipientPhaseEventId===stop.originalSupersessionEventId&&
@@ -1022,6 +1037,7 @@ export async function advanceT4OriginalReplacementRecipientHandshake({originalCa
   if(local!==null){
     const c=validateT4OriginalReplacementSessionCandidate(local.session);
     if(local.schema!=='IWXA_T4_ORIGINAL_LOCAL_REPLACEMENT_SELECTION_V1'||local.role!=='RECIPIENT'||!matches(c)||
+      (local.originalLocalMultipartNegotiated===true)!==enableOriginalMultipartNegotiation||
       !same(local.sourceCursorBefore,before)||!same(local.retired,stop)||local.originalLocalPhase!==null||local.originalLocalPhaseRevision!==0||
       !Number.isSafeInteger(local.originalLocalPublicationRevision)||local.originalLocalPublicationRevision<1||
       local.originalLocalPublicationChainVerified!==true||local.originalLocalRetirementEventVerified!==true||
@@ -1045,7 +1061,7 @@ export async function advanceT4OriginalReplacementRecipientHandshake({originalCa
         if(!matches(c)||(local!==null&&!same(c,local.session)))fail('REPLACEMENT_HOST_RECIPIENT_HANDSHAKE_RETIREMENT_CHANGED');
         return authorizeOriginalReplacement(proof);
       },readOriginalSourceAdmission,authorizeOriginalReplacementRecipientAdmission,createOriginalReplacementRecipientPublicationPort,
-      resolveOriginalSigningContext,signOriginalNodeBytes,frameDiscoveryPort,retryMissing});
+      resolveOriginalSigningContext,signOriginalNodeBytes,frameDiscoveryPort,retryMissing,enableOriginalMultipartNegotiation,acceptOriginalMultipartOffer});
     return result('ORIGINAL_REPLACEMENT_RECIPIENT_DIFF_PUBLISHED',{publicationState:diff.publicationState,originalLocalReadbackRequired:true});
   }catch(error){
     if(!['REPLACEMENT_ORIGINAL_OWNER_ELIGIBILITY_NOT_READY','REPLACEMENT_RECIPIENT_HEAD_NOT_PRESENT','REPLACEMENT_RECIPIENT_SOURCE_ADMISSION_NOT_READY'].includes(error?.code))throw error;
