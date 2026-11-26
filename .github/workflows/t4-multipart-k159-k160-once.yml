@@ -1,0 +1,32 @@
+name: T4 K159 K160 original historical multipart ACK qualification
+on:
+  push:
+    branches: ['ci/once/t4-multipart-k159-k160/9c5ee2cf38ec0a4b8e8317380a04e6954458854a']
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public source and locked dependencies
+        run: |
+          test "$(git rev-parse HEAD^)" = "9c5ee2cf38ec0a4b8e8317380a04e6954458854a"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Check original contracts
+        working-directory: packages/t4-network
+        run: npm run check
+      - name: Historical multipart ACK and legacy task regression
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test --test-name-pattern='K152|K160|K157|K155' tests/original-network-multipart-agreement.test.mjs
+      - name: Original compact historical and key retirement regression
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test --test-name-pattern='K41|K43|K158' tests/original-network-key-lifecycle.test.mjs
