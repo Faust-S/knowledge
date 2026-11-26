@@ -131,6 +131,44 @@ export function createT4OriginalMultipartBacking({wireBytes,...p}={}){
     fail('MULTIPART_BACKING_FRAME_COUNT_INVALID');
   const c=content(a,wireBytes.map(w=>frame(w).entry));return planOf(a,c);
 }
+
+/** Validate the compact root-selected plan even before loading any block.
+ * The original publication Event chain, not this structural check, selects it. */
+export function validateT4OriginalMultipartBackingPlan({plan,...p}={}){
+  const a=anchor(p);
+  if(!keys(plan,['schema','binding','bindingDigest','manifestDigest','contentDigest','changeRef',
+    'segments','frameCount','planDigest'])||plan.schema!==PLAN||
+    !Array.isArray(plan.segments)||plan.segments.length<2||plan.segments.length>16||
+    !DIG(plan.planDigest)||!DIG(plan.bindingDigest)||!DIG(plan.manifestDigest)||!DIG(plan.contentDigest))
+    fail('MULTIPART_BACKING_PLAN_INVALID');
+  const binding={session:a.session,technicalWorkspaceId:a.technicalWorkspaceId,checkpointRef:a.checkpointRef,rootAnchor:a.rootAnchor};
+  if(!same(plan.binding,binding)||plan.bindingDigest!==digest('IWXA-T4-MULTIPART-BACKING-BINDING-V1',binding))
+    fail('MULTIPART_BACKING_ROOT_CHANGED');
+  const f=readEntry(plan.changeRef);validateContentFrame(f.decoded,a);
+  const b=f.decoded.body,s=a.session;
+  if(f.decoded.messageType!=='CHANGE_REF'||f.decoded.sequence!==2||
+    f.decoded.messageId===a.head.decoded.messageId||b.eventRef!==s.sourceEventId||b.ownerRef!==s.originalWriteOwnerRef||
+    b.sourceRevision!==s.sourceRevision||b.changeKind!==s.changeKind||!same(b.parents,[s.sourcePrefixDigestBefore]))
+    fail('MULTIPART_BACKING_CHANGE_MISMATCH');
+  const m=validateT4CandidateMultipartManifest(b.multipartManifest);
+  if(m.manifestDigest!==plan.manifestDigest||m.contentDigest!==plan.contentDigest||m.parts.length!==plan.segments.length)
+    fail('MULTIPART_BACKING_PLAN_INVALID');
+  let next=3;const seen=new Set();
+  for(const [i,d] of plan.segments.entries()){
+    const part=m.parts[i];
+    if(!keys(d,['partIndex','objectId','recordDigest','firstSequence','lastSequence','frameCount'])||
+      d.partIndex!==i||!DIG(d.recordDigest)||d.objectId!==T4_MULTIPART_BACKING_SEGMENT_PREFIX+d.recordDigest.slice(7)||
+      seen.has(d.objectId)||d.firstSequence!==next||d.frameCount!==part.chunkCount||
+      d.lastSequence!==next+part.chunkCount-1)fail('MULTIPART_BACKING_PLAN_INVALID');
+    seen.add(d.objectId);next+=part.chunkCount;
+  }
+  const {planDigest,...core}=plan;
+  if(plan.frameCount!==next-2||digest('IWXA-T4-MULTIPART-BACKING-PLAN-V1',core)!==planDigest)
+    fail('MULTIPART_BACKING_PLAN_CHANGED');
+  budget(plan);
+  return freeze(structuredClone(plan));
+}
+
 // Reconstruct against the exact original root-selected plan. A valid segment
 // by itself is NEVER a reservation, PREPARE, PRESENT, or authorization.
 export function readT4OriginalMultipartBacking({plan,segments,...p}={}){

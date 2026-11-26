@@ -125,3 +125,106 @@ test('maximum 8 MiB sealed batch is separated into 16 bounded content records, n
   const assembled=assembleT4CandidateMultipartOpaqueChunks({manifest:max.opaque.manifest,bodies:r.wireBytes.slice(1).map(w=>decodeT4CandidateFrame(w).body)});
   assert.equal(assembled.ciphertext.length,T4_MULTIPART_MAX_CIPHERTEXT_BYTES);assert.equal(assembled.contentDigest,result.plan.contentDigest);
 });
+
+import {createT4OriginalNetworkPublicationPort} from '../src/network/original-network-publication.mjs';
+import {validateT4OriginalMultipartBackingPlan} from '../src/network/original-network-publication-multipart-backing.mjs';
+function journal(){
+  const objects=new Map(),events=[],remote=new Map();
+  let writes=0,publishes=0,allow=true,lose=null,host='host:1';
+  const kernel={
+    hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.putObject'].includes(op),
+    async getObject(w,id){return structuredClone(objects.get(id)??null);},
+    async listEventsSince(w){return structuredClone(events.filter(e=>e.workspace_id===w));},
+    async putObject(input){
+      if(input.base_revision!==(objects.get(input.object_id)?.object?.revision??0))
+        throw Object.assign(Error('CAS'),{code:'REVISION_CONFLICT'});
+      const object={workspace_id:input.workspace_id,object_id:input.object_id,schema_id:input.schema_id,
+        schema_version:input.schema_version,revision:input.base_revision+1,deleted:false,data:structuredClone(input.data),extensions:{}};
+      const event={event_id:'event:journal:'+(++writes),workspace_id:input.workspace_id,object_id:input.object_id,
+        revision:object.revision,event_type:input.event.event_type,payload:structuredClone(input.event.payload)};
+      objects.set(input.object_id,{object});events.push(event);
+      if(lose===event.event_type||lose===event.payload.action){lose=null;throw Object.assign(Error('lost'),{code:'ACK_LOST'});}
+      return structuredClone({object,event});
+    },
+  };
+  const transport={
+    async publishSignedFrame({wireBytes}){publishes++;const sha256=hex(wireBytes),key=sha256+'.t4n';remote.set(key,wireBytes);
+      return {schema:'IWXA_T4_CANDIDATE_FRAME_PUBLISHED_V1',key,sha256,immutableTransportReadback:true,originalBusinessApplied:false};},
+    async inspectUnknownPublication({key,expectedSha256}){if(!remote.has(key))throw Object.assign(Error('missing'),{code:'REMOTE_NOT_FOUND'});
+      return {schema:'IWXA_T4_CANDIDATE_FRAME_PRESENT_V1',key,sha256:expectedSha256,exactBytesPresent:true,originalBusinessApplied:false};},
+  };
+  const port=(enabled=true,extra={})=>createT4OriginalNetworkPublicationPort({
+    session,localNodeRef:session.sourceNodeRef,technicalWorkspaceId,originalKernel:kernel,getMode:()=> 'T4_NETWORK',
+    readOriginalHostContext:async()=>({workspaceId:technicalWorkspaceId,originalWriteOwnerRef:session.originalWriteOwnerRef,
+      nodeRef:session.sourceNodeRef,scopeRef:session.scopeRef,hostSessionRef:host}),
+    authorizeOriginalTechnicalRead:async()=>true,authorizeOriginalTechnicalWrite:async()=>true,
+    authorizeOriginalFramePublish:async()=>true,verifyOriginalNodeSignature,
+    authorizeOriginalSealedPublication:async()=>allow,
+    ...(enabled?{authorizeOriginalMultipartBacking:async()=>allow}:{}),frameTransport:transport,...extra});
+  const ready=async()=>{const p=port();await p.prepareSignedBatch({slots:[{sequence:1,messageType:'HEADS'}],
+    createSignedFrames:async()=>[headWireBytes]});await p.publishPreparedFrame({sequence:1});return p;};
+  return {objects,events,port,ready,get writes(){return writes;},get publishes(){return publishes;},
+    lose:x=>{lose=x;},allow:x=>{allow=x;},restart:()=>{host='host:2';}};
+}
+const reserve=p=>p.prepareOriginalMultipartBacking({wireBytes:small.wireBytes});
+test('K143 compact plan is validated without loading the segments',()=>{
+  assert.deepEqual(validateT4OriginalMultipartBackingPlan({...anchor,plan:candidate.plan}),candidate.plan);
+  const plan=structuredClone(candidate.plan);plan.segments[0].firstSequence++;
+  assert.throws(()=>validateT4OriginalMultipartBackingPlan({...anchor,plan}),code('MULTIPART_BACKING_PLAN_INVALID'));
+});
+test('K143 existing root CAS selects only fully persisted immutable Object/Event backing',async()=>{
+  const f=journal(),p=await f.ready(),r=await reserve(p);
+  assert.equal(f.writes,6);assert.equal(f.publishes,1);assert.equal(r.originalPublicationRevision,4);
+  assert.deepEqual(r.wireBytes,small.wireBytes);assert.equal(r.originalPublicationPrepared,false);
+  assert.equal(r.originalObjectEventReadbackVerified,true);assert.equal(r.originalSignatureVerified,true);
+  assert.equal(f.events.at(-1).payload.action,'MULTIPART_RESERVE');
+  assert.equal(f.events.at(-1).payload.multipartPlanDigest,r.planDigest);
+  assert.equal(f.objects.get(checkpointRef).object.data.entries.length,1);
+  assert.ok(Buffer.byteLength(JSON.stringify(f.objects.get(checkpointRef).object.data))<32000);
+  assert.equal((await p.inspectOriginalPublication()).multipartBackingReserved,true);
+  f.restart();const cold=await f.port().readOriginalMultipartBacking();
+  assert.deepEqual(cold.wireBytes,r.wireBytes);assert.deepEqual(cold.segmentEvents,r.segmentEvents);
+  await reserve(f.port());assert.equal(f.writes,6);assert.equal(f.publishes,1);
+});
+test('K143 lost segment response cannot select incomplete backing and next read avoids duplicate writes',async()=>{
+  const f=journal(),p=await f.ready();f.lose('t4.network.original.frame.publication.content');
+  await assert.rejects(reserve(p),code('PUBLICATION_MULTIPART_SEGMENT_CAS_OUTCOME_UNKNOWN'));
+  assert.equal(f.writes,4);assert.equal((await p.inspectOriginalPublication()).multipartBackingReserved,undefined);
+  await assert.rejects(p.readOriginalMultipartBacking(),code('PUBLICATION_MULTIPART_RESERVATION_REQUIRED'));
+  f.restart();const result=await reserve(f.port());assert.equal(f.writes,6);assert.equal(result.originalRootReservationVerified,true);
+});
+test('K143 lost root CAS response restores selected exact bytes without repeating writes',async()=>{
+  const f=journal(),p=await f.ready();f.lose('MULTIPART_RESERVE');
+  await assert.rejects(reserve(p),code('PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN'));
+  assert.equal(f.writes,6);f.restart();const readback=await f.port().readOriginalMultipartBacking();
+  assert.deepEqual(readback.wireBytes,small.wireBytes);assert.equal(f.writes,6);
+});
+test('K143 selection fences legacy prepare and does not publish content in the candidate',async()=>{
+  const f=journal(),p=await f.ready();await reserve(p);
+  const old=f.port(false);assert.equal(old.prepareOriginalMultipartBacking,undefined);
+  await assert.rejects(old.prepareSignedBatch({slots:[{sequence:2,messageType:'CHANGE_REF'}],
+    createSignedFrames:async()=>{throw Error('must not sign');}}),code('PUBLICATION_MULTIPART_RESERVATION_CONFLICT'));
+  await assert.rejects(p.publishPreparedFrame({sequence:2}),code('PUBLICATION_PREDECESSOR_NOT_PRESENT'));
+  assert.equal(f.publishes,1);assert.equal(f.writes,6);
+});
+test('K143 missing segment Event and changed segment bytes never supply original readback',async()=>{
+  const f=journal(),p=await f.ready(),r=await reserve(p),id=r.segmentEvents[0].objectId;
+  const e=f.events.findIndex(x=>x.object_id===id),[saved]=f.events.splice(e,1);
+  await assert.rejects(p.readOriginalMultipartBacking(),code('PUBLICATION_MULTIPART_SEGMENT_EVENT_NOT_PROVEN'));
+  f.events.splice(e,0,saved);
+  f.objects.get(id).object.data.segment.entries[0].wireText+=' ';
+  await assert.rejects(p.readOriginalMultipartBacking(),code('MULTIPART_BACKING_FRAME_CHANGED'));
+});
+test('K143 root selection cannot be replaced by a different valid signed plan',async()=>{
+  const f=journal(),p=await f.ready();await reserve(p);const w=[...small.wireBytes];
+  w[1]=await changeFrame(w[1],{messageId:'message:alternative'});
+  await assert.rejects(p.prepareOriginalMultipartBacking({wireBytes:w}),code('PUBLICATION_MULTIPART_RESERVATION_CONFLICT'));
+  assert.equal(f.writes,6);
+});
+test('K143 original authorization revocation blocks preparation and cold readback',async()=>{
+  const f=journal(),p=await f.ready();f.allow(false);
+  await assert.rejects(reserve(p),code('PUBLICATION_MULTIPART_ORIGINAL_AUTHORITY_DENIED'));assert.equal(f.writes,3);
+  f.allow(true);await reserve(p);f.allow(false);
+  await assert.rejects(f.port().readOriginalMultipartBacking(),code('PUBLICATION_MULTIPART_ORIGINAL_AUTHORITY_DENIED'));
+  assert.equal(f.writes,6);
+});
