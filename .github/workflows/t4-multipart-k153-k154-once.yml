@@ -1,0 +1,24 @@
+name: T4 K153 K154 direct qualification
+on:
+  push:
+    branches: ['ci/once/t4-multipart-k153-k154/aba2dc78193635e2f69afc05243d60c9f320262a']
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: |
+          test "$(git rev-parse HEAD^)" = "aba2dc78193635e2f69afc05243d60c9f320262a"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Bounded cold inventory and live agreement reader
+        run: node --experimental-strip-types --test --test-name-pattern='K153|K154' packages/t4-network/tests/original-network-multipart-agreement.test.mjs
