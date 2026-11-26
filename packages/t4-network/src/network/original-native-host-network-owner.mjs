@@ -625,7 +625,8 @@ export function createT4OriginalNativeHostNetworkOwner({
         authorizeOriginalHostTask:common.authorizeOriginalHostTask,dispatcher,isHostActive,
         createOriginalNativePublicationPort:publication});
       const verifyOriginalSourceSubject=async proof=>{
-        const rows=await ledger.listOriginalOutbox({workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
+        const list=ledger.listOriginalOutboxForSourceEvent??ledger.listOriginalOutbox;
+        const rows=await list({workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
           sourceEventId:proof.originalSourceEventId??proof.sourceEventId});
         if(rows.length!==1)return false;const row=rows[0];
         return verifyT4OriginalHostCapturedSubjectSource({...capture,kind:row.kind??'OBJECT_PUT',

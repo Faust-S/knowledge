@@ -763,3 +763,67 @@ test('K150 selected source profile leaves small legacy capture records unchanged
   assert.deepEqual(await a.f.port().readOriginalOutbox(query),await b.f.port().readOriginalOutbox(query));
   assert.equal(a.permits.length,0);
 });
+
+async function selectedCaptureFixture(){
+  const f=backingFixture(),p=f.port(),a=await backedAsset();
+  await p.persistOriginalIntent(a.i);await admitAsset(p,a);await p.persistOriginalOutbox(a.o);
+  const small={...await dispatchIntent(),captureRef:'capture:selected'};
+  small.originalMutation={...small.originalMutation,event:{...small.originalMutation.event,payload:{iwxa_t4_capture_ref:small.captureRef}}};
+  const result={...outbox,captureRef:small.captureRef};
+  await p.persistOriginalIntent(small);await admit(p,small);await p.persistOriginalOutbox(result);
+  const reads=[],k=f.params.originalKernel,read=k.getObject;
+  k.getObject=async(ws,id)=>{reads.push(id);return read(ws,id);};
+  const segments=[...f.objects.values()].filter(x=>x.object.data.role==='backing').map(x=>x.object.object_id);
+  const wanted=[...f.objects.values()].filter(x=>x.object.data.captureRef===small.captureRef).map(x=>x.object.object_id);
+  return {f,a,small,result,reads,segments,wanted};
+}
+test('K151 exact source Event selection proves original roots and only opens the selected capture, not five unrelated Asset segments',async()=>{
+  const q=await selectedCaptureFixture(),p=q.f.port(),filter={...scope,sourceEventId:q.result.sourceEventId,kindFilter:['OBJECT_PUT']};
+  assert.deepEqual(await p.listOriginalOutboxForSourceEvent(filter),[q.result]);
+  assert.equal(q.reads.length,3);
+  assert.ok(q.reads.every(id=>q.wanted.includes(id)));
+  assert.equal(q.reads.filter(id=>q.segments.includes(id)).length,0);
+  q.reads.length=0;
+  assert.deepEqual(await p.listOriginalOutboxForSourceEvent({...filter,sourceEventId:'event:not-found'}),[]);
+  assert.equal(q.reads.length,0);
+  q.f.restart();
+  assert.deepEqual(await q.f.port().listOriginalOutboxForSourceEvent({...scope,sourceEventId:q.a.o.sourceEventId}),[q.a.o]);
+  assert.ok(q.reads.some(id=>q.segments.includes(id)));
+  assert.equal(q.f.writes,11);
+});
+test('K151 unselected backing damage stays out of exact selection but selected and full audit still fail closed',async()=>{
+  const q=await selectedCaptureFixture(),p=q.f.port();
+  const id=q.segments[0],row=q.f.objects.get(id);
+  row.object.data.chars='B'+row.object.data.chars.slice(1);
+  assert.deepEqual(await p.listOriginalOutboxForSourceEvent({...scope,sourceEventId:q.result.sourceEventId}),[q.result]);
+  await assert.rejects(p.listOriginalOutboxForSourceEvent({...scope,sourceEventId:q.a.o.sourceEventId}),{code:'CAPTURE_LEDGER_BACKING_INVALID'});
+  await assert.rejects(p.readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_BACKING_INVALID'});
+  await assert.rejects(p.listOriginalOutbox(scope),{code:'CAPTURE_LEDGER_BACKING_INVALID'});
+});
+test('K151 exact source Event selection refuses duplicate captures across kinds, even with a kind filter',async()=>{
+  const q=await selectedCaptureFixture(),p=q.f.port(),i={...await dispatchIntent(),captureRef:'capture:duplicate'};
+  i.originalMutation={...i.originalMutation,event:{...i.originalMutation.event,payload:{iwxa_t4_capture_ref:i.captureRef}}};
+  await p.persistOriginalIntent(i);await admit(p,i);
+  await p.persistOriginalOutbox({...outbox,captureRef:i.captureRef,sourceEventId:q.a.o.sourceEventId});
+  await assert.rejects(p.listOriginalOutboxForSourceEvent({...scope,sourceEventId:q.a.o.sourceEventId,kindFilter:['ASSET_PUT']}),
+    {code:'CAPTURE_LEDGER_SOURCE_EVENT_NOT_UNIQUE'});
+});
+test('K151 exact source Event selection checks all root metadata and live exact selected authority',async()=>{
+  const q=await selectedCaptureFixture(),p=q.f.port(),filter={...scope,sourceEventId:q.result.sourceEventId};
+  const old=q.f.params.authorizeOriginalTechnicalRead;
+  q.f.params.authorizeOriginalTechnicalRead=proof=>proof.operation!=='t1.getObject'||proof.captureRef!==q.small.captureRef;
+  await assert.rejects(q.f.port().listOriginalOutboxForSourceEvent(filter),{code:'CAPTURE_LEDGER_ORIGINAL_AUTHORITY_DENIED'});
+  q.f.params.authorizeOriginalTechnicalRead=old;
+  const unrelated=[...q.f.objects.values()].find(x=>x.object.data.role==='outbox'&&x.object.data.captureRef===q.a.i.captureRef);
+  unrelated.object.data.captureBacking.segments.reverse();
+  await assert.rejects(p.listOriginalOutboxForSourceEvent(filter),{code:'CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN'});
+});
+test('K151 exact source Event selection rechecks all root identities and selected backing after the second catalog',async()=>{
+  const q=await selectedCaptureFixture(),p=q.f.port(),k=q.f.params.originalKernel,list=k.listObjects;
+  let scans=0;k.listObjects=async(...args)=>{
+    const rows=await list(...args);
+    if(++scans===2){const row=q.f.objects.get(q.segments[0]);row.object.data.chars='B'+row.object.data.chars.slice(1);}
+    return rows;
+  };
+  await assert.rejects(p.listOriginalOutboxForSourceEvent({...scope,sourceEventId:q.a.o.sourceEventId}),{code:'CAPTURE_LEDGER_BACKING_INVALID'});
+});

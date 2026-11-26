@@ -389,7 +389,8 @@ async function selectNativeCapture(params,before,w,a,guardList){
     rights(params,'t1.listObjects','native-outbox-list'))!==true)
     fail('DISPATCH_NATIVE_ORIGINAL_OUTBOX_LIST_DENIED');
   mode(params);
-  const rows=await params.listOriginalOutbox(Object.freeze({
+  const list=typeof params.listOriginalOutboxForSourceEvent==='function'?params.listOriginalOutboxForSourceEvent:params.listOriginalOutbox;
+  const rows=await list(Object.freeze({
     workspaceId:params.workspaceId,
     originalWriteOwnerRef:params.originalWriteOwnerRef,
     networkTargetRef:params.networkTargetRef,
@@ -488,6 +489,8 @@ export async function readT4OriginalNativeCaptureSessionAtCursor(params={}){
   for(const k of ['authorizeOriginalRead','authorizeNetworkPublish','readOriginalEvents',
     'listOriginalOutbox','readOriginalIntent','readOriginalOutbox'])
     scoped[k]=live(params[k],k);
+  if(typeof params.listOriginalOutboxForSourceEvent==='function')
+    scoped.listOriginalOutboxForSourceEvent=live(params.listOriginalOutboxForSourceEvent,'listOriginalOutboxForSourceEvent');
   if(commitHistory)for(const k of ['readOriginalCommitPage','withOriginalHistoryReadBoundary'])
     scoped[k]=live(params[k],k);
   const read=()=>readT4OriginalEventWindow({

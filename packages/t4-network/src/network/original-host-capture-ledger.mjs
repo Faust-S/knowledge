@@ -550,6 +550,87 @@ export function createT4OriginalHostCaptureLedgerPort({
     if(!payload)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
     return payload;
   }
+  async function verifyStableInventory(initial,roles,snapshot,selectedBacking,selectedRefs=null){
+    const next=await indexes(initial,roles);
+    for(const role of roles)if(snapshot.get(role).fingerprint!==next.get(role).fingerprint)
+      fail('CAPTURE_LEDGER_ORIGINAL_INDEX_CHANGED',{automaticRetryAllowed:false});
+    for(const role of roles){
+      const first=snapshot.get(role),last=next.get(role);
+      // Every root and Event is compared against the second catalog. The
+      // selected reader additionally proves exact getObject rights for only
+      // the records whose full contents it actually returns.
+      for(const [objectId,o] of first.rows){
+        if(!same(last.rows.get(objectId),o))fail('CAPTURE_LEDGER_ORIGINAL_RECORD_CHANGED');
+        if(selectedRefs===null||selectedRefs.has(o.data.captureRef))
+          await guard(initial,'t1.getObject',role,o.data.captureRef);
+      }
+    }
+    for(const selected of selectedBacking){
+      const full=await reconstruct(selected.root,initial,selected.eventId);
+      if(!same(full,record(full.role,full.payload,full.dispatchProtocol)))fail('CAPTURE_LEDGER_BACKING_INVALID');
+    }
+    if(!same(await context(),initial))fail('CAPTURE_LEDGER_ORIGINAL_CONTEXT_CHANGED');
+  }
+  function catalogRecordMetadata(role,index,e){
+    const d=index.rows.get(e.object_id)?.data;
+    if(!object(d)||!object(d.payload)||d.role!==role||d.captureRef!==e.payload.captureRef||
+      d.kind!==e.payload.kind||!DIG(d.recordDigest)||!same(e.payload,eventPayload(d)))
+      fail('CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN');
+    let expected=record(role,d.payload,d.dispatchProtocol);
+    if(Object.hasOwn(d,'captureBacking')){
+      // The immutable manifest and its original Event are checked here.
+      // Its segment bytes are deliberately NOT opened for an unrelated
+      // source Event. Full inventory retains full reconstruction.
+      validateBacking(d);
+      expected={...expected,recordDigest:d.recordDigest,captureBacking:d.captureBacking};
+    }
+    if(!same(d,expected))fail('CAPTURE_LEDGER_ORIGINAL_RECORD_INVALID');
+    return d;
+  }
+  /** Exact source Event selection for the existing native task. Prove
+   * global catalog/Event correspondence and root/dispatch metadata; open
+   * the complete Intent, Outbox and backing only for the unique selected
+   * capture. This is not a full content audit of unrelated captures. */
+  async function listOriginalOutboxForSourceEvent(query){
+    checkFilters(query);
+    if(!enableOriginalDispatchEvidence)fail('CAPTURE_LEDGER_DISPATCH_PROFILE_REQUIRED');
+    if(!ID(query.sourceEventId))fail('CAPTURE_LEDGER_EVENT_FILTER_INVALID');
+    const roles=['intent','outbox','dispatch'],initial=await context(),snapshot=await indexes(initial,roles);
+    const intents=snapshot.get('intent'),outboxes=snapshot.get('outbox'),dispatches=snapshot.get('dispatch');
+    for(const captureRef of dispatches.byCapture.keys())if(!intents.byCapture.has(captureRef))
+      fail('CAPTURE_LEDGER_DISPATCH_LINK_INVALID');
+    for(const [captureRef,e] of outboxes.byCapture){
+      const intent=intents.byCapture.get(captureRef);
+      if(!intent||intent.payload.kind!==e.payload.kind)
+        fail('CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED',{captureRef});
+    }
+    const matches=[];
+    for(const [captureRef,e] of intents.byCapture){
+      const i=catalogRecordMetadata('intent',intents,e);
+      const witness=dispatches.byCapture.get(captureRef),paired=outboxes.byCapture.get(captureRef);
+      const d=witness?catalogRecordMetadata('dispatch',dispatches,witness):null;
+      const o=paired?catalogRecordMetadata('outbox',outboxes,paired):null;
+      validateDispatchLink(i,d?.payload??null,o?.payload??null);
+      if(o&&(o.kind!==i.kind||o.subjectId!==i.subjectId))
+        fail('CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED',{captureRef});
+      if(o?.payload.sourceEventId===query.sourceEventId)matches.push({captureRef,e,witness,paired});
+    }
+    if(matches.length>1)fail('CAPTURE_LEDGER_SOURCE_EVENT_NOT_UNIQUE',{sourceEventId:query.sourceEventId,matchingCaptures:matches.length});
+    const selectedRefs=new Set(),selectedBacking=[],result=[];
+    const match=matches[0];
+    if(match&&(query.kindFilter===undefined||query.kindFilter.includes(match.paired.payload.kind))){
+      selectedRefs.add(match.captureRef);
+      const i=await readIndexed('intent',match.e,intents,initial,true,true,selectedBacking);
+      const d=match.witness?await readIndexed('dispatch',match.witness,dispatches,initial,true):null;
+      const out=await readIndexed('outbox',match.paired,outboxes,initial,true,false,selectedBacking);
+      validateDispatchLink(i,d,out);
+      if(kindOf(out)!==i.kind||subjectOf(out,i.kind)!==i.subjectId||out.sourceEventId!==query.sourceEventId)
+        fail('CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED',{captureRef:match.captureRef});
+      result.push(out);
+    }
+    await verifyStableInventory(initial,roles,snapshot,selectedBacking,selectedRefs);
+    return Object.freeze(result);
+  }
   async function listOriginalOutbox(query){
     checkFilters(query);
     if(enableOriginalDispatchEvidence){
@@ -615,25 +696,7 @@ export function createT4OriginalHostCaptureLedgerPort({
     // There is no atomic catalog+Event snapshot on this T3 port. Refuse a
     // changed capture index rather than report a misleading absence. The
     // original Host still owns exclusion for any subsequent mutation.
-    const next=await indexes(initial,roles);
-    for(const role of roles)if(snapshot.get(role).fingerprint!==next.get(role).fingerprint)
-      fail('CAPTURE_LEDGER_ORIGINAL_INDEX_CHANGED',{automaticRetryAllowed:false});
-    for(const role of roles){
-      const first=snapshot.get(role),last=next.get(role);
-      // A stable Event digest alone cannot prove that the immutable Object
-      // has not changed. Compare complete original ObjectRecords and recheck
-      // each exact read authority after the fresh signed catalog read.
-      for(const [objectId,o] of first.rows){
-        if(!same(last.rows.get(objectId),o))fail('CAPTURE_LEDGER_ORIGINAL_RECORD_CHANGED');
-        await guard(initial,'t1.getObject',role,o.data.captureRef);
-      }
-    }
-    // Recheck exact selected segment Objects and Event IDs after the second
-    // original catalog observation; unreferenced stages are intentionally inert.
-    for(const selected of selectedBacking){
-      const full=await reconstruct(selected.root,initial,selected.eventId);
-      if(!same(full,record(full.role,full.payload,full.dispatchProtocol)))fail('CAPTURE_LEDGER_BACKING_INVALID');
-    }
+    await verifyStableInventory(initial,roles,snapshot,selectedBacking);
     if(!includePairs)return Object.freeze(pending);
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_CAPTURE_INVENTORY_V1',
       workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
@@ -653,7 +716,8 @@ export function createT4OriginalHostCaptureLedgerPort({
       const initial=await context();
       return enableOriginalDispatchEvidence?(await dispatchState(query,initial)).outbox:read('outbox',query,initial);
     },
-    ...(enableOriginalDispatchEvidence?{inspectOriginalCaptureDispatch,admitOriginalCaptureDispatch,closeOriginalUndispatchedCapture}:{}),
+    ...(enableOriginalDispatchEvidence?{inspectOriginalCaptureDispatch,admitOriginalCaptureDispatch,closeOriginalUndispatchedCapture,
+      listOriginalOutboxForSourceEvent}:{}),
     persistOriginalIntent:p=>persist('intent',p),persistOriginalOutbox:p=>persist('outbox',p),
     listOriginalOutbox,listOriginalPendingIntents,readOriginalCaptureInventory,
     originalT3OnlyStore:true,createsStore:false,createsScheduler:false,
