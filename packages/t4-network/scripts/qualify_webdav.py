@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Isolated actual Apache HTTPS/WebDAV test; not a production deployment."""
 from __future__ import annotations
-import base64, datetime, hashlib, json, os, pathlib, secrets, shutil, socket, ssl, subprocess, tempfile, time
+import base64, datetime, hashlib, json, os, pathlib, secrets, shutil, signal, socket, ssl, subprocess, tempfile, time
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 OUT=pathlib.Path(os.environ.get('T4_TEST_OUTPUT_DIR') or pathlib.Path(tempfile.gettempdir())/('iwxa-t4-network-'+str(os.getpid()))); OUT.mkdir(parents=True,exist_ok=True)
 for command in ('apache2','htpasswd','openssl','node'):
@@ -34,26 +34,38 @@ with tempfile.TemporaryDirectory(prefix='iwxa-t4-dav-') as temp:
  env['T4_TEST_AUTH']='Basic '+base64.b64encode(('person-a:'+passwords[0]).encode()).decode()
  env['T4_TEST_OTHER_AUTH']='Basic '+base64.b64encode(('person-b:'+passwords[1]).encode()).decode()
  env['T4_TEST_PEER_AUTH']='Basic '+base64.b64encode(('person-a-peer:'+passwords[2]).encode()).decode()
- def start():
-  p=subprocess.Popen(['apache2','-f',str(d/'httpd.conf'),'-DFOREGROUND'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-  ctx=ssl.create_default_context(cafile=str(d/'cert.pem'))
-  for _ in range(100):
-   if p.poll() is not None: raise RuntimeError((d/'error.log').read_text())
-   try:
-    with socket.create_connection(('127.0.0.1',port),timeout=.2) as sock:
-     with ctx.wrap_socket(sock,server_hostname='localhost'): return p
-   except (OSError,ssl.SSLError): time.sleep(.05)
-  p.terminate();raise RuntimeError('Server start timeout')
  def stop(p):
+  if p.poll() is not None:return
   p.terminate()
   try:p.wait(timeout=10)
-  except subprocess.TimeoutExpired:p.kill();p.wait()
+  except subprocess.TimeoutExpired:
+   # The server has its OWN session/process group. Never signal the
+   # qualification process group or the Actions runner.
+   try:os.killpg(p.pid,signal.SIGKILL)
+   except ProcessLookupError:pass
+   p.wait()
+ def start():
+  # Apache prefork may send SIGTERM to its process group on shutdown.
+  # Without this session boundary it also terminates Python/npm/CI.
+  p=subprocess.Popen(['apache2','-f',str(d/'httpd.conf'),'-DFOREGROUND'],
+    stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+  try:
+   ctx=ssl.create_default_context(cafile=str(d/'cert.pem'))
+   for _ in range(100):
+    if p.poll() is not None: raise RuntimeError((d/'error.log').read_text())
+    try:
+     with socket.create_connection(('127.0.0.1',port),timeout=.2) as sock:
+      with ctx.wrap_socket(sock,server_hostname='localhost'): return p
+    except (OSError,ssl.SSLError): time.sleep(.05)
+   raise RuntimeError('Server start timeout')
+  except BaseException:
+   stop(p);raise
  process=None
  try:
   process=start()
   suite_files=[str(p.relative_to(ROOT)) for p in sorted((ROOT/'tests/network').glob('*.test.mjs'))]
   suite=subprocess.run(['node','--test']+suite_files,cwd=ROOT,env=env,capture_output=True,text=True)
-  (OUT/'node-network-tests.log').write_text(suite.stdout+suite.stderr);print(suite.stdout,end='')
+  (OUT/'node-network-tests.log').write_text(suite.stdout+suite.stderr);print(suite.stdout,end='',flush=True)
   if suite.returncode:raise RuntimeError('Network test failure; see log')
   totals={}
   for line in suite.stdout.splitlines():
