@@ -12,6 +12,7 @@ import { createWorkspaceMethodThroughSourceOwner,readWorkspaceMethodCreationInte
   resumeWorkspaceMethodThroughSourceOwner,inspectWorkspaceMethodCreation } from './project-process-method-materialization.mjs';
 import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from './project-process-method-readback.mjs';
 import { previewWorkspaceMethodRevision } from './project-process-method-revision.mjs';
+import { compareWorkspaceMethodRevisions } from './project-process-method-comparison.mjs';
 import {
   createProjectProcessSourceOwnerQualificationHarness,
   createProjectProcessSourceOwnerPostBindingQualificationHarness,
@@ -122,6 +123,12 @@ async function qualifyWorkspaceMethodWithOriginalOwner(owner){
     &&actual.workRefs.every(row=>row.recordId===expectedRefs.get(row.objectId))
     &&canonicalStringify(actual.draft)===canonicalStringify(changed)
     &&(await owner.audit()).length===initialAudit+7;
+  const comparison=compareWorkspaceMethodRevisions({before:base,after:actual});
+  const semanticComparison=comparison.changedStepIds.join(',')==='analyse'
+    &&comparison.affectedStepIds.join(',')==='analyse,compare'
+    &&comparison.reviewRequired===true&&comparison.resultReuseProven===false
+    &&comparison.sourceRevisionChanges.project.changed===false
+    &&comparison.sourceRevisionChanges.works.filter(item=>item.changed).length===2;
   const staleBaseRejected=await rejectsWithCode(()=>previewWorkspaceMethodRevision({
     owner,workspaceId,projectId,expected:base,draft:changed,objects,
   }),'METHOD_REVISION_BASE_CHANGED');
@@ -144,7 +151,7 @@ async function qualifyWorkspaceMethodWithOriginalOwner(owner){
   const historicalPlan=history.find(row=>row.recordId===recordIds.project)?.payload?.methodology?.creation;
   const originalPlanRetained=historicalPlan?.steps.find(step=>step.workId===projectId+'.analyse')?.instruction===draft.steps[1].instruction;
   const checks=Object.freeze({interrupted,lostAckObserved:acknowledgedLost,partialReadback,originalIntent,
-    exactRecovery,compositionReview,selectivePlan,selectiveReadback,staleBaseRejected,
+    exactRecovery,compositionReview,selectivePlan,selectiveReadback,semanticComparison,staleBaseRejected,
     historicalReadback,historicalAfterRelease,currentTombstone,originalPlanRetained,
     sameWorkspaceHistory:verifiedHistory.status==='PASS'&&verifiedHistory.recordCount===8});
   return Object.freeze({status:Object.values(checks).every(Boolean)?'PASS':'FAIL',

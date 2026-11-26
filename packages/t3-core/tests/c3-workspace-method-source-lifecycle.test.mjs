@@ -8,6 +8,7 @@ import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from
 import { createWorkspaceMethodThroughSourceOwner, readWorkspaceMethodCreationIntent, resumeWorkspaceMethodThroughSourceOwner, inspectWorkspaceMethodCreation } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { qualifyProjectProcessSameWorkspaceHistory } from '../src/modules/base/owners/project-process-history.mjs';
 import { previewWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
+import { compareWorkspaceMethodRevisions } from '../src/modules/base/owners/project-process-method-comparison.mjs';
 
 const workspaceId='ws-method';
 const knowledgeAt='2026-11-26T18:00:00Z';
@@ -743,5 +744,109 @@ test('adding or removing a stage requires explicit project-composition review',a
   assert.equal(removePreview.requiresReleaseReview,true);
   assert.ok(removePreview.workOperations.every(item=>item.reviewState==='PROJECT_INTENT_REVIEW'&&item.reviewRequired));
   assert.equal(removePreview.removed[0].automaticRelease,false);
+  assert.equal((await owner.audit()).length,5);
+});
+
+
+test('method revision comparison reports no semantic changes for the same exact readback',async()=>{
+  const {owner,base}=await revisionFixture();
+  const result=compareWorkspaceMethodRevisions({before:base,after:base});
+  assert.equal(result.state,'UNCHANGED');assert.equal(result.reviewRequired,false);
+  assert.equal(result.projectCompositionChanged,false);assert.equal(result.displayOrderChanged,false);
+  assert.deepEqual(result.changedStepIds,[]);assert.deepEqual(result.affectedStepIds,[]);
+  assert.equal(result.sourceRevisionChanges.project.changed,false);
+  assert.ok(result.sourceRevisionChanges.works.every(item=>!item.changed));
+  assert.equal(result.resultReuseProven,false);assert.equal(result.executionAuthority,false);
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('method comparison identifies a changed branch and only its transitive dependent stages',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  draft.steps.find(step=>step.id==='analyse').instruction='New analytical method';
+  const after={...base,draft,workRefs:base.workRefs.map(ref=>ref.objectId.endsWith('.analyse')||ref.objectId.endsWith('.review')
+    ?{...ref,recordId:ref.recordId+'-r2',revision:2}:ref)};
+  const result=compareWorkspaceMethodRevisions({before:base,after});
+  assert.deepEqual(result.changedStepIds,['analyse']);
+  assert.deepEqual(result.affectedStepIds,['analyse','review']);
+  assert.equal(result.reviewRequired,true);
+  assert.equal(result.sourceRevisionChanges.project.changed,false);
+  assert.equal(result.sourceRevisionChanges.works.filter(item=>item.changed).length,2);
+  assert.equal(result.stepChanges.find(item=>item.stepId==='compute').operation,'UNCHANGED');
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('method comparison separates display order from dependency and semantic changes',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  draft.steps.reverse();
+  const after={...base,draft,projectRef:{...base.projectRef,recordId:'project@2',revision:2}};
+  const result=compareWorkspaceMethodRevisions({before:base,after});
+  assert.equal(result.state,'CHANGES_PROPOSED');assert.equal(result.displayOrderChanged,true);
+  assert.equal(result.projectCompositionChanged,false);assert.equal(result.projectIntentChanged,false);
+  assert.equal(result.reviewRequired,false);assert.deepEqual(result.changedStepIds,[]);
+  assert.deepEqual(result.affectedStepIds,[]);assert.equal(result.sourceRevisionChanges.project.changed,true);
+  assert.ok(result.stepChanges.every(item=>item.operation==='UNCHANGED'));
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('method comparison detects project composition additions and removals and dependent impact',async()=>{
+  const {owner,base}=await revisionFixture(),added=fixture();
+  added.steps.push({id:'validate',name:'Validate',actor:'human',instruction:'Review limits',dependsOn:['prepare'],materialIds:['source']});
+  const addAfter={...base,draft:added,projectRef:{...base.projectRef,recordId:'project@2',revision:2},
+    workRefs:[...base.workRefs,{family:'iwxa.work',objectId:'work:ws-method:project-a.validate',recordId:'validate@1',revision:1}]};
+  const add=compareWorkspaceMethodRevisions({before:base,after:addAfter});
+  assert.equal(add.projectCompositionChanged,true);assert.equal(add.projectIntentChanged,true);
+  assert.equal(add.stepChanges.find(item=>item.stepId==='validate').operation,'ADDED');
+  assert.deepEqual(add.affectedStepIds,['review','prepare','analyse','compute','validate']);
+  const removed=fixture();removed.steps=removed.steps.filter(step=>step.id!=='analyse');
+  removed.steps.find(step=>step.id==='review').dependsOn=['compute'];
+  const removeAfter={...base,draft:removed,projectRef:{...base.projectRef,recordId:'project@2',revision:2},
+    workRefs:base.workRefs.filter(ref=>!ref.objectId.endsWith('.analyse'))};
+  const remove=compareWorkspaceMethodRevisions({before:base,after:removeAfter});
+  assert.equal(remove.projectCompositionChanged,true);assert.equal(remove.stepChanges.find(item=>item.stepId==='analyse').operation,'REMOVED');
+  assert.ok(remove.affectedStepIds.includes('review'));assert.equal(remove.reviewRequired,true);
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('method comparison separates assigned material impact from unassigned material changes',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  draft.materials=draft.materials.map(ref=>ref.object_id==='model'?{...ref,revision:77}:ref);
+  const after={...base,draft,projectRef:{...base.projectRef,recordId:'project@2',revision:2}};
+  const result=compareWorkspaceMethodRevisions({before:base,after});
+  assert.deepEqual(result.materialChanges,[{object_id:'model',beforeRevision:2,afterRevision:77,operation:'REVISED'}]);
+  assert.deepEqual(result.materialImpactStepIds,['analyse','compute']);
+  assert.deepEqual(result.affectedStepIds,['prepare','analyse','compute','review']);
+  assert.equal(result.unassignedMaterialChanges.length,0);assert.equal(result.reviewRequired,true);
+  const unused={...fixture(),materials:fixture().materials.map(ref=>ref.object_id==='unused'?{...ref,revision:66}:ref)};
+  const unusedResult=compareWorkspaceMethodRevisions({before:base,after:{...base,draft:unused,
+    projectRef:{...base.projectRef,recordId:'project@2',revision:2}}});
+  assert.equal(unusedResult.unassignedMaterialChanges[0].object_id,'unused');
+  assert.deepEqual(unusedResult.affectedStepIds,[]);assert.equal(unusedResult.reviewRequired,false);
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('method comparison propagates project intent and dependency changes without claiming execution',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  draft.objective='New research objective';
+  draft.steps.find(step=>step.id==='compute').dependsOn=['prepare','analyse'];
+  const after={...base,draft,projectRef:{...base.projectRef,recordId:'project@2',revision:2},
+    workRefs:base.workRefs.map(ref=>ref.objectId.endsWith('.compute')
+      ?{...ref,recordId:ref.recordId+'-r2',revision:2}:ref)};
+  const result=compareWorkspaceMethodRevisions({before:base,after});
+  assert.equal(result.projectIntentChanged,true);assert.equal(result.reviewRequired,true);
+  assert.ok(result.dependencyChanges.some(item=>item.stepId==='compute'));
+  assert.equal(result.affectedStepIds.length,4);
+  assert.equal(result.atomicSnapshot,false);assert.equal(result.writeAuthorized,false);
+  assert.equal(result.executionAuthority,false);assert.equal(result.resultReuseProven,false);
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('method comparison refuses unverified, cross-workspace and incomplete revision sets',async()=>{
+  const {owner,base}=await revisionFixture();
+  await assert.rejects(Promise.resolve().then(()=>compareWorkspaceMethodRevisions({
+    before:base,after:{...base,revisionSetVerified:false}})),code('METHOD_COMPARISON_READBACK_REQUIRED'));
+  await assert.rejects(Promise.resolve().then(()=>compareWorkspaceMethodRevisions({
+    before:base,after:{...base,workspaceId:'other'}})),code('METHOD_COMPARISON_SCOPE_MISMATCH'));
+  await assert.rejects(Promise.resolve().then(()=>compareWorkspaceMethodRevisions({
+    before:base,after:{...base,workRefs:base.workRefs.slice(1)}})),code('METHOD_COMPARISON_REVISION_SET_INVALID'));
   assert.equal((await owner.audit()).length,5);
 });

@@ -30,7 +30,7 @@ test('C3 integrated qualification covers all eight current source families and k
   assert.equal(result.physicalMigrationRecoveryQualified,false);
   assert.equal(result.methodQualification.status,'PASS');
   assert.equal(Object.values(result.methodQualification.checks).every(Boolean),true);
-  assert.equal(Object.keys(result.methodQualification.checks).length,14);
+  assert.equal(Object.keys(result.methodQualification.checks).length,15);
   assert.equal(result.methodQualification.recordCount,8);
   assert.equal(result.methodQualification.objectCount,5);
   assert.equal(result.methodQualification.auditDelta,8);

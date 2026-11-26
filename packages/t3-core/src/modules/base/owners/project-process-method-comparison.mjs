@@ -1,0 +1,155 @@
+import { describeWorkspaceMethodSourceInputs } from '../features/workspace/workspace-project-method.mjs';
+import { projectProcessSourceObjectId } from './project-process-source-owner.mjs';
+
+function fail(code,message){throw Object.assign(new Error(message),{code});}
+function text(value){return typeof value==='string'&&value.trim().length>0;}
+function sameSet(a,b){return a.length===b.length&&a.every(value=>b.includes(value));}
+function sameArray(a,b){return a.length===b.length&&a.every((value,index)=>value===b[index]);}
+function sameRef(a,b){return !!a&&!!b&&a.family===b.family&&a.objectId===b.objectId
+  &&a.recordId===b.recordId&&a.revision===b.revision;}
+function stableMaterials(values){return [...values].map(value=>({object_id:value.object_id,revision:value.revision}))
+  .sort((a,b)=>a.object_id.localeCompare(b.object_id));}
+function mapMaterials(values){return new Map(values.map(value=>[value.object_id,value.revision]));}
+function materialDiff(before,after){
+  const a=mapMaterials(before),b=mapMaterials(after),ids=[...new Set([...a.keys(),...b.keys()])].sort();
+  return ids.filter(id=>a.get(id)!==b.get(id)).map(id=>Object.freeze({
+    object_id:id,beforeRevision:a.get(id)??null,afterRevision:b.get(id)??null,
+    operation:!a.has(id)?'ADDED':!b.has(id)?'REMOVED':'REVISED',
+  }));
+}
+function readback(value,label){
+  if(!value||value.revisionSetVerified!==true||!text(value.workspaceId)
+      ||!text(value.draft?.projectId)||!Array.isArray(value.workRefs)){
+    fail('METHOD_COMPARISON_READBACK_REQUIRED',label+' must be a verified Project/Work revision readback');
+  }
+  const workspaceId=value.workspaceId,projectId=value.draft.projectId;
+  const structure=describeWorkspaceMethodSourceInputs({workspaceId,draft:value.draft});
+  const projectRef=value.projectRef;
+  if(projectRef?.family!=='iwxa.project'
+      ||projectRef.objectId!==projectProcessSourceObjectId('project',workspaceId,projectId)
+      ||!text(projectRef.recordId)||!Number.isSafeInteger(projectRef.revision)||projectRef.revision<1){
+    fail('METHOD_COMPARISON_REVISION_SET_INVALID',label+' Project reference is invalid');
+  }
+  if(value.workRefs.length!==structure.workInputs.length){
+    fail('METHOD_COMPARISON_REVISION_SET_INVALID',label+' Work reference count does not match the method');
+  }
+  const byId=new Map();
+  for(const ref of value.workRefs){
+    if(ref?.family!=='iwxa.work'||!text(ref.recordId)||!Number.isSafeInteger(ref.revision)||ref.revision<1
+        ||byId.has(ref.objectId)){
+      fail('METHOD_COMPARISON_REVISION_SET_INVALID',label+' Work reference is invalid or duplicated');
+    }
+    byId.set(ref.objectId,ref);
+  }
+  const byWorkId=new Map();
+  for(const step of value.draft.steps){
+    const workId=projectId+'.'+step.id;
+    const objectId=projectProcessSourceObjectId('work',workspaceId,workId);
+    const ref=byId.get(objectId);
+    if(!ref)fail('METHOD_COMPARISON_REVISION_SET_INVALID',label+' is missing exact Work reference '+workId);
+    byWorkId.set(step.id,ref);
+  }
+  return Object.freeze({workspaceId,projectId,draft:value.draft,structure,projectRef,workRefs:byWorkId});
+}
+function downstream(read,seedIds){
+  const reverse=new Map(read.draft.steps.map(step=>[step.id,[]]));
+  for(const step of read.draft.steps)for(const predecessor of step.dependsOn)reverse.get(predecessor)?.push(step.id);
+  const result=new Set(seedIds),queue=[...seedIds];
+  while(queue.length){const current=queue.shift();for(const child of reverse.get(current)??[]){
+    if(!result.has(child)){result.add(child);queue.push(child);}
+  }}
+  return result;
+}
+
+/** Compare two explicitly selected, verified Project/Work revision sets.
+ * This is semantic/read-only comparison, not a result-reuse proof, execution
+ * approval, atomic snapshot, or permission to revise the source owner.
+ */
+export function compareWorkspaceMethodRevisions({before,after}={}){
+  const a=readback(before,'before'),b=readback(after,'after');
+  if(a.workspaceId!==b.workspaceId||a.projectId!==b.projectId){
+    fail('METHOD_COMPARISON_SCOPE_MISMATCH','Both revisions must belong to the same Workspace and Project');
+  }
+  const ap=a.structure.projectInput,bp=b.structure.projectInput;
+  const projectChanges=[];
+  const addProject=(field,left,right)=>{if(!Object.is(left,right))projectChanges.push(Object.freeze({field,before:left,after:right}));};
+  addProject('NAME',ap.name,bp.name);
+  addProject('OBJECTIVE',ap.methodology.objective,bp.methodology.objective);
+  addProject('TEMPLATE',ap.templateRef.templateId+'@'+ap.templateRef.templateRevision,
+    bp.templateRef.templateId+'@'+bp.templateRef.templateRevision);
+  if(!sameSet(ap.domainApplicability,bp.domainApplicability))projectChanges.push(Object.freeze({
+    field:'DOMAIN_APPLICABILITY',before:Object.freeze([...ap.domainApplicability]),after:Object.freeze([...bp.domainApplicability])}));
+  const beforeWorkIds=ap.methodology.workIds,afterWorkIds=bp.methodology.workIds;
+  const beforeWorkSet=new Set(beforeWorkIds);
+  const projectCompositionChanged=beforeWorkSet.size!==afterWorkIds.length||afterWorkIds.some(id=>!beforeWorkSet.has(id));
+  const displayOrderChanged=!sameArray(beforeWorkIds,afterWorkIds);
+  if(projectCompositionChanged)projectChanges.push(Object.freeze({
+    field:'WORK_COMPOSITION',before:Object.freeze([...beforeWorkIds]),after:Object.freeze([...afterWorkIds])}));
+  else if(displayOrderChanged)projectChanges.push(Object.freeze({
+    field:'WORK_ORDER',before:Object.freeze([...beforeWorkIds]),after:Object.freeze([...afterWorkIds])}));
+  const materialChanges=materialDiff(ap.methodology.materialRefs,bp.methodology.materialRefs);
+  if(materialChanges.length)projectChanges.push(Object.freeze({field:'MATERIAL_REVISIONS',before:ap.methodology.materialRefs,after:bp.methodology.materialRefs}));
+  const projectIntentChanged=ap.methodology.objective!==bp.methodology.objective
+    ||!sameSet(ap.domainApplicability,bp.domainApplicability)
+    ||ap.templateRef.templateId!==bp.templateRef.templateId
+    ||ap.templateRef.templateRevision!==bp.templateRef.templateRevision
+    ||projectCompositionChanged;
+
+  const oldSteps=new Map(a.draft.steps.map(step=>[step.id,step]));
+  const newSteps=new Map(b.draft.steps.map(step=>[step.id,step]));
+  const stepIds=[...new Set([...beforeWorkIds.map(id=>id.slice(a.projectId.length+1)),
+    ...afterWorkIds.map(id=>id.slice(b.projectId.length+1))])];
+  const stepChanges=[];
+  for(const id of stepIds){
+    const left=oldSteps.get(id),right=newSteps.get(id);
+    if(!left){stepChanges.push(Object.freeze({stepId:id,operation:'ADDED',changedFields:Object.freeze(['ADDED']),
+      beforeIndex:null,afterIndex:b.draft.steps.findIndex(step=>step.id===id),reviewRequired:true}));continue;}
+    if(!right){stepChanges.push(Object.freeze({stepId:id,operation:'REMOVED',changedFields:Object.freeze(['REMOVED']),
+      beforeIndex:a.draft.steps.findIndex(step=>step.id===id),afterIndex:null,reviewRequired:true}));continue;}
+    const fields=[];
+    if(left.name!==right.name)fields.push('NAME');
+    if(left.actor!==right.actor)fields.push('ACTOR');
+    if(left.instruction!==right.instruction)fields.push('INSTRUCTION');
+    if(!sameSet(left.materialIds,right.materialIds))fields.push('MATERIALS');
+    if(!sameSet(left.dependsOn,right.dependsOn))fields.push('DEPENDENCIES');
+    stepChanges.push(Object.freeze({stepId:id,operation:fields.length?'CHANGED':'UNCHANGED',
+      changedFields:Object.freeze(fields),beforeIndex:a.draft.steps.findIndex(step=>step.id===id),
+      afterIndex:b.draft.steps.findIndex(step=>step.id===id),reviewRequired:fields.length>0}));
+  }
+  const changedStepIds=stepChanges.filter(item=>item.operation!=='UNCHANGED').map(item=>item.stepId);
+  const dependencyChanges=stepChanges.filter(item=>item.operation!=='UNCHANGED'
+    &&(item.changedFields.includes('DEPENDENCIES')||item.operation==='ADDED'||item.operation==='REMOVED'));
+  const assigned=new Set([...a.draft.steps,...b.draft.steps].flatMap(step=>step.materialIds));
+  const unassignedMaterialChanges=materialChanges.filter(item=>!assigned.has(item.object_id));
+  const assignedMaterialChanges=materialChanges.filter(item=>assigned.has(item.object_id));
+  const materialImpactSeeds=new Set([...a.draft.steps,...b.draft.steps]
+    .filter(step=>assignedMaterialChanges.some(item=>step.materialIds.includes(item.object_id)))
+    .map(step=>step.id));
+  const beforeAffected=downstream(a,[...changedStepIds,...materialImpactSeeds]);
+  const afterAffected=downstream(b,[...changedStepIds,...materialImpactSeeds]);
+  const affected=new Set([...beforeAffected,...afterAffected]);
+  if(projectIntentChanged)for(const id of [...oldSteps.keys(),...newSteps.keys()])affected.add(id);
+  const orderedIds=[...newSteps.keys(),...oldSteps.keys()].filter((id,index,all)=>all.indexOf(id)===index);
+  const affectedStepIds=orderedIds.filter(id=>affected.has(id));
+  const sourceWorkIds=[...new Set([...beforeWorkIds,...afterWorkIds])];
+  const sourceRevisionChanges=Object.freeze({
+    project:Object.freeze({before:a.projectRef,after:b.projectRef,changed:!sameRef(a.projectRef,b.projectRef)}),
+    works:Object.freeze(sourceWorkIds.map(id=>{
+      const beforeRef=a.workRefs.get(id.slice(a.projectId.length+1))??null;
+      const afterRef=b.workRefs.get(id.slice(b.projectId.length+1))??null;
+      return Object.freeze({workId:id,before:beforeRef,after:afterRef,changed:!sameRef(beforeRef,afterRef)});
+    })),
+  });
+  const semanticChanges=projectIntentChanged||stepChanges.some(item=>item.operation!=='UNCHANGED')
+    ||assignedMaterialChanges.length>0;
+  const state=projectChanges.length||stepChanges.some(item=>item.operation!=='UNCHANGED')?'CHANGES_PROPOSED':'UNCHANGED';
+  return Object.freeze({
+    schema:'IWXA_T2_WORKSPACE_METHOD_REVISION_COMPARISON_V1',state,workspaceId:a.workspaceId,projectId:a.projectId,
+    projectChanges:Object.freeze(projectChanges),projectCompositionChanged,displayOrderChanged,projectIntentChanged,
+    materialChanges:Object.freeze(materialChanges),unassignedMaterialChanges:Object.freeze(unassignedMaterialChanges),
+    stepChanges:Object.freeze(stepChanges),changedStepIds:Object.freeze(changedStepIds),
+    dependencyChanges:Object.freeze(dependencyChanges),materialImpactStepIds:Object.freeze([...materialImpactSeeds]),
+    affectedStepIds:Object.freeze(affectedStepIds),sourceRevisionChanges,
+    reviewRequired:semanticChanges,atomicSnapshot:false,writeAuthorized:false,executionAuthority:false,resultReuseProven:false,
+  });
+}
