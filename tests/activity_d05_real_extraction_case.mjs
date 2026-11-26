@@ -5,16 +5,17 @@ import assert from 'node:assert/strict';
 import {buildD05RouteQualityComparisonExample,reviewD05ResultSelection} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 import {prepareD05ExtractionRequest,reviewD05ExtractionProposal} from '../modules/activity-base-anonymizer/d05-technology-extraction.mjs';
 
-function appendRecordedExperience(records){
- const route=records.find(x=>x.object.schema_id.endsWith('.operation-route'));
- const plan=records.find(x=>x.object.schema_id.endsWith('.quality-plan'));
- const check=records.find(x=>x.object.schema_id.endsWith('.quality-check-template'));
+function appendRecordedExperience(records,index=0){
+ const route=records.filter(x=>x.object.schema_id.endsWith('.operation-route'))[index];
+ const plan=records.filter(x=>x.object.schema_id.endsWith('.quality-plan'))[index];
+ const check=records.find(x=>x.object.object_id===plan.object.data.value.check_template_ids[0]);
+ const suffix=index===0?'':'-peer-'+String(index+1);
  const ws=route.object.workspace_id,routeId=route.object.object_id,planId=plan.object.object_id,checkId=check.object.object_id;
  const fact=(id,type,body,targets)=>({object:{workspace_id:ws,object_id:id,revision:1,schema_id:'ru.5ibs.productionops.'+type,
   schema_version:'1.0.0',data:{object_id:id,object_type:type,source_schema_version:'1.0.0',status:'active',
    value:{object_id:id,object_type:type,...body}}},relations:{incoming:[],outgoing:targets.map((target,i)=>({
    workspace_id:ws,relation_id:id+'-rel-'+i,from_object_id:id,to_object_id:target,kind:'based_on'}))}});
- const order='extraction-order-001',exec='extraction-execution-001',failed='extraction-qc-001';
+ const order='extraction-order-001'+suffix,exec='extraction-execution-001'+suffix,failed='extraction-qc-001'+suffix;
  records.push(fact(order,'production-order',{plan_snapshot:{operations_ref:routeId}},[routeId]));
  records.push(fact(exec,'production-execution',{production_order_ref:order,operation_route_ref:routeId,
   operation_executions:route.object.data.value.data.inputs.operations.map(op=>({
@@ -25,17 +26,17 @@ function appendRecordedExperience(records){
  const quality={production_order_ref:order,production_execution_ref:exec,quality_plan_ref:planId,control_point_ref:checkId};
  records.push(fact(failed,'quality-check-result',{...quality,status:'failed',measured_value:'100.4',
   checked_at:'2026-11-19T10:15:00Z',deviation_type:'measurement_out_of_range',comment:'Ширина детали вышла за допуск после переналадки пресса'},[order,exec,planId,checkId]));
- records.push(fact('extraction-qc-002','quality-check-result',{...quality,status:'accepted_after_rework',measured_value:'100.1',
+ records.push(fact('extraction-qc-002'+suffix,'quality-check-result',{...quality,status:'accepted_after_rework',measured_value:'100.1',
   checked_at:'2026-11-19T11:20:00Z',comment:'После корректировки упора повторное измерение соответствует чертежу'},[order,exec,planId,checkId]));
- records.push(fact('extraction-defect-001','defect-record',{production_order_ref:order,quality_check_result_ref:failed,
+ records.push(fact('extraction-defect-001'+suffix,'defect-record',{production_order_ref:order,quality_check_result_ref:failed,
   severity:'major',disposition:'rework',status:'resolved',quantity_affected:3,
   description:'Смещение упора листогибочного пресса после переналадки',
   comment:'Настроить упор, проверить ширину первой детали, повторить контроль обработанной партии'},[order,failed]));
- records.push(fact('extraction-actuals-001','production-actuals',{production_order_ref:order,production_execution_ref:exec,
+ records.push(fact('extraction-actuals-001'+suffix,'production-actuals',{production_order_ref:order,production_execution_ref:exec,
   sequence:1,produced_qty:120,scrap_qty:0,rework_qty:3,quality_deviations:'Три детали направлены на переделку'},[order,exec]));
 }
 
-export async function extractionCase({recurring=false,recorded=false}={}){
+export async function extractionCase({recurring=false,recorded=false,peerReports=false,reorderControls=false,peerContextChanged=false}={}){
  const records=buildD05RouteQualityComparisonExample();
  const resources={
   'Раскрой':['Оператор лазерной резки','Лазерный станок с ЧПУ','Листовая сталь толщиной 2 мм'],
@@ -62,6 +63,21 @@ export async function extractionCase({recurring=false,recorded=false}={}){
   b.quantity='240';
  }
  if(recorded)appendRecordedExperience(records);
+ if(peerReports)appendRecordedExperience(records,1);
+ if(peerContextChanged)records.filter(x=>x.object.schema_id.endsWith('.quality-plan'))[1].object.data.value.common.requirementBasis='Другой норматив';
+ if(reorderControls){
+  const plans=records.filter(x=>x.object.schema_id.endsWith('.quality-plan'));
+  for(let i=0;i<2;i++){
+   const plan=plans[i],data=plan.object.data.value,original=records.find(x=>x.object.object_id===data.check_template_ids[0]);
+   const extra=structuredClone(original),id='extraction-extra-control-'+i;
+   extra.object.object_id=id;extra.object.data.object_id=id;extra.object.data.value.check_id=id;
+   extra.object.data.value.title='Входной контроль материала';
+   extra.object.data.value.control_type='incoming-material';
+   data.check_template_ids=i===0?[data.check_template_ids[0],id]:[id,data.check_template_ids[0]];
+   plan.relations.outgoing.push({...plan.relations.outgoing[0],relation_id:'extra-relation-'+i,to_object_id:id});
+   records.push(extra);
+  }
+ }
  const review=reviewD05ResultSelection(records,{includeTechnologyDraft:true});
  const group=review.groups.find(g=>g.model_numbers.includes(1));
  assert.ok(group&&group.operations.length===3);

@@ -19,8 +19,10 @@ export async function selectD05PracticalExperience(review,groupId,modelNumber,{i
   // require the original complete normative comparison to have no differences
   // when extending practical evidence to other routes. This includes the
   // source context and fields intentionally omitted from the draft.
-  const quality=review.quality_review?.groups?.find(g=>g.group_id===groupId);
-  if(family&&quality?.comparison==='NO_DIFFERENCE_IN_CHECKED_FIELDS')numbers=family.model_numbers;
+  const selected=review.recorded_execution_review?.profiles?.find(p=>p.model_number===modelNumber);
+  if(family&&Array.isArray(selected?.matching_normative_models)&&selected.matching_normative_models.includes(modelNumber))
+   numbers=family.model_numbers.filter(n=>selected.matching_normative_models.includes(n));
+  // Older local projections have no per-profile proof and stay single-source.
  }
  const profiles=(review.recorded_execution_review?.profiles??[]).filter(p=>numbers.includes(p.model_number))
   .sort((a,b)=>a.model_number-b.model_number);

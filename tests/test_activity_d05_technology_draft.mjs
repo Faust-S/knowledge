@@ -460,3 +460,30 @@ test('recorded variants of a corrective action are compared without merging chan
  const separate=await extractD05PracticalLessons(r,group.id,1);
  assert.equal(separate.lessons.length,2);
 });
+
+test('compatible route experience aligns actual controls across differing plan order, counts original orders, and keeps incompatible context separate',async()=>{
+ const {review:r,group}=await extractionCase({recurring:true,recorded:true,peerReports:true,reorderControls:true});
+ const a=r.recorded_execution_review.profiles[0].reports[0].quality[0];
+ const b=r.recorded_execution_review.profiles[1].reports[0].quality[0];
+ assert.notEqual(a.control_number,b.control_number);
+ assert.equal(a.canonical_control_number,b.canonical_control_number);
+ const options={includeCompatibleDeclarations:true};
+ const out=await extractD05PracticalLessons(r,group.id,1,options);
+ assert.deepEqual(out.source_model_numbers,[1,2]);
+ assert.equal(out.source_report_count,2);
+ assert.equal(out.lessons.length,1);
+ assert.equal(out.lessons[0].order_count,2);
+ assert.equal(out.lessons[0].rechecked_order_count,2);
+ assert.deepEqual(out.lessons[0].observations.map(v=>v.model_number),[1,2]);
+ const selected=await extractD05PracticalLessons(r,group.id,1);
+ assert.equal(selected.lessons[0].order_count,1);
+ const other=await extractionCase({recurring:true,recorded:true,peerReports:true,peerContextChanged:true});
+ assert.deepEqual((await extractD05PracticalLessons(other.review,other.group.id,1,options)).source_model_numbers,[1]);
+ const repeated=structuredClone(r);
+ const reports=repeated.recorded_execution_review.profiles;
+ reports[1].reports[0].source_refs=reports[0].reports[0].source_refs;
+ const duplicate=await extractD05PracticalLessons(repeated,group.id,1,options);
+ assert.equal(duplicate.excluded_duplicate_order_count,1);
+ assert.equal(duplicate.source_report_count,0);
+ assert.equal(duplicate.lessons.length,0);
+});

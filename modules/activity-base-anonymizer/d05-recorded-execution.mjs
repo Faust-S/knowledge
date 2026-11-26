@@ -69,6 +69,7 @@ export function projectD05RecordedExecution(entries,plans,templates,details,work
   const planList=plans.filter(p=>p.body.linked_operation_route_id===entry.routeId&&p.links.has(entry.routeId));
   const plan=planList.length===1?planList[0]:null;
   const normative=normativeReviews.find(v=>v.model_number===entry.number);
+  const matching_normative_models=normative?.signature?normativeReviews.filter(v=>v.signature===normative.signature).map(v=>v.model_number):[];
   // The draft sorts the complete original declarations; map plan order into
   // that order, without treating identical duplicate controls as identifiable.
   const signatures=normative?.status==='DECLARED_CHECKS_READ'?normative.draftChecks.map(v=>JSON.stringify(v)):[];
@@ -174,7 +175,7 @@ export function projectD05RecordedExecution(entries,plans,templates,details,work
     actuals:actuals.sort((a,b)=>a.sequence-b.sequence||cmp(a.scope,b.scope)),quality,defects,
     semantics:'RECORDED_REPORTS_NOT_VERIFIED_FINAL_ACCEPTANCE'});
   }
-  return {model_number:entry.number,reports,source_references:[...referenceMap.values()].sort((a,b)=>cmp(a.value,b.value)||cmp(a.replacement,b.replacement)),issues:[...issues].sort(cmp)};
+  return {model_number:entry.number,reports,matching_normative_models,source_references:[...referenceMap.values()].sort((a,b)=>cmp(a.value,b.value)||cmp(a.replacement,b.replacement)),issues:[...issues].sort(cmp)};
  });
  return {status:'LOCAL_D05_RECORDED_EXECUTION_REVIEW',profiles,
   report_count:profiles.reduce((n,p)=>n+p.reports.length,0),source_record_count:used.size,
