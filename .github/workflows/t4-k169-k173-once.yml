@@ -1,0 +1,36 @@
+name: T4 K169 K173 successor publication history recipient and Vault
+on:
+  push:
+    branches:
+      - 'ci/once/t4-k169-k173/7d18169920ba'
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public candidate and source checks
+        run: |
+          test "$(git rev-parse HEAD^)" = "7d18169920ba2d42935cbe452c4d889ce6637f38"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+          npm run check --prefix packages/t4-network
+      - name: Successor phase and recipient regression including K167 K170 K172
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test tests/original-network-session-phases.test.mjs
+      - name: Original Vault crypto boundaries including K173
+        if: ${{ !cancelled() }}
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test --test-name-pattern='K38|K44|K60|K148|K150|K158|K168' tests/original-network-key-lifecycle.test.mjs
+      - name: Existing multipart agreement, publication, subject and source causality
+        if: ${{ !cancelled() }}
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test tests/original-network-multipart-agreement.test.mjs tests/original-network-publication-multipart-backing.test.mjs tests/original-network-subject-apply.test.mjs tests/original-network-source-head-proof.test.mjs
