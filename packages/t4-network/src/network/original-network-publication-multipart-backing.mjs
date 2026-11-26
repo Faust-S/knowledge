@@ -1,6 +1,8 @@
 import {createHash} from 'node:crypto';
 import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,
-  T4_ORIGINAL_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
+  T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_REPLACEMENT_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
+import {validateT4OriginalNativeCaptureSession,validateT4OriginalReplacementSessionCandidate}
+  from './original-network-session-identity.mjs';
 import {T4_MULTIPART_OPAQUE_EXTENSION,T4_MULTIPART_MAX_CHUNKS,
   validateT4CandidateMultipartManifest,assembleT4CandidateMultipartOpaqueChunks,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION}
   from './standard-network-multipart-opaque-chunks.mjs';
@@ -29,26 +31,13 @@ export const T4_MULTIPART_BACKING_MAX_RECORD_BYTES=1024*1024;
 export const T4_MULTIPART_BACKING_SEGMENT_PREFIX='t4:net:publish-content:';
 const budget=x=>{if(Buffer.byteLength(canonical(x),'utf8')>T4_MULTIPART_BACKING_MAX_RECORD_BYTES)
   fail('MULTIPART_BACKING_RECORD_TOO_LARGE');};
-const fields=['schema','workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch',
-  'sourceEventId','sourceRevision','sourceEventDigest','sourcePrefixDigestBefore','sourcePrefixDigestAfter',
-  'capturedWindowDigest','capturedSha256','changeKind','familyRef','sessionRef','changeId'];
+const replacementSession=s=>s?.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_SESSION_CANDIDATE_V1';
 function validateSession(s){
-  if(!keys(s,fields)||s.schema!=='IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SESSION_V1'||s.changeKind!=='ASSET_PUT'||
-    !['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','sourceEventId',
-      'familyRef','sessionRef','changeId'].every(k=>ID(s[k]))||s.sourceNodeRef===s.recipientNodeRef||
-    !integer(s.ownerEpoch)||!integer(s.sourceRevision)||!SHA(s.capturedSha256)||
-    !['sourceEventDigest','sourcePrefixDigestBefore','sourcePrefixDigestAfter','capturedWindowDigest'].every(k=>DIG(s[k]))||
-    s.sourcePrefixDigestBefore===s.sourcePrefixDigestAfter)fail('MULTIPART_BACKING_SESSION_INVALID');
-  // These are the existing original publication identity derivations. Never
-  // derive a second family, session, change or publication root for a part.
-  const {workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,sourceEventId}=s;
-  const family={workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef};
-  const key={...family,ownerEpoch,sourceEventId};
-  const original=(name,value)=>digest('IWXA-T4-ORIGINAL-'+name+'-V1',value).slice(7);
-  if(s.familyRef!=='family:t4:'+original('NATIVE-FAMILY',family)||
-    s.sessionRef!=='session:t4:'+original('NATIVE-SESSION',key)||s.changeId!=='change:t4:'+original('NATIVE-CHANGE',key))
-    fail('MULTIPART_BACKING_SESSION_INVALID');
-  return structuredClone(s);
+  try{
+    const exact=replacementSession(s)?validateT4OriginalReplacementSessionCandidate(s):validateT4OriginalNativeCaptureSession(s);
+    if(exact.changeKind!=='ASSET_PUT')fail('MULTIPART_BACKING_SESSION_INVALID');
+    return structuredClone(exact);
+  }catch{fail('MULTIPART_BACKING_SESSION_INVALID');}
 }
 function frame(bytes){
   if(!(bytes instanceof Uint8Array)||bytes.byteLength>32768)fail('MULTIPART_BACKING_FRAME_INVALID');
@@ -75,10 +64,12 @@ function anchor({session,technicalWorkspaceId,checkpointRef,rootAnchor,headWireB
     !keys(rootAnchor,['revision','chainHash','presentEventId','headSha256'])||!integer(rootAnchor.revision)||
     !DIG(rootAnchor.chainHash)||!ID(rootAnchor.presentEventId)||!SHA(rootAnchor.headSha256))fail('MULTIPART_BACKING_ROOT_INVALID');
   const h=frame(headWireBytes),b=h.decoded.body,a=b.sourceSession;route(h.decoded,s);
+  const replacement=replacementSession(s),extension=replacement?T4_REPLACEMENT_SOURCE_SESSION_EXTENSION:T4_ORIGINAL_SOURCE_SESSION_EXTENSION;
+  const offered=h.decoded.criticalExtensions.length===2&&h.decoded.criticalExtensions.includes(extension)&&
+    h.decoded.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION);
   if(h.decoded.sequence!==1||h.decoded.messageType!=='HEADS'||
-    !(same(h.decoded.criticalExtensions,[T4_ORIGINAL_SOURCE_SESSION_EXTENSION])||
-      (h.decoded.criticalExtensions.length===2&&h.decoded.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)&&
-        h.decoded.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION)))||
+    !(offered||(!replacement&&same(h.decoded.criticalExtensions,[extension])))||
+    (replacement&&!same(b.replacement,s.replacement))||
     h.entry.sha256!==rootAnchor.headSha256||b.familyRef!==s.familyRef||b.ownerEpoch!==s.ownerEpoch||
     !same(b.heads,[s.sourcePrefixDigestAfter])||!a||a.predecessorPrefixDigest!==s.sourcePrefixDigestBefore||
     !['sourceEventId','sourceEventDigest','sourceRevision','changeKind','capturedWindowDigest','capturedSha256'].every(k=>a[k]===s[k]))

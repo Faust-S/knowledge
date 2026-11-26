@@ -224,7 +224,8 @@ function validateReplacementHeadEnvelope(frame){
 function validateBody(type,body,extensions=[]){
   const multipart=Array.isArray(extensions)&&extensions.includes(T4_MULTIPART_OPAQUE_EXTENSION);
   const nativeAgreement=Array.isArray(extensions)&&extensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION);
-  if(nativeAgreement&&!(type==='HEADS'&&extensions.length===2&&extensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)||
+  if(nativeAgreement&&!(type==='HEADS'&&extensions.length===2&&
+    (extensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)||extensions.includes(T4_REPLACEMENT_SOURCE_SESSION_EXTENSION))||
     type==='DIFF_REQUEST'&&extensions.length===1))fail('WIRE_NATIVE_MULTIPART_AGREEMENT_EXTENSION_INVALID');
   if(multipart&&(extensions.length!==1||!['CAPABILITIES','CHANGE_REF','CHUNK_REQUEST','CHUNK'].includes(type)))
     fail('WIRE_MULTIPART_EXTENSION_INVALID');
@@ -245,7 +246,7 @@ function validateBody(type,body,extensions=[]){
   const replacementHead=Array.isArray(extensions)&&extensions.includes(T4_REPLACEMENT_SOURCE_SESSION_EXTENSION);
   const sourceSession=Array.isArray(extensions)&&(extensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)||replacementHead);
   if(sourceSession&&(type!=='HEADS'||extensions.length!==(nativeAgreement?2:1)||
-    (nativeAgreement&&replacementHead)))fail('WIRE_ORIGINAL_SOURCE_SESSION_EXTENSION_INVALID');
+    (replacementHead&&extensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION))))fail('WIRE_ORIGINAL_SOURCE_SESSION_EXTENSION_INVALID');
   const supersession=Array.isArray(extensions)&&extensions.includes(T4_SESSION_SUPERSESSION_EXTENSION);
   if(supersession!==SUPERSESSION_TYPES.has(type)||(supersession&&extensions.length!==1))
     fail('WIRE_SUPERSESSION_EXTENSION_REQUIRED');
@@ -262,7 +263,7 @@ function validateBody(type,body,extensions=[]){
       !body.supportedVersions.length||!body.supportedCryptoSuites.length)
       fail('WIRE_ADVERTISEMENT_INVALID');
   }else if(type==='HEADS'){
-    sameKeys(body,replacementHead?['familyRef','ownerEpoch','heads','sourceSession','replacement']:
+    sameKeys(body,replacementHead?['familyRef','ownerEpoch','heads','sourceSession','replacement',...(nativeAgreement?['multipartOffer']:[])]:
       sourceSession?['familyRef','ownerEpoch','heads','sourceSession',...(nativeAgreement?['multipartOffer']:[])]:['familyRef','ownerEpoch','heads']);
     if(replacementHead)validateT4CandidateReplacementHeadBinding(body.replacement);
     if(!ID(body.familyRef)||!Number.isSafeInteger(body.ownerEpoch)||

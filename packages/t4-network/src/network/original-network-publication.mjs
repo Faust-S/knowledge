@@ -29,12 +29,12 @@ import {createT4OriginalMultipartBacking,readT4OriginalMultipartBacking,
  * and CAS state. The original Event chain is the write/readback evidence.
  * No additional Store, queue, scheduler, signer or subject write.
  */
-export class T4OriginalNetworkPublicationError extends Error {
-  constructor(code,details={},cause){
-    super(code,cause===undefined?undefined:{cause});this.name='T4OriginalNetworkPublicationError';this.code=code;
-    this.details=Object.freeze({...details});
-  }
-}
+import {T4OriginalNetworkPublicationError,canonicalSession,validateT4OriginalNativeCaptureSession,
+  deriveT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementSessionCandidate}
+  from './original-network-session-identity.mjs';
+export {T4OriginalNetworkPublicationError,validateT4OriginalNativeCaptureSession,
+  deriveT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementSessionCandidate}
+  from './original-network-session-identity.mjs';
 const fail=(code,details,cause)=>{throw new T4OriginalNetworkPublicationError(code,details,cause);};
 // Only a missing ATTEMPTED slot may be recovered after a cold attach.
 // A lost PRESENT frame, corrupt bytes or denied access is not a retry.
@@ -76,38 +76,6 @@ const MAX_MULTIPART_PUBLISH_WAKE=64;
 const SOURCE_TYPES=new Set(['HELLO','CAPABILITIES','HEADS','CHANGE_REF','CHUNK','RESUME']);
 const RECIPIENT_TYPES=new Set(['HELLO','CAPABILITIES','DIFF_REQUEST','CHUNK_REQUEST',
   'RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK','RESUME']);
-function canonicalSession(input){
-  const {workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
-    scopeRef,ownerEpoch,sourceEventId,sourceRevision,sourceEventDigest,
-    sourcePrefixDigestBefore,sourcePrefixDigestAfter,capturedWindowDigest,
-    capturedSha256,changeKind}=input??{};
-  if(![workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
-    scopeRef,sourceEventId].every(ID)||sourceNodeRef===recipientNodeRef||
-    !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
-    !validT4NativeSubjectRevision(changeKind,sourceRevision)||
-    ![sourceEventDigest,sourcePrefixDigestBefore,sourcePrefixDigestAfter,
-      capturedWindowDigest].every(DIG)||!SHA(capturedSha256))
-    fail('PUBLICATION_ORIGINAL_CAPTURE_IDENTITY_INVALID');
-  const family={workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef};
-  // Same original event and peer epoch selects the same session even after
-  // a cold process. Conflicting bytes for that identity must not select a
-  // different session. The durable record binds the remaining digests.
-  const key={...family,ownerEpoch,sourceEventId};
-  return Object.freeze({schema:SESSION,...family,ownerEpoch,
-    sourceEventId,sourceRevision,sourceEventDigest,sourcePrefixDigestBefore,
-    sourcePrefixDigestAfter,capturedWindowDigest,capturedSha256,changeKind,
-    familyRef:'family:t4:'+digest('NATIVE-FAMILY',family).slice(7),
-    sessionRef:'session:t4:'+digest('NATIVE-SESSION',key).slice(7),
-    changeId:'change:t4:'+digest('NATIVE-CHANGE',key).slice(7),
-  });
-}
-// Shared canonical validation, also used by the original recipient task.
-// A canonical session is an identity, NOT original permission or receipt.
-export function validateT4OriginalNativeCaptureSession(session){
-  const canonical=canonicalSession(session);
-  if(!same(canonical,session))fail('PUBLICATION_ORIGINAL_CAPTURE_IDENTITY_INVALID');
-  return canonical;
-}
 // Control frames use the same original publication Object/Event and slot
 // machine. Their identity is not a new native transfer session.
 export function deriveT4OriginalSupersessionPublicationSession({session,claim}={}){
@@ -136,20 +104,6 @@ function validatePublicationSession(session){
 // original native capture session. All ordinary live paths keep rejecting
 // it until the original predecessor admission is integrated at each gate.
 const REPLACEMENT_SESSION='IWXA_T4_ORIGINAL_REPLACEMENT_SESSION_CANDIDATE_V1';
-export function deriveT4OriginalReplacementSessionCandidate({originalCaptureSession,replacement}={}){
-  const original=validateT4OriginalNativeCaptureSession(originalCaptureSession);
-  const binding=validateT4CandidateReplacementHeadBinding(replacement);
-  if(binding.previousSessionRef!==original.sessionRef||binding.changeId!==original.changeId)
-    fail('PUBLICATION_ORIGINAL_REPLACEMENT_IDENTITY_INVALID');
-  const next=deriveT4OriginalReplacementAttempt(original);
-  return deepFreeze({...original,schema:REPLACEMENT_SESSION,sessionRef:next.replacementSessionRef,
-    originalCaptureSession:original,replacement:binding});
-}
-export function validateT4OriginalReplacementSessionCandidate(candidate){
-  const exact=deriveT4OriginalReplacementSessionCandidate(candidate);
-  if(!same(exact,candidate))fail('PUBLICATION_ORIGINAL_REPLACEMENT_IDENTITY_INVALID');
-  return exact;
-}
 export function deriveT4OriginalNativeCaptureSession(task){
   const c=task?.capture,w=c?.sourceWindow,d=c?.prepared?.delta;
   if(task?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1'||
@@ -226,10 +180,10 @@ export function readT4OriginalSourceSessionHead({identity,body,sessionRef,source
     fail('PUBLICATION_ORIGINAL_SOURCE_ANNOUNCEMENT_MISMATCH');
   return deepFreeze({session:s,sourceCursorBefore:before,sourceCursorAfter:after});
 }
-export function createT4OriginalReplacementSourceHead({candidate,sourceCursorBefore,sourceCursorAfter}={}){
+export function createT4OriginalReplacementSourceHead({candidate,sourceCursorBefore,sourceCursorAfter,offerMultipart=false}={}){
   const c=validateT4OriginalReplacementSessionCandidate(candidate);
   return deepFreeze({...createT4OriginalSourceSessionHead({session:c.originalCaptureSession,
-    sourceCursorBefore,sourceCursorAfter}),replacement:c.replacement});
+    sourceCursorBefore,sourceCursorAfter,offerMultipart}),replacement:c.replacement});
 }
 // A signed replacement announcement reconstructs identity only. The
 // caller must independently re-read both original terminal phase records
@@ -242,11 +196,13 @@ export function readT4OriginalReplacementSourceHead({identity,body,sessionRef,so
     sessionRef:replacement.previousSessionRef,sourceCursorBefore});
   const candidate=deriveT4OriginalReplacementSessionCandidate({
     originalCaptureSession:original.session,replacement});
+  const offerMultipart=Object.hasOwn(initialHead,'multipartOffer');
   if(sessionRef!==candidate.sessionRef||(expectedCandidate!==null&&!same(expectedCandidate,candidate))||
     !same(body,createT4OriginalReplacementSourceHead({candidate,sourceCursorBefore:original.sourceCursorBefore,
-      sourceCursorAfter:original.sourceCursorAfter})))
+      sourceCursorAfter:original.sourceCursorAfter,offerMultipart})))
     fail('PUBLICATION_ORIGINAL_REPLACEMENT_HEAD_INVALID');
   return deepFreeze({candidate,sourceCursorBefore:original.sourceCursorBefore,sourceCursorAfter:original.sourceCursorAfter,
+    ...(offerMultipart?{multipartOffer:clone(initialHead.multipartOffer)}:{}),
     liveNetworkAuthorityGranted:false,originalNewAttemptAdmissionStillRequired:true});
 }
 function descriptor(entry){

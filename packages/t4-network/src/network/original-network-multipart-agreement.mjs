@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
-import {T4_ORIGINAL_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
+import {T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_REPLACEMENT_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
+import {validateT4OriginalReplacementSessionCandidate} from './original-network-session-identity.mjs';
 import {T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,T4_MULTIPART_OPAQUE_EXTENSION,
   T4_MULTIPART_MAX_CIPHERTEXT_BYTES,validateT4NativeMultipartOffer,createT4NativeMultipartOffer,createT4NativeMultipartSelection}
   from './standard-network-multipart-opaque-chunks.mjs';
@@ -26,7 +27,12 @@ export class T4OriginalMultipartPeerAgreementUnavailable extends Error{
 }
 const fields=['sessionRef','changeId','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch','sourceEventId',
   'sourcePrefixDigestBefore','sourcePrefixDigestAfter'];
+const replacementSession=s=>s?.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_SESSION_CANDIDATE_V1';
+const headExtension=s=>replacementSession(s)?T4_REPLACEMENT_SOURCE_SESSION_EXTENSION:T4_ORIGINAL_SOURCE_SESSION_EXTENSION;
 function checkIdentity(s){
+  if(replacementSession(s)){
+    try{validateT4OriginalReplacementSessionCandidate(s);}catch{fail('MULTIPART_AGREEMENT_SESSION_INVALID');}
+  }
   if(!s||s.changeKind!=='ASSET_PUT'||!['sessionRef','changeId','sourceNodeRef','recipientNodeRef','scopeRef','sourceEventId','familyRef'].every(k=>ID(s[k]))||
     !Number.isSafeInteger(s.sourceRevision)||s.sourceRevision<1||
     !DIG(s.sourceEventDigest)||!DIG(s.capturedWindowDigest)||!SHA(s.capturedSha256)||
@@ -63,11 +69,12 @@ export function readT4OriginalNativeMultipartAgreement({session,sourceHead,recip
   const head=structuredClone(sourceHead),diff=structuredClone(recipientDiff),s=structuredClone(session);
   proof(head,s,'HEADS',localRole==='SOURCE'?'OUTBOUND':'INBOUND',requiredCryptoSuite);
   proof(diff,s,'DIFF_REQUEST',localRole==='RECIPIENT'?'OUTBOUND':'INBOUND',requiredCryptoSuite);
-  if(!exactExtensions(head,[T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION])||
+  if(!exactExtensions(head,[headExtension(s),T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION])||
     !exactExtensions(diff,[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]))
     fail('MULTIPART_AGREEMENT_NOT_SELECTED');
   const h=head.verifiedBody,a=h?.sourceSession;
-  if(h?.familyRef!==s.familyRef||h.ownerEpoch!==s.ownerEpoch||!same(h.heads,[s.sourcePrefixDigestAfter])||
+  if((replacementSession(s)&&!same(h?.replacement,s.replacement))||
+    h?.familyRef!==s.familyRef||h.ownerEpoch!==s.ownerEpoch||!same(h.heads,[s.sourcePrefixDigestAfter])||
     a?.predecessorPrefixDigest!==s.sourcePrefixDigestBefore||!a||
     !['sourceEventId','sourceRevision','sourceEventDigest','capturedWindowDigest','capturedSha256','changeKind'].every(k=>a[k]===s[k]))
     fail('MULTIPART_AGREEMENT_HEAD_MISMATCH');
@@ -166,7 +173,7 @@ export function createT4OriginalNativeMultipartAgreementReader({
     await requireCurrent();
     const remote=await discoverUniqueSignedFrame({selector:{sourceNodeRef:peerNodeRef,
       sessionRef:exact.sessionRef,ownerEpoch:exact.ownerEpoch,messageType:source?'DIFF_REQUEST':'HEADS',sequence:1},
-      requiredCryptoSuite,supportedCriticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]});
+      requiredCryptoSuite,supportedCriticalExtensions:[headExtension(exact),T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]});
     await requireCurrent();
     if(remote?.schema==='IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1'&&remote.state==='NOT_FOUND'&&
       remote.receipt===null&&remote.indexedLookup===true&&remote.originalBusinessApplied===false&&remote.sourceCursorAdvanced===false)
