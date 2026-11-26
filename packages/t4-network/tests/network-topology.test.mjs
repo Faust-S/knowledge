@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {
-  createT4NetworkTopology,planT4NetworkRoute,listT4NetworkChoices,
+  createT4NetworkTopology,validateT4NetworkTopology,T4_TOPOLOGY_CANONICAL_ORDER,planT4NetworkRoute,listT4NetworkChoices,
   executeT4NetworkRoute,transitionT4NetworkTopology,T4NetworkTopologyError,openT4NativeTopologyTransport
 } from '../src/network/network-topology.mjs';
 import {createT4NetworkConnectionProfile} from '../src/network/operator-connection.mjs';
@@ -399,4 +400,82 @@ test('K34 native profile requires explicit capabilities and rejects a forged top
   assert.throws(()=>openT4NativeTopologyTransport({...options,topology:{...topology,topologyDigest:'sha256:'+'a'.repeat(64)}}),code('TOPOLOGY_DIGEST_MISMATCH'));
   assert.throws(()=>openT4NativeTopologyTransport({...options,topology:build()}),code('CAPABILITY_NOT_AVAILABLE'));
   assert.throws(()=>openT4NativeTopologyTransport({...options,nativeWireProfile:'LEGACY'}),code('CAPABILITY_NOT_AVAILABLE'));
+});
+
+// Independent reproduction of the previous V1 byte representation. Its
+// array order was locale-sensitive; old stored bytes must not be rewritten.
+function mixedTopology(revision=1,previousTopologyDigest=null){
+  const rename={ 'node:home':'node:A','node:other':'node:a',
+    'profile:home':'profile:A','profile:other':'profile:a','link:home':'link:A','link:other':'link:a'};
+  const change=x=>rename[x]??x;
+  const p=[{...placement,replicaNodeRefs:placement.replicaNodeRefs.map(change)},
+    {...placement,policy:{...placement.policy,objectFamily:'Orders'},replicaNodeRefs:placement.replicaNodeRefs.map(change)}];
+  return build({revision,previousTopologyDigest,nodes:nodes.map(n=>({...n,nodeRef:change(n.nodeRef),profileRef:change(n.profileRef)})),
+    profiles:profiles.map(p=>({...p,profileRef:change(p.profileRef)})),connections:connections.map(c=>({...c,
+      connectionRef:change(c.connectionRef),targetNodeRef:change(c.targetNodeRef),profileRef:change(c.profileRef)})),placements:p});
+}
+const canonical=value=>Array.isArray(value)?value.map(canonical):
+  value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])])):value;
+function oldDigest(raw){return 'sha256:'+createHash('sha256').update(JSON.stringify(canonical(raw))).digest('hex');}
+function oldTopology(locale,topology=mixedTopology()){
+  const {canonicalOrder,topologyDigest,...old}=structuredClone(topology);
+  const order=(values,key)=>values.sort((a,b)=>key(a).localeCompare(key(b),locale));
+  order(old.nodes,n=>n.nodeRef);order(old.profiles,p=>p.profileRef);order(old.connections,c=>c.connectionRef);
+  order(old.placements,p=>p.policy.workspaceId+'\u0000'+p.policy.objectFamily);
+  return {...old,topologyDigest:oldDigest(old)};
+}
+test('K151 topology constructor uses code-unit order for every outer array and never consults localeCompare',()=>{
+  const original=String.prototype.localeCompare;
+  const before=mixedTopology();
+  try{
+    String.prototype.localeCompare=function(){throw Error('locale sorting must not be called');};
+    const fresh=mixedTopology();
+    assert.equal(fresh.canonicalOrder,T4_TOPOLOGY_CANONICAL_ORDER);
+    assert.equal(fresh.topologyDigest,before.topologyDigest);
+    assert.deepEqual(fresh.nodes.map(x=>x.nodeRef),['node:A','node:a','node:cloud','node:local']);
+    assert.deepEqual(fresh.profiles.map(x=>x.profileRef),['profile:A','profile:a','profile:cloud']);
+    assert.deepEqual(fresh.connections.map(x=>x.connectionRef),['link:A','link:a','link:cloud']);
+    assert.deepEqual(fresh.placements.map(x=>x.policy.objectFamily),['Orders','orders']);
+    const reordered=createT4NetworkTopology({...fresh,nodes:[...fresh.nodes].reverse(),profiles:[...fresh.profiles].reverse(),
+      connections:[...fresh.connections].reverse(),placements:[...fresh.placements].reverse()});
+    assert.equal(reordered.topologyDigest,fresh.topologyDigest);
+    assert.deepEqual(validateT4NetworkTopology(JSON.parse(JSON.stringify(fresh))),fresh);
+  }finally{String.prototype.localeCompare=original;}
+});
+test('K151 legacy locale-specific topology identity is read exactly, and only explicit original revision migrates to canonical order',async()=>{
+  const en=oldTopology('en-US'),da=oldTopology('da-DK');
+  assert.notEqual(en.topologyDigest,da.topologyDigest);
+  assert.deepEqual(validateT4NetworkTopology(en),en);
+  assert.deepEqual(validateT4NetworkTopology(da),da);
+  for(const old of [en,da]){
+    const route=planT4NetworkRoute({topology:old,workspaceId:'workspace:owner',objectFamily:'orders',
+      targetNodeRef:'node:A',capability:'package.read'});
+    assert.equal(route.topologyDigest,old.topologyDigest);
+    const next=createT4NetworkTopology({...old,revision:2,previousTopologyDigest:old.topologyDigest});
+    await assert.rejects(transitionT4NetworkTopology({previous:old,candidate:next,authorizeOriginalTopologyChange:async()=>false}),
+      code('ORIGINAL_T3_TOPOLOGY_REVISION_DENIED'));
+    const approvals=[];
+    const migrated=await transitionT4NetworkTopology({previous:old,candidate:next,authorizeOriginalTopologyChange:async p=>{approvals.push(p);return true;}});
+    assert.equal(migrated.canonicalOrder,T4_TOPOLOGY_CANONICAL_ORDER);
+    assert.equal(migrated.previousTopologyDigest,old.topologyDigest);
+    assert.ok(approvals.every(p=>p.previousTopologyDigest===old.topologyDigest&&p.candidateTopologyDigest===migrated.topologyDigest&&p.changesExistingOriginalOwner===false));
+    const downgrade=oldTopology('en-US',createT4NetworkTopology({...migrated,revision:3,previousTopologyDigest:migrated.topologyDigest}));
+    await assert.rejects(transitionT4NetworkTopology({previous:migrated,candidate:downgrade,authorizeOriginalTopologyChange:async()=>true}),
+      code('TOPOLOGY_CANONICAL_ORDER_DOWNGRADE'));
+  }
+});
+test('K151 no route or network callback can use an unverified topology digest or silently reordered stored bytes',async()=>{
+  const fresh=mixedTopology(),legacy=oldTopology('en-US');
+  const args={workspaceId:'workspace:owner',objectFamily:'orders',targetNodeRef:'node:A',capability:'package.read'};
+  let invoked=0;
+  for(const bad of [{...legacy,nodes:[...legacy.nodes].reverse()},
+    {...fresh,topologyDigest:'sha256:'+'0'.repeat(64)}]){
+    assert.throws(()=>planT4NetworkRoute({...args,topology:bad}),code('TOPOLOGY_DIGEST_MISMATCH'));
+    await assert.rejects(executeT4NetworkRoute({...args,topology:bad,getMode:()=> 'T4_NETWORK',
+      verifyOriginalEndpoint:async()=>{invoked++;return true;},authorizeOriginalOperation:async()=>{invoked++;return true;},
+      executeTransport:async()=>{invoked++;}}),code('TOPOLOGY_DIGEST_MISMATCH'));
+  }
+  assert.throws(()=>validateT4NetworkTopology({...fresh,nodes:[...fresh.nodes].reverse()}),code('TOPOLOGY_CANONICAL_SEQUENCE_INVALID'));
+  assert.throws(()=>validateT4NetworkTopology({...fresh,canonicalOrder:'UNKNOWN'}),code('TOPOLOGY_CANONICAL_ORDER_UNSUPPORTED'));
+  assert.equal(invoked,0);
 });

@@ -40,6 +40,13 @@ const ordered=value=>Array.isArray(value)?value.map(ordered):
 const sha=value=>'sha256:'+createHash('sha256').update(JSON.stringify(ordered(value))).digest('hex');
 const frozenObject=x=>Object.freeze(x);
 const routeKey=(workspaceId,objectFamily)=>workspaceId+'\u0000'+objectFamily;
+export const T4_TOPOLOGY_CANONICAL_ORDER='UTF16_CODE_UNIT_V1';
+const TOPOLOGY_SCHEMA='IWXA_T4_NETWORK_TOPOLOGY_V1';
+const compareRef=(a,b)=>a<b?-1:a>b?1:0;
+// New revisions are locale-independent. A legacy topology may be read
+// only with the exact serialized array order that its original digest
+// addresses. Never silently recompute an already authorized legacy digest.
+const verifiedTopologies=new WeakSet();
 
 function normalizeNode(raw,localNodeRef) {
   if(!raw||!kinds.has(raw.kind))fail('NODE_KIND_INVALID');
@@ -131,7 +138,11 @@ function normalizePlacement(raw,nodes,localNodeRef,locationSet) {
   });
 }
 
-export function createT4NetworkTopology(input={}) {
+function normalizeTopology(input,legacyOrder=false) {
+  if(!input||typeof input!=='object'||Array.isArray(input))fail('TOPOLOGY_REQUIRED');
+  if(input.canonicalOrder!==undefined&&input.canonicalOrder!==T4_TOPOLOGY_CANONICAL_ORDER)
+    fail('TOPOLOGY_CANONICAL_ORDER_UNSUPPORTED');
+  if(legacyOrder&&input.canonicalOrder!==undefined)fail('TOPOLOGY_CANONICAL_ORDER_UNSUPPORTED');
   const topologyRef=required(input.topologyRef);
   const localNodeRef=required(input.localNodeRef);
   if(!Number.isSafeInteger(input.revision)||input.revision<1)
@@ -162,21 +173,50 @@ export function createT4NetworkTopology(input={}) {
     const key=routeKey(p.policy.workspaceId,p.policy.objectFamily);
     if(keys.has(key))fail('PLACEMENT_DUPLICATE');keys.add(key);
   }
+  const sequence=(rows,key)=>Object.freeze(legacyOrder?rows:rows.sort((a,b)=>compareRef(key(a),key(b))));
   const stable={
-    schema:'IWXA_T4_NETWORK_TOPOLOGY_V1',topologyRef,revision:input.revision,
-    previousTopologyDigest,localNodeRef,nodes:Object.freeze(nodes.sort((a,b)=>a.nodeRef.localeCompare(b.nodeRef))),
-    profiles:Object.freeze(profiles.sort((a,b)=>a.profileRef.localeCompare(b.profileRef))),
-    connections:Object.freeze(connections.sort((a,b)=>a.connectionRef.localeCompare(b.connectionRef))),
-    placements:Object.freeze(placements.sort((a,b)=>routeKey(a.policy.workspaceId,a.policy.objectFamily)
-      .localeCompare(routeKey(b.policy.workspaceId,b.policy.objectFamily)))),
+    schema:TOPOLOGY_SCHEMA,...(legacyOrder?{}:{canonicalOrder:T4_TOPOLOGY_CANONICAL_ORDER}),
+    topologyRef,revision:input.revision,previousTopologyDigest,localNodeRef,
+    nodes:sequence(nodes,n=>n.nodeRef),profiles:sequence(profiles,p=>p.profileRef),
+    connections:sequence(connections,c=>c.connectionRef),
+    placements:sequence(placements,p=>routeKey(p.policy.workspaceId,p.policy.objectFamily)),
     t3SovereignOfflinePreserved:true,
     networkTopologyIsNotAnOriginalGrant:true,universalCloudMaster:false,
   };
-  return frozenObject({...stable,topologyDigest:sha(stable)});
+  const topology=frozenObject({...stable,topologyDigest:sha(stable)});
+  verifiedTopologies.add(topology);
+  return topology;
+}
+
+/** Construct a new revision. It must pass original authority admission
+ * before execution; constructing a digest grants no authority. */
+export function createT4NetworkTopology(input={}) {
+  return normalizeTopology(input,false);
+}
+
+/** Validate an existing immutable topology without rewriting its identity.
+ * The original owner/Access still supplies the authoritative digest and
+ * route permission. A legacy digest is not a proof of owner admission. */
+export function validateT4NetworkTopology(input) {
+  if(input?.schema!==TOPOLOGY_SCHEMA)fail('TOPOLOGY_REQUIRED');
+  if(verifiedTopologies.has(input))return input;
+  if(typeof input.topologyDigest!=='string'||!/^sha256:[a-f0-9]{64}$/.test(input.topologyDigest))
+    fail('TOPOLOGY_DIGEST_MISMATCH');
+  const snapshot=normalizeTopology(input,input.canonicalOrder===undefined);
+  if(snapshot.topologyDigest!==input.topologyDigest)fail('TOPOLOGY_DIGEST_MISMATCH');
+  // A stored canonical revision must also have its normative outer
+  // sequence order; accepting a shuffled canonical digest hides corruption.
+  if(input.canonicalOrder!==undefined){
+    for(const key of ['nodes','profiles','connections','placements']){
+      if(JSON.stringify(ordered(input[key]))!==JSON.stringify(ordered(snapshot[key])))
+        fail('TOPOLOGY_CANONICAL_SEQUENCE_INVALID');
+    }
+  }
+  return snapshot;
 }
 
 export function planT4NetworkRoute({topology,workspaceId,objectFamily,targetNodeRef,capability}={}) {
-  if(topology?.schema!=='IWXA_T4_NETWORK_TOPOLOGY_V1')fail('TOPOLOGY_REQUIRED');
+  topology=validateT4NetworkTopology(topology);
   required(workspaceId);required(objectFamily);required(targetNodeRef);
   if(!capabilities.has(capability))fail('CAPABILITY_UNKNOWN');
   const place=topology.placements.find(x=>x.policy.workspaceId===workspaceId&&
@@ -210,7 +250,7 @@ export function planT4NetworkRoute({topology,workspaceId,objectFamily,targetNode
   });
 }
 export function listT4NetworkChoices({topology,workspaceId,objectFamily,capability}={}) {
-  if(topology?.schema!=='IWXA_T4_NETWORK_TOPOLOGY_V1')fail('TOPOLOGY_REQUIRED');
+  topology=validateT4NetworkTopology(topology);
   const placement=topology.placements.find(x=>x.policy.workspaceId===workspaceId&&
     x.policy.objectFamily===objectFamily);
   if(!placement)fail('PLACEMENT_NOT_FOUND');
@@ -269,8 +309,7 @@ export function openT4NativeTopologyTransport({
   if(!['LEGACY','INDEXED'].includes(nativeWireProfile)||
     ![readOriginalTopology,getMode,verifyOriginalEndpoint,authorizeOriginalOperation,getAuthorizationHeader]
       .every(f=>typeof f==='function'))fail('ORIGINAL_NATIVE_TOPOLOGY_PORTS_REQUIRED');
-  const pinned=createT4NetworkTopology(topology);
-  if(pinned.topologyDigest!==topology?.topologyDigest)fail('TOPOLOGY_DIGEST_MISMATCH');
+  const pinned=validateT4NetworkTopology(topology);
   const allowed=['network.frame.publish','network.frame.read',
     ...(nativeWireProfile==='INDEXED'?['network.frame.index.publish','network.frame.index.read']:['network.frame.discover'])];
   const params={workspaceId,objectFamily,targetNodeRef:serverNodeRef};
@@ -288,9 +327,15 @@ export function openT4NativeTopologyTransport({
     if(getMode()!=='T4_NETWORK')fail('T4_NETWORK_MODE_DISABLED');
     const observed=await readOriginalTopology(binding);
     if(getMode()!=='T4_NETWORK')fail('T4_NETWORK_MODE_DISABLED');
-    if(observed?.topologyDigest!==pinned.topologyDigest||
-      createT4NetworkTopology(observed).topologyDigest!==pinned.topologyDigest)
+    if(observed?.topologyDigest!==pinned.topologyDigest)
       fail('ORIGINAL_NATIVE_TOPOLOGY_CHANGED');
+    try{
+      if(validateT4NetworkTopology(observed).topologyDigest!==pinned.topologyDigest)
+        fail('ORIGINAL_NATIVE_TOPOLOGY_CHANGED');
+    }catch(error){
+      if(error instanceof T4NetworkTopologyError)fail('ORIGINAL_NATIVE_TOPOLOGY_CHANGED');
+      throw error;
+    }
     return pinned;
   };
   const checkRequest=ctx=>{
@@ -351,9 +396,9 @@ export async function transitionT4NetworkTopology({
     fail('ORIGINAL_T3_TOPOLOGY_AUTHORITY_PORT_REQUIRED');
   if(previous?.schema!=='IWXA_T4_NETWORK_TOPOLOGY_V1'||
     candidate?.schema!=='IWXA_T4_NETWORK_TOPOLOGY_V1')fail('TOPOLOGY_REQUIRED');
-  const before=createT4NetworkTopology(previous),after=createT4NetworkTopology(candidate);
-  if(before.topologyDigest!==previous.topologyDigest||
-    after.topologyDigest!==candidate.topologyDigest)fail('TOPOLOGY_DIGEST_MISMATCH');
+  const before=validateT4NetworkTopology(previous),after=validateT4NetworkTopology(candidate);
+  if(before.canonicalOrder===T4_TOPOLOGY_CANONICAL_ORDER&&after.canonicalOrder!==T4_TOPOLOGY_CANONICAL_ORDER)
+    fail('TOPOLOGY_CANONICAL_ORDER_DOWNGRADE');
   if(after.revision!==before.revision+1||after.previousTopologyDigest!==before.topologyDigest||
     after.topologyRef!==before.topologyRef||after.localNodeRef!==before.localNodeRef)
     fail('TOPOLOGY_REVISION_CHAIN_INVALID');
