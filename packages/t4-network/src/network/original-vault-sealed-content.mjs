@@ -196,7 +196,8 @@ export function createT4OriginalVaultSealedContentPort({
       if(input.multipartProfile!==undefined)fail('SEALED_CONTENT_MULTIPART_AGREEMENT_REQUIRED');
       return null;
     }
-    if(!DIG(value)||readOriginalMultipartAgreement===null||replacementSession(session)||session.changeKind!=='ASSET_PUT'||
+    if(!DIG(value)||readOriginalMultipartAgreement===null||
+      (replacementSession(session)&&(role!=='SOURCE'||readOriginalReplacementDiffAcceptance===null))||session.changeKind!=='ASSET_PUT'||
       (requireProfile?input.multipartProfile!==T4_MULTIPART_OPAQUE_EXTENSION:
         input.multipartProfile!==undefined&&input.multipartProfile!==T4_MULTIPART_OPAQUE_EXTENSION))
       fail('SEALED_CONTENT_MULTIPART_AGREEMENT_REQUIRED');
@@ -238,15 +239,22 @@ export function createT4OriginalVaultSealedContentPort({
         fail('SEALED_CONTENT_REPLACEMENT_EVIDENCE_MISMATCH');
       current();return evidence;
     }
+    const multipart=extra.originalMultipartAgreementDigest!==undefined;
     const witness=validateT4OriginalReplacementDiffAcceptance(await readOriginalReplacementDiffAcceptance(
       Object.freeze({candidate:session,originalReplacementDiffReadRequired:true,
-        originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false})),session);
+        ...(multipart?{originalMultipartAgreementDigest:extra.originalMultipartAgreementDigest}:{}),
+        originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false})),session,
+      {enableOriginalMultipartNegotiation:multipart});
+    if(multipart&&witness.originalMultipartAgreement.agreementDigest!==extra.originalMultipartAgreementDigest)
+      fail('SEALED_CONTENT_REPLACEMENT_MULTIPART_AGREEMENT_CHANGED');
     current();return witness;
   }
   async function permit(entry,session,extra){
     current();
     const before=await replacementGate(session,extra);
     const multipart=await multipartGate(session,extra.originalMultipartAgreementDigest??null,extra);
+    if(replacementSession(session)&&multipart!==null&&!equal(before.originalMultipartAgreement,multipart))
+      fail('SEALED_CONTENT_REPLACEMENT_MULTIPART_AGREEMENT_CHANGED');
     await signed.authorize({operation,input:{...identity,session,...extra,
       originalRecipientKeyFingerprint:fingerprint(entry.publicKey),
       originalRecipientBindingDigest:digest(entry.binding),originalRecipientKeyRecordDigest:entry.keyDigest,

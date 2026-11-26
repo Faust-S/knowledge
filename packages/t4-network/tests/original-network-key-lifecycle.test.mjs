@@ -1590,8 +1590,9 @@ function selectedMultipartFor(session,variant='one'){
       key:headSha256+'.t4n',sha256:headSha256,originalT3PublicationEventChainVerified:true,
       originalOutboundSignatureVerified:true,originalOutboundAuthorityVerified:true,originalImmutableTransportReadbackVerified:true,
       checkpointRef:'checkpoint:head',originalPresentEventId:'event:head',originalPresentRevision:1,originalPresentChainHash:h,
-      remoteReceiptProven:false,verifiedCriticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION],
+      remoteReceiptProven:false,verifiedCriticalExtensions:[session.originalCaptureSession?T4_REPLACEMENT_SOURCE_SESSION_EXTENSION:T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION],
       verifiedBody:{familyRef:session.familyRef,ownerEpoch:session.ownerEpoch,heads:[session.sourcePrefixDigestAfter],
+        ...(session.originalCaptureSession?{replacement:session.replacement}:{}),
         sourceSession:{sourceEventId:session.sourceEventId,sourceRevision:session.sourceRevision,sourceEventDigest:session.sourceEventDigest,
           predecessorPrefixDigest:session.sourcePrefixDigestBefore,capturedWindowDigest:session.capturedWindowDigest,
           capturedSha256:session.capturedSha256,changeKind:session.changeKind},multipartOffer:offer}},
@@ -1705,4 +1706,68 @@ test('K158 original Vault admits multipart only through a scoped Host binding an
   const cold=recipientUnbound.forOriginalHostLifetime(()=>true,scoped);
   assert.deepEqual(Buffer.from((await cold.openOriginalSealedContent({...q.openInput(c.session,sealed),
     originalMultipartAgreementDigest:a.agreementDigest})).plaintext),c.content);
+});
+
+import {T4_REPLACEMENT_SOURCE_SESSION_EXTENSION} from '../src/network/standard-network-wire-candidate.mjs';
+test('K168 original source Vault seals successor multipart only with exact bilateral admission and exact live selected agreement',{timeout:60000},async()=>{
+  const q=await sealedFixture(),c=captured(Buffer.alloc(600000,49),'event:k168:asset','ASSET_PUT');
+  const d='sha256:'+sha('k168:retirement');
+  const candidate=deriveT4OriginalReplacementSessionCandidate({originalCaptureSession:c.session,replacement:{
+    previousSessionRef:c.session.sessionRef,changeId:c.session.changeId,decisionDigest:d,
+    sourcePhaseRef:'phase:k168:source',sourcePhaseEventId:'event:k168:source:retired',sourcePhaseRevision:3,sourcePhaseChainHash:d,
+    recipientPhaseRef:'phase:k168:recipient',recipientPhaseEventId:'event:k168:recipient:retired',recipientPhaseRevision:1,recipientPhaseChainHash:d}});
+  const agreement=selectedMultipartFor(candidate),different=selectedMultipartFor(candidate,'different');
+  const witness={schema:'IWXA_T4_ORIGINAL_REPLACEMENT_DIFF_SELECTION_V1',state:'ORIGINAL_REPLACEMENT_DIFF_VERIFIED',candidate,
+    originalBothTerminalPhaseEventsVerified:true,originalBothCausalFrontiersUnchanged:true,
+    originalRecipientDiffPublicationVerified:true,originalSourceDiffAccepted:true,originalContentTransferStillRequired:true,
+    originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false,originalBusinessApplied:false,
+    sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false,
+    diffSha256:agreement.diffSha256,diffKey:agreement.diffSha256+'.t4n',originalSourceHeadKey:agreement.headSha256+'.t4n',
+    originalSourceAdmissionEventId:'event:k168:intent',originalSourceAdmissionCheckpointRef:'phase:k168:intent',
+    originalSourceHeadPresentEventId:'event:k168:head:present',originalRecipientDiffPresentEventId:'event:k168:diff:present',
+    originalRecipientPublicationCheckpointRef:'publication:k168:recipient',originalSourceAdmissionChainHash:d,
+    originalSourceHeadPresentChainHash:d,originalRecipientPublicationChainHash:d,
+    originalSourceHeadPresentRevision:3,originalRecipientPublicationRevision:3,originalMultipartAgreement:agreement};
+  let active=true,admitted=true,selected=agreement,admissionReads=0,agreementReads=0;
+  const unbound=createT4OriginalVaultSealedContentPort({...q.common,role:'SOURCE',
+    enableOriginalReplacementBinding:true,enableOriginalMultipartBinding:true});
+  const source=unbound.forOriginalHostLifetime(()=>active,{readOriginalMultipartAgreement:async p=>{
+    agreementReads++;assert.deepEqual(p.session,candidate);return selected;
+  }}).bindOriginalReplacementDiffAcceptance(async p=>{
+    admissionReads++;assert.deepEqual(p.candidate,candidate);assert.equal(p.liveNetworkAuthorityGranted,false);
+    return admitted?witness:null;
+  });
+  const input={...c.input,session:candidate,multipartProfile:T4_MULTIPART_OPAQUE_EXTENSION,
+    originalMultipartAgreementDigest:agreement.agreementDigest};
+  await assert.rejects(unbound.readOriginalSealedContent(input),{code:'SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'});
+  admitted=false;await assert.rejects(source.readOriginalSealedContent(input),{code:'PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'});
+  admitted=true;
+  selected=different;await assert.rejects(source.readOriginalSealedContent(input),{code:'SEALED_CONTENT_MULTIPART_AGREEMENT_CHANGED'});
+  selected=agreement;
+  const sealed=await source.readOriginalSealedContent(input);
+  assert.ok(sealed.ciphertext.length>524288);
+  assert.equal(sealed.originalMultipartAgreementDigest,agreement.agreementDigest);
+  const raw=Buffer.from(sealed.ciphertext),end=6+raw.readUInt16BE(4),header=JSON.parse(raw.subarray(6,end).toString('utf8'));
+  assert.deepEqual(header.session,candidate);
+  assert.equal(header.multipartAgreementDigest,agreement.agreementDigest);
+  const publication={session:candidate,ciphertext:sealed.ciphertext,contentDigest:'sha256:'+sha(raw),
+    encryptionContextRef:sealed.encryptionContextRef,originalPreparedCiphertextRequired:true,
+    originalMultipartAgreementDigest:agreement.agreementDigest};
+  assert.equal(await source.authorizeOriginalSealedPublication(publication),true);
+  admitted=false;
+  await assert.rejects(source.authorizeOriginalSealedPublication(publication),{code:'PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'});
+  admitted=true;selected=different;
+  await assert.rejects(source.authorizeOriginalSealedPublication(publication),{code:'SEALED_CONTENT_MULTIPART_AGREEMENT_CHANGED'});
+  selected=agreement;
+  const compact={...publication};delete compact.originalMultipartAgreementDigest;
+  await assert.rejects(source.authorizeOriginalSealedPublication(compact));
+  const recipient=q.recipient({readOriginalReplacementRecipientContentEvidence:async()=>assert.fail('unimplemented successor recipient must not open'),
+    readOriginalMultipartAgreement:async()=>agreement});
+  await assert.rejects(recipient.openOriginalSealedContent({...q.openInput(candidate,sealed),
+    originalMultipartAgreementDigest:agreement.agreementDigest}),{code:'SEALED_CONTENT_MULTIPART_AGREEMENT_REQUIRED'});
+  assert.equal(q.unlocks,0);
+  assert.ok(admissionReads>2&&agreementReads>2);
+  active=false;const reads=admissionReads+agreementReads;
+  await assert.rejects(source.authorizeOriginalSealedPublication(publication),{code:'ORIGINAL_HOST_LIFETIME_ENDED'});
+  assert.equal(admissionReads+agreementReads,reads);
 });
