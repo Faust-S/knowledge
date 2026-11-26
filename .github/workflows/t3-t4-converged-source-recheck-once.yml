@@ -1,0 +1,58 @@
+name: T3 T4 exact convergence corrections and unfinished tests
+on:
+  push:
+    branches: ['ci/once/t3-t4-convergence-recheck/206a289b6c36']
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 206a289b6c369eaa4bb5d56c7e7dd0da5d9d0661
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public candidate and locked dependencies
+        id: deps
+        run: |
+          test "$(git rev-parse HEAD)" = "206a289b6c369eaa4bb5d56c7e7dd0da5d9d0661"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+          npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: TypeScript contract
+        if: ${{ always() && steps.deps.outcome == 'success' }}
+        working-directory: packages/t3-core
+        run: timeout 180s npm run typecheck
+      - name: Original facade and Exchange DOM regression without browser automation
+        if: ${{ always() && steps.deps.outcome == 'success' }}
+        working-directory: packages/t3-core
+        run: |
+          timeout 180s npx --no-install vitest run --config vitest.t3-product.config.mjs tests/module-kernel-facade.test.ts tests/t3-host-signed-kernel.test.ts tests/t3-d1-signed-selected-workspace.dom.test.tsx tests/t3-d1-mounted-signed-workspace.dom.test.tsx tests/t3-d1-trusted-kernel-bootstrap.dom.test.tsx
+      - name: Original Control and changed Relay source contracts
+        if: ${{ always() && steps.deps.outcome == 'success' }}
+        run: |
+          npm --prefix packages/t4-network run check
+          timeout 240s node --experimental-strip-types --test --test-timeout=180000 --test-concurrency=2 \
+            packages/t3-core/tests/t3-d1-original-control-http.test.mjs \
+            packages/t4-network/tests/original-native-kernel-relay.test.mjs \
+            packages/t4-network/tests/original-native-network-product-activation.test.mjs \
+            packages/t4-network/tests/original-installed-control-factories.test.mjs \
+            packages/t4-network/tests/original-installed-control-http.test.mjs \
+            packages/t4-network/tests/original-product-network-selection.test.mjs
+      - name: Complete original public One Core build
+        if: ${{ always() && steps.deps.outcome == 'success' }}
+        working-directory: packages/t3-core
+        run: timeout 240s npm run build
+      - name: Unfinished long native, multipart and session contract files
+        if: ${{ always() && steps.deps.outcome == 'success' }}
+        working-directory: packages/t4-network
+        # K92 has an explicit 600s test budget; K180 has 900s. A 60s
+        # outer file timeout invalidated the earlier run before either could finish.
+        run: |
+          timeout 1500s node --experimental-strip-types --test --test-timeout=1400000 --test-concurrency=3 \
+            tests/original-native-host-network-owner.test.mjs \
+            tests/original-network-multipart-agreement.test.mjs \
+            tests/original-network-session-phases.test.mjs
