@@ -20,11 +20,11 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
 }){
  const file=useRef<HTMLInputElement>(null),generation=useRef(0);
  const [request,setRequest]=useState<D05ExtractionRequest|null>(null),[result,setResult]=useState<D05ExtractionReview|null>(null);
- const [busy,setBusy]=useState(false),[problem,setProblem]=useState(''),[page,setPage]=useState(0);
+ const [busy,setBusy]=useState(false),[problem,setProblem]=useState(''),[page,setPage]=useState(0),[notePage,setNotePage]=useState(0);
  const [includeCompatibleDeclarations,setCompatible]=useState(true),[includeRecordedReports,setRecorded]=useState(true);
  const [includeLocalInstructions,setLocalInstructions]=useState(false);
  const localAvailable=(review as D05RouteReview)?.local_context_details?.profiles.some(p=>p.model_number===modelNumber)===true;
- useLayoutEffect(()=>{generation.current++;setRequest(null);setResult(null);setProblem('');setBusy(false);setPage(0);
+ useLayoutEffect(()=>{generation.current++;setRequest(null);setResult(null);setProblem('');setBusy(false);setPage(0);setNotePage(0);
   return()=>{generation.current++;};},[review,groupId,modelNumber,includeCompatibleDeclarations,includeRecordedReports,includeLocalInstructions,localAvailable]);
  async function prepare(){
   const token=++generation.current;setBusy(true);setProblem('');setResult(null);setRequest(null);
@@ -35,7 +35,7 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
  }
  async function load(e:ChangeEvent<HTMLInputElement>){
   const selected=e.target.files?.[0];e.target.value='';if(!selected)return;
-  const token=++generation.current;setBusy(true);setProblem('');setResult(null);setPage(0);
+  const token=++generation.current;setBusy(true);setProblem('');setResult(null);setPage(0);setNotePage(0);
   try{
    if(!selected.size||selected.size>2*1024*1024)throw Error('size');
    const raw=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await selected.arrayBuffer()));
@@ -92,6 +92,15 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
     <div><strong>{result.proposed_fields.length}</strong><span>Предложения</span></div><div><strong>{result.missing_fields.length}</strong><span>Не установлено</span></div></div>
    <p>{result.product?'Предметное содержимое прошло проверку структуры.':'Нужны дополнительные предметные сведения или проверка обязательных условий.'} Исходные цитаты не заменяют проверку смысла.</p>
    {result.suggested_title?<p><strong>{result.suggested_title}</strong></p>:null}
+   {result.note_review.length?<details className="activity-domain-group"><summary>Исходные указания в предложении ({result.note_review.filter(n=>n.cited_by.length).length} / {result.note_review.length} со ссылками)</summary>
+    <p>Ссылка на исходное указание не доказывает сохранение его смысла. Проверьте неиспользованные указания и область применения перед заполнением черновика.</p>
+    {result.note_review.slice(notePage*6,(notePage+1)*6).map(n=><div key={n.ref} className="activity-domain-op">
+     <strong>{scopeLabel(n.scope)}</strong><p>{n.text}</p>
+     {n.cited_by.length?<p>Ссылки в полях: {n.cited_by.map(id=>{const [scope,field]=id.split('.');return scopeLabel(scope)+': '+(labels[field]??field);}).join('; ')}</p>:<p>В предложении нет ссылки на это указание.</p>}
+     {n.scope_needs_review?<p className="activity-v7-note hold">Проверьте привязку общего правила к исходной операции или контрольной точке.</p>:null}
+    </div>)}
+    {result.note_review.length>6?<div className="activity-v7-actions"><button disabled={!notePage} onClick={()=>setNotePage(p=>p-1)}>Назад</button><span>{notePage+1} / {Math.ceil(result.note_review.length/6)}</span><button disabled={(notePage+1)*6>=result.note_review.length} onClick={()=>setNotePage(p=>p+1)}>Далее</button></div>:null}
+   </details>:null}
    <button className="activity-v7-primary" onClick={apply}>Заполнить незаполненные поля и настройки</button>
    <details><summary>Сведения и основания</summary>
     {fields.slice(page*pageSize,(page+1)*pageSize).map(([id,row])=>{

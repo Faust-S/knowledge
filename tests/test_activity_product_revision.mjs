@@ -236,6 +236,12 @@ test('source functional mappings remain explicit contextual suggestions and pres
  const conflict=await prepareProductGeneralization(p,[],'ru',[ref,{...ref,replacement:'другой класс оборудования'}]);
  assert.equal(conflict.groups[0].suggested_replacement,null);
  assert.equal(conflict.groups[0].reference_alternatives.length,2);
+ const materialCandidate=d05Candidate();
+ materialCandidate.technology.terms.local_context_guidance='Использовать материал Сталь 08пс 2 мм.';
+ const material=await prepareD05TechnologyProduct(materialCandidate,'Part');
+ const materialPlan=await prepareProductGeneralization(material,[],'ru',[{value:'Сталь 08пс 2 мм',replacement:'Материал по чертежу',kind:'FUNCTIONAL_MAPPING'}]);
+ assert.equal(materialPlan.groups[0].suggested_replacement,null);
+ assert.ok(materialPlan.groups[0].functional_marker_review[0].markers.some(m=>m.kind==='UNITS'));
 });
 
 test('native D05 duration is positive and a retained duration always keeps its original unit',async()=>{

@@ -211,6 +211,13 @@ export async function reviewD05ExtractionProposal(review,groupId,modelNumber,pro
    else (form.operations[f.scope]??={})[f.field]=row.value;
   }
  }
+ // Citation coverage is local review information only. A cited source note
+ // is not proof that the model preserved the instruction or its meaning.
+ const note_review=document.evidence.filter(e=>e.field==='source_note_instruction').map(e=>{
+  const cited_by=Object.entries(fields).filter(([,row])=>row.refs.some(ref=>ref.ref===e.ref)).map(([id])=>id);
+  const scope_needs_review=e.scope!=='technology'&&cited_by.some(id=>id.startsWith('technology.')&&!fields[id].value.includes(e.scope));
+  return {ref:e.ref,scope:e.scope,text:e.text,cited_by,scope_needs_review};
+ });
  const decisions=suggestD05ParameterDecisions(review,groupId,modelNumber).decisions;
  const candidate=prepareD05DisclosureCandidate(review,groupId,modelNumber,form,decisions);
  // A complete semantic proposal is still NOT an accepted technology. The
@@ -222,7 +229,7 @@ export async function reviewD05ExtractionProposal(review,groupId,modelNumber,pro
  }
  return {status:'LOCAL_D05_EXTRACTION_REVIEW',request_sha256:request.request_sha256,
   source_sha256:request.source_sha256,fields,form,decisions,suggested_title:title,missing_fields:missing,
-  proposed_fields:proposed,candidate,product,product_hold,
+  proposed_fields:proposed,candidate,product,product_hold,note_review,
   source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED',evidence_semantics:'EXACT_QUOTATIONS_NOT_SEMANTIC_PROOF',
   export_allowed:false,iwxa_package:null};
 }

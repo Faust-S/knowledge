@@ -13,6 +13,7 @@ export type D05ExtractionReview={status:'LOCAL_D05_EXTRACTION_REVIEW';request_sh
  fields:Record<string,ExtractionField>;form:D05TechnologyProposalForm;decisions:Record<string,D05ParameterDecision>;
  suggested_title:string|null;missing_fields:string[];proposed_fields:string[];
  candidate:D05DisclosureCandidate;product:ProductPreview|null;product_hold:string|null;
+ note_review:Array<{ref:string;scope:string;text:string;cited_by:string[];scope_needs_review:boolean}>;
  source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED';evidence_semantics:'EXACT_QUOTATIONS_NOT_SEMANTIC_PROOF';
  export_allowed:false;iwxa_package:null};
 export type D05ExtractionOptions={includeCompatibleDeclarations?:boolean;includeRecordedReports?:boolean;includeLocalInstructions?:boolean};

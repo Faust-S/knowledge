@@ -2,7 +2,7 @@
 // No recognition engine, publication permission or new product format.
 import {ActivityHold,sha256Canonical} from './engine.mjs';
 import {reviewProductPresidioTextScreening} from './presidio-text-review.mjs';
-import {editableProductTexts,reviseTechnologyProductText} from './technology-product-revision.mjs';
+import {editableProductTexts,reviseTechnologyProductText,reviewTechnologyTextChange} from './technology-product-revision.mjs';
 import {validateTechnologyProduct,TECHNOLOGY_SCHEMA,TECHNOLOGY_VERSION} from './technology-product.mjs';
 const need=(ok,code)=>{if(!ok)throw new ActivityHold(code);};
 const exact=(v,keys)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
@@ -155,11 +155,18 @@ export async function prepareProductGeneralization(preview,reports,language='ru'
   // chains and conflicting roles are left to the owner, never applied by default.
   const referenceSuggestion=referenceRoles.length===1&&!known.some(r=>r.value!==g.value&&referenceRoles[0].includes(r.value))?
    referenceRoles[0]:null;
-  const suggestion=blocked===0&&complete&&editable.length?
+  // A functional label can carry a technical condition, not just a private
+  // name. Never propose a blanket substitution when an existing explicit
+  // unit, condition or obligation would change. Keep the alternative visible
+  // for manual contextual editing; a bare asset number is not a unit.
+  const functional_marker_review=[...new Set(g.references.filter(r=>r.kind==='FUNCTIONAL_MAPPING').map(r=>r.replacement))]
+   .sort(cmp).map(replacement=>({replacement,markers:reviewTechnologyTextChange(g.value,replacement).changed_markers
+    .filter(m=>m.kind!=='NUMBERS'&&m.before.length>0)})).filter(row=>row.markers.length>0);
+  const suggestion=blocked===0&&complete&&editable.length&&!functional_marker_review.length?
    (g.references.length?referenceSuggestion:kind?wording[language][kind]:null):null;
   result.push({group_id:'g_'+String(result.length+1).padStart(4,'0'),value:g.value,types,languages:[...g.languages].sort(cmp),
    score:g.score,spans,editable_count:editable.length,blocked_count:blocked,
-   source_kinds:[...new Set(g.references.map(r=>r.kind))].sort(cmp),reference_alternatives:referenceRoles.sort(cmp),source_variant:g.source_variant===true,source_review_required:g.source_variant===true||g.references.some(r=>r.kind==='FUNCTIONAL_MAPPING'),
+   source_kinds:[...new Set(g.references.map(r=>r.kind))].sort(cmp),reference_alternatives:referenceRoles.sort(cmp),functional_marker_review,source_variant:g.source_variant===true,source_review_required:g.source_variant===true||g.references.some(r=>r.kind==='FUNCTIONAL_MAPPING'),
    mode:editable.length===0?'DOMAIN_REVIEW_REQUIRED':suggestion?(g.source_variant?'SOURCE_REFERENCE_VARIANT':g.references.some(r=>r.kind==='FUNCTIONAL_MAPPING')?'FUNCTIONAL_MAPPING_REVIEW':g.references.length?'SOURCE_REFERENCE_SUGGESTION':'DIRECT_CONTACT_SUGGESTION'):'CONTEXT_REQUIRED',
    suggested_replacement:suggestion});
  }
