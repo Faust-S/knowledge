@@ -213,8 +213,25 @@ export function createOriginalKernelNativeRelay({
     // Optional original T3 workspace creation remains available only outside the pinned network scopes.
     check(!(method==="createWorkspace"&&[captureWorkspace,registryScope?.workspaceId,activation?.sourceWorkspaceId,activation?.technicalWorkspaceId].filter(Boolean).includes(args[0]?.workspace_id)),
       "T3_ORIGINAL_NETWORK_WORKSPACE_CREATION_DENIED");
-    check(!(method==="commitObjectGraph"&&captureWorkspace&&args[0]?.workspace_id===captureWorkspace),
-      "T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED");
+    if(method==="commitObjectGraph"&&captureWorkspace&&args[0]?.workspace_id===captureWorkspace){
+      // An installed original native product may already have authorized
+      // this graph via D3/SubjectBinding. Its only SOURCE write route is
+      // nevertheless the SAME local capture owner used by the trusted UI.
+      // Do not allow legacy/unnegotiated or nested owner callbacks to enter.
+      const state=live;
+      check(activation?.installedScope?.role==='SOURCE'&&networkActive(state)&&
+        state.localSourceReady===true&&state.localSourceMethods.includes(method),
+        "T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED");
+      check(!registryContext?.getStore(),"T3_ORIGINAL_LOCAL_SOURCE_MUTATION_BUSY");
+      return runLocalSourceMutation(state,method,args).then(result=>{
+        if(result?.state==='LOCAL_T3_BYPASS')fail("T3_LOCAL_SOURCE_CAPTURE_MODE_CHANGED");
+        check(result?.state==='ORIGINAL_SOURCE_MUTATION_CAPTURED'&&
+          result.originalT3OutboxVerified===true&&result.networkPublished===false&&
+          typeof result.captureRef==="string"&&result.captureRef.length>0&&result.captureRef.length<=256&&result.originalReceipt&&typeof result.originalReceipt==='object',
+          "T3_LOCAL_SOURCE_CAPTURE_RECEIPT_INVALID");
+        return result.originalReceipt;
+      });
+    }
     check(!(method==="commitObjectGraph"&&registryScope&&args[0]?.workspace_id===registryScope.workspaceId),
       "T3_ORIGINAL_REGISTRY_RELAY_SCOPE_DENIED");
     check(!(method==="commitObjectGraph"&&activation&&(args[0]?.workspace_id===activation.technicalWorkspaceId||
@@ -224,6 +241,40 @@ export function createOriginalKernelNativeRelay({
       !registryBusy()&&(!registryScope||wakeTask===null)&&live.activationRequest===null&&live.activationAnnouncement===null,
       "T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS");
     return enqueue(method,args,false);
+  };
+  // Exactly one original local capture admission for both existing entry
+  // points. The owner still performs its own signed operation authorization,
+  // durable capture/outbox verification, and original Kernel invocation.
+  const runLocalSourceMutation=async(state,method,args,encoded=false)=>{
+    const network=state.network;
+    check(networkActive(state)&&state.localSourceReady===true&&attaching!==state&&
+      state.localSourceMethods.includes(method)&&Array.isArray(args)&&args.length===1,
+      "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_NOT_AVAILABLE");
+    const currentWake=wakeTask;
+    check(localSourceTask===null&&historyTask===null&&activationTask===null&&
+      (currentWake!==null||pending===null&&reservation===null&&!registryBusy()),
+      "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_BUSY");
+    const exact=clone(encoded?decodeOriginalNetworkRelayArgs(method,args):args);
+    check(exact[0]&&typeof exact[0]==="object"&&
+      exact[0].workspace_id===network.localSource.workspaceId,
+      "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_SCOPE_DENIED");
+    const task={state};localSourceTask=task;
+    try{
+      if(currentWake!==null)await currentWake.done;
+      check(await currentEpoch()===state.epoch&&networkActive(state)&&localSourceTask===task,
+        "T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+      check(pending===null&&reservation===null&&!registryBusy(),"T3_ORIGINAL_LOCAL_SOURCE_MUTATION_BUSY");
+      const result=await withRegistryReads(state,()=>networkActive(state)&&localSourceTask===task,()=>network.localSource.invoke(Object.freeze({
+        method,args:exact,contextEpoch:state.epoch,sessionId:state.sessionId,
+        kernel:state.networkKernel,isHostActive:()=>networkActive(state),
+      })));
+      check(await currentEpoch()===state.epoch&&networkActive(state),
+        "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_OUTCOME_UNKNOWN");
+      check(result?.state==="LOCAL_T3_BYPASS"||
+        (result?.state==="ORIGINAL_SOURCE_MUTATION_CAPTURED"&&result.originalReceipt!=null),
+        "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_RESULT_INVALID");
+      return clone(result);
+    }finally{if(localSourceTask===task)localSourceTask=null;}
   };
   const enqueue=(method,args,networkCommand)=>{
     const id=nextId++;
@@ -558,42 +609,9 @@ export function createOriginalKernelNativeRelay({
       }
       same(payload?.sessionId,requestEpoch);
       if(verb==="sourceMutation"){
-        // This is an original local user operation, never a remote frame.
-        // It shares the EXISTING authenticated native relay and its one
-        // original execution slot. No scheduler, second queue or raw grants.
-        const state=live,network=state.network;
-        check(networkActive(state)&&state.localSourceReady===true&&attaching!==state&&
-          state.localSourceMethods.includes(payload?.method)&&Array.isArray(payload?.args)&&
-          payload.args.length===1,
-          "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_NOT_AVAILABLE");
-        // Reserve the one local operation before awaiting the EXISTING
-        // in-flight wake. No next wake can overtake this user command.
-        // Do not admit a second user command or compete with native D3.
-        const currentWake=wakeTask;
-        check(localSourceTask===null&&historyTask===null&&activationTask===null&&(currentWake!==null||pending===null&&reservation===null&&!registryBusy()),
-          "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_BUSY");
-        const method=payload.method;
-        const exact=clone(decodeOriginalNetworkRelayArgs(method,payload.args));
-        check(exact[0]&&typeof exact[0]==="object"&&
-          exact[0].workspace_id===network.localSource.workspaceId,
-          "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_SCOPE_DENIED");
-        const task={state};localSourceTask=task;
-        try{
-          if(currentWake!==null)await currentWake.done;
-          check(await currentEpoch()===state.epoch&&networkActive(state)&&localSourceTask===task,
-            "T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
-          check(pending===null&&reservation===null&&!registryBusy(),"T3_ORIGINAL_LOCAL_SOURCE_MUTATION_BUSY");
-          const result=await withRegistryReads(state,()=>networkActive(state)&&localSourceTask===task,()=>network.localSource.invoke(Object.freeze({
-            method,args:exact,contextEpoch:state.epoch,sessionId:state.sessionId,
-            kernel:state.networkKernel,isHostActive:()=>networkActive(state),
-          })));
-          check(await currentEpoch()===state.epoch&&networkActive(state),
-            "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_OUTCOME_UNKNOWN");
-          check(result?.state==="LOCAL_T3_BYPASS"||
-            (result?.state==="ORIGINAL_SOURCE_MUTATION_CAPTURED"&&result.originalReceipt!=null),
-            "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_RESULT_INVALID");
-          return clone(result);
-        }finally{if(localSourceTask===task)localSourceTask=null;}
+        // Browser bytes are decoded before the shared capture path. Native
+        // callers already hold the original structured command, not wire data.
+        return runLocalSourceMutation(live,payload?.method,payload?.args,true);
       }
       if(verb==="next"){
         renewIdleLease();

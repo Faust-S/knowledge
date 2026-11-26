@@ -16,7 +16,8 @@ const context={kind:'PERSONAL',context_id:'context:local',actor_id:'person:local
 // This fixture models the Access decision and original T2 receipts ONLY.
 // Both the production Relay and SubjectKernelBinding are used unchanged
 // apart from the candidate relay changes; no original Kernel execution is claimed.
-function fixture({role='SOURCE',grants=[...new Set([...base,...operations])],profilePatch={},ownerPatch={},createHook=null,bindHook=null,attachHook=null,wake=null,history=null,local=null}={}){
+function fixture({role='SOURCE',installed=false,grants=[...new Set([...base,...operations])],profilePatch={},ownerPatch={},createHook=null,bindHook=null,attachHook=null,wake=null,history=null,local=null}={}){
+  const installedScope={schema:'IWXA_T4_INSTALLED_NATIVE_NETWORK_SCOPE/1',role,sourceWorkspaceId:WS,technicalWorkspaceId:TECH,registryWorkspaceId:REG};
   let epoch=1,registry=null,kernel=null,profile=null,revoked=false,lateRead=null;
   const counts={create:0,attach:0,detach:0,close:0,bind:0,stop:0,proofs:0},calls=[];
   const access={currentContext:()=>context,actionFor:op=>op,operationDigest:digest,
@@ -30,6 +31,7 @@ function fixture({role='SOURCE',grants=[...new Set([...base,...operations])],pro
     },verifyDecisionBinding:(request,decision)=>decision.requestDigest===digest(request)};
   const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,timeoutMs:2000,
     originalRegistryScope:{workspaceId:REG,objectId:OBJ},networkActivation:{role,sourceWorkspaceId:WS,technicalWorkspaceId:TECH,
+      ...(installed?{installedScope}:{}),
       async createProfile(p){
         counts.create++;registry=p.registryKernel;
         assert.equal(registry,relay.nativeRegistryKernel);assert.equal(registry.hasOperation('t1.getObject'),true);
@@ -39,7 +41,7 @@ function fixture({role='SOURCE',grants=[...new Set([...base,...operations])],pro
           async onAttach(p){counts.attach++;kernel=p.kernel;assert.equal(p.isHostActive(),false);assert.equal(kernel.hasOperation('t1.getObject'),true);
             if(attachHook)return attachHook(registry,p);await registry.listEventsSince(REG);return true;},
           onDetach(){counts.detach++;},async resolveOriginalAccess(p){
-            if(p.args[0]!==WS)return null;
+            if((p.method==='commitObjectGraph'?p.args[0]?.workspace_id:p.args[0])!==WS)return null;
             await registry.getObject(REG,OBJ);return access;},
           originalSignedReplacementHistoryBound:true,async readOriginalReplacementOwnerHistory(input){
             if(history)return history({input,registry,kernel});await registry.getObject(REG,OBJ);return {ok:true};},
@@ -52,7 +54,7 @@ function fixture({role='SOURCE',grants=[...new Set([...base,...operations])],pro
       },async bindPeerHistoryReceiver(receiver){counts.bind++;assert.equal(typeof receiver.read,'function');if(bindHook)return bindHook(receiver);return ()=>{counts.stop++;};}
     }});
   const attach=(version=1)=>relay.exchange({verb:'attach',payload:{sessionInfo:info(grants),networkRelayVersion:1,
-    networkActivationVersion:version,...(role==='SOURCE'?{localSourceMutationVersion:1,localSourceGraphVersion:1}:{})}},epoch);
+    networkActivationVersion:version,...(installed?{installedNetworkScope:installedScope}:{}),...(role==='SOURCE'?{localSourceMutationVersion:1,localSourceGraphVersion:1}:{})}},epoch);
   const ex=(s,verb,rest={})=>relay.exchange({verb,payload:{sessionId:s.sessionId,...rest}},s.contextEpoch);
   const next=s=>ex(s,'next');
   async function command(s,method,args,result){
@@ -206,4 +208,51 @@ test('convergence permits only the pinned Registry workspace read in the origina
   try{const s=await f.attach();await f.command(s,'getWorkspace',[REG]);await f.activate(s);
     assert.equal(f.relay.networkAttached,true);
   }finally{f.relay.close();}
+});
+
+
+const nativeGraph=()=>({...graph(),workspace_id:WS,object:{...graph().object,object_id:'item:native',schema_id:'app.record',data:{title:'original'}},event:{event_type:'app.record.saved',payload:{object_id:'item:native'}}});
+const captured=receipt=>({state:'ORIGINAL_SOURCE_MUTATION_CAPTURED',originalReceipt:receipt,captureRef:'t4:local:graph:fixture',originalT3OutboxVerified:true,networkPublished:false});
+test('installed native SOURCE graph shares capture owner and exact original signed dispatch',async()=>{
+  let f,invocations=0;const input=nativeGraph(),exact=structuredClone(input);
+  f=fixture({installed:true,local:async({kernel,p})=>{
+    invocations++;assert.equal(p.method,'commitObjectGraph');assert.deepEqual(p.args,[exact]);
+    assert.throws(()=>f.relay.nativeKernel.commitObjectGraph(exact),{code:'T3_ORIGINAL_LOCAL_SOURCE_MUTATION_BUSY'});
+    return captured(await kernel.commitObjectGraph(p.args[0]));
+  }});
+  try{const s=await f.attach();await f.activate(s);
+    const result=f.relay.nativeKernel.commitObjectGraph(input);result.catch(()=>{});input.object.data.title='changed';
+    await assert.rejects(f.ex(s,'sourceMutation',{method:'commitObjectGraph',args:[exact]}),{code:'T3_ORIGINAL_LOCAL_SOURCE_MUTATION_BUSY'});
+    await f.command(s,'getObject',[REG,OBJ]);await f.command(s,'getObject',[REG,OBJ]);await f.command(s,'listEventsSince',[REG]);
+    const receipt=resultFor('commitObjectGraph',[exact]);await f.command(s,'commitObjectGraph',[exact],receipt);
+    assert.deepEqual(await result,receipt);assert.equal(invocations,1);assert.equal(f.counts.proofs,1);
+    assert.equal(f.calls.filter(x=>x[0]==='commitObjectGraph').length,1);
+  }finally{f.relay.close();}
+});
+test('installed native SOURCE graph cannot fall back to raw write after capture mode change, malformed receipt or signed denial',async()=>{
+  for(const outcome of [{state:'LOCAL_T3_BYPASS'}, {state:'ORIGINAL_SOURCE_MUTATION_CAPTURED',originalReceipt:{}},null]){
+    let attempts=0;
+    const f=fixture({installed:true,local:async({kernel,p})=>{attempts++;return outcome??captured(await kernel.commitObjectGraph(p.args[0]));}});
+    try{const s=await f.attach();await f.activate(s);f.revoke();
+      const p=f.relay.nativeKernel.commitObjectGraph(nativeGraph());p.catch(()=>{});
+      if(outcome===null){await f.command(s,'getObject',[REG,OBJ]);await f.command(s,'getObject',[REG,OBJ]);await f.command(s,'listEventsSince',[REG]);}
+      await assert.rejects(p,{code:outcome===null?'T3_ACCESS_NOT_PERMITTED':outcome.state==='LOCAL_T3_BYPASS'?'T3_LOCAL_SOURCE_CAPTURE_MODE_CHANGED':'T3_LOCAL_SOURCE_CAPTURE_RECEIPT_INVALID'});
+      assert.equal(attempts,1);assert.equal(f.calls.some(x=>x[0]==='commitObjectGraph'),false);
+    }finally{f.relay.close();}
+  }
+});
+test('native graph capture is opt-in and remains unavailable to installed RECIPIENT or stale owner',async()=>{
+  for(const opts of [{role:'RECIPIENT',installed:true},{role:'SOURCE',installed:false}]){
+    const f=fixture(opts);try{const s=await f.attach();await f.activate(s);
+      assert.throws(()=>f.relay.nativeKernel.commitObjectGraph(nativeGraph()),{code:opts.role==='RECIPIENT'?'T3_ORIGINAL_NETWORK_OWNER_WRITE_REQUIRED':'T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED'});
+    }finally{f.relay.close();}
+  }
+  let entered,release;const started=new Promise(r=>{entered=r;}),gate=new Promise(r=>{release=r;});
+  const f=fixture({installed:true,local:async()=>{entered();await gate;return captured({});}});
+  try{const s=await f.attach();await f.activate(s);const native=f.relay.nativeKernel;
+    const p=native.commitObjectGraph(nativeGraph());p.catch(()=>{});await started;f.invalidate();release();
+    await assert.rejects(p,{code:'T3_ORIGINAL_LOCAL_SOURCE_MUTATION_OUTCOME_UNKNOWN'});
+    assert.throws(()=>native.commitObjectGraph(nativeGraph()),{code:'T3_D3_ORIGINAL_KERNEL_NOT_CONNECTED'});
+    assert.equal(f.calls.some(x=>x[0]==='commitObjectGraph'),false);
+  }finally{release();f.relay.close();}
 });
