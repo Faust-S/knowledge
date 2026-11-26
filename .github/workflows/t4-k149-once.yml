@@ -1,0 +1,31 @@
+name: T4 K149 original capture backing
+on:
+  push:
+    branches:
+      - 'ci/once/t4-multipart/f4784494ea682d9e009a5b933cd16a743f0600ef'
+permissions:
+  contents: read
+concurrency:
+  group: t4-k149-f4784494ea682d9e009a5b933cd16a743f0600ef
+  cancel-in-progress: false
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact candidate source tree
+        run: |
+          test "$(git rev-parse HEAD^)" = 'f4784494ea682d9e009a5b933cd16a743f0600ef'
+          test "$(git rev-parse HEAD:packages/t4-network)" = "$(git rev-parse f4784494ea682d9e009a5b933cd16a743f0600ef:packages/t4-network)"
+      - name: Install locked dependencies
+        run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Capture, Vault, publication, subject and wire regression
+        working-directory: packages/t4-network
+        run: |
+          node --experimental-strip-types --test tests/original-host-capture-ledger.test.mjs tests/original-network-key-lifecycle.test.mjs tests/original-vault-node-signature.test.mjs tests/original-network-multipart-agreement.test.mjs tests/original-network-subject-apply.test.mjs tests/original-network-source-head-proof.test.mjs tests/original-asset-delta.test.mjs tests/original-host-recipient-dispatcher.test.mjs tests/original-network-publication-multipart-backing.test.mjs tests/original-network-publication.test.mjs tests/standard-network-multipart-opaque-chunks.test.mjs tests/standard-network-wire-candidate.test.mjs tests/standard-network-multipart-wire.test.mjs tests/standard-network-wire-independent-vectors.test.mjs
