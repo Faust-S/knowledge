@@ -20,7 +20,7 @@ jobs:
           persist-credentials: false
       - name: Admit one exact request
         run: |
-          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-network-activity --profile source-build --revision domain=d0ffa1aea976387ad79e16c90e2410acc9d780e6 --revision site=f088c2adb34eee517fb5a163deff1c6df5420992 --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-network-activity --profile source-build --revision domain=5fa52409bd8e8779307d03fcecb3fff3d360c114 --revision site=2da12ae7fd63e05f9a62bdd19ce0c8ccb597493a --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17
       - name: Verify existing approved read scope
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
@@ -34,14 +34,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics
-          ref: d0ffa1aea976387ad79e16c90e2410acc9d780e6
+          ref: 5fa52409bd8e8779307d03fcecb3fff3d360c114
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: f088c2adb34eee517fb5a163deff1c6df5420992
+          ref: 2da12ae7fd63e05f9a62bdd19ce0c8ccb597493a
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -57,14 +57,14 @@ jobs:
           node-version: '22'
       - name: Exact source pins and canonical mirrors
         run: |
-          test "$(git -C domain rev-parse HEAD)" = "d0ffa1aea976387ad79e16c90e2410acc9d780e6"
-          test "$(git -C site rev-parse HEAD)" = "f088c2adb34eee517fb5a163deff1c6df5420992"
+          test "$(git -C domain rev-parse HEAD)" = "5fa52409bd8e8779307d03fcecb3fff3d360c114"
+          test "$(git -C site rev-parse HEAD)" = "2da12ae7fd63e05f9a62bdd19ce0c8ccb597493a"
           test "$(git -C t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import {execFileSync} from 'node:child_process';
           const m=JSON.parse(fs.readFileSync('site/runtime/d11-module/operations/source.json','utf8'));
-          if(m.sourceCommit!=='d0ffa1aea976387ad79e16c90e2410acc9d780e6' || m.files.length!==35) throw Error('D11_SOURCE_MANIFEST_INVALID');
+          if(m.sourceCommit!=='5fa52409bd8e8779307d03fcecb3fff3d360c114' || m.files.length!==35) throw Error('D11_SOURCE_MANIFEST_INVALID');
           for(const f of m.files){
             const blob=(repo,path)=>execFileSync('git',['-C',repo,'rev-parse','HEAD:'+path],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();
             if(blob('domain',f.sourcePath)!==f.blob||blob('site',f.localPath)!==f.blob) throw Error('D11_SOURCE_MIRROR_DIFF');
@@ -72,6 +72,7 @@ jobs:
           console.log('D11_OPERATIONAL_MIRRORS=35/35 PASS');
           NODE
       - name: Original canonical regression
+        id: domain_regression
         working-directory: domain
         run: |
           log="$RUNNER_TEMP/d11-domain-tests.log"
@@ -84,11 +85,14 @@ jobs:
           fi
           echo D11_DOMAIN_TESTS=PASS
       - name: Install site dependencies
+        if: ${{ !cancelled() && steps.domain_regression.outcome != 'skipped' }}
+        id: site_install
         working-directory: site
         run: |
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/d11-install.log" 2>&1 || { echo D11_NPM_INSTALL_FAILED; exit 1; }
           echo D11_NPM_INSTALL=PASS
       - name: TypeScript and full site source regression
+        if: ${{ !cancelled() && steps.site_install.outcome == 'success' }}
         working-directory: site
         run: |
           status=0
