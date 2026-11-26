@@ -1,10 +1,11 @@
 import {useLayoutEffect,useRef,useState,type ChangeEvent} from 'react';
 import {ProductGeneralizationPanel} from './ProductGeneralizationPanel';
+import type {SourceReference} from '../../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 import {productTextInventory,reviewProductPresidioTextScreening} from '../../modules/activity-base-anonymizer/presidio-text-review.mjs';
 import {editableProductTexts,reviseTechnologyProductText} from '../../modules/activity-base-anonymizer/technology-product-revision.mjs';
 import type {ProductPreview} from '../../modules/activity-base-anonymizer/technology-product.mjs';
 type Review=Awaited<ReturnType<typeof reviewProductPresidioTextScreening>>;
-export function ProductPresidioReviewPanel({product,onRevision}:{product:ProductPreview;onRevision?:(value:ProductPreview)=>void}){
+export function ProductPresidioReviewPanel({product,onRevision,sourceReferences}:{product:ProductPreview;onRevision?:(value:ProductPreview)=>void;sourceReferences?:SourceReference[]}){
  const input=useRef<HTMLInputElement>(null),generation=useRef(0);
  const [reviews,setReviews]=useState<Partial<Record<'en'|'ru',Review>>>({}),[problem,setProblem]=useState('');
  const [rawReports,setRawReports]=useState<Partial<Record<'en'|'ru',unknown>>>({});
@@ -50,7 +51,7 @@ export function ProductPresidioReviewPanel({product,onRevision}:{product:Product
    <div className="activity-domain-ops">{r.fields.slice(page[r.language]*24,(page[r.language]+1)*24).map(f=><button key={f.path} className="activity-domain-op" onClick={()=>{setSelected({language:r.language,path:f.path});setReplacement(productTextInventory(product.object_data).find(x=>x.path===f.path)?.text??'');setReason('');}}>{f.path}<span>{f.findings.length} обнаружений</span></button>)}</div>
    {r.fields.length>24?<div className="activity-v7-actions"><button disabled={page[r.language]===0} onClick={()=>setPage(x=>({...x,[r.language]:x[r.language]-1}))}>Назад</button><span>{page[r.language]+1} / {Math.ceil(r.fields.length/24)}</span><button disabled={(page[r.language]+1)*24>=r.fields.length} onClick={()=>setPage(x=>({...x,[r.language]:x[r.language]+1}))}>Далее</button></div>:null}
   </div>:null)}
-  {onRevision?<ProductGeneralizationPanel key={product.product_sha256} product={product} reports={rawReports} onRevision={onRevision} disabled={busy}/>:null}
+  {onRevision?<ProductGeneralizationPanel product={product} reports={rawReports} sourceReferences={sourceReferences} onRevision={onRevision} disabled={busy}/>:null}
   {row?<div className="activity-domain-group"><strong>{row.path}</strong><p>{value}</p>{row.findings.map((f,i)=><p key={i}>{f.entity_type}: {Array.from(value).slice(f.start,f.end).join('')}</p>)}
    {onRevision&&editKind!=='FIXED'?<><label className="activity-domain-label">Обобщённая формулировка<textarea rows={4} value={replacement} maxLength={16000} onChange={e=>setReplacement(e.target.value)}/></label>
     <label className="activity-domain-label">Что изменено и почему<input value={reason} maxLength={1000} onChange={e=>setReason(e.target.value)}/></label>

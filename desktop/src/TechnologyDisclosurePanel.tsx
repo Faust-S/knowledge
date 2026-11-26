@@ -1,10 +1,11 @@
-import {useState} from 'react';
+import {useMemo,useState} from 'react';
+import type {SourceReference} from '../../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 import {suggestD05ParameterDecisions} from '../../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
 import {PresidioReviewPanel} from './PresidioReviewPanel';
 import {ObservationReviewPanel} from './ObservationReviewPanel';
 import {TechnologyProductPanel} from './TechnologyProductPanel';
 import {prepareD05DisclosureCandidate,type D05DisclosureCandidate,type D05DraftProfile,
- type D05RouteGroup,type D05TechnologyProposalForm,type D05ParameterDecision,type D05DraftValue}
+ type D05RouteGroup,type D05RouteReview,type D05TechnologyProposalForm,type D05ParameterDecision,type D05DraftValue}
  from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 const LABEL:Record<string,string>={quantity:'Объём',calendarMode:'Календарь',workingDays:'Рабочие дни',
  hoursPerDay:'Часов в день',overallReserve:'Общий резерв',duration:'Длительность',unit:'Единица времени',
@@ -19,6 +20,11 @@ export function TechnologyDisclosurePanel({review,groupId,profile,operations,for
  const [computed,setComputed]=useState<{form:D05TechnologyProposalForm;decisions:Record<string,D05ParameterDecision>;value:D05DisclosureCandidate}|null>(null);
  const [error,setError]=useState('');
  const candidate=computed?.form===form&&computed.decisions===decisions?computed.value:null;
+ const sourceReferences=useMemo<SourceReference[]>(()=>{
+  const r=review as D05RouteReview;
+  if(!r.groups?.some(g=>g.id===groupId&&g.model_numbers.includes(profile.model_number)))return [];
+  return r.recorded_execution_review?.profiles.find(p=>p.model_number===profile.model_number)?.source_references??[];
+ },[review,groupId,profile.model_number]);
  const fields=profile.conditions.filter(c=>c.use==='ADAPTATION_REVIEW');
  const selectedFields=fields.filter(c=>c.scope===scope);
  const scopeName=(id:string)=>id==='route'?'Маршрут':operations.find(o=>o.id===id)?.name??'Операция';
@@ -97,7 +103,7 @@ export function TechnologyDisclosurePanel({review,groupId,profile,operations,for
     <p>Незаполненных полей предложения: {candidate.missing_proposal_fields.length}. Нерешённых исходных требований: {candidate.unresolved_source_requirements.length}. Сохранено контрольных точек: {candidate.technology.quality_checks.length}.</p>
     <PresidioReviewPanel candidate={candidate}/>
     <ObservationReviewPanel candidate={candidate}/>
-    <TechnologyProductPanel candidate={candidate} suggestedTitle={suggestedTitle}/>
+    <TechnologyProductPanel candidate={candidate} suggestedTitle={suggestedTitle} sourceReferences={sourceReferences}/>
     <p className="activity-v7-note hold">Текстовая проверка не заменяет оценку уникальности графа, коммерческих сведений и статистических выпусков. Анонимность и право передачи не установлены.</p>
    </div>:null}
   </div>:null}

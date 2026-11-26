@@ -1,9 +1,10 @@
 import {useLayoutEffect,useRef,useState} from 'react';
 import {prepareD05TechnologyProduct,type ProductPreview} from '../../modules/activity-base-anonymizer/technology-product.mjs';
+import type {SourceReference} from '../../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 import {ProductPresidioReviewPanel} from './ProductPresidioReviewPanel';
 import {TechnologyReleasePanel} from './TechnologyReleasePanel';
 import type {D05DisclosureCandidate} from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
-export function TechnologyProductPanel({candidate,suggestedTitle=''}:{candidate:D05DisclosureCandidate;suggestedTitle?:string}){
+export function TechnologyProductPanel({candidate,suggestedTitle='',sourceReferences}:{candidate:D05DisclosureCandidate;suggestedTitle?:string;sourceReferences?:SourceReference[]}){
  const [title,setTitle]=useState(suggestedTitle),[preview,setPreview]=useState<ProductPreview|null>(null);
  const [error,setError]=useState(''),[busy,setBusy]=useState(false),generation=useRef(0);
  useLayoutEffect(()=>{generation.current++;setPreview(null);setError('');setBusy(false);return()=>{generation.current++;};},[candidate]);
@@ -32,7 +33,7 @@ export function TechnologyProductPanel({candidate,suggestedTitle=''}:{candidate:
     <div><strong>{t.quality_checks.length}</strong><span>Контрольных точек</span></div>
     <div><strong>{[...t.route_parameters,...t.operations.flatMap(o=>o.parameters)].filter(p=>p.mode==='PARAMETERIZE').length}</strong><span>Настраиваемых параметров</span></div></div>
    <p>В новой рабочей среде потребуется выбрать собственные ресурсы, исполнителей, материалы и значения адаптируемых параметров.</p>
-   {preview?<ProductPresidioReviewPanel product={preview} onRevision={setPreview}/>:null}
+   {preview?<ProductPresidioReviewPanel product={preview} onRevision={setPreview} sourceReferences={sourceReferences}/>:null}
    {preview?<TechnologyReleasePanel key={preview.product_sha256} product={preview}/>:null}
   </div>:null}
  </div>;
