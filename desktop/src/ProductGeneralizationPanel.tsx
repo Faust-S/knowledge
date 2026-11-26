@@ -7,7 +7,7 @@ import {ProductRevisionComparison} from './ProductRevisionComparison';
 
 type Choice={selected:boolean;replacement:string};
 const EMPTY_REFERENCES:SourceReference[]=[];
-const sourceNames:Record<SourceReference['kind'],string>={CUSTOMER:'Заказчик в источнике',PERFORMER:'Исполнитель в источнике',CONTRACTOR:'Подрядчик в источнике',LOCAL_REFERENCE:'Частная ссылка владельца'};
+const sourceNames:Record<SourceReference['kind'],string>={CUSTOMER:'Заказчик в источнике',PERFORMER:'Исполнитель в источнике',CONTRACTOR:'Подрядчик в источнике',LOCAL_REFERENCE:'Частная ссылка владельца',FUNCTIONAL_MAPPING:'Исходное обозначение и функциональное требование'};
 const kindNames:Record<string,string>={PERSON:'Имя',ORGANIZATION:'Организация',LOCATION:'Место',EMAIL_ADDRESS:'Электронная почта',
  PHONE_NUMBER:'Телефон',URL:'Ссылка',IP_ADDRESS:'Сетевой адрес',IBAN_CODE:'Банковский счёт',DATE_TIME:'Дата или время'};
 const labels:Record<string,string>={title:'Название',purpose:'Назначение',inputs:'Входы',outputs:'Результат',applicability:'Применимость',
@@ -39,7 +39,7 @@ export function ProductGeneralizationPanel({product,reports,onRevision,disabled=
   setBusy(true);
   void prepareProductGeneralization(product,Object.values(reports),language,references).then(p=>{
    if(token!==epoch.current)return;
-   setPlan(p);setChoices(Object.fromEntries(p.groups.map(g=>[g.group_id,{selected:g.suggested_replacement!==null&&!g.source_variant,
+   setPlan(p);setChoices(Object.fromEntries(p.groups.map(g=>[g.group_id,{selected:g.suggested_replacement!==null&&!g.source_review_required,
     replacement:g.suggested_replacement??''}])));
   }).catch(()=>{if(token===epoch.current)setError('Не удалось подготовить пакетное обобщение для текущей редакции. Проверьте результаты анализатора; большую выборку обработайте по отдельным технологиям.');})
    .finally(()=>{if(token===epoch.current)setBusy(false);});
@@ -98,6 +98,7 @@ export function ProductGeneralizationPanel({product,reports,onRevision,disabled=
     return <div className="activity-domain-op" key={g.group_id}>
      <strong style={{overflowWrap:'anywhere'}}>{g.value}</strong>
      <span>{[...g.types.map(t=>kindNames[t]??t),...g.source_kinds.map(k=>sourceNames[k])].join(', ')} · {g.spans.length} совпадений</span>
+     {g.source_kinds.includes('FUNCTIONAL_MAPPING')?<p>Сформулированное предметное требование может заменить исходное обозначение. Сверьте смысл каждого употребления: это не автоматически признанные частные сведения. Замена не выбрана автоматически.</p>:null}
      {g.source_variant?<p>Вариант написания известного имени или организации. Уточните его функциональное обозначение; замена не выбрана автоматически.</p>:null}
      {g.blocked_count?<p className="activity-v7-note hold">Нельзя изменить без предметного пересмотра: {g.blocked_count} совпадений.</p>:null}
      {g.editable_count>0&&choice?<><label><input type="checkbox" disabled={blocked} checked={choice.selected}

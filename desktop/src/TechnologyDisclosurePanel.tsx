@@ -1,7 +1,7 @@
-import {useLayoutEffect,useState} from 'react';
+import {useLayoutEffect,useMemo,useState} from 'react';
 import {selectD05PracticalExperience} from '../../modules/activity-base-anonymizer/d05-practical-lessons.mjs';
 import type {SourceReference} from '../../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
-import {suggestD05ParameterDecisions} from '../../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
+import {suggestD05ParameterDecisions,collectD05FunctionalReferences} from '../../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
 import {PresidioReviewPanel} from './PresidioReviewPanel';
 import {ObservationReviewPanel} from './ObservationReviewPanel';
 import {TechnologyProductPanel} from './TechnologyProductPanel';
@@ -32,6 +32,11 @@ export function TechnologyDisclosurePanel({review,groupId,profile,operations,for
    .catch(()=>{if(active)setReferencesReady(true);});
   return()=>{active=false;};
  },[review,groupId,profile.model_number]);
+ const allReferences=useMemo(()=>{
+  const combined=new Map(sourceReferences.map(ref=>[JSON.stringify(ref),ref]));
+  if(candidate)for(const ref of collectD05FunctionalReferences(review,groupId,profile.model_number,form))combined.set(JSON.stringify(ref),ref);
+  return [...combined.values()];
+ },[sourceReferences,candidate,review,groupId,profile.model_number,form]);
  const fields=profile.conditions.filter(c=>c.use==='ADAPTATION_REVIEW');
  const selectedFields=fields.filter(c=>c.scope===scope);
  const scopeName=(id:string)=>id==='route'?'Маршрут':operations.find(o=>o.id===id)?.name??'Операция';
@@ -110,7 +115,7 @@ export function TechnologyDisclosurePanel({review,groupId,profile,operations,for
     <p>Незаполненных полей предложения: {candidate.missing_proposal_fields.length}. Нерешённых исходных требований: {candidate.unresolved_source_requirements.length}. Сохранено контрольных точек: {candidate.technology.quality_checks.length}.</p>
     <PresidioReviewPanel candidate={candidate}/>
     <ObservationReviewPanel candidate={candidate}/>
-    {referencesReady?<TechnologyProductPanel candidate={candidate} suggestedTitle={suggestedTitle} sourceReferences={sourceReferences}/>:<p role="status">Сопоставляются известные частные обозначения исходного опыта…</p>}
+    {referencesReady?<TechnologyProductPanel candidate={candidate} suggestedTitle={suggestedTitle} sourceReferences={allReferences}/>:<p role="status">Сопоставляются известные частные обозначения исходного опыта…</p>}
     <p className="activity-v7-note hold">Текстовая проверка не заменяет оценку уникальности графа, коммерческих сведений и статистических выпусков. Анонимность и право передачи не установлены.</p>
    </div>:null}
   </div>:null}

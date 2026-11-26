@@ -41,7 +41,7 @@ function occurrences(row,value,kind){
 // horizontal spacing and quote styles. These are candidate aliases only.
 // Do not fold contacts, internal identifiers, numeric values or inflection.
 function nameVariantPattern(ref){
- if(ref.kind==='LOCAL_REFERENCE'||!/^[\p{L}\p{M} \u00a0\u202f«»„“”"'-]+$/u.test(ref.value)||
+ if(!['CUSTOMER','PERFORMER','CONTRACTOR'].includes(ref.kind)||!/^[\p{L}\p{M} \u00a0\u202f«»„“”"'-]+$/u.test(ref.value)||
   (ref.value.match(/[\p{L}\p{M}]+/gu)??[]).length<2)return null;
  const escape=v=>v.replace(/[.*+?^$(){}[\]\\]/g,ch=>'\\'+ch);
  return new RegExp(ref.value.split(/([ \u00a0\u202f]+|[«»„“”"])/u).map(part=>
@@ -60,7 +60,7 @@ function variantOccurrences(row,ref,pattern){
 const spanKey=x=>x.path+':'+x.start+':'+x.end;
 const digit=s=>/\d/.test(s);
 const overlaps=(a,b)=>a.path===b.path&&a.start<b.end&&b.start<a.end;
-const referenceKinds=new Set(['CUSTOMER','PERFORMER','CONTRACTOR','LOCAL_REFERENCE']);
+const referenceKinds=new Set(['CUSTOMER','PERFORMER','CONTRACTOR','LOCAL_REFERENCE','FUNCTIONAL_MAPPING']);
 function normalizedReferences(references){
  need(Array.isArray(references)&&references.length<=512,'TECHNOLOGY_GENERALIZATION_REFERENCES');
  const found=new Map();
@@ -159,8 +159,8 @@ export async function prepareProductGeneralization(preview,reports,language='ru'
    (g.references.length?referenceSuggestion:kind?wording[language][kind]:null):null;
   result.push({group_id:'g_'+String(result.length+1).padStart(4,'0'),value:g.value,types,languages:[...g.languages].sort(cmp),
    score:g.score,spans,editable_count:editable.length,blocked_count:blocked,
-   source_kinds:[...new Set(g.references.map(r=>r.kind))].sort(cmp),source_variant:g.source_variant===true,
-   mode:editable.length===0?'DOMAIN_REVIEW_REQUIRED':suggestion?(g.source_variant?'SOURCE_REFERENCE_VARIANT':g.references.length?'SOURCE_REFERENCE_SUGGESTION':'DIRECT_CONTACT_SUGGESTION'):'CONTEXT_REQUIRED',
+   source_kinds:[...new Set(g.references.map(r=>r.kind))].sort(cmp),source_variant:g.source_variant===true,source_review_required:g.source_variant===true||g.references.some(r=>r.kind==='FUNCTIONAL_MAPPING'),
+   mode:editable.length===0?'DOMAIN_REVIEW_REQUIRED':suggestion?(g.source_variant?'SOURCE_REFERENCE_VARIANT':g.references.some(r=>r.kind==='FUNCTIONAL_MAPPING')?'FUNCTIONAL_MAPPING_REVIEW':g.references.length?'SOURCE_REFERENCE_SUGGESTION':'DIRECT_CONTACT_SUGGESTION'):'CONTEXT_REQUIRED',
    suggested_replacement:suggestion});
  }
  // A single direct identifier may be detected by both profiles. Do not
@@ -183,7 +183,7 @@ export async function prepareProductGeneralization(preview,reports,language='ru'
  return {status:'LOCAL_PRODUCT_GENERALIZATION_PROPOSAL',...body,proposal_sha256:await sha256Canonical(body),
   finding_count:reviews.reduce((n,r)=>n+r.finding_count,0),group_count:result.length,
   source_reference_count:known.length,matched_reference_count:result.filter(g=>g.source_kinds.length>0).length,source_variant_count:result.filter(g=>g.source_variant).length,screening_profile_count:reviews.length,
-  automatic_group_count:result.filter(g=>g.suggested_replacement!==null&&!g.source_variant).length,
+  automatic_group_count:result.filter(g=>g.suggested_replacement!==null&&!g.source_review_required).length,
   requires_owner_review:true,anonymity:'NOT_ESTABLISHED',export_allowed:false,iwxa_package:null};
 }
 export async function applyProductGeneralization(preview,reports,choices,references=[]){
