@@ -1,0 +1,34 @@
+name: T4 K150 capacity and capture qualification
+on:
+  push:
+    branches:
+      - 'ci/once/t4-capacity/ea5c63aefa13951aa16197e39b9af5c1f12e1ccb'
+permissions:
+  contents: read
+concurrency:
+  group: t4-k150-ea5c63aefa13951aa16197e39b9af5c1f12e1ccb
+  cancel-in-progress: false
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact candidate source
+        run: |
+          test "$(git rev-parse HEAD^)" = 'ea5c63aefa13951aa16197e39b9af5c1f12e1ccb'
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse ea5c63aefa13951aa16197e39b9af5c1f12e1ccb:packages)"
+      - name: Install locked dependencies
+        run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Native capacity and original capture with prior multipart regression
+        run: |
+          node --experimental-strip-types --test --test-concurrency=4 packages/t4-network/tests/original-native-content-limits.test.mjs packages/t4-network/tests/original-asset-delta.test.mjs packages/t4-network/tests/original-host-subject-capture.test.mjs packages/t4-network/tests/original-host-capture-ledger.test.mjs packages/t4-network/tests/original-host-outbox-dispatcher.test.mjs packages/t4-network/tests/original-object-mutation-capture.test.mjs packages/t4-network/tests/original-network-key-lifecycle.test.mjs packages/t4-network/tests/original-vault-node-signature.test.mjs packages/t4-network/tests/original-network-multipart-agreement.test.mjs packages/t4-network/tests/original-network-subject-apply.test.mjs packages/t4-network/tests/original-network-source-head-proof.test.mjs packages/t4-network/tests/original-host-recipient-dispatcher.test.mjs packages/t4-network/tests/original-network-publication-multipart-backing.test.mjs packages/t4-network/tests/original-network-publication.test.mjs packages/t4-network/tests/standard-network-multipart-opaque-chunks.test.mjs packages/t4-network/tests/standard-network-wire-candidate.test.mjs packages/t4-network/tests/standard-network-multipart-wire.test.mjs packages/t4-network/tests/standard-network-wire-independent-vectors.test.mjs packages/t4-network/tests/original-native-kernel-relay.test.mjs packages/t4-network/tests/original-native-signed-kernel-relay.test.mjs
+      - name: Original Control HTTP regression including large Asset
+        if: always()
+        run: |
+          node --experimental-strip-types --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
