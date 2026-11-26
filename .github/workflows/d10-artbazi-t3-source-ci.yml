@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 0c680b6b1611167a073971aee251da941c26ea88
+          ref: 0ec7a27863e5eebc5957aaa97ed782ec0e1a512f
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -103,7 +103,8 @@ jobs:
             echo "D10_T3_ONE_REPO_DIST=PASS"
           else
             echo "::error::D10_T3_ONE_REPO_DIST=FAIL"
-            grep -oE 'TS[0-9]{4}|D10_T3_INPUT_[A-Z0-9_]+|ERR_[A-Z0-9_]+|MODULE_NOT_FOUND|ENOENT|ERESOLVE' "$RUNNER_TEMP/d10-t3-build.log" | sort | uniq -c | head -40 || true
+            grep -oE 'D10_T3_(BUILD|ASSEMBLY)_PHASE=[A-Z_]+|\[prerender:ssr-fail\]|\[prerender\] SSR done\. ok=[0-9]+ fail=[0-9]+' "$RUNNER_TEMP/d10-t3-build.log" | tail -30 || true
+            grep -oE 'TS[0-9]{4}|D10_T3_(INPUT|SHELL)_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_PWA_[A-Z0-9_]+|ERR_[A-Z0-9_]+|MODULE_NOT_FOUND|ENOENT|ERESOLVE' "$RUNNER_TEMP/d10-t3-build.log" | sort | uniq -c | head -40 || true
             exit 1
           fi
       - name: Confirm exact original runtime and complete static snapshot
