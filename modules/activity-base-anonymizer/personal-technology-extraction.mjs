@@ -3,6 +3,7 @@
 // checks the exact source and proposed fields, then uses the existing product
 // builder. No scheduler, model runtime, new archive or acceptance authority.
 import {ActivityHold,sha256Canonical} from './engine.mjs';
+import {practicalWordingKey} from './practical-rule-wording.mjs';
 import {groupPersonalRoutineEvidence,preparePersonalTechnologyProduct} from './technology-product.mjs';
 export const SOURCE='LOCAL_ACTIVITY_PERSONAL_EXTRACTION_SOURCE';
 export const REQUEST='IWXA_ACTIVITY_PERSONAL_EXTRACTION_REQUEST_V1';
@@ -64,7 +65,7 @@ export async function preparePersonalExtractionRequest(source){
  return {...data,document_text,request_sha256:await sha256Canonical(document),export_allowed:false,iwxa_package:null};
 }
 // Extract explicit repeated human instructions and declared limitations
-// locally. No language model is required for exact recurring statements.
+// locally. Recognized grammatical variants are grouped for explicit review.
 // Claims and draft artifacts are not promoted into requirements.
 const directive=/^(?:(?:keep|check|confirm|verify|separate|identify|do not|don't|never|ensure|use|include|list|avoid|compare|require|record|preserve|distinguish|remember)(?:\s|$)|(?:проверить|проверьте|уточнить|уточните|сохранить|сохранять|сохраняйте|учитывать|учтите|учитывайте|разделять|разделить|разделяйте|отделять|отделить|не\s+(?:менять|изменять|переносить|копировать|считать|смешивать|утверждать|придумывать|удалять|допускать|заменять|публиковать|выполнять|использовать|пропускать|игнорировать|повторять|нарушать)|исключить|исключайте|указать|укажите|сопоставить|сопоставляйте|фиксировать|зафиксировать|фиксируйте|выделить|выделяйте|помнить)(?:\s|$))/iu;
 function reviewLines(value){
@@ -76,10 +77,14 @@ export async function reviewPersonalPracticalExperience(source){
  const add=(kind,value,id,path)=>{
   if(!text(value,1000)||/[\r\n]/.test(value))return;
   value=value.trim();
-  const key=serial([kind,value]);
+  const key=serial([kind,practicalWordingKey(value)]);
   let row=candidates.get(key);
-  if(!row){row={kind,value,occurrences:new Map()};candidates.set(key,row);}
-  if(!row.occurrences.has(id))row.occurrences.set(id,{id,path,quote:value});
+  if(!row){row={kind,key,variants:new Map(),occurrences:new Map()};candidates.set(key,row);}
+  let variant=row.variants.get(value);
+  if(!variant){variant=new Map();row.variants.set(value,variant);}
+  const evidence={id,path,quote:value};
+  if(!variant.has(id))variant.set(id,evidence);
+  if(!row.occurrences.has(id))row.occurrences.set(id,evidence);
  };
  for(const observation of document.observations){
   for(const line of reviewLines(observation.review_notes)){
@@ -90,12 +95,17 @@ export async function reviewPersonalPracticalExperience(source){
  const rules=[];
  for(const row of candidates.values()){
   if(row.occurrences.size<2)continue;
-  const suggested=row.kind==='HUMAN_REVIEW_CRITERION'?row.value:
-   'Уточнить у получателя сведения, связанные с ограничением: «'+row.value+'».';
+  const variants=[...row.variants].map(([source_text,refs])=>({source_text,occurrence_count:refs.size,evidence:[...refs.values()]}))
+   .sort((a,b)=>b.occurrence_count-a.occurrence_count||compare(a.source_text,b.source_text));
+  const primary=variants[0].source_text;
+  const suggested=row.kind==='HUMAN_REVIEW_CRITERION'?primary:
+   'Уточнить у получателя сведения, связанные с ограничением: «'+primary+'».';
+
   if(suggested.length>1000)continue;
-  rules.push({rule_id:'rule_'+await sha256Canonical({variant_id,kind:row.kind,value:row.value}),
-   kind:row.kind,source_text:row.value,suggested_text:suggested,occurrence_count:row.occurrences.size,
-   evidence:[...row.occurrences.values()]});
+  rules.push({rule_id:'rule_'+await sha256Canonical({variant_id,key:row.key}),
+   kind:row.kind,source_text:primary,suggested_text:suggested,occurrence_count:row.occurrences.size,
+   variants,wording_review_required:variants.length>1,
+   evidence:variants.flatMap(v=>v.evidence)});
  }
  rules.sort((a,b)=>compare(a.kind,b.kind)||b.occurrence_count-a.occurrence_count||compare(a.rule_id,b.rule_id));
  return {status:'LOCAL_PERSONAL_PRACTICAL_EXPERIENCE',source_sha256,variant_id,

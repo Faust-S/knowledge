@@ -4,7 +4,7 @@ const lines=(v:string)=>v.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
 export function PersonalPracticalExperiencePanel({experience,requirements,contexts,onApply}:{
  experience:PersonalPracticalExperience;requirements:string;contexts:string;onApply:(requirements:string,contexts:string)=>void;
 }){
- const [selected,setSelected]=useState<Record<string,string>>(()=>Object.fromEntries(experience.rules.map(r=>[r.rule_id,r.suggested_text])));
+ const [selected,setSelected]=useState<Record<string,string>>(()=>Object.fromEntries(experience.rules.filter(r=>!r.wording_review_required).map(r=>[r.rule_id,r.suggested_text])));
  const [page,setPage]=useState(0);
  const append=(previous:string,kind:string)=>[...new Set([...lines(previous),...experience.rules.filter(r=>r.kind===kind&&Object.hasOwn(selected,r.rule_id))
   .map(r=>selected[r.rule_id].trim()).filter(Boolean)])].join('\n');
@@ -17,6 +17,9 @@ export function PersonalPracticalExperiencePanel({experience,requirements,contex
   {experience.rules.slice(page*6,(page+1)*6).map(r=><div className="activity-domain-op" key={r.rule_id}>
    <strong>{r.kind==='HUMAN_REVIEW_CRITERION'?'Критерий из замечаний владельца':'Ограничение исходных сведений'}</strong>
    <span>Повторений: {r.occurrence_count}</span><p>{r.source_text}</p>
+   {r.wording_review_required?<details open><summary>Сопоставленные формулировки: {r.variants.length}</summary>
+    <p>Сравнение известных вариантов слов, не подтверждённая смысловая эквивалентность. Сверьте условия и выберите общее правило самостоятельно.</p>
+    {r.variants.map(v=><p key={v.source_text}>{v.source_text} ({v.occurrence_count} повторений)</p>)}</details>:null}
    <label><input type="checkbox" checked={Object.hasOwn(selected,r.rule_id)} onChange={e=>setSelected(old=>{const next={...old};if(e.target.checked)next[r.rule_id]=r.suggested_text;else delete next[r.rule_id];return next;})}/> Использовать в черновике</label>
    {Object.hasOwn(selected,r.rule_id)?<textarea rows={2} maxLength={1000} aria-label="Обобщённое правило личной технологии" value={selected[r.rule_id]}
     onChange={e=>setSelected(old=>({...old,[r.rule_id]:e.target.value}))}/>:null}

@@ -1,6 +1,7 @@
 // Activity local extraction of reusable corrective practice from recorded D05
 // Results. No new result owner, quality gate, scheduler or technology format.
 import {ActivityHold,sha256Canonical} from './engine.mjs';
+import {practicalWordingKey} from './practical-rule-wording.mjs';
 const need=(ok,code)=>{if(!ok)throw new ActivityHold(code);};
 const cmp=(a,b)=>a<b?-1:a>b?1:0;
 const text=v=>typeof v==='string'&&v.trim()?v.trim():null;
@@ -27,26 +28,35 @@ export async function extractD05PracticalLessons(review,groupId,modelNumber){
    const last=later.at(-1);
    const followup=last?last.status:null;
    const recovered=defect.disposition==='rework'&&defect.status==='resolved'&&['passed','accepted_after_rework'].includes(followup);
-   const key=JSON.stringify([q.control_number,problem,action,defect.disposition]);
+   const key=JSON.stringify([q.control_number,q.operation_id??null,q.scope,q.deviation_type??null,defect.severity,
+    defect.disposition,practicalWordingKey(problem),practicalWordingKey(action)]);
    let item=candidates.get(key);
    if(!item){item={control_number:q.control_number,control:q.control,operation_id:q.operation_id??null,
-    problem,action,disposition:defect.disposition,observations:[],orders:new Set(),recoveredOrders:new Set(),unresolvedOrders:new Set()};candidates.set(key,item);}
-   item.observations.push({report_number:report.report_number,quality_report_number:defect.quality_report_number,
-    recorded_defect_status:defect.status,followup_status:followup,recorded_recheck:recovered});
+    key,problem,action,disposition:defect.disposition,scope:q.scope,severity:defect.severity,
+    deviation_type:q.deviation_type??null,variants:new Map(),observations:[],orders:new Set(),recoveredOrders:new Set(),unresolvedOrders:new Set()};candidates.set(key,item);}
+   const variantKey=JSON.stringify([problem,action]);
+   let variant=item.variants.get(variantKey);
+   if(!variant){variant={problem,action,orders:new Set(),observations:[]};item.variants.set(variantKey,variant);}
+   const observation={report_number:report.report_number,quality_report_number:defect.quality_report_number,
+    recorded_defect_status:defect.status,followup_status:followup,recorded_recheck:recovered};
+   item.observations.push(observation);variant.observations.push(observation);variant.orders.add(report.report_number);
    item.orders.add(report.report_number);
    (recovered?item.recoveredOrders:item.unresolvedOrders).add(report.report_number);
   }
  }
  const rows=[];
  for(const item of candidates.values()){
-  const {orders,recoveredOrders,unresolvedOrders,...rest}=item;
+  const {orders,recoveredOrders,unresolvedOrders,variants:wordings,key,...rest}=item;
+  const variants=[...wordings.values()].map(({orders,...v})=>({...v,order_count:orders.size}))
+   .sort((a,b)=>b.order_count-a.order_count||cmp(a.problem,b.problem)||cmp(a.action,b.action));
+  rest.problem=variants[0].problem;rest.action=variants[0].action;
   const state=unresolvedOrders.size?'REQUIRES_REVIEW':recoveredOrders.size?'REPORTED_CORRECTION_AND_RECHECK':'REQUIRES_REVIEW';
   const guidance=state==='REPORTED_CORRECTION_AND_RECHECK'?
    'При аналогичном отклонении («'+rest.problem+'») рассмотреть зарегистрированное корректирующее действие: '+rest.action+
    '. Повторно выполнить контроль «'+rest.control+'» по действующей карте качества. Не менять допуски и условия выпуска.':
    null;
-  rows.push({...rest,lesson_id:'lesson_'+await sha256Canonical({groupId,modelNumber,control:rest.control_number,
-    problem:rest.problem,action:rest.action,disposition:rest.disposition}),
+  rows.push({...rest,lesson_id:'lesson_'+await sha256Canonical({groupId,modelNumber,key}),
+   variants,wording_review_required:variants.length>1,
    order_count:orders.size,rechecked_order_count:[...recoveredOrders].filter(n=>!unresolvedOrders.has(n)).length,unresolved_order_count:unresolvedOrders.size,
    status:state,suggested_guidance:guidance&&guidance.length<=4096?guidance:null});
  }

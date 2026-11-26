@@ -14,7 +14,8 @@ export function preparePersonalExtractionRequest(source:unknown):Promise<{docume
 export function reviewPersonalExtractionBundle(bundle:unknown):Promise<ExtractionReview>;
 
 export type PersonalPracticalRule={rule_id:string;kind:'HUMAN_REVIEW_CRITERION'|'REPORTED_CONTEXT_LIMITATION';source_text:string;
- suggested_text:string;occurrence_count:number;evidence:Array<{id:string;path:string;quote:string}>};
+ suggested_text:string;occurrence_count:number;evidence:Array<{id:string;path:string;quote:string}>;
+ wording_review_required:boolean;variants:Array<{source_text:string;occurrence_count:number;evidence:Array<{id:string;path:string;quote:string}>}>};
 export type PersonalPracticalExperience={status:'LOCAL_PERSONAL_PRACTICAL_EXPERIENCE';source_sha256:string;variant_id:string;
  occurrence_count:number;rules:PersonalPracticalRule[];source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED';
  evidence_semantics:'REPEATED_EXPLICIT_STATEMENTS_NOT_EXTERNAL_EXECUTION';export_allowed:false;iwxa_package:null};

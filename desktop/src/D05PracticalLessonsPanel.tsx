@@ -6,7 +6,7 @@ export function D05PracticalLessonsPanel({review,groupId,modelNumber,guidance,on
  const epoch=useRef(0),[result,setResult]=useState<PracticalLessonReview|null>(null),[busy,setBusy]=useState(false);
  const [selected,setSelected]=useState<Record<string,string>>({}),[page,setPage]=useState(0),[error,setError]=useState('');
  useLayoutEffect(()=>{const token=++epoch.current;setResult(null);setSelected({});setPage(0);setError('');setBusy(true);
-  void extractD05PracticalLessons(review,groupId,modelNumber).then(r=>{if(token===epoch.current){setResult(r);setSelected(Object.fromEntries(r.lessons.filter(l=>l.suggested_guidance).map(l=>[l.lesson_id,l.suggested_guidance!])));}})
+  void extractD05PracticalLessons(review,groupId,modelNumber).then(r=>{if(token===epoch.current){setResult(r);setSelected(Object.fromEntries(r.lessons.filter(l=>l.suggested_guidance&&!l.wording_review_required).map(l=>[l.lesson_id,l.suggested_guidance!])));}})
    .catch(()=>{if(token===epoch.current)setError('Не удалось сопоставить зарегистрированные исправления с выбранной технологией.');})
    .finally(()=>{if(token===epoch.current)setBusy(false);});
   return()=>{epoch.current++;};},[review,groupId,modelNumber]);
@@ -21,6 +21,9 @@ export function D05PracticalLessonsPanel({review,groupId,modelNumber,guidance,on
   {error?<p role="alert">{error}</p>:null}
   {result?.lessons.slice(page*6,(page+1)*6).map(l=><div key={l.lesson_id} className="activity-domain-op">
    <strong>{l.control}</strong><p>{l.problem}</p><p>Записанное действие: {l.action}</p>
+   {l.wording_review_required?<details open><summary>Сопоставленные формулировки: {l.variants.length}</summary>
+    <p>Проверьте, что разные описания относятся к одному исправлению. Выбор общего правила не производится автоматически.</p>
+    {l.variants.map(v=><div key={JSON.stringify([v.problem,v.action])}><p>{v.problem}</p><p>{v.action}</p><span>Заказов: {v.order_count}</span></div>)}</details>:null}
    <span>Заказов с таким описанием: {l.order_count}. С последующей положительной проверкой: {l.rechecked_order_count}. Требуют уточнения: {l.unresolved_order_count}.</span>
    {l.suggested_guidance?<><label><input type="checkbox" checked={Object.hasOwn(selected,l.lesson_id)}
     onChange={e=>setSelected(old=>{const v={...old};if(e.target.checked)v[l.lesson_id]=l.suggested_guidance!;else delete v[l.lesson_id];return v;})}/> Включить правило в черновик</label>
