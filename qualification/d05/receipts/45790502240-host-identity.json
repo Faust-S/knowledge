@@ -1,0 +1,63 @@
+{
+  "schema": "IWXA_D05_T3_INDEPENDENT_HOST_IDENTITY_RECEIPT/1",
+  "runId": 45790502240,
+  "jobId": 139808001303,
+  "requestCommit": "90683232adec6027e1946eae7d39bb37a8e7705e",
+  "conclusion": "success",
+  "sourcePins": {
+    "site": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+    "assistant": "e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f",
+    "oneCore": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+    "subject": "547148d8cd74838e0dd384c9da2f196e3595bf9d"
+  },
+  "priorFunctionalReceipt": "qualification/d05/receipts/45780282826-linux.json",
+  "priorFunctionalRun": 45780282826,
+  "environment": {
+    "os": "Ubuntu 26.04",
+    "architecture": "x86_64",
+    "node": "22.16.0",
+    "npm": "10.9.2",
+    "gitNativeFilemode": true
+  },
+  "exactPlatformArchive": true,
+  "originalHostCompilation": "PASS",
+  "retention": "PASS",
+  "identity": {
+    "status": "D05_T3_HOST_IDENTITY_PASS",
+    "head": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+    "tree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+    "allRegularTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+    "inputFiles": 92,
+    "executableFiles": 0,
+    "regularFiles": 92,
+    "contentInventorySha256": "de71e27b4b331a34aa4e5df0cd6db47f07f17ae2bdadee8f387cf7c2448f3171",
+    "modeInventorySha256": "414eabc72045e5735c640ced9927917a93de22688027812e5607e365974d1240",
+    "normalIndexUnchanged": true,
+    "expectedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+    "reportedWindowsTree": "c33f6e2dde9f5c7ec08b6518a03e06f046a83394",
+    "expectedTreeMatched": true,
+    "reportedWindowsTreeExplainedByModesOnly": false,
+    "hostReceiptSha256": "85c1e80986aea58ba925cd89bebcb6e0c7322ec9ceefdd2bd4957fe09f246a5f",
+    "compiledFilesInventorySha256": "1b8f19d3002dd9cd1526771542366913a37f7cff0225c4bc356c5d931b2e1d62",
+    "moduleSourceInventorySha256": "4584354b773c31883eb7fd9229ba4ba958c8d3f68e88091d9cdee5b15a3d112b",
+    "productTestsRepeated": false,
+    "productAccepted": false
+  },
+  "interpretation": {
+    "independentLinuxHostReconstruction": "PASS",
+    "allRetainedGitModes": "100644",
+    "filemodeOnlyExplanation": "RULED_OUT",
+    "windowsByteDifferenceExactCause": "UNKNOWN_WITHOUT_WINDOWS_INVENTORY"
+  },
+  "localAssembly": {
+    "authorizedByOwner": true,
+    "requiredEnvironment": "Fresh Linux filesystem, native Linux x86_64 toolchain; verified Ubuntu 26.04 / Node 22.16.0 / npm 10.9.2",
+    "buildIdentityGate": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+    "finalDistExpectedFiles": 224,
+    "previousProductTestsReused": true,
+    "localArchiveCreated": false
+  },
+  "artifactsUploaded": 0,
+  "remotePublicationVerified": false,
+  "productAccepted": false
+}

@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FUNCTIONALLY_QUALIFIED_LOCAL_ASSEMBLY_IDENTITY_MISMATCH",
+  "status": "FUNCTIONALLY_QUALIFIED_INDEPENDENT_LINUX_HOST_RECONSTRUCTION_PASS",
   "scope": "1.6.0",
   "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -548,7 +548,7 @@
     }
   ],
   "assemblyHandoff": {
-    "status": "HOLD_LOCAL_ASSEMBLY_UNTIL_LINUX_IDENTITY_PROVEN",
+    "status": "LOCAL_LINUX_ASSEMBLY_AUTHORIZED_EXACT_HOST_IDENTITY_PROVEN",
     "sourceRepository": "Faust-S/cehovod.ru",
     "retainedBranch": "work/2026-11-25-d05-t3-retained-inputs",
     "expectedParent": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
@@ -564,7 +564,7 @@
     "archiveContents": "dist/ contents at archive root, including .htaccess; no source, dependencies, logs, models or development output",
     "allowedCodexWork": "Reconstruct the already qualified generated Host with the exact original build commands and pinned sources, retain inputs locally, check Git tree identity, build product once and package dist. No new tests or development.",
     "forbiddenCodexWork": "Source changes, new product tests, changing pins, GitHub Actions, private publication, deployment, or proceeding after a retained tree mismatch.",
-    "releaseGate": "Owner authorized local assembly instead of remote publication; verify exact local retained tree against previously qualified tree before assembling the hosting archive. Do not mark remote publication verified or final product acceptance until actual delivery.",
+    "releaseGate": "Owner-authorized local assembly: prior functional qualification and independently reproduced exact Linux retained Host identity are confirmed. Require exact local tree before the final build and ZIP. No native Windows assembly, no remote publication gate, no repeated product tests.",
     "browserBuildPrerequisite": "Existing compatible system Chrome/Edge resolved by scripts/lib/resolve-browser-executable.ts for the product's own prerender; no separately initiated Codex browser acceptance.",
     "previousRemotePublicationGate": {
       "status": "BLOCKED_DO_NOT_ISSUE_CODEX_PROMPT",
@@ -582,13 +582,14 @@
       "oneCore": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
       "subject": "547148d8cd74838e0dd384c9da2f196e3595bf9d"
     },
-    "environment": "Linux x86_64, matching the actual Ubuntu 26.04 qualification, not native Windows. Exact identity must be independently confirmed.",
+    "environment": "Mandatory Linux x86_64 with native Linux filesystem and Linux Node/npm; the independently reproduced environment was Ubuntu 26.04, Node.js 22.16.0, npm 10.9.2. No native Windows compilation or Windows filesystem reuse.",
     "latestAttempt": {
       "receipt": "qualification/d05/receipts/retained-host-identity-windows-mismatch-2026-11-26.json",
       "expectedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
       "reportedWindowsTree": "c33f6e2dde9f5c7ec08b6518a03e06f046a83394",
       "archiveCreated": false,
-      "reason": "EXACT_RETAINED_TREE_MISMATCH"
+      "reason": "EXACT_RETAINED_TREE_MISMATCH",
+      "status": "WINDOWS_IDENTITY_MISMATCH_LINUX_EXACT_REPRODUCTION_CONFIRMED"
     },
     "independentHostIdentityProbe": {
       "workflow": "d05-t3-host-identity",
@@ -613,9 +614,34 @@
         "passed": 3,
         "total": 3
       },
-      "state": "REQUESTED",
-      "runStatusAtRecording": "in_progress"
-    }
+      "state": "PASS",
+      "runStatusAtRecording": "completed",
+      "receipt": "qualification/d05/receipts/45790502240-host-identity.json",
+      "conclusion": "success",
+      "result": {
+        "status": "D05_T3_HOST_IDENTITY_PASS",
+        "head": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+        "tree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+        "allRegularTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+        "inputFiles": 92,
+        "executableFiles": 0,
+        "regularFiles": 92,
+        "contentInventorySha256": "de71e27b4b331a34aa4e5df0cd6db47f07f17ae2bdadee8f387cf7c2448f3171",
+        "modeInventorySha256": "414eabc72045e5735c640ced9927917a93de22688027812e5607e365974d1240",
+        "normalIndexUnchanged": true,
+        "expectedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+        "reportedWindowsTree": "c33f6e2dde9f5c7ec08b6518a03e06f046a83394",
+        "expectedTreeMatched": true,
+        "reportedWindowsTreeExplainedByModesOnly": false,
+        "hostReceiptSha256": "85c1e80986aea58ba925cd89bebcb6e0c7322ec9ceefdd2bd4957fe09f246a5f",
+        "compiledFilesInventorySha256": "1b8f19d3002dd9cd1526771542366913a37f7cff0225c4bc356c5d931b2e1d62",
+        "moduleSourceInventorySha256": "4584354b773c31883eb7fd9229ba4ba958c8d3f68e88091d9cdee5b15a3d112b",
+        "productTestsRepeated": false,
+        "productAccepted": false
+      }
+    },
+    "independentHostIdentityReceipt": "qualification/d05/receipts/45790502240-host-identity.json",
+    "localArchiveCreated": false
   },
   "functionalQualification": {
     "receipt": "qualification/d05/receipts/45780282826-linux.json",
