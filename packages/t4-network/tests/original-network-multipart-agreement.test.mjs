@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync,sign,verify,createCipheriv,createDecipheriv} from 'node:crypto';
 import {createT4OriginalHostDispatchTaskBinding} from '../src/network/original-host-dispatch-task-binding.mjs';
+import {createT4OriginalHostRecipientDispatcher} from '../src/network/original-host-recipient-dispatcher.mjs';
+import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort} from '../src/network/original-network-host-cursor.mjs';
+import {createT4OriginalRecipientAppliedVerifier} from '../src/network/original-network-subject-apply.mjs';
 import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {verifyT4OriginalAssetDelta} from '../src/network/original-asset-delta.mjs';
@@ -351,7 +354,8 @@ test('K147 agreement revocation during authenticated open denies received subjec
   assert.equal(t.opens,1);
 });
 
-function originalSourceTask(f,{captureProfile=EXT,prepared=asset}={}){
+function originalSourceTask(f,{captureProfile=EXT,prepared=asset,sourceCursorPort,
+  verifyOriginalRecipientApplied=async()=>false}={}){
   let seals=0,signatures=0,frontier=1;
   const hostContext=async()=>({workspaceId:session.workspaceId,originalWriteOwnerRef:session.originalWriteOwnerRef,
     networkTargetRef:recipient,hostSessionRef:f.host});
@@ -365,14 +369,14 @@ function originalSourceTask(f,{captureProfile=EXT,prepared=asset}={}){
     technicalWorkspaceId:'workspace:technical:'+source,localNodeRef:source,getMode:()=> 'T4_NETWORK',
     readOriginalHostContext:async()=>({workspaceId:'workspace:technical:'+source,originalWriteOwnerRef:session.originalWriteOwnerRef,
       nodeRef:source,scopeRef:session.scopeRef,hostSessionRef:f.host}),authorizeOriginalTechnicalRead:async()=>true,
-    authorizeOriginalTechnicalWrite:async()=>true,verifyOriginalPhaseEvidence:async()=>true,verifyOriginalRecipientApplied:async()=>false});
+    authorizeOriginalTechnicalWrite:async()=>true,verifyOriginalPhaseEvidence:async()=>true,verifyOriginalRecipientApplied});
   const bind=()=>createT4OriginalHostDispatchTaskBinding({expectedWorkspaceId:session.workspaceId,
     expectedOriginalWriteOwnerRef:session.originalWriteOwnerRef,expectedNetworkTargetRef:recipient,getMode:()=> 'T4_NETWORK',
     readOriginalHostContext:hostContext,authorizeOriginalHostTask:async()=>true,
     dispatcher:{drain:async()=>assert.fail('legacy drain'),prepareNextNativeObject:async()=>({...task,originalHostFrontierRevision:frontier})},
     createOriginalNativePublicationPort:async()=>f.port(source)});
   const options=()=>({enableOriginalMultipartNegotiation:true,announceOriginalSourceSession:true,requiredCryptoSuite:suite,
-    createOriginalSourcePhasePort:async()=>phase(),frameDiscoveryPort:f.transport(source),
+    sourceCursorPort:sourceCursorPort?.(),createOriginalSourcePhasePort:async()=>phase(),frameDiscoveryPort:f.transport(source),
     resolveOriginalSigningContext:async()=>({permissionRef:'permission:'+source,signerRef:'key:'+source}),
     signOriginalNodeBytes:async p=>{signatures++;return sign(null,p.bytes,keys.get(source).privateKey);},
     authorizeOriginalSealedContent:async()=>true,readOriginalSealedContent:async p=>{
@@ -382,34 +386,117 @@ function originalSourceTask(f,{captureProfile=EXT,prepared=asset}={}){
     },authorizeOriginalRead:async()=>true,readOriginalEvents:history.readOriginalEvents,verifyOriginalSourceSubject:async()=>true});
   return {bind,options,phase,get seals(){return seals;},get signatures(){return signatures;},advanceFrontier:()=>{frontier++;}};
 }
-async function acceptSourceTaskOffer(f){
-  const sh=await f.port(source).readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
-  const hr=(await f.transport(recipient).discoverUniqueSignedFrame({selector:{...selector,messageType:'HEADS',sequence:1},
-    requiredCryptoSuite:suite,supportedCriticalExtensions:extensions})).receipt;
-  const body={familyRef:session.familyRef,fromHeads:[session.sourcePrefixDigestBefore],
-    multipartSelection:createT4NativeMultipartSelection({offer:hr.verifiedBody.multipartOffer,headSha256:hr.sha256})};
-  const rp=await f.publish(recipient,'DIFF_REQUEST',await signed(recipient,'DIFF_REQUEST',1,body,[AGREEMENT_EXT]));
-  const dr=(await f.transport(source).discoverUniqueSignedFrame({selector:{sourceNodeRef:recipient,sessionRef:session.sessionRef,
-    ownerEpoch:session.ownerEpoch,messageType:'DIFF_REQUEST',sequence:1},requiredCryptoSuite:suite,supportedCriticalExtensions:extensions})).receipt;
-  const rd=await rp.readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
-  const sa=agreement({session,sourceHead:sh,recipientDiff:dr,localRole:'SOURCE',requiredCryptoSuite:suite});
-  const ra=agreement({session,sourceHead:hr,recipientDiff:rd,localRole:'RECIPIENT',requiredCryptoSuite:suite});
-  assert.deepEqual(sa,ra);f.selected.set(source,sa);f.selected.set(recipient,ra);
-  return sa;
+const allow=async()=>true,getMode=()=> 'T4_NETWORK';
+function originalCursorArgs(f,node,kernel=f.kernel){
+  const technicalWorkspaceId='workspace:technical:'+node;
+  const identity={technicalWorkspaceId,sourceWorkspaceId:family.workspaceId,
+    originalWriteOwnerRef:family.originalWriteOwnerRef,sourceNodeRef:source,recipientNodeRef:recipient,
+    scopeRef:family.scopeRef,ownerEpoch:session.ownerEpoch};
+  const role=node===source?'SOURCE':'RECIPIENT';
+  const baseline={schema:'IWXA_T4_ORIGINAL_'+role+'_BASELINE_V1',identity,
+    originalBaselineRef:'baseline:'+role,originalBaselineDigest:d('original admitted '+role+' baseline'),sourceCursor:before};
+  return {...identity,originalKernel:kernel,getMode,readOriginalHostContext:async()=>({
+    workspaceId:technicalWorkspaceId,originalWriteOwnerRef:family.originalWriteOwnerRef,nodeRef:node,
+    scopeRef:family.scopeRef,hostSessionRef:f.host}),authorizeOriginalTechnicalRead:allow,
+    authorizeOriginalTechnicalWrite:allow,authorizeOriginalSourceRead:allow,
+    readOriginalSourceEvents:history.readOriginalEvents,readOriginalAdmittedBaseline:async()=>structuredClone(baseline),
+    ...(role==='SOURCE'?{verifyOriginalSourceBaseline:async p=>JSON.stringify(sorted(p.baseline))===JSON.stringify(sorted(baseline))}:
+      {authorizeOriginalRecipientRead:allow,verifyOriginalRecipientBaseline:async p=>JSON.stringify(sorted(p.baseline))===JSON.stringify(sorted(baseline))})};
 }
-test('K151 original native SOURCE task negotiates and resumes bounded publication without resealing after cold restart',async()=>{
-  const f=fixture(),t=originalSourceTask(f);let host=t.bind();
+function originalRecipientTask(f){
+  const subjectEvents=[];let opens=0,signatures=0,writes=0,lose=false,received=null,admitted=true;
+  let stored={asset:{workspace_id:family.workspaceId,asset_id:asset.delta.assetId,object_id:asset.delta.objectId,
+    mime:asset.delta.mime,revision:1,size:1},bytes:new Uint8Array([1])};
+  const kernel={...f.kernel,hasOperation:op=>f.kernel.hasOperation(op)||['t1.getAsset','t1.putAsset'].includes(op),
+    async getObject(w,id){if(w===family.workspaceId&&id===asset.delta.objectId)return {object:{workspace_id:w,object_id:id,revision:1,deleted:false}};
+      return f.kernel.getObject(w,id);},
+    async listEventsSince(w){return w===family.workspaceId?structuredClone(subjectEvents):f.kernel.listEventsSince(w);},
+    async getAsset(w,id){assert.equal(w,family.workspaceId);assert.equal(id,asset.delta.assetId);return structuredClone(stored);},
+    async putAsset(input){
+      assert.equal(input.workspace_id,family.workspaceId);assert.equal(input.asset_id,asset.delta.assetId);
+      assert.equal(input.base_revision,stored.asset.revision);assert.equal(writes,0);
+      writes++;stored={asset:{...stored.asset,revision:input.base_revision+1,size:input.bytes.length},bytes:new Uint8Array(input.bytes)};
+      const event={event_id:'event:recipient:asset',workspace_id:input.workspace_id,object_id:input.object_id,
+        revision:stored.asset.revision,event_type:input.event.event_type,payload:structuredClone(input.event.payload),
+        idempotency_key:input.event.idempotency_key,service_id:'service:recipient',occurred_at:'2026-11-26T00:00:00Z'};
+      subjectEvents.push(event);
+      if(lose){lose=false;throw Object.assign(Error('lost original committed response'),{code:'ACK_LOST'});}
+      return {asset:structuredClone(stored.asset),event};
+    }};
+  const cursor=()=>createT4OriginalNetworkRecipientCursorPort(originalCursorArgs(f,recipient,kernel));
+  const phase=()=>createT4OriginalNetworkSessionPhasePort({...originalCursorArgs(f,recipient,kernel),
+    ...session,localNodeRef:recipient,recipientApplyIntentRequired:true,verifyOriginalPhaseEvidence:allow,
+    verifyOriginalRecipientApplied:received===null?async()=>false:createT4OriginalRecipientAppliedVerifier({
+      session,received,originalKernel:kernel,getMode,authorizeOriginalRead:allow})});
+  const verifyApplied=async p=>{
+    if(received===null)return false;
+    const actual=await inspectT4OriginalNetworkRecipientResult({received,originalKernel:kernel,getMode,authorizeOriginalRead:allow});
+    return actual.state==='APPLIED_VERIFIED'&&p.originalRecipientEventId===actual.originalRecipientEventId&&
+      p.originalRecipientRevision===actual.originalRecipientRevision&&p.originalRecipientStateDigest===actual.originalRecipientStateDigest;
+  };
+  const bind=()=>createT4OriginalHostRecipientDispatcher({...family,ownerEpoch:session.ownerEpoch,originalKernel:kernel,getMode,
+    readOriginalHostContext:async()=>({...family,nodeRef:recipient,hostSessionRef:f.host}),
+    authorizeOriginalHostTask:allow,authorizeNetworkReceive:allow,authorizeOriginalRead:allow,authorizeOriginalWrite:allow,
+    verifyOriginalSourceEvent:async p=>p.sourceEventId===session.sourceEventId&&p.sourceEventDigest===session.sourceEventDigest&&
+      p.originalSubjectDeltaSha256===asset.sha256&&p.assetBytesSha256===asset.delta.assetBytesSha256,
+    originalRecipientCursorPort:cursor(),withOriginalSubjectMutation:async(_,action)=>action()});
+  const options=()=>({enableOriginalMultipartNegotiation:true,useSignedSourceAnnouncement:true,requiredCryptoSuite:suite,
+    frameDiscoveryPort:f.transport(recipient),createOriginalRecipientPublicationPort:async p=>{
+      assert.deepEqual(p.session,session);assert.deepEqual(p.originalMultipartOffer,headBody.multipartOffer);
+      assert.equal(typeof p.sourceHeadSha256,'string');return f.port(recipient);
+    },createOriginalRecipientPhasePort:async p=>{if(p.received!==null)received=structuredClone(p.received);return phase();},
+    authorizeOriginalRecipientSession:async p=>admitted&&JSON.stringify(sorted(p.session))===JSON.stringify(sorted(session))&&
+      JSON.stringify(sorted(p.sourceCursorBefore))===JSON.stringify(sorted(before)),
+    resolveOriginalSigningContext:async()=>({permissionRef:'permission:'+recipient,signerRef:'key:'+recipient}),
+    signOriginalNodeBytes:async p=>{signatures++;return sign(null,p.bytes,keys.get(recipient).privateKey);},
+    readOriginalSourceHostContext:async()=>({...family,nodeRef:source,hostSessionRef:f.host}),
+    authorizeOriginalSourceRead:allow,readOriginalSourceEvents:history.readOriginalEvents,
+    verifyOriginalSourceSubject:async p=>p.originalSourceEventId===session.sourceEventId&&p.originalSourceRevision===session.sourceRevision,
+    verifyOriginalSourceBinding:async p=>p.originalSourceHeadProof.originalMultipartAgreementDigest===f.selected.get(recipient)?.agreementDigest,
+    authorizeOriginalSealedOpen:allow,openOriginalSealedContent:async p=>{
+      opens++;assert.equal(p.originalMultipartAgreementDigest,f.selected.get(recipient)?.agreementDigest);
+      const raw=Buffer.from(p.ciphertext),decipher=createDecipheriv('aes-256-gcm',keyBytes,raw.subarray(0,12));
+      decipher.setAAD(Buffer.from(session.changeId));decipher.setAuthTag(raw.subarray(-16));
+      return {authenticated:true,plaintext:new Uint8Array(Buffer.concat([decipher.update(raw.subarray(12,-16)),decipher.final()])),
+        originalVaultUsed:true,originalCapturedBytesVerified:true,originalBusinessApplied:false};
+    }});
+  return {bind,options,phase,cursor,verifyApplied,subjectEvents,get opens(){return opens;},get signatures(){return signatures;},
+    get writes(){return writes;},get stored(){return structuredClone(stored);},lose:()=>{lose=true;},admit:value=>{admitted=value;}};
+}
+async function readFixtureAgreement(f,node){
+  const local=f.port(node),remote=node===source?recipient:source,type=node===source?'DIFF_REQUEST':'HEADS';
+  const found=await f.transport(node).discoverUniqueSignedFrame({selector:{sourceNodeRef:remote,sessionRef:session.sessionRef,
+    ownerEpoch:session.ownerEpoch,messageType:type,sequence:1},requiredCryptoSuite:suite,supportedCriticalExtensions:extensions});
+  assert.equal(found.state,'FOUND');
+  const published=await local.readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
+  return agreement({session,sourceHead:node===source?published:found.receipt,recipientDiff:node===source?found.receipt:published,
+    localRole:node===source?'SOURCE':'RECIPIENT',requiredCryptoSuite:suite});
+}
+test('K152 existing SOURCE and RECIPIENT owner tasks negotiate multipart, recover cold, apply once and confirm both original frontiers',async()=>{
+  const f=fixture(),r=originalRecipientTask(f),sourceCursor=()=>createT4OriginalNetworkHostCursorPort(originalCursorArgs(f,source)),
+    t=originalSourceTask(f,{sourceCursorPort:sourceCursor,verifyOriginalRecipientApplied:r.verifyApplied});
+  let host=t.bind(),receiver=r.bind();
   assert.equal((await host.runNativeSourceStep(t.options())).state,'INTENT_RECORDED');
   assert.equal((await host.runNativeSourceStep(t.options())).state,'HEADS_PRESENT');
   assert.equal((await host.runNativeSourceStep(t.options())).state,'WAITING_FOR_DIFF');
   assert.equal(t.seals,0);
-  const sa=await acceptSourceTaskOffer(f);
+  assert.equal((await receiver.runNativeOwnerStep(r.options())).state,'DIFF_PRESENT');
+  // Test fixture supplies the existing transport agreement port with the
+  // same independent live HEAD/DIFF proofs, not an invented grant.
+  const sa=await readFixtureAgreement(f,source),ra=await readFixtureAgreement(f,recipient);
+  assert.deepEqual(sa,ra);f.selected.set(source,sa);f.selected.set(recipient,ra);
+  assert.equal((await receiver.runNativeOwnerStep(r.options())).state,'WAITING_FOR_CHANGE');
+  assert.equal(r.opens,0);assert.equal(r.writes,0);
   let step=await host.runNativeSourceStep(t.options());
   assert.equal(step.state,'CONTENT_PARTIAL');assert.equal(step.publications.length,64);
   assert.equal(step.originalMultipartAgreementDigest,sa.agreementDigest);assert.equal(t.seals,1);
+  const pending=await receiver.runNativeOwnerStep(r.options());
+  assert.equal(pending.state,'WAITING_FOR_CHUNKS');assert.ok(pending.step.missingMultipartChunks.length>0);
+  assert.equal(pending.step.originalMultipartAgreementDigest,sa.agreementDigest);assert.equal(r.opens,0);
+  assert.deepEqual(await r.cursor().readOriginalVerifiedCursor(),before);
   const n=t.signatures,first=await f.port(source).inspectOriginalPublication();
   assert.equal(first.multipartBackingReserved,true);
-  host.dispose();f.restart();host=t.bind();
+  host.dispose();receiver.dispose();f.restart();host=t.bind();receiver=r.bind();
   for(let i=0;i<16&&step.state==='CONTENT_PARTIAL';i++)step=await host.runNativeSourceStep(t.options());
   assert.equal(step.state,'CONTENT_PRESENT');assert.equal(step.remainingFrames,0);
   assert.equal(t.seals,1);assert.equal(t.signatures,n);
@@ -419,7 +506,32 @@ test('K151 original native SOURCE task negotiates and resumes bounded publicatio
   assert.equal((await host.runNativeSourceStep(t.options())).state,'PUBLISHED_RECORDED');
   assert.equal((await host.runNativeSourceStep(t.options())).state,'WAITING_FOR_ACK');
   assert.equal((await t.phase().inspectOriginalSession()).currentPhase,'PUBLISHED');
-  host.dispose();
+  assert.equal((await receiver.runNativeOwnerStep(r.options())).state,'RECEIVED_RECORDED');
+  assert.equal((await receiver.runNativeOwnerStep(r.options())).state,'VERIFIED_RECORDED');
+  assert.equal(r.writes,0);assert.deepEqual(await r.cursor().readOriginalVerifiedCursor(),before);
+  r.lose();await assert.rejects(receiver.runNativeOwnerStep(r.options()));
+  assert.equal(r.writes,1);assert.deepEqual(await r.cursor().readOriginalVerifiedCursor(),before);
+  receiver.dispose();f.restart();receiver=r.bind();
+  const done=await receiver.runNativeOwnerStep(r.options());
+  assert.equal(done.state,'APPLIED_AND_ACKNOWLEDGED');assert.equal(done.originalRecipientApplied,true);
+  assert.equal(done.originalSubjectMutationInvoked,false);assert.equal(done.originalRecipientCursorAdvanced,true);
+  assert.deepEqual(await r.cursor().readOriginalVerifiedCursor(),after);assert.equal(r.writes,1);
+  assert.deepEqual(r.stored.bytes,new Uint8Array(assetBytes));assert.equal(r.subjectEvents.length,1);
+  host.dispose();host=t.bind();
+  const ack=await host.runNativeSourceStep(t.options());
+  assert.equal(ack.state,'SOURCE_ACK_CONFIRMED');assert.equal(ack.sourceCursorAdvanced,true);
+  assert.equal((await t.phase().inspectOriginalSession()).currentPhase,'APPLIED_CONFIRMED');
+  assert.deepEqual((await sourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,after);
+  assert.equal(t.signatures,n);assert.equal(r.signatures,2);assert.equal(r.writes,1);
+  host.dispose();receiver.dispose();
+});
+test('K152 original recipient must explicitly select signed multipart offer; disabled or unadmitted paths never sign DIFF',async()=>{
+  const f=fixture(),r=originalRecipientTask(f),host=r.bind();await f.publish(source,'HEADS',headBytes);
+  await assert.rejects(host.runNativeOwnerStep({...r.options(),enableOriginalMultipartNegotiation:false}),
+    e=>['WIRE_NATIVE_MULTIPART_NEGOTIATION_REQUIRED','RECIPIENT_NATIVE_STEP_ORIGINAL_HEADS_MISMATCH','RECIPIENT_NATIVE_OWNER_SELECTION_INVALID'].includes(e.code));
+  assert.equal(r.signatures,0);assert.equal(r.opens,0);assert.equal(r.writes,0);
+  r.admit(false);await assert.rejects(host.runNativeOwnerStep(r.options()),code('RECIPIENT_NATIVE_ORIGINAL_ADMISSION_DENIED'));
+  assert.equal(r.signatures,0);assert.equal(r.writes,0);host.dispose();
 });
 test('K151 original native SOURCE refuses unmarked or disabled large capture before any publication',async()=>{
   for(const [captureProfile,enabled] of [[null,true],[EXT,false]]){
