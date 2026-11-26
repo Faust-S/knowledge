@@ -1,7 +1,8 @@
 import {useRef,useState,type ChangeEvent} from 'react';
 import {groupPersonalRoutineEvidence,preparePersonalTechnologyProduct,type PersonalEvidenceReview,type ProductPreview}
  from '../../modules/activity-base-anonymizer/technology-product.mjs';
-import {BUNDLE,FIELDS,reviewPersonalExtractionBundle,type ExtractionReview} from '../../modules/activity-base-anonymizer/personal-technology-extraction.mjs';
+import {SOURCE,BUNDLE,FIELDS,reviewPersonalExtractionBundle,reviewPersonalPracticalExperience,type ExtractionReview,type PersonalPracticalExperience} from '../../modules/activity-base-anonymizer/personal-technology-extraction.mjs';
+import {PersonalPracticalExperiencePanel} from './PersonalPracticalExperiencePanel';
 import {ProductPresidioReviewPanel} from './ProductPresidioReviewPanel';
 import {TechnologyReleasePanel} from './TechnologyReleasePanel';
 const EMPTY={title:'',purpose:'',inputs:'',outputs:'',applicability:'',instructions:'',requirements:'',contexts:'',cadenceGuidance:''};
@@ -14,12 +15,12 @@ export function PersonalRoutineReviewPanel(){
  const input=useRef<HTMLInputElement>(null),generation=useRef(0);
  const [records,setRecords]=useState<unknown>(null),[review,setReview]=useState<PersonalEvidenceReview|null>(null);
  const [selected,setSelected]=useState(''),[form,setForm]=useState(EMPTY),[retain,setRetain]=useState(false);
- const [extraction,setExtraction]=useState<ExtractionReview|null>(null);
+ const [extraction,setExtraction]=useState<ExtractionReview|null>(null),[experience,setExperience]=useState<PersonalPracticalExperience|null>(null);
  const [showEvidence,setShowEvidence]=useState(false);
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[preview,setPreview]=useState<ProductPreview|null>(null);
  const variant=review?.variants.find(v=>v.variant_id===selected);
  const invalidate=()=>{generation.current++;setPreview(null);setError('');setBusy(false);};
- const clear=()=>{invalidate();setRecords(null);setReview(null);setSelected('');setForm(EMPTY);setRetain(false);setExtraction(null);setShowEvidence(false);};
+ const clear=()=>{invalidate();setRecords(null);setReview(null);setSelected('');setForm(EMPTY);setRetain(false);setExtraction(null);setExperience(null);setShowEvidence(false);};
  async function load(e:ChangeEvent<HTMLInputElement>){
   const f=e.target.files?.[0];e.target.value='';if(!f)return;
   clear();const token=++generation.current;setBusy(true);
@@ -27,10 +28,12 @@ export function PersonalRoutineReviewPanel(){
    if(!f.size||f.size>2*1024*1024)throw Error('limit');
    const raw=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await f.arrayBuffer()));
    const extracted=raw?.status===BUNDLE?await reviewPersonalExtractionBundle(raw):null;
-   const data=extracted?raw.source.rows:raw?.status==='LOCAL_ACTIVITY_ROUTINE_SOURCE'&&raw.export_allowed===false?raw.rows:raw;
+   const acceptedSource=extracted?raw.source:raw?.status===SOURCE?raw:null;
+   const practical=acceptedSource?await reviewPersonalPracticalExperience(acceptedSource):null;
+   const data=acceptedSource?acceptedSource.rows:raw?.status==='LOCAL_ACTIVITY_ROUTINE_SOURCE'&&raw.export_allowed===false?raw.rows:raw;
    const grouped=await groupPersonalRoutineEvidence(data);
    if(token!==generation.current)return;
-   setRecords(data);setReview(grouped);setSelected(grouped.variants[0]?.variant_id??'');setExtraction(extracted);
+   setRecords(data);setReview(grouped);setSelected(grouped.variants[0]?.variant_id??'');setExtraction(extracted);setExperience(practical);
   }catch{if(token===generation.current)setError('Нужна локальная выборка принятых периодических задач Agent. Пустой, повреждённый или неподдерживаемый источник не принят.');}
   finally{if(token===generation.current)setBusy(false);}
  }
@@ -64,7 +67,7 @@ export function PersonalRoutineReviewPanel(){
   <p>Выделите повторяющийся принятый опыт из исходных задач Agent. Получатель получит технологию, а не историю вашей жизни, исходные результаты или ваши полномочия.</p>
   <div className="activity-v7-actions">
    <input ref={input} type="file" accept=".json,application/json" className="visually-hidden" aria-label="Открыть локальную выборку Agent" onChange={load}/>
-   <button onClick={()=>input.current?.click()}>Открыть опыт или извлечение Agent</button>
+   <button onClick={()=>input.current?.click()}>Открыть принятые результаты или извлечение</button>
    <button onClick={clear}>Очистить</button>
   </div>
   {busy?<p role="status">Обрабатывается локальная выборка…</p>:null}
@@ -89,6 +92,9 @@ export function PersonalRoutineReviewPanel(){
        <strong>{extractionNames[k]??k}</strong><span>{row.basis==='SOURCE_SUPPORTED'?'Есть цитата из опыта':row.basis==='PROPOSED'?'Предложение для проверки':'Нужны сведения'}</span>
        {row.note?<span>{row.note}</span>:null}{row.refs.map((r,i)=><span key={i}>{r.quote}</span>)}</div>;})}</div>:null}
      </div>:null}
+     {experience?.variant_id===selected?<PersonalPracticalExperiencePanel key={experience.source_sha256+':'+selected}
+      experience={experience} requirements={form.requirements} contexts={form.contexts}
+      onApply={(requirements,contexts)=>{invalidate();setForm(old=>({...old,requirements,contexts}));}}/>:null}
      <h3>Технология для другого пользователя</h3>
      <p>Обобщите назначение, способ работы и критерии. Не переносите личные имена, адреса, аккаунты, права и результаты исходных задач.</p>
      {fields.map(([k,label])=><label key={k} className="activity-domain-label">{label}

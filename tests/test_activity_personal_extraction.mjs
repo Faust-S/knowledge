@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {SOURCE,PROPOSAL,BUNDLE,FIELDS,preparePersonalExtractionRequest,reviewPersonalExtractionBundle} from '../modules/activity-base-anonymizer/personal-technology-extraction.mjs';
+import {SOURCE,PROPOSAL,BUNDLE,FIELDS,preparePersonalExtractionRequest,reviewPersonalExtractionBundle,reviewPersonalPracticalExperience} from '../modules/activity-base-anonymizer/personal-technology-extraction.mjs';
 import {personalRows,personalProposal} from './activity_technology_product_fixture.mjs';
 function source(){
  const rows=personalRows().slice(0,2);
@@ -72,4 +72,23 @@ test('false quotes, stale result, extra keys and invalid proposal basis rejected
 test('oversized evidence is refused, not silently clipped',async()=>{
  const s=source();s.accepted_results[0].draft_artifacts=['x'.repeat(12000),'x'.repeat(12000),'x'.repeat(12000),'x'.repeat(12000)];
  await assert.rejects(()=>preparePersonalExtractionRequest(s),{code:'TECHNOLOGY_EXTRACTION_MODEL_INPUT_LIMIT'});
+});
+
+test('Activity alone extracts recurring explicit review criteria and context limitations from the accepted source',async()=>{
+ const data=source();
+ data.accepted_results[0].review_notes+='\\nKeep deadlines distinct from preferences\\nGood result';
+ data.accepted_results[1].review_notes+='\\nGood result';
+ const view=await reviewPersonalPracticalExperience(data);
+ assert.equal(view.occurrence_count,2);assert.equal(view.rules.length,2);
+ const criterion=view.rules.find(r=>r.kind==='HUMAN_REVIEW_CRITERION');
+ assert.equal(criterion.source_text,'Keep deadlines distinct from preferences');
+ assert.equal(criterion.occurrence_count,2);assert.equal(criterion.evidence.length,2);
+ assert.equal(view.rules.find(r=>r.kind==='REPORTED_CONTEXT_LIMITATION').source_text,'Calendar dates not confirmed');
+ assert.ok(!view.rules.some(r=>r.source_text==='Good result'||r.source_text==='Overdue work needs a reason'));
+ assert.equal(view.export_allowed,false);
+ const reversed=await reviewPersonalPracticalExperience({...data,rows:[...data.rows].reverse(),accepted_results:[...data.accepted_results].reverse()});
+ assert.deepEqual(reversed,view);
+ // The local extractor does not inherit the model input size limit.
+ data.accepted_results[0].draft_artifacts=['x'.repeat(12000),'y'.repeat(12000),'z'.repeat(12000),'w'.repeat(12000)];
+ assert.equal((await reviewPersonalPracticalExperience(data)).rules.length,2);
 });

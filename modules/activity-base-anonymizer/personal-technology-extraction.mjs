@@ -36,7 +36,7 @@ function acceptedResult(r,row){
 }
 /** A small, explicitly selected evidence window. Larger histories remain
  * local in the source owner; never silently truncate a result to fit a model. */
-export async function preparePersonalExtractionRequest(source){
+async function readPersonalExtractionSource(source){
  need(exact(source,['status','workspace_id','rows','accepted_results','export_allowed','iwxa_package'])&&
   source.status===SOURCE&&source.workspace_id==='personal'&&source.export_allowed===false&&source.iwxa_package===null&&
   Array.isArray(source.rows)&&source.rows.length>=2&&source.rows.length<=6&&
@@ -55,10 +55,52 @@ export async function preparePersonalExtractionRequest(source){
   context_flags:clone(first.context_flags),source_semantics:'HUMAN_ACCEPTED_DRAFT_NOT_EXTERNAL_EXECUTION',
   observations:accepted_results.map((r,i)=>({id:'evidence_'+String(i+1).padStart(3,'0'),
    summary:r.summary,claims:r.claims,uncertainties:r.uncertainties,draft_artifacts:r.draft_artifacts,review_notes:r.review_notes}))};
+ return {document,source_sha256,source_rows:rows,variant_id:grouped.variants[0].variant_id};
+}
+export async function preparePersonalExtractionRequest(source){
+ const data=await readPersonalExtractionSource(source),{document}=data;
  const document_text=serial(document);
  need(bytes(document_text)<=42000,'TECHNOLOGY_EXTRACTION_MODEL_INPUT_LIMIT');
- return {document,document_text,request_sha256:await sha256Canonical(document),source_sha256,
-  source_rows:rows,variant_id:grouped.variants[0].variant_id,export_allowed:false,iwxa_package:null};
+ return {...data,document_text,request_sha256:await sha256Canonical(document),export_allowed:false,iwxa_package:null};
+}
+// Extract explicit repeated human instructions and declared limitations
+// locally. No language model is required for exact recurring statements.
+// Claims and draft artifacts are not promoted into requirements.
+const directive=/^(?:(?:keep|check|confirm|verify|separate|identify|do not|don't|never|ensure|use|include|list|avoid|compare|require|record|preserve|distinguish|remember)(?:\s|$)|(?:проверить|проверьте|уточнить|уточните|сохранить|сохранять|сохраняйте|учитывать|учтите|учитывайте|разделять|разделить|разделяйте|отделять|отделить|не|обязательно|исключить|исключайте|указать|укажите|сопоставить|сопоставляйте|фиксировать|зафиксировать|фиксируйте|выделить|выделяйте|помнить)(?:\s|$))/iu;
+function reviewLines(value){
+ return value.split(/\r?\n/).map(line=>line.trim().replace(/^(?:[-*•]\s+|\d+[.)]\s+)/,'').trim()).filter(v=>v.length>=6&&v.length<=1000);
+}
+export async function reviewPersonalPracticalExperience(source){
+ const {document,source_sha256,variant_id}=await readPersonalExtractionSource(source);
+ const candidates=new Map();
+ const add=(kind,value,id,path)=>{
+  if(!text(value,1000)||/[\r\n]/.test(value))return;
+  value=value.trim();
+  const key=serial([kind,value]);
+  let row=candidates.get(key);
+  if(!row){row={kind,value,occurrences:new Map()};candidates.set(key,row);}
+  if(!row.occurrences.has(id))row.occurrences.set(id,{id,path,quote:value});
+ };
+ for(const observation of document.observations){
+  for(const line of reviewLines(observation.review_notes)){
+   if(directive.test(line))add('HUMAN_REVIEW_CRITERION',line,observation.id,'review_notes');
+  }
+  observation.uncertainties.forEach((value,i)=>add('REPORTED_CONTEXT_LIMITATION',value,observation.id,'uncertainties.'+i));
+ }
+ const rules=[];
+ for(const row of candidates.values()){
+  if(row.occurrences.size<2)continue;
+  const suggested=row.kind==='HUMAN_REVIEW_CRITERION'?row.value:
+   'Уточнить у получателя сведения, связанные с ограничением: «'+row.value+'».';
+  if(suggested.length>1000)continue;
+  rules.push({rule_id:'rule_'+await sha256Canonical({variant_id,kind:row.kind,value:row.value}),
+   kind:row.kind,source_text:row.value,suggested_text:suggested,occurrence_count:row.occurrences.size,
+   evidence:[...row.occurrences.values()]});
+ }
+ rules.sort((a,b)=>compare(a.kind,b.kind)||b.occurrence_count-a.occurrence_count||compare(a.rule_id,b.rule_id));
+ return {status:'LOCAL_PERSONAL_PRACTICAL_EXPERIENCE',source_sha256,variant_id,
+  occurrence_count:document.observations.length,rules,source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED',
+  evidence_semantics:'REPEATED_EXPLICIT_STATEMENTS_NOT_EXTERNAL_EXECUTION',export_allowed:false,iwxa_package:null};
 }
 function referencedText(document,id,path){
  if(id==='routine'&&path==='objective')return document.objective;
