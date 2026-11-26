@@ -40,6 +40,8 @@ const deepFreeze=o=>{
   return o;
 };
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+const canonicalBody=x=>JSON.stringify(x,(_key,v)=>v&&typeof v==='object'&&!Array.isArray(v)?
+  Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
 
 export function createT4CandidateFrameTransport({
   wireTransport,getMode,readOriginalHostContext,
@@ -601,7 +603,7 @@ export function createT4CandidateFrameTransport({
     return finish(receipts.length?'FOUND':'NOT_FOUND');
   }
   async function indexedRead({selector,requiredCryptoSuite,supportedCriticalExtensions=[],head=false,replacementHead=false,
-    expectedMultipartChange=null},ctx){
+    expectedMultipartChange=null,expectedHandshake=null},ctx){
     if(!selector||!ID(selector.sourceNodeRef)||selector.sourceNodeRef===originalHostNodeRef||
       !Number.isSafeInteger(selector.ownerEpoch)||selector.ownerEpoch<1||!ID(requiredCryptoSuite)||
       !Array.isArray(supportedCriticalExtensions)||supportedCriticalExtensions.length>16||
@@ -630,6 +632,14 @@ export function createT4CandidateFrameTransport({
         frame.body.familyRef!==selector.familyRef||frame.body.sourceSession?.predecessorEventCount!==selector.predecessorEventCount):
         (frame.sessionRef!==selector.sessionRef||frame.sequence!==selector.sequence||frame.messageType!==selector.messageType))||
       !t4NativeFrameIndexKeys(frame).includes(key))fail('WIRE_NATIVE_INDEX_TARGET_MISMATCH');
+    // An incompatible but genuinely signed handshake must not occupy the
+    // immutable original replay slot. This is an extra read restriction,
+    // never a substitute for signature, Access or replay verification.
+    if(expectedHandshake!==null&&
+      (frame.criticalExtensions.length!==expectedHandshake.extensions.length||
+        !expectedHandshake.extensions.every(e=>frame.criticalExtensions.includes(e))||
+        (expectedHandshake.body!==null&&canonicalBody(frame.body)!==canonicalBody(expectedHandshake.body))))
+      fail('WIRE_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH');
     return verifyDownloaded({ctx,key:frameKey,expectedSha256:sha256,downloaded:{bytes},
       requiredCryptoSuite,supportedCriticalExtensions,expectedMultipartChange});
   }
@@ -638,16 +648,25 @@ export function createT4CandidateFrameTransport({
     indexedLookup:true,indexIsNotHistoryCompletenessProof:true,
     originalBusinessApplied:false,sourceCursorAdvanced:false,originalTransportScanOnly:true});
   async function discoverUniqueSignedFrame({selector,requiredCryptoSuite,
-    supportedCriticalExtensions=[]}={}){
+    supportedCriticalExtensions=[],expectedOriginalMultipartDiff=null}={}){
     if(!ID(selector?.sessionRef)||!Number.isSafeInteger(selector.sequence)||
       selector.sequence<1)fail('WIRE_DISCOVERY_EXACT_SLOT_REQUIRED');
+    let expectedHandshake=null;
+    if(expectedOriginalMultipartDiff!==null){
+      if(!indexed||!enableOriginalMultipartNegotiation||selector.messageType!=='DIFF_REQUEST'||selector.sequence!==1||
+        !expectedOriginalMultipartDiff||typeof expectedOriginalMultipartDiff!=='object'||Array.isArray(expectedOriginalMultipartDiff)||
+        !Array.isArray(supportedCriticalExtensions)||!supportedCriticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION))
+        fail('WIRE_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH');
+      expectedHandshake=deepFreeze({extensions:[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION],
+        body:structuredClone(expectedOriginalMultipartDiff)});
+    }
     if(indexed){
       if(Object.keys(selector).some(k=>!['sourceNodeRef','ownerEpoch','sessionRef','messageType','sequence'].includes(k))||
         !['HEADS','DIFF_REQUEST','CHANGE_REF','CHUNK','APPLIED_ACK','HELLO','CAPABILITIES','CHUNK_REQUEST','RECEIVED_ACK','VERIFIED_ACK','RESUME','ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK'].includes(selector.messageType))
         fail('WIRE_DISCOVERY_SELECTOR_INVALID');
       const input=Object.freeze({...selector});
       const extensions=Array.isArray(supportedCriticalExtensions)?Object.freeze([...supportedCriticalExtensions]):supportedCriticalExtensions;
-      const receipt=await indexedRead({selector:input,requiredCryptoSuite,supportedCriticalExtensions:extensions},await hostSnapshot());
+      const receipt=await indexedRead({selector:input,requiredCryptoSuite,supportedCriticalExtensions:extensions,expectedHandshake},await hostSnapshot());
       const {receipts,listingDigest,...result}=indexedResult(receipt?[receipt]:[],1);
       return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1',...result,receipt});
     }
@@ -754,15 +773,20 @@ export function createT4CandidateFrameTransport({
   // Exact successor discovery is available only on the indexed profile.
   // It performs one immutable lookup and normal live signature/Access/
   // replay verification. No scan and no permission to apply.
-  async function discoverReplacementSourceHead({selector,requiredCryptoSuite,enableOriginalMultipartNegotiation:multipart=false}={}){
-    if(typeof multipart!=='boolean'||(multipart&&!enableOriginalMultipartNegotiation)||!indexed||!selector||Object.keys(selector).sort().join(',')!==
+  async function discoverReplacementSourceHead({selector,requiredCryptoSuite,enableOriginalMultipartNegotiation:multipart=false,
+    expectedOriginalReplacementHead=null}={}){
+    if(typeof multipart!=='boolean'||(multipart&&!enableOriginalMultipartNegotiation)||
+      (expectedOriginalReplacementHead!==null&&(!multipart||typeof expectedOriginalReplacementHead!=='object'||Array.isArray(expectedOriginalReplacementHead)))||
+      !indexed||!selector||Object.keys(selector).sort().join(',')!==
       'changeId,ownerEpoch,previousSessionRef,sessionRef,sourceNodeRef'||
       ![selector.previousSessionRef,selector.sessionRef,selector.changeId].every(ID)||
       selector.previousSessionRef===selector.sessionRef)
       fail('WIRE_DISCOVERY_REPLACEMENT_HEAD_SELECTOR_INVALID');
     const selected=Object.freeze({...selector,messageType:'HEADS',sequence:1});
+    const extensions=[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,...(multipart?[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:[])];
+    const expectedHandshake=multipart?deepFreeze({extensions,body:structuredClone(expectedOriginalReplacementHead)}):null;
     const found=await indexedRead({selector:selected,requiredCryptoSuite,replacementHead:true,
-      supportedCriticalExtensions:[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,...(multipart?[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:[])]},await hostSnapshot());
+      supportedCriticalExtensions:extensions,expectedHandshake},await hostSnapshot());
     return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_REPLACEMENT_HEAD_V1',...indexedResult(found?[found]:[],1),
       createsStore:false,createsScheduler:false,originalNewAttemptAdmissionStillRequired:true});
   }

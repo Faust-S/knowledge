@@ -646,7 +646,10 @@ async function readReplacementSourceHeadEvidence({frameDiscoveryPort,enableOrigi
   const found=await frameDiscoveryPort.discoverReplacementSourceHead({selector:{sourceNodeRef:c.sourceNodeRef,
     ownerEpoch:c.ownerEpoch,previousSessionRef:c.replacement.previousSessionRef,sessionRef:c.sessionRef,changeId:c.changeId},
     requiredCryptoSuite:eligibilityPorts.requiredCryptoSuite,
-    ...(enableOriginalMultipartNegotiation?{enableOriginalMultipartNegotiation:true}:{})});
+    ...(enableOriginalMultipartNegotiation?{enableOriginalMultipartNegotiation:true,
+      expectedOriginalReplacementHead:createT4OriginalReplacementSourceHead({candidate:c,sourceCursorBefore:first.sourceCursorBefore,
+        sourceCursorAfter:{...first.sourceCursorBefore,lastEventId:c.sourceEventId,
+          seenEventCount:first.sourceCursorBefore.seenEventCount+1,sourcePrefixDigest:c.sourcePrefixDigestAfter},offerMultipart:true})}:{})});
   mode(eligibilityPorts.getMode);
   if(found?.schema!=='IWXA_T4_FRAME_DISCOVERY_REPLACEMENT_HEAD_V1'||!['FOUND','NOT_FOUND'].includes(found.state)||
     found.originalTransportScanOnly!==true||found.originalBusinessApplied!==false||found.sourceCursorAdvanced!==false||
@@ -1116,9 +1119,17 @@ export async function discoverT4OriginalReplacementRecipientDiff({
       (!(ownerRead&&sourceAdmissionPhasePort.originalHistoricalReadOnly===true)&&
         !same(intent.originalReplacementSourceAdmission,sourceAdmissionPhasePort.originalReplacementSourceAdmission)))
       fail('REPLACEMENT_SOURCE_DIFF_SOURCE_ADMISSION_CHANGED');
+    const expectedMultipartDiff=enableOriginalMultipartNegotiation?readT4OriginalReplacementHandshakeProfile({candidate:c,
+      headBody:createT4OriginalReplacementSourceHead({candidate:c,sourceCursorBefore:first.sourceCursorBefore,
+        sourceCursorAfter:{...first.sourceCursorBefore,lastEventId:c.sourceEventId,
+          seenEventCount:first.sourceCursorBefore.seenEventCount+1,sourcePrefixDigest:c.sourcePrefixDigestAfter},offerMultipart:true}),
+      headSha256:intent.originalReplacementSourceAdmission.headSha256,
+      headExtensions:[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION],
+      enableOriginalMultipartNegotiation:true}).diffBody:null;
     const found=await frameDiscoveryPort.discoverUniqueSignedFrame({selector:{sourceNodeRef:c.recipientNodeRef,
       sessionRef:c.sessionRef,ownerEpoch:c.ownerEpoch,messageType:'DIFF_REQUEST',sequence:1},requiredCryptoSuite,
-      supportedCriticalExtensions:enableOriginalMultipartNegotiation?[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:[]});mode(getMode);
+      supportedCriticalExtensions:enableOriginalMultipartNegotiation?[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:[],
+      ...(enableOriginalMultipartNegotiation?{expectedOriginalMultipartDiff:expectedMultipartDiff}:{})});mode(getMode);
     if(found?.schema!=='IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1'||!['FOUND','NOT_FOUND'].includes(found.state)||
       found.indexedLookup!==true||found.candidatesExamined!==1||found.originalTransportScanOnly!==true||
       found.originalBusinessApplied!==false||found.sourceCursorAdvanced!==false||
@@ -1136,7 +1147,7 @@ export async function discoverT4OriginalReplacementRecipientDiff({
       diff.verifiedSequence!==1||diff.verifiedCryptoSuite!==requiredCryptoSuite||!ID(diff.verifiedSignerRef)||
       !ID(diff.verifiedMessageId)||!SHA(diff.sha256)||diff.key!==diff.sha256+'.t4n'||
       !same(diff.verifiedCriticalExtensions,enableOriginalMultipartNegotiation?[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:[])||
-      (!enableOriginalMultipartNegotiation&&!same(diff.verifiedBody,{familyRef:c.familyRef,fromHeads:[c.sourcePrefixDigestBefore]}))||
+      !same(diff.verifiedBody,expectedMultipartDiff??{familyRef:c.familyRef,fromHeads:[c.sourcePrefixDigestBefore]})||
       diff.originalSignatureVerified!==true||diff.originalAccessVerified!==true||
       diff.originalReplayCheckpointRecorded!==true||diff.networkBytesVerified!==true||
       diff.originalSubjectMutationInvoked!==false||diff.originalBusinessApplied!==false||diff.originalT3ExchangeCalled!==false)

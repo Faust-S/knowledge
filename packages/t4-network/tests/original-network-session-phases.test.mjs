@@ -2471,3 +2471,47 @@ test('K165 exact successor multipart HEAD, original INTENT and DIFF converge aft
   assert.deepEqual(await readT4OriginalReplacementOwnerHistory(historyOptions(request)),historical);
   assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,puts:x.counts().networkPuts,signs:x.signatureCount()},noWrites);
 });
+
+test('K166 a signed compact successor HEAD cannot consume the multipart replay slot',async()=>{
+  const x=await controlFixture({indexed:true,multipartHandshake:true});await closeInitialAttempt(x);
+  const {candidate:c}=await x.eligibility();
+  const body=createT4OriginalReplacementSourceHead({candidate:c,sourceCursorBefore:x.sourceCursorBefore,
+    sourceCursorAfter:x.sourceCursorAfter});
+  const wrong=await x.signHead(body,c.sessionRef,[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]);
+  await x.transport(sourceNodeRef).publishSignedFrame({wireBytes:wrong});
+  const writes=x.f.kernel.calls,puts=x.counts().networkPuts;
+  await assert.rejects(x.discoverReplacement(),isCode('WIRE_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH'));
+  assert.equal(x.f.kernel.calls,writes);
+  assert.equal(x.counts().networkPuts,puts);
+});
+test('K166 wrong signed successor DIFF selection is rejected before original replay or acceptance',async()=>{
+  const x=await controlFixture({indexed:true,multipartHandshake:true});await closeInitialAttempt(x);
+  const head=await x.publishReplacement(),c=head.candidate;
+  const createPhase=async({session:s,admission},readOriginalReplacementSourceAdmission)=>x.sourcePhase({
+    sessionRef:s.sessionRef,authorizeOriginalSourceSupersession:null,replacementSourceAdmission:admission,
+    readOriginalReplacementSourceAdmission});
+  const opts={...x.eligibilityOptions(),enableOriginalMultipartNegotiation:true};
+  const a=await admitT4OriginalReplacementSourcePhase({...opts,createOriginalReplacementPublicationPort:x.createReplacementPort,
+    createOriginalReplacementSourcePhasePort:createPhase});
+  const phase=await createPhase({session:c,admission:a.admission},async()=>true);
+  const source=await x.createReplacementPort({session:c},()=>x.eligibility());
+  const admission=()=>readT4OriginalReplacementRecipientAdmission(x.recipientAdmissionOptions(phase));
+  const recipient=await x.createReplacementRecipientPort({session:c},admission);
+  const h=decodeT4CandidateFrame((await source.inspectOriginalPublication()).frames[0].wireBytes);
+  const wrong=readT4OriginalReplacementHandshakeProfile({candidate:c,headBody:h.body,
+    headSha256:'f'.repeat(64),headExtensions:h.criticalExtensions,enableOriginalMultipartNegotiation:true});
+  const bytes=await signT4CandidateFrame({unsignedFrame:createT4CandidateUnsignedFrame({messageType:'DIFF_REQUEST',
+    messageId:'message:k166:wrong',sourceNodeRef:recipientNodeRef,recipientNodeRef:sourceNodeRef,
+    scopeRef,sessionRef:c.sessionRef,ownerEpoch:c.ownerEpoch,sequence:1,cryptoSuite:opts.requiredCryptoSuite,
+    ...x.recipientSigner(),criticalExtensions:wrong.diffExtensions,body:wrong.diffBody}),
+    signOriginalNodeBytes:x.signRecipientAck});
+  await x.transport(recipientNodeRef).publishSignedFrame({wireBytes:bytes});
+  const writes=x.sourceStore.calls,puts=x.counts().networkPuts;
+  await assert.rejects(discoverT4OriginalReplacementRecipientDiff({...opts,sourceAdmissionPhasePort:phase,
+    sourcePublicationPort:source,recipientPublicationPort:recipient,frameDiscoveryPort:x.transport(sourceNodeRef),
+    readOriginalReplacementRecipientAdmission:admission,
+    authorizeOriginalReplacementDiffAcceptance:async()=>assert.fail('wrong profile must not reach acceptance')}),
+    isCode('WIRE_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH'));
+  assert.equal(x.sourceStore.calls,writes);
+  assert.equal(x.counts().networkPuts,puts);
+});
