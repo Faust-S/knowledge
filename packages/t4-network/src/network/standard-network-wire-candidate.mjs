@@ -1,4 +1,8 @@
 import {createHash} from 'node:crypto';
+import {T4_MULTIPART_OPAQUE_EXTENSION,validateT4CandidateMultipartManifest,
+  validateT4CandidateMultipartChunkRequest,validateT4CandidateMultipartChunkBody,
+  t4CandidateMultipartChunkSequence} from './standard-network-multipart-opaque-chunks.mjs';
+export {T4_MULTIPART_OPAQUE_EXTENSION};
 
 /*
  * Experimental IWXA T4 Network Profile P1.0 wire contract.
@@ -217,6 +221,9 @@ function validateReplacementHeadEnvelope(frame){
     fail('WIRE_REPLACEMENT_HEAD_IDENTITY_MISMATCH');
 }
 function validateBody(type,body,extensions=[]){
+  const multipart=Array.isArray(extensions)&&extensions.includes(T4_MULTIPART_OPAQUE_EXTENSION);
+  if(multipart&&(extensions.length!==1||!['CAPABILITIES','CHANGE_REF','CHUNK_REQUEST','CHUNK'].includes(type)))
+    fail('WIRE_MULTIPART_EXTENSION_INVALID');
   const relationEvent=Array.isArray(extensions)&&
     extensions.includes(T4_RELATION_EVENT_EXTENSION);
   const deletionEvent=Array.isArray(extensions)&&
@@ -243,7 +250,10 @@ function validateBody(type,body,extensions=[]){
   if(SUPERSESSION_TYPES.has(type)){
     validateSupersessionBody(type,body);
   }else if(type==='HELLO'||type==='CAPABILITIES'){
-    sameKeys(body,['supportedVersions','supportedCryptoSuites']);
+    sameKeys(body,multipart?['supportedVersions','supportedCryptoSuites','supportedCriticalExtensions']:
+      ['supportedVersions','supportedCryptoSuites']);
+    if(multipart&&(!list(body.supportedCriticalExtensions,16)||
+      !body.supportedCriticalExtensions.includes(T4_MULTIPART_OPAQUE_EXTENSION)))fail('WIRE_MULTIPART_CAPABILITIES_INVALID');
     if(!list(body.supportedVersions)||!list(body.supportedCryptoSuites)||
       !body.supportedVersions.length||!body.supportedCryptoSuites.length)
       fail('WIRE_ADVERTISEMENT_INVALID');
@@ -273,7 +283,7 @@ function validateBody(type,body,extensions=[]){
       fail('WIRE_DIFF_INVALID');
   }else if(type==='CHANGE_REF'){
     sameKeys(body,['changeId','changeKind','eventRef','ownerRef',
-      'sourceRevision','contentDigest','parents']);
+      'sourceRevision','contentDigest','parents',...(multipart?['multipartManifest']:[])]);
     if(!ID(body.changeId)||!SUBJECT_KINDS.has(body.changeKind)||
       !ID(body.eventRef)||!ID(body.ownerRef)||
       !validT4NativeSubjectRevision(body.changeKind,body.sourceRevision)||
@@ -281,6 +291,17 @@ function validateBody(type,body,extensions=[]){
       !DIGEST(body.contentDigest)||
       !hashList(body.parents))
       fail('WIRE_CHANGE_REF_INVALID');
+    if(multipart){
+      let manifest;
+      try{manifest=validateT4CandidateMultipartManifest(body.multipartManifest);}
+      catch{fail('WIRE_MULTIPART_MANIFEST_INVALID');}
+      if(body.changeKind!=='ASSET_PUT'||manifest.changeId!==body.changeId||manifest.contentDigest!==body.contentDigest)
+        fail('WIRE_MULTIPART_CHANGE_REF_MISMATCH');
+    }
+  }else if(multipart&&type==='CHUNK_REQUEST'){
+    try{validateT4CandidateMultipartChunkRequest(body);}catch{fail('WIRE_MULTIPART_CHUNK_REQUEST_INVALID');}
+  }else if(multipart&&type==='CHUNK'){
+    try{validateT4CandidateMultipartChunkBody(body);}catch{fail('WIRE_MULTIPART_CHUNK_INVALID');}
   }else if(type==='CHUNK_REQUEST'){
     sameKeys(body,['changeId','contentDigest','chunkIndex','chunkCount']);
     if(!ID(body.changeId)||!DIGEST(body.contentDigest)||
@@ -346,6 +367,10 @@ function validateUnsigned(frame){
     !DIGEST(frame.bodyDigest))
     fail('WIRE_HEADER_INVALID');
   validateBody(frame.messageType,frame.body,frame.criticalExtensions);
+  if(frame.criticalExtensions.includes(T4_MULTIPART_OPAQUE_EXTENSION)&&
+    ((frame.messageType==='CHANGE_REF'&&frame.sequence!==2)||
+     (frame.messageType==='CHUNK'&&frame.sequence!==t4CandidateMultipartChunkSequence(frame.body))))
+    fail('WIRE_MULTIPART_SEQUENCE_INVALID');
   if(frame.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)&&
     (frame.sequence!==1||frame.body.ownerEpoch!==frame.ownerEpoch))
     fail('WIRE_ORIGINAL_SOURCE_SESSION_ENVELOPE_INVALID');
@@ -475,6 +500,15 @@ export function negotiateT4CandidateCapabilities({
     candidateNegotiationOnly:true,
   });
 }
+// Both authenticated advertisements must explicitly select multipart before
+// a caller may enable it in its original session authority. This is a pure
+// candidate intersection, never evidence of signature, Access or session state.
+export function negotiateT4CandidateMultipartCapabilities({local,remote,requiredCryptoSuite,
+  requiredVersion=T4_CANDIDATE_VERSION}={}){
+  for(const body of [local,remote])validateBody('CAPABILITIES',body,[T4_MULTIPART_OPAQUE_EXTENSION]);
+  return Object.freeze({...negotiateT4CandidateCapabilities({local,remote,requiredCryptoSuite,requiredVersion}),
+    selectedCriticalExtensions:Object.freeze([T4_MULTIPART_OPAQUE_EXTENSION]),originalSessionAgreementProven:false});
+}
 // A local sender must verify the exact signed bytes BEFORE durable
 // publication. This is deliberately not an inbound replay decision.
 export async function verifyT4CandidateOutboundSignature({
@@ -503,7 +537,7 @@ export async function verifyT4CandidateOutboundSignature({
 
 export async function verifyT4CandidateWireFrame({
   wireBytes,recipientNodeRef,scopeRef,requiredCryptoSuite,
-  supportedCriticalExtensions=[],
+  supportedCriticalExtensions=[],selectedCriticalExtensions=[],
   verifyOriginalNodeSignature,authorizeOriginalNetwork,
   persistOriginalReplayDecision,
 }={}){
@@ -521,6 +555,9 @@ export async function verifyT4CandidateWireFrame({
   if(!list(supportedCriticalExtensions,16)||
     frame.criticalExtensions.some(x=>!supportedCriticalExtensions.includes(x)))
     fail('WIRE_UNSUPPORTED_CRITICAL_EXTENSION');
+  if(frame.criticalExtensions.includes(T4_MULTIPART_OPAQUE_EXTENSION)&&frame.messageType!=='CAPABILITIES'&&
+    (!list(selectedCriticalExtensions,16)||!selectedCriticalExtensions.includes(T4_MULTIPART_OPAQUE_EXTENSION)))
+    fail('WIRE_MULTIPART_SESSION_NOT_SELECTED');
   const signatureBytes=strictSignature(frame.signatureBase64);
   const unsigned={...frame};delete unsigned.signatureBase64;
   const signed=signedBytes(unsigned);
