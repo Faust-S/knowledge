@@ -388,3 +388,23 @@ test('K101 original capture binding projects only the independently captured sub
   assert.equal(await verifier.verifyOriginalSourceEvent(proof),false);
   assert.equal(f.writes(),0);
 });
+
+test('K151 exact original source selection uses scoped Event lookup instead of broad capture inventory and never falls back on denial',async()=>{
+  const f=fixture();await f.stage();await f.stageSecond();
+  const first=f.outbox.get('capture:relation:1');
+  const args=selectionPorts(f,first.sourceCursorBefore);
+  let selected=0;
+  const result=await readT4OriginalNativeCaptureSessionAtCursor({...args,
+    listOriginalOutbox:async()=>assert.fail('unscoped outbox inventory'),
+    listOriginalOutboxForSourceEvent:async q=>{
+      selected++;assert.equal(q.sourceEventId,first.sourceEventId);
+      assert.equal(q.workspaceId,ws);assert.equal(q.originalWriteOwnerRef,owner);return [first];
+    }});
+  assert.equal(result.state,'ORIGINAL_NATIVE_SESSION_SELECTED');assert.equal(selected,1);
+  assert.equal(result.session.sourceEventId,first.sourceEventId);assert.equal(result.session.capturedSha256,first.sha256);
+  await assert.rejects(readT4OriginalNativeCaptureSessionAtCursor({...args,
+    listOriginalOutbox:async()=>assert.fail('fallback to unscoped inventory'),
+    listOriginalOutboxForSourceEvent:async()=>{throw Object.assign(Error('selected denial'),{code:'SELECTED_DENIED'});}
+  }),{code:'SELECTED_DENIED'});
+  assert.equal(f.writes(),0);
+});
