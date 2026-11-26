@@ -332,6 +332,31 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
         run: |
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-npm.log" 2>&1 || { echo D05_T3_NPM_FAIL; exit 1; }
+      - name: Checkout the exact public test-only navigation harness
+        if: inputs.full_release && inputs.rendered_link_audit && !inputs.publication_recovery
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: ${{ github.sha }}
+          path: release-harness
+          persist-credentials: false
+      - name: Prove fresh browser transport on a synthetic HTTP fixture before product build
+        if: inputs.full_release && inputs.rendered_link_audit && !inputs.publication_recovery
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          harness="$GITHUB_WORKSPACE/release-harness/qualification/d05/navigation"
+          fixture="scripts/d05-release-transport-fixture.ts"
+          transport="scripts/d05-release-transport.mjs"
+          test ! -e "$fixture" && test ! -e "$transport"
+          trap 'rm -f "$fixture" "$transport"' EXIT
+          node --test "$harness/transport.test.mjs"
+          cp "$harness/check-t3-navigation-transport.ts" "$fixture"
+          cp "$harness/transport.mjs" "$transport"
+          node --import tsx "$fixture"
       - name: Verify opaque Git input retention
         if: ${{ !inputs.publication_recovery }}
         working-directory: site
@@ -934,14 +959,6 @@ jobs:
             test "$result" = success || { echo D05_T3_BROWSER_GATE_FAIL; exit 1; }
           done
           echo D05_T3_BROWSER_GATE_PASS
-      - name: Checkout the exact public test-only navigation harness
-        if: inputs.full_release && inputs.rendered_link_audit && !inputs.publication_recovery
-        uses: actions/checkout@v4
-        with:
-          repository: Faust-S/knowledge
-          ref: ${{ github.sha }}
-          path: release-harness
-          persist-credentials: false
       - name: Verify actual hydrated site links and representative desktop and mobile clicks
         if: inputs.full_release && inputs.rendered_link_audit && !inputs.publication_recovery
         working-directory: site
@@ -953,8 +970,10 @@ jobs:
           harness="$GITHUB_WORKSPACE/release-harness/qualification/d05/navigation"
           audit="scripts/d05-release-rendered-links.ts"
           helper="scripts/d05-release-link-target.mjs"
-          test ! -e "$audit" && test ! -e "$helper"
-          trap 'rm -f "$audit" "$helper"' EXIT
+          transport="scripts/d05-release-transport.mjs"
+          test ! -e "$audit" && test ! -e "$helper" && test ! -e "$transport"
+          trap 'rm -f "$audit" "$helper" "$transport"' EXIT
+          cp "$harness/transport.mjs" "$transport"
           node --test "$harness/t3-link-target.test.mjs"
           cp "$harness/check-t3-rendered-links.ts" "$audit"
           cp "$harness/t3-link-target.mjs" "$helper"
@@ -974,6 +993,7 @@ jobs:
           assert.equal(r.declaredPages,43);assert.equal(r.publicPages,40);
           for(const k of ["menuPages","linkOccurrences","uniqueLocalTargets","clicks"])assert.ok(Number.isSafeInteger(r[k])&&r[k]>0);
           assert.equal(r.clicks,r.plannedClicks);assert.ok(r.keyboardClicks>0&&r.orderPickerClicks>0);
+          assert.ok(r.independentPublicHttpTargets>0);assert.equal(r.freshDocumentPerVisit,true);assert.equal(r.browserCacheDisabled,true);assert.equal(r.serviceWorkerBypassed,true);
           assert.equal(r.externalLinksFetched,false);assert.equal(r.protectedNavigationAccepted,false);assert.equal(r.productAccepted,false);
           console.log(JSON.stringify(r));
           JS

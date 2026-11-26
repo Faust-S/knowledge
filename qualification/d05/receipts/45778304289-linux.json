@@ -1,0 +1,348 @@
+{
+  "schema": "IWXA_D05_T3_LINUX_QUALIFICATION_RECEIPT/1",
+  "runId": 45778304289,
+  "jobId": 139767323555,
+  "requestCommit": "d70d3cfc4ebb13ebb7cd90854e19b1ff7601d958",
+  "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+  "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
+  "assistantCommit": "e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f",
+  "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+  "conclusion": "failure",
+  "steps": [
+    {
+      "number": 1,
+      "name": "Set up job",
+      "conclusion": "success"
+    },
+    {
+      "number": 2,
+      "name": "Run actions/checkout@v4",
+      "conclusion": "success"
+    },
+    {
+      "number": 3,
+      "name": "Run actions/checkout@v4",
+      "conclusion": "success"
+    },
+    {
+      "number": 4,
+      "name": "Run actions/checkout@v4",
+      "conclusion": "success"
+    },
+    {
+      "number": 5,
+      "name": "Run actions/checkout@v4",
+      "conclusion": "success"
+    },
+    {
+      "number": 6,
+      "name": "Run actions/setup-node@v4",
+      "conclusion": "success"
+    },
+    {
+      "number": 7,
+      "name": "Bind navigation resume to exact prior evidence and the two-file decorative correction",
+      "conclusion": "success"
+    },
+    {
+      "number": 8,
+      "name": "Bind publication recovery to completed exact Linux evidence",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 9,
+      "name": "Check effective private blob write using existing tracked bytes",
+      "conclusion": "success"
+    },
+    {
+      "number": 10,
+      "name": "Require write access before recovery compilation",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 11,
+      "name": "Verify owner pack and original runtime contract",
+      "conclusion": "success"
+    },
+    {
+      "number": 12,
+      "name": "Install dependencies without exporting private sources",
+      "conclusion": "success"
+    },
+    {
+      "number": 13,
+      "name": "Verify opaque Git input retention",
+      "conclusion": "success"
+    },
+    {
+      "number": 14,
+      "name": "Verify hardware classification and local retained commit tests",
+      "conclusion": "success"
+    },
+    {
+      "number": 15,
+      "name": "Verify deterministic static hydration and model witness syntax",
+      "conclusion": "success"
+    },
+    {
+      "number": 16,
+      "name": "Check actual TSX syntax with no source disclosure",
+      "conclusion": "success"
+    },
+    {
+      "number": 17,
+      "name": "Verify exact native form and release result scopes",
+      "conclusion": "success"
+    },
+    {
+      "number": 18,
+      "name": "Verify real JSX bindings and source types",
+      "conclusion": "success"
+    },
+    {
+      "number": 19,
+      "name": "Typecheck site and diagnose exact source locations",
+      "conclusion": "success"
+    },
+    {
+      "number": 20,
+      "name": "Verify the existing domain module contracts",
+      "conclusion": "success"
+    },
+    {
+      "number": 21,
+      "name": "Lint exact candidate and emit source-free diagnostics",
+      "conclusion": "success"
+    },
+    {
+      "number": 22,
+      "name": "Produce bounded formatting-only edit coordinates",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 23,
+      "name": "Run existing production subject regression",
+      "conclusion": "success"
+    },
+    {
+      "number": 24,
+      "name": "Require source qualification before downloading or building the platform",
+      "conclusion": "success"
+    },
+    {
+      "number": 25,
+      "name": "Verify exact portable common platform",
+      "conclusion": "success"
+    },
+    {
+      "number": 26,
+      "name": "Prepare original Host for a fixed HTTPS loopback origin",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 27,
+      "name": "Assemble the real loopback T3 product",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 28,
+      "name": "Read the already assembled product through the actual T3 preview CLI",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 29,
+      "name": "Install original witness dependencies",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 30,
+      "name": "Check exact combined witness syntax",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 31,
+      "name": "Actual assistant handoff, independent Kernel readback and cold autonomous Workspace",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 32,
+      "name": "Original completed CASE-001 and physical Exchange on the T3-assembled Host",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 33,
+      "name": "Real offline costed production, physical Exchange and independent cold recovery",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 34,
+      "name": "Remove disposable loopback assembly before canonical production build",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 35,
+      "name": "Compile original T3 Host with current domain module and shared assistant",
+      "conclusion": "success"
+    },
+    {
+      "number": 36,
+      "name": "Retain verified original Host and platform in the local version directory",
+      "conclusion": "success"
+    },
+    {
+      "number": 37,
+      "name": "Remove disposable original source checkouts before ordinary assembly",
+      "conclusion": "success"
+    },
+    {
+      "number": 38,
+      "name": "Build complete local T3 dist from retained inputs",
+      "conclusion": "success"
+    },
+    {
+      "number": 39,
+      "name": "Verify the canonical assembled T3 distribution before browser qualification",
+      "conclusion": "success"
+    },
+    {
+      "number": 40,
+      "name": "Verify actual canonical distribution with real Apache",
+      "conclusion": "success"
+    },
+    {
+      "number": 41,
+      "name": "Exercise actual no-model assistant and existing React forms",
+      "conclusion": "success"
+    },
+    {
+      "number": 42,
+      "name": "Exercise the same assistant on real client-side navigation and form/result context",
+      "conclusion": "success"
+    },
+    {
+      "number": 43,
+      "name": "Cold offline public site using original worker and persistent browser profile",
+      "conclusion": "success"
+    },
+    {
+      "number": 44,
+      "name": "Require browser qualification before the independent repeat builds",
+      "conclusion": "success"
+    },
+    {
+      "number": 45,
+      "name": "Checkout the exact public test-only navigation harness",
+      "conclusion": "success"
+    },
+    {
+      "number": 46,
+      "name": "Verify actual hydrated site links and representative desktop and mobile clicks",
+      "conclusion": "failure"
+    },
+    {
+      "number": 47,
+      "name": "Exact repeat build and damaged-input rollback from retained bytes",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 48,
+      "name": "Require exact-source qualification",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 49,
+      "name": "Build from exact Git source snapshot with retained verified inputs",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 50,
+      "name": "Verify clean source snapshot and prepare exact candidate commit",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 51,
+      "name": "Record exact Linux qualification independently of private publication",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 52,
+      "name": "Publish only the verified candidate tree through private Git Data API",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 53,
+      "name": "Independently fetch only the saved private candidate",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 54,
+      "name": "Build the freshly fetched private source with no original repository checkout",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 55,
+      "name": "Require private publication and independent remote reproduction for grouped release",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 56,
+      "name": "Clear private diagnostics",
+      "conclusion": "success"
+    },
+    {
+      "number": 107,
+      "name": "Post Checkout the exact public test-only navigation harness",
+      "conclusion": "success"
+    },
+    {
+      "number": 108,
+      "name": "Post Run actions/setup-node@v4",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 109,
+      "name": "Post Run actions/checkout@v4",
+      "conclusion": "success"
+    },
+    {
+      "number": 110,
+      "name": "Post Run actions/checkout@v4",
+      "conclusion": "success"
+    },
+    {
+      "number": 111,
+      "name": "Post Run actions/checkout@v4",
+      "conclusion": "success"
+    },
+    {
+      "number": 112,
+      "name": "Post Run actions/checkout@v4",
+      "conclusion": "success"
+    },
+    {
+      "number": 113,
+      "name": "Complete job",
+      "conclusion": "success"
+    }
+  ],
+  "renderedNavigation": {
+    "status": "FAIL",
+    "declaredPages": 43,
+    "publicPages": 40,
+    "linkOccurrences": 3847,
+    "uniqueLocalTargets": 127,
+    "clicks": 195,
+    "pageErrors": 0,
+    "localErrors": 0,
+    "externalRequests": 0,
+    "failures": {
+      "D05_T3_RENDERED_LINK_PAGE_HTTP": 47,
+      "BROWSER_BOUNDARY": 1
+    },
+    "failurePhase": "repeated source document loading before activation",
+    "responseStatusNotLogged": true,
+    "exactCauseUnconfirmed": true
+  },
+  "privatePublication": "NOT_RUN",
+  "productAccepted": false
+}

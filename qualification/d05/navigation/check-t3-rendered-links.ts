@@ -10,6 +10,7 @@ import { resolveBrowserExecutable } from './lib/resolve-browser-executable';
 import { isNotFoundPage } from './lib/not-found-page';
 import { prerenderSiteRoutes, publicSiteRoutes, PUBLIC_ORIGIN } from '../src/site-routes';
 import { pagePath, linkTarget, fragmentExists, activationKind } from './d05-release-link-target.mjs';
+import { withFreshAuditPage, loadAuditDocument } from './d05-release-transport.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(root, 'dist');
@@ -71,16 +72,11 @@ async function ready(page: Page, expectedPath: string) {
   return state;
 }
 async function load(page: Page, origin: string, request: string, expectedPath: string) {
-  // A genuine HTTP navigation is required: Puppeteer returns null for same-document hash changes.
-  // Start each witness from a fresh document, including when the preceding click left a fragment.
-  await page.goto('about:blank', { waitUntil: 'domcontentloaded', timeout: 10000 });
-  const response = await page.goto(origin + request, { waitUntil: 'networkidle0', timeout: 30000 });
-  if (!response?.ok() || !response.headers()['content-type']?.includes('text/html')) fail('PAGE_HTTP');
-  if (new URL(response.url()).origin !== origin) fail('PAGE_REDIRECT');
+  await loadAuditDocument(page, origin, request);
   return ready(page, expectedPath);
 }
 async function httpCheck(origin: string, request: string, html: boolean) {
-  const response = await fetch(origin + request, { redirect: 'follow', signal: AbortSignal.timeout(15000) });
+  const response = await fetch(origin + request, { redirect: 'follow', cache: 'no-store', signal: AbortSignal.timeout(15000) });
   try {
     if (!response.ok || new URL(response.url).origin !== origin) fail('TARGET_HTTP');
     if (html && !response.headers.get('content-type')?.includes('text/html')) fail('TARGET_NOT_HTML');
@@ -187,8 +183,8 @@ async function main() {
     for (const p of declaredPages) { try { await httpCheck(server.origin, p, true); } catch (error) { note(error); } }
     const { executablePath } = await resolveBrowserExecutable();
     browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-    const page = await browser.newPage();
-    await page.setRequestInterception(true);
+    const configure = async (page: Page) => {
+      await page.setRequestInterception(true);
     page.on('request', request => {
       if (request.url().startsWith(server.origin + '/') || /^(?:data|blob|about):/.test(request.url())) void request.continue();
       else { externalRequests++; void request.abort(); }
@@ -196,6 +192,8 @@ async function main() {
     page.on('pageerror', () => pageErrors++);
     page.on('response', response => { if (response.url().startsWith(server.origin + '/') && response.status() >= 400) localErrors++; });
     page.on('requestfailed', request => { if (request.url().startsWith(server.origin + '/') && request.failure()?.errorText !== 'net::ERR_ABORTED') localErrors++; });
+    };
+    const visit = <T,>(fn: (page: Page) => Promise<T>): Promise<T> => withFreshAuditPage(browser!, configure, fn);
     const collect = (state: State, source: string, viewport: typeof desktop) => {
       for (const link of state.links) {
         linkOccurrences++;
@@ -215,26 +213,38 @@ async function main() {
       }
     };
     for (const source of publicPages) {
-      await page.setViewport(desktop);
-      const state = await load(page, server.origin, source, pagePath(source));
-      responses.set(source, state);
-      collect(state, source, desktop);
-      await page.setViewport(mobile);
-      collect(await snapshot(page), source, mobile);
-      const opened = await openMenu(page);
-      if (opened) menuPages++;
-      if (opened) { collect(await snapshot(page), source, mobile); await closeMenu(page); }
-      pagesLoaded++;
+      await visit(async page => {
+        await page.setViewport(desktop);
+        const state = await load(page, server.origin, source, pagePath(source));
+        responses.set(source, state);
+        collect(state, source, desktop);
+        await page.setViewport(mobile);
+        collect(await snapshot(page), source, mobile);
+        const opened = await openMenu(page);
+        if (opened) menuPages++;
+        if (opened) { collect(await snapshot(page), source, mobile); await closeMenu(page); }
+        pagesLoaded++;
+      });
     }
     assert.equal(pagesLoaded, publicPages.size);
     if (!menuPages || !linkOccurrences || !targets.size) fail('EMPTY_LINK_COVERAGE');
-    await page.setViewport(desktop);
+    const checkedRequests = new Set<string>();
     for (const { target } of targets.values()) {
       try {
       if (target.kind === 'asset') { await httpCheck(server.origin, target.request, false); assetTargets++; continue; }
       if (target.kind === 'protected') { await httpCheck(server.origin, target.request, true); privateTargets++; continue; }
+      if (!checkedRequests.has(target.request)) {
+        await httpCheck(server.origin, target.request, true);
+        checkedRequests.add(target.request);
+      }
       let state = responses.get(target.request);
-      if (!state) { state = await load(page, server.origin, target.request, target.path); responses.set(target.request, state); }
+      if (!state) {
+        state = await visit(async page => {
+          await page.setViewport(desktop);
+          return load(page, server.origin, target.request, target.path);
+        });
+        responses.set(target.request, state);
+      }
       if (!fragmentExists(target.fragment, state.ids, state.names)) fail('FRAGMENT_MISSING');
       if (target.fragment) fragments++;
       } catch (error) { note(error,undefined,target); }
@@ -245,7 +255,7 @@ async function main() {
         try {
           const expectedState=responses.get(target.request);
           if(!expectedState)fail('CLICK_TARGET_NOT_LOADED');
-          await clickTarget(page, server.origin, target, rep, expectedState);
+          await visit(page => clickTarget(page, server.origin, target, rep, expectedState));
           clicks++;
           if(rep.activation==='keyboard')keyboardClicks++;
           if(rep.activation==='order-picker')orderPickerClicks++;
@@ -260,7 +270,7 @@ async function main() {
     console.log(JSON.stringify({
       status: 'D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED', declaredPages: declaredPages.size,
       publicPages: pagesLoaded, menuPages, linkOccurrences, uniqueLocalTargets: targets.size,
-      fragments, clicks, plannedClicks, keyboardClicks, orderPickerClicks, assetTargets, privateTargets, externalTargets: external.size, contactTargets: contacts.size,
+      fragments, clicks, plannedClicks, keyboardClicks, orderPickerClicks, independentPublicHttpTargets: checkedRequests.size, freshDocumentPerVisit: true, browserCacheDisabled: true, serviceWorkerBypassed: true, assetTargets, privateTargets, externalTargets: external.size, contactTargets: contacts.size,
       externalLinksFetched: false, protectedNavigationAccepted: false, productAccepted: false,
     }));
   } finally {

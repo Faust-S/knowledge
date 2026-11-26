@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "NAVIGATION_RESUME_REQUESTED",
+  "status": "NOT_ACCEPTED_NAVIGATION_TRANSPORT_CORRECTION_PREPARED",
   "scope": "1.6.0",
   "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -30,8 +30,8 @@
   },
   "scopeExpansionAllowed": false,
   "productAccepted": false,
-  "qualification": "PENDING_NAVIGATION_RESUME",
-  "publication": "PREFLIGHT_PREVIOUS_PASS_NOT_PUBLISHED",
+  "qualification": "FAIL_NAVIGATION",
+  "publication": "NOT_RUN",
   "notes": "Only release blockers may change this candidate. Keep all existing source, protected production, offline, hardware and publication gates. Codex may assemble the hosting archive only after stable qualification, not perform testing or preparation. Full release also requires a test-only rendered navigation audit after original browser gates; it does not replace protected or hardware evidence.",
   "originalFrozenSiteCommit": "0d88c6822a224cb54d8f7908b216e41f98dfd550",
   "originalFrozenWitnessCommit": "3af00278ef77eb38084df4e9c7854528380dc615",
@@ -157,6 +157,23 @@
         "testBlob": "27244e2343cb569536648976c1f7b8cd39b58f4a",
         "localGitBlobHashesMatch": true
       }
+    },
+    "navigationTransportCorrection": {
+      "priorRun": 45778304289,
+      "priorReceipt": "qualification/d05/receipts/45778304289-linux.json",
+      "productSourceUnchanged": true,
+      "rootCauseNotYetProven": true,
+      "fix": "fresh page per visit; explicit disabled browser cache and service worker bypass; separate no-store HTTP target verification; exact response error classification; real browser fixture before product build",
+      "localBrowserExecution": "BLOCKED_BY_ADMINISTRATOR_ON_LOOPBACK",
+      "fixtureState": "PREPARED_NOT_EXECUTED",
+      "localNodeTests": {
+        "passed": 2,
+        "total": 2,
+        "transportBlob": "b907caa3256bff14988ba15f58f85a14546c77f9",
+        "testBlob": "e4c703d65bf3dafe56b1e5d58cf33d8d7132220b",
+        "actualBrowser": false
+      },
+      "handoffRule": "DO_NOT_GIVE_CODEX_PROMPT_UNTIL_COMPLETED_SUCCESS_AND_RETAINED_COMMIT_REMOTE_REPRODUCTION"
     }
   },
   "manualDispatchOnly": false,
@@ -339,6 +356,22 @@
       "conclusion": "failure",
       "linuxReceipt": "qualification/d05/receipts/45697492951-linux.json",
       "linux": "PARTIAL_NAVIGATION_FAILED"
+    },
+    {
+      "runId": 45778304289,
+      "preparedCommit": "bfb33c914efb9ea64e8f5b877d1e5ebbd3beb842",
+      "requestCommit": "d70d3cfc4ebb13ebb7cd90854e19b1ff7601d958",
+      "requestBranch": "ci/once/d05-t3-release/bfb33c914efb9ea64e8f5b877d1e5ebbd3beb842",
+      "requestFile": ".github/ci-requests/d05-t3-release.json",
+      "runStatusAtRecording": "in_progress",
+      "conclusionAtRecording": null,
+      "matchingRuns": 1,
+      "immutable": true,
+      "priorEvidenceRun": 45697492951,
+      "runStatus": "completed",
+      "conclusion": "failure",
+      "linuxReceipt": "qualification/d05/receipts/45778304289-linux.json",
+      "linux": "PARTIAL_NAVIGATION_TRANSPORT_FAILED"
     }
   ],
   "publicationProcedure": "UNCHANGED_EXISTING_AUTHORIZED_PROCEDURE",
@@ -434,11 +467,11 @@
     }
   ],
   "assemblyHandoff": {
-    "status": "HOLD_UNTIL_FULL_RELEASE_PASS",
+    "status": "BLOCKED_DO_NOT_ISSUE_CODEX_PROMPT",
     "sourceRepository": "Faust-S/cehovod.ru",
     "retainedBranch": "work/2026-11-25-d05-t3-retained-inputs",
     "expectedParent": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
-    "qualificationRun": 45778304289,
+    "qualificationRun": null,
     "retainedCommit": null,
     "retainedTree": null,
     "nodeVersion": "22.16.0",
@@ -451,17 +484,5 @@
     "allowedCodexWork": "assemble from qualified retained tree and package resulting dist; record archive SHA-256",
     "forbiddenCodexWork": "source changes, rebuilding original platform inputs, independent product tests, production activation",
     "releaseGate": "PASS all grouped release stages, exact remote source tree readback and byte-identical private reproduction"
-  },
-  "oneTimeRequest": {
-    "runId": 45778304289,
-    "preparedCommit": "bfb33c914efb9ea64e8f5b877d1e5ebbd3beb842",
-    "requestCommit": "d70d3cfc4ebb13ebb7cd90854e19b1ff7601d958",
-    "requestBranch": "ci/once/d05-t3-release/bfb33c914efb9ea64e8f5b877d1e5ebbd3beb842",
-    "requestFile": ".github/ci-requests/d05-t3-release.json",
-    "runStatusAtRecording": "in_progress",
-    "conclusionAtRecording": null,
-    "matchingRuns": 1,
-    "immutable": true,
-    "priorEvidenceRun": 45697492951
   }
 }
