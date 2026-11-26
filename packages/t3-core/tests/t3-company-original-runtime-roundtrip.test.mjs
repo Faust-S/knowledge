@@ -95,8 +95,7 @@ function candidateSelection(verified){
     /KERNEL_ARTIFACT_MISMATCH/,'candidate must not be admitted under the prior accepted ID');
   return CANDIDATE_KERNEL_ARTIFACT;
 }
-test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product complete archive and repeated same-Workspace merge':
-  'original qualified T2 cross-product complete archive and repeated same-Workspace merge',async()=>{
+async function withOriginalRuntime(execute){
   assert.ok(qualified&&existsSync(join(qualified,'_iwxa/runtime/0.3.6/runtime.js')),
     'QUALIFIED_ORIGINAL_T2_REQUIRED');
   assert.ok(idbModule&&existsSync(idbModule),'TEST_INDEXEDDB_PLATFORM_REQUIRED');
@@ -111,6 +110,7 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
   Object.defineProperty(globalThis,'window',{value:globalThis,configurable:true});
   const tmp=mkdtempSync(join(tmpdir(),'iwxa-company-runtime-'));
   let active=null;
+  const staged=[];
   const originalFetch=globalThis.fetch;
   try{
     const verified=assertQualifiedKernelArtifact(qualified,{kernel:'0.3.6',contract:'1.3.0',artifactId});
@@ -179,9 +179,10 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
       }else assert.equal(assembled.original_qualified_artifact,artifactId);
       const runtimePath=join(dist,'_iwxa/runtime/0.3.6/runtime.js');
       const runtime=await import(pathToFileURL(runtimePath).href);
-      return {runtime,serviceId,origin,dist,db:new idb.IDBFactory(),domain:json(dist,'_iwxa/domain.json'),current:json(dist,'_iwxa/current.json')};
+      const materialized={runtime,serviceId,origin,dist,db:new idb.IDBFactory(),domain:json(dist,'_iwxa/domain.json'),current:json(dist,'_iwxa/current.json')};
+      staged.push(materialized);
+      return materialized;
     }
-    const source=await stage('agent'),recipient=await stage('admin');
     globalThis.fetch=async(input)=>{
       assert.ok(active,'ORIGINAL_RUNTIME_TEST_ORIGIN_MISSING');
       const url=new URL(typeof input==='string'?input:input.url??String(input),active.origin);
@@ -224,6 +225,21 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
       const bound=createSubjectKernelBinding({kernel,access,previewSession:{},corporateBusinessExchange:true});
       return {product,exchange,kernel,bound,context,access};
     }
+    await execute({stage,activate});
+  }finally{
+    try{
+      for(const product of staged)await product.runtime.__resetKernelStoreForTests();
+    }finally{
+      globalThis.fetch=originalFetch;
+      rmSync(tmp,{recursive:true,force:true});
+    }
+  }
+}
+
+test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product complete archive and repeated same-Workspace merge':
+  'original qualified T2 cross-product complete archive and repeated same-Workspace merge',async()=>{
+  await withOriginalRuntime(async({stage,activate})=>{
+    const source=await stage('agent'),recipient=await stage('admin');
     const a=await activate(source);
     await a.product.t1.createWorkspace({workspace_id:ws,profile:'generic'});
     const rows=[];
@@ -375,6 +391,22 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
     assert.ok(returnedRelation.relations.outgoing.some(r=>r.relation_id==='relation:roundtrip'));
     await source.runtime.__resetKernelStoreForTests();
 
+  });
+});
+
+test('native pilot passports execute original Kernel permission ceiling and persist tombstones',async()=>{
+  await withOriginalRuntime(async({stage,activate})=>{
+    const text='Pilot business fixture';
+    const data={schema:'IWXA_T3_ORIGINAL_COMPANY_WORK_RECORD/1',kind:'TASK',
+      artifactId:'task:pilot',operationId:'operation:pilot',organizationId:org,workspaceId:ws,
+      executorId:'person:employee',taskId:'task:pilot',taskRevisionId:'b'.repeat(64),
+      taskPackageSha256:'c'.repeat(64),mimeType:'text/plain',text,sha256:sha(text),
+      sourceKind:'ORIGINAL_SIGNED_TASK'};
+    const businessId='company:work:'+sha(JSON.stringify(companyWorkRecordKeyParts(data)));
+    const appliedData={schema:'IWXA_T3_ADMIN_APPLIED_RESULTS/1',records:[{
+      taskId:data.taskId,taskRevisionId:data.taskRevisionId,resultRevisionId:'d'.repeat(64),
+      organizationId:org,workspaceId:ws,executorId:data.executorId,result:text,
+      acceptanceId:'e'.repeat(64)}]};
     // Assemble the explicit two native pilot variants, not a fixture passport
     // or a locally patched Runtime. Exercise the original permission ceiling
     // against real Object/Graph/Event operations in independent local Stores.
@@ -416,8 +448,8 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
         await write(registry,'pilot:registry','iwxa.t3.access.signed-registry',{witness:true}),
       ];
       if(role==='RECIPIENT')protectedRows.push(await write(registry,'pilot:applied',
-        'iwxa.admin.applied-results',command.object.data));
-      const business=await write(ws,rows[0].object_id,'iwxa.t3.company-work-record',rows[0].data);
+        'iwxa.admin.applied-results',appliedData));
+      const business=await write(ws,businessId,'iwxa.t3.company-work-record',data);
       const remove=row=>t1.deleteObject({workspace_id:row.workspace_id,object_id:row.object_id,
         base_revision:row.revision,event:{event_type:'iwxa.test.pilot.deleted',payload:{object_id:row.object_id}}});
       for(const row of protectedRows){
@@ -437,8 +469,5 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
       assert.ok(tombstone&&tombstone.revision===business.revision+1&&tombstone.deleted===true,'PILOT_ORIGINAL_TOMBSTONE_MISSING');
       await pilot.runtime.__resetKernelStoreForTests();
     }
-  }finally{
-    globalThis.fetch=originalFetch;
-    rmSync(tmp,{recursive:true,force:true});
-  }
+  });
 });
