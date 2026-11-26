@@ -17,6 +17,7 @@ import {CANDIDATE_KERNEL_ARTIFACT,selectQualificationKernelCandidate}
   from '../scripts/installed-kernel-candidate.mjs';
 import {assertInstalledOriginalKernelArtifact} from '../scripts/installed-kernel-selection.mjs';
 import {companyExchangeServiceId} from '../src/t3/company-exchange-profile.mjs';
+import {assertT4OriginalInstalledProductPassport} from '../../t4-network/src/network/original-installed-product-passport.mjs';
 import {createSubjectKernelBinding} from '../src/t3/subject-access-binding.mjs';
 import {createTrustedReconciliationKernelApply} from '../src/t3/reconciliation-kernel-apply.mjs';
 import {companyWorkRecordKeyParts,companyWorkEventPayload,readOriginalCompanyWorkspace,
@@ -137,7 +138,7 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
       assert.equal(existsSync(join(tmp,'forbidden-web-dist')),false);
       assert.equal(existsSync(join(tmp,'forbidden-fixture-dist')),false);
     }
-    async function stage(which){
+    async function stage(which,pilotRole=null){
       const agent=which==='agent';
       const productId=agent?'iwxa.personal-agent':'iwxa.admin-center';
       const serviceId=productId+'.workspace',origin=agent?'http://127.0.0.1:18883':'http://127.0.0.1:18885';
@@ -146,23 +147,26 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
         localStoreName:'iwxa-local',kernelVersion:'0.3.6',runtimeContract:'1.3.0',
         qualifiedArtifactId:artifactId,authorizedNativeOwner:agent?'ORIGINAL_T3_SIGNED_EMPLOYEE':'ORIGINAL_T3_SIGNED_ADMIN',
         ...(agent?{authorizedResultRecipient:null,installedAgentT3Mode:'EXPLICIT_OPT_IN'}:{installedAdminT3Mode:'EXPLICIT_OPT_IN'})};
-      const profilePath=put(tmp,which+'.json',profile),source=join(tmp,which+'-source'),dist=join(tmp,which+'-dist');
+      const name=which+(pilotRole?'-pilot':'');
+      const profilePath=put(tmp,name+'.json',profile),source=join(tmp,name+'-source'),dist=join(tmp,name+'-dist');
       const product=agent
         ?await materializeOriginalAgentT2Product({qualifiedKernelDist:input,agentProfile:profilePath,outputRoot:source,qualificationKernelCandidate})
         :await materializeOriginalAdminT2Product({qualifiedKernelDist:input,centerProfile:profilePath,outputRoot:source,qualificationKernelCandidate});
       let assembled;
       if(agent){
-        const receiptPath=join(tmp,'agent-assembled-receipt.json');
+        const receiptPath=join(tmp,name+'-assembled-receipt.json');
         const built=buildOriginalAgentOneDist({t2Dist:source,t3Build:compiled,outputDir:dist,
-          receiptPath,desktopAgentControlOnly:true,qualificationKernelCandidate});
+          receiptPath,desktopAgentControlOnly:true,qualificationKernelCandidate,installedNetworkPilotRole:pilotRole});
         assembled=JSON.parse(readFileSync(receiptPath,'utf8'));
         assert.equal(built.productId,'iwxa.personal-agent');
         assert.equal(built.original_qualified_artifact,assembled.original_qualified_artifact);
       }else{
         assembled=assembleSignedControlDist({t2Dist:source,t3Build:compiled,outputDir:dist,
-          qualificationKernelCandidate,installedOriginalAdminD3:true,desktopAdminControlOnly:true});
+          qualificationKernelCandidate,installedOriginalAdminD3:true,desktopAdminControlOnly:true,installedNetworkPilotRole:pilotRole});
       }
       assert.equal(assembled.original_kernel,'0.3.6');
+      assert.equal(assembled.original_t4_pilot_role,pilotRole);
+      assert.equal(assembled.original_t4_technical_schema_registered,pilotRole!==null);
       assert.equal(assertInstalledOriginalKernelArtifact(dist,qualificationKernelCandidate).artifactSha256,selected.artifactSha256);
       if(qualificationKernelCandidate){
         assert.equal(product.originalQualifiedArtifactId,null);
@@ -370,6 +374,69 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
     const returnedRelation=await employeeCold.exchange.t1.getObject(ws,rows[0].object_id);
     assert.ok(returnedRelation.relations.outgoing.some(r=>r.relation_id==='relation:roundtrip'));
     await source.runtime.__resetKernelStoreForTests();
+
+    // Assemble the explicit two native pilot variants, not a fixture passport
+    // or a locally patched Runtime. Exercise the original permission ceiling
+    // against real Object/Graph/Event operations in independent local Stores.
+    // This is a service-passport qualification, NOT device enrollment,
+    // signed network Access, DB9, or an installed two-node transport test.
+    for(const [which,role] of [['agent','SOURCE'],['admin','RECIPIENT']]){
+      const pilot=await stage(which,role);
+      const catalog=json(pilot.dist,'_iwxa/service-catalog.json');
+      const entry=catalog.entries.find(x=>x.service_id===pilot.serviceId);
+      assert.ok(entry);
+      const bytes=readFileSync(join(pilot.dist,entry.file));
+      assert.equal(sha(bytes),entry.sha256);
+      const passport=JSON.parse(bytes.toString('utf8'));
+      assert.equal(assertT4OriginalInstalledProductPassport({domain:pilot.domain,passport,role}),role);
+      const p=await activate(pilot),t1=p.product.t1;
+      for(const name of ['getWorkspace','getObject','listObjects','listEventsSince','commitObjectGraph','putObject','deleteObject','getAsset','listAssets','putAsset','deleteAsset','putRelation','deleteRelation'])
+        assert.ok(p.product.granted_operations.includes('t1.'+name),'PILOT_ORIGINAL_OPERATION_MISSING:'+role+':'+name);
+      for(const name of ['softDeleteWorkspace','restoreWorkspace','purgeCommit'])
+        assert.ok(!p.product.granted_operations.includes('t1.'+name),'PILOT_LIFECYCLE_PERMISSION_WIDENED');
+      const tech='ws:pilot-technical',registry='ws:pilot-registry';
+      for(const id of [ws,tech,registry])
+        await t1.createWorkspace({workspace_id:id,profile:'generic'});
+      const technicalData={schema:'IWXA_T4_ORIGINAL_NETWORK_REPLAY_CHECKPOINT_V1',
+        title:'Pilot schema witness',witness:true};
+      const write=async(workspace_id,object_id,schema_id,data)=>{
+        const receipt=await t1.commitObjectGraph({workspace_id,idempotency_key:sha(role+'|'+workspace_id+'|'+object_id),
+          object:{object_id,schema_id,schema_version:'1.0.0',data,base_revision:0,extensions:{}},
+          event:{event_type:'iwxa.test.pilot.created',payload:{object_id}}});
+        assert.equal(receipt.object.revision,1);
+        assert.equal(receipt.object.schema_id,schema_id);
+        const observed=await t1.getObject(workspace_id,object_id);
+        assert.deepEqual(observed.object.data,data);
+        return receipt.object;
+      };
+      const protectedRows=[
+        await write(tech,'pilot:technical','iwxa.t4.network.record',technicalData),
+        // Only serialization is under test here; never use this fixture as
+        // an authenticated signed Registry or a real authority decision.
+        await write(registry,'pilot:registry','iwxa.t3.access.signed-registry',{witness:true}),
+      ];
+      if(role==='RECIPIENT')protectedRows.push(await write(registry,'pilot:applied',
+        'iwxa.admin.applied-results',command.object.data));
+      const business=await write(ws,rows[0].object_id,'iwxa.t3.company-work-record',rows[0].data);
+      const remove=row=>t1.deleteObject({workspace_id:row.workspace_id,object_id:row.object_id,
+        base_revision:row.revision,event:{event_type:'iwxa.test.pilot.deleted',payload:{object_id:row.object_id}}});
+      for(const row of protectedRows){
+        const history=await t1.listEventsSince(row.workspace_id);
+        await assert.rejects(remove(row),{code:'PERMISSION_DENIED'});
+        assert.deepEqual((await t1.getObject(row.workspace_id,row.object_id)).object,row);
+        assert.deepEqual(await t1.listEventsSince(row.workspace_id),history);
+      }
+      const deleted=await remove(business);
+      assert.equal(deleted.object.revision,business.revision+1);
+      assert.ok((await t1.listEventsSince(ws)).some(e=>e.event_id===deleted.event.event_id));
+      await pilot.runtime.__resetKernelStoreForTests();
+      const coldPilot=await activate(pilot);
+      for(const row of protectedRows)
+        assert.deepEqual((await coldPilot.product.t1.getObject(row.workspace_id,row.object_id)).object,row);
+      const tombstone=(await coldPilot.product.t1.listObjects(ws,{include_deleted:true})).find(x=>x.object_id===business.object_id);
+      assert.ok(tombstone&&tombstone.revision===business.revision+1&&tombstone.deleted_at!=null,'PILOT_ORIGINAL_TOMBSTONE_MISSING');
+      await pilot.runtime.__resetKernelStoreForTests();
+    }
   }finally{
     globalThis.fetch=originalFetch;
     rmSync(tmp,{recursive:true,force:true});
