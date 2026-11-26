@@ -9,4 +9,5 @@ export interface OriginalInstalledNetworkScope {
 export function normalizeOriginalInstalledNetworkScope(value:unknown):OriginalInstalledNetworkScope;
 export function sameOriginalInstalledNetworkScope(a:unknown,b:unknown):boolean;
 export function allowOriginalInstalledNetworkUiOperation(scope:OriginalInstalledNetworkScope,operation:string,context:unknown,networkReady?:boolean):boolean;
+export function allowOriginalInstalledNetworkUiRequest(scope:OriginalInstalledNetworkScope,input:unknown,context:unknown,networkReady?:boolean):boolean;
 export function createOriginalInstalledNetworkMutationRoute(input:{scope:OriginalInstalledNetworkScope;sourceRoute?:OriginalLocalSourceMutationRoute|null;isHostActive:()=>boolean}):OriginalMutationRoute;

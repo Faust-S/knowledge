@@ -7,7 +7,7 @@ import {timingSafeEqual,createHash} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {strictJson} from "./access/strict-json.mjs";
 import {canonical} from "./access/core.mjs";
-import {normalizeOriginalInstalledNetworkScope} from "./original-installed-network-scope.mjs";
+import {normalizeOriginalInstalledNetworkScope,allowOriginalInstalledNetworkUiRequest} from "./original-installed-network-scope.mjs";
 
 const LOCAL=/^https?:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/;
 const TOKEN=/^[A-Za-z0-9_-]{40,128}$/;
@@ -1119,19 +1119,33 @@ export function createOriginalControlHttpHandler({
         ["select","context","action","digest","authorize"].includes(input.verb),
         "T3_D1_CONTROL_REQUEST_INVALID");
       const owner=await ownerFor({scope:input.scope,operation:input.operation});
+      // The factory's early method selection is not a final authority check.
+      // Re-evaluate the actual selected context and request against the same
+      // installed Relay, including after asynchronous signed authorization.
+      const scopedRelay=installedScope===null||!owner?null:
+        await originalKernelRelayFor({contextEpoch:before});
+      if(installedScope!==null&&owner)
+        requireThat(scopedRelay&&typeof scopedRelay.exchange==="function",
+          "T3_D3_ORIGINAL_KERNEL_RELAY_NOT_AVAILABLE");
+      const permitted=context=>installedScope===null||
+        allowOriginalInstalledNetworkUiRequest(installedScope,input,context,scopedRelay?.networkAttached===true);
       if(input.verb==="select"){
-        if(owner!==null&&owner!==undefined)
+        let available=!!owner;
+        if(available){
           requireThat(OWNER_FIELDS.every(f=>typeof owner[f]==="function"),
             "T3_D1_CONTROL_OWNER_INVALID");
+          if(installedScope!==null)available=permitted(await owner.currentContext());
+        }
         requireThat(before===await epochNow()&&authenticated(req),
           "STALE_CONTEXT_OPERATION");
-        reply(res,200,{available:!!owner,contextEpoch:before});
+        reply(res,200,{available,contextEpoch:before});
         return true;
       }
       requireThat(owner&&OWNER_FIELDS.every(f=>typeof owner[f]==="function"),
         "T3_D1_ACCESS_OWNER_REQUIRED");
       const selected=await owner.currentContext();
       const selectedIdentity=identity(selected);
+      requireThat(permitted(selected),"T3_ORIGINAL_INSTALLED_NETWORK_UI_OPERATION_DENIED");
       let result;
       if(input.verb==="context") {
         result={context:selected};
@@ -1163,9 +1177,9 @@ export function createOriginalControlHttpHandler({
           "T3_D1_CONTROL_ORIGINAL_BINDING_DENIED");
         result={decision};
       }
-      requireThat(before===await epochNow()&&authenticated(req)&&
-        identity(await owner.currentContext())===selectedIdentity&&
-        authenticated(req),
+      const finalSelected=await owner.currentContext();
+      requireThat(identity(finalSelected)===selectedIdentity&&
+        before===await epochNow()&&authenticated(req)&&permitted(finalSelected),
         "STALE_CONTEXT_OPERATION");
       reply(res,200,result);
       return true;

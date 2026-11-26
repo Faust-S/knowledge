@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createT4OriginalInstalledControlFactories as factories} from '../src/network/original-installed-control-factories.mjs';
-import {normalizeOriginalInstalledNetworkScope as normalize,allowOriginalInstalledNetworkUiOperation as allow,
+import {normalizeOriginalInstalledNetworkScope as normalize,allowOriginalInstalledNetworkUiOperation as allow,allowOriginalInstalledNetworkUiRequest as allowRequest,
   createOriginalInstalledNetworkMutationRoute as route} from '../../t3-core/src/t3/original-installed-network-scope.mjs';
 import {createOriginalLocalSourceMutationRoute} from '../../t3-core/src/t3/original-local-source-mutation-route.mjs';
 import {isOriginalKernelNativeRelayForNetworkOwner} from '../../t3-core/src/t3/original-kernel-native-relay.mjs';
@@ -136,4 +136,23 @@ test('failed native activation leaves local reads and unrelated original T3 work
     assert.equal(await f.opts.ownerFor({operation:'putObject'}),null);assert.equal(await f.opts.ownerFor({operation:'getObject'}),f.grant);
     f.select(OTHER);assert.equal(await f.opts.ownerFor({operation:'putObject'}),f.grant);
   }finally{f.relay.close();}
+});
+
+test('installed Control ceiling checks the exact operation, not a read selector with a different command',()=>{
+  const req=(operation,kernelOperation,verb='digest',channel='kernel')=>({scope:channel,operation,verb,kernelOperation});
+  for(const scope of [source,recipient]){
+    assert.equal(allowRequest(scope,req('getObject','t1.getObject'),ctx(WS)),true);
+    assert.equal(allowRequest(scope,req('getObject','t1.putObject'),ctx(WS),true),false);
+    assert.equal(allowRequest(scope,req('putObject','t1.putObject'),ctx(WS),true),scope===source);
+    assert.equal(allowRequest(scope,req('putObject','t1.putObject'),ctx(WS),false),false);
+    assert.equal(allowRequest(scope,req('exportPackage','t2.exportPackage'),ctx(WS)),true);
+    assert.equal(allowRequest(scope,req('exportPackage','t1.exportPackage'),ctx(WS)),false);
+    assert.equal(allowRequest(scope,req('getObject','t1.getObject'),ctx(REG),true),false);
+    assert.equal(allowRequest(scope,req('getObject','t1.getObject'),ctx(TECH),true),false);
+    assert.equal(allowRequest(scope,req('activity.read','t1.listEventsSince','action','activity'),ctx(WS)),true);
+    assert.equal(allowRequest(scope,req('activity.read','t1.putObject','action','activity'),ctx(WS),true),false);
+    assert.equal(allowRequest(scope,req('activity.read','t1.getObject'),ctx(OTHER),true),false);
+    assert.equal(allowRequest(scope,{scope:'kernel',operation:'getObject',verb:'authorize',request:{resource:OTHER}},ctx(WS)),false);
+    assert.equal(allowRequest(scope,{scope:'kernel',operation:'getObject',verb:'authorize',request:{resource:WS}},ctx(WS)),true);
+  }
 });

@@ -30,6 +30,20 @@ export function allowOriginalInstalledNetworkUiOperation(scope,operation,context
   if(READS.has(operation))return true;
   return scope.role==='SOURCE'&&networkReady===true&&CAPTURE.has(operation);
 }
+// Recheck the actual owner request after owner resolution, including the
+// Kernel operation passed to action/digest. A read port is not permission
+// to request the digest of a write. Keep the original Activity route's
+// four read operations, which deliberately share one method-specific port.
+export function allowOriginalInstalledNetworkUiRequest(scope,input,context,networkReady=false){
+  if(!input||!['kernel','activity'].includes(input.scope)||
+    (input.scope==='activity')!==(input.operation==='activity.read')||
+    !allowOriginalInstalledNetworkUiOperation(scope,input.operation,context,networkReady))return false;
+  if(input.verb==='authorize')return input.request?.resource===context.resource;
+  if(input.verb!=='action'&&input.verb!=='digest')return true;
+  if(input.scope==='activity')return ['t1.getWorkspace','t1.listObjects','t1.getObject','t1.listEventsSince'].includes(input.kernelOperation);
+  const level=/^(?:export|import|confirmExport)/.test(input.operation)?'t2.':'t1.';
+  return input.kernelOperation===level+input.operation;
+}
 // At the original signed facade's last mutation hop, no ordinary local
 // operation may bypass the native source capture or write a replica.
 export function createOriginalInstalledNetworkMutationRoute({scope,sourceRoute=null,isHostActive}={}){
