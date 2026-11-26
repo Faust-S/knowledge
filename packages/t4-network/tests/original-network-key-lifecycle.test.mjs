@@ -9,6 +9,11 @@ import {createSignedAccessHostPort} from '../../t3-core/src/t3/signed-access-hos
 import {ORIGINAL_NETWORK_KEY_TRANSITION,ORIGINAL_NETWORK_KEY_MANAGE,originalNetworkKeyPossessionBytes,
   originalNetworkKeyOperationDigest,originalNetworkKeyStatusId,createOriginalNetworkAgreementChallenge,answerOriginalNetworkAgreementChallenge} from '../../t3-core/src/t3/access/original-network-key-lifecycle.mjs';
 import {createT4OriginalVaultSealedContentPort} from '../src/network/original-vault-sealed-content.mjs';
+import {T4_MULTIPART_OPAQUE_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,
+  T4_MULTIPART_MAX_CIPHERTEXT_BYTES,createT4NativeMultipartOffer,createT4NativeMultipartSelection,
+  prepareT4CandidateMultipartOpaqueChunks,assembleT4CandidateMultipartOpaqueChunks}
+  from '../src/network/standard-network-multipart-opaque-chunks.mjs';
+import {readT4OriginalNativeMultipartAgreement} from '../src/network/original-network-multipart-agreement.mjs';
 import {verifyT4OriginalObjectDelta,digestT4OriginalObjectContent} from '../src/network/original-object-delta.mjs';
 import {openT4OriginalNetworkSubjectChange,applyT4OriginalNetworkSubjectChange,createT4OriginalNetworkAppliedAckBody} from '../src/network/original-network-subject-apply.mjs';
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,createT4OriginalSourceSessionHead,
@@ -321,11 +326,11 @@ test('K38 X25519 possession challenge is exact, one-use and rejects other privat
 });
 
 const sha=x=>createHash('sha256').update(x).digest('hex');
-function captured(content=Buffer.from('IWXA original test fixture confidential content '.repeat(700)),eventId='event:k38:one'){
+function captured(content=Buffer.from('IWXA original test fixture confidential content '.repeat(700)),eventId='event:k38:one',kind='OBJECT_PUT'){
   const d=x=>'sha256:'+sha(x);
   const identity={workspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,scopeRef:SCOPE,ownerEpoch:2};
   const before=d('before'),after=d('after:'+eventId),window=d('window:'+eventId),event=d(eventId);
-  const capture={kind:'OBJECT_PUT',captureRef:'capture:k38:one',workspaceId:WS,originalWriteOwnerRef:OWNER,
+  const capture={kind,captureRef:'capture:k38:one',workspaceId:WS,originalWriteOwnerRef:OWNER,
     sourceEventId:eventId,sourceRevision:1,originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
     sourceWindow:{lastEventId:eventId,eventRefs:[{eventDigest:event}],windowDigest:window,
       sourcePrefixDigestBefore:before,sourcePrefixDigestAfter:after},
@@ -1551,4 +1556,85 @@ test('K103 committed recipient Result requires independent signed owner and peer
   await assert.rejects(port(legacy,A).authorizePeer(peer),{code:'ORIGINAL_SIGNED_NETWORK_ACCESS_DENIED'});
   await assert.rejects(port(f,B).authorizeOwner({...own,operation:oldOwner}),{code:'REPLACEMENT_HISTORY_SIGNED_OWNER_MISMATCH'});
   await assert.rejects(port(f,A).authorizePeer({...peer,operation:oldPeer}),{code:'REPLACEMENT_HISTORY_SIGNED_PEER_MISMATCH'});
+});
+
+// The original Vault/Registry/Access path is real. The selected native
+// agreement is an owner proof fixture here; K145 independently exercises
+// the signed two-direction agreement through actual publication/replay ports.
+function selectedMultipartFor(session,variant='one'){
+  const h='sha256:'+sha('chain:'+variant),headSha256=sha('head:'+variant),diffSha256=sha('diff:'+variant);
+  const offer=createT4NativeMultipartOffer(),common={verifiedSequence:1,verifiedSessionRef:session.sessionRef,
+    verifiedScopeRef:session.scopeRef,verifiedOwnerEpoch:session.ownerEpoch,verifiedCryptoSuite:SUITE,
+    verifiedSignerRef:'key:multipart',verifiedMessageId:'message:multipart',networkBytesVerified:true,
+    originalBusinessApplied:false,originalT3ExchangeCalled:false};
+  return readT4OriginalNativeMultipartAgreement({session,localRole:'SOURCE',requiredCryptoSuite:SUITE,
+    sourceHead:{...common,schema:'IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1',signedMessageType:'HEADS',
+      verifiedSourceNodeRef:session.sourceNodeRef,verifiedRecipientNodeRef:session.recipientNodeRef,
+      key:headSha256+'.t4n',sha256:headSha256,originalT3PublicationEventChainVerified:true,
+      originalOutboundSignatureVerified:true,originalOutboundAuthorityVerified:true,originalImmutableTransportReadbackVerified:true,
+      checkpointRef:'checkpoint:head',originalPresentEventId:'event:head',originalPresentRevision:1,originalPresentChainHash:h,
+      remoteReceiptProven:false,verifiedCriticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION],
+      verifiedBody:{familyRef:session.familyRef,ownerEpoch:session.ownerEpoch,heads:[session.sourcePrefixDigestAfter],
+        sourceSession:{sourceEventId:session.sourceEventId,sourceRevision:session.sourceRevision,sourceEventDigest:session.sourceEventDigest,
+          predecessorPrefixDigest:session.sourcePrefixDigestBefore,capturedWindowDigest:session.capturedWindowDigest,
+          capturedSha256:session.capturedSha256,changeKind:session.changeKind},multipartOffer:offer}},
+    recipientDiff:{...common,schema:'IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1',signedMessageType:'DIFF_REQUEST',
+      verifiedSourceNodeRef:session.recipientNodeRef,verifiedRecipientNodeRef:session.sourceNodeRef,key:diffSha256+'.t4n',sha256:diffSha256,
+      originalSignatureVerified:true,originalAccessVerified:true,originalReplayCheckpointRecorded:true,
+      verifiedCriticalExtensions:[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION],verifiedBody:{familyRef:session.familyRef,
+        fromHeads:[session.sourcePrefixDigestBefore],multipartSelection:createT4NativeMultipartSelection({offer,headSha256})}}});
+}
+test('K148 original registered X25519 key and encrypted recipient Vault open exact multipart capture and bind the agreement in the authenticated header', {timeout:60000},async()=>{
+  const q=await sealedFixture(),c=captured(Buffer.alloc(600000,31),'event:k148:one','ASSET_PUT');
+  const selected=selectedMultipartFor(c.session),digest=selected.agreementDigest;
+  let agreement=selected;
+  const callback=async p=>{assert.deepEqual(p.session,c.session);assert.equal(p.originalSubjectAuthorityGranted,false);return agreement;};
+  const source=createT4OriginalVaultSealedContentPort({...q.common,role:'SOURCE',readOriginalMultipartAgreement:callback});
+  const recipient=q.recipient({readOriginalMultipartAgreement:callback});
+  const sourceInput={...c.input,multipartProfile:T4_MULTIPART_OPAQUE_EXTENSION,originalMultipartAgreementDigest:digest};
+  const plan=await prepareT4CandidateMultipartOpaqueChunks({changeId:c.session.changeId,ownerRef:OWNER,
+    sourceContentRef:c.input.sourceContentRef,getMode:()=> 'T4_NETWORK',authorizeOriginalSealedContent:async()=>true,
+    readOriginalSealedContent:p=>source.readOriginalSealedContent({...p,...sourceInput})});
+  assert.ok(plan.manifest.totalCiphertextBytes>524288);assert.ok(plan.manifest.parts.length>1);
+  const assembled=assembleT4CandidateMultipartOpaqueChunks({manifest:plan.manifest,bodies:[...plan.bodies].reverse()});
+  const raw=Buffer.from(assembled.ciphertext),header=JSON.parse(raw.subarray(6,6+raw.readUInt16BE(4)).toString('utf8'));
+  assert.equal(header.multipartAgreementDigest,digest);assert.deepEqual(header.session,c.session);
+  const publication={session:c.session,ciphertext:assembled.ciphertext,contentDigest:plan.manifest.contentDigest,
+    encryptionContextRef:assembled.encryptionContextRef,originalPreparedCiphertextRequired:true,originalMultipartAgreementDigest:digest};
+  assert.equal(await source.authorizeOriginalSealedPublication(publication),true);
+  const openInput={...q.openInput(c.session,assembled),originalMultipartAgreementDigest:digest};
+  const opened=await recipient.openOriginalSealedContent(openInput);
+  assert.equal(opened.originalVaultUsed,true);assert.equal(opened.originalMultipartAgreementDigest,digest);
+  assert.deepEqual(Buffer.from(opened.plaintext),c.content);assert.equal(q.unlocks,1);
+  assert.equal(opened.originalBusinessApplied,false);
+  await assert.rejects(q.source.readOriginalSealedContent(sourceInput),{code:'SEALED_CONTENT_MULTIPART_AGREEMENT_REQUIRED'});
+  await assert.rejects(q.recipient().openOriginalSealedContent(openInput),{code:'SEALED_CONTENT_MULTIPART_AGREEMENT_REQUIRED'});
+  await assert.rejects(recipient.openOriginalSealedContent(q.openInput(c.session,assembled)),{code:'SEALED_CONTENT_RECIPIENT_INPUT_REQUIRED'});
+  agreement=selectedMultipartFor(c.session,'two');
+  await assert.rejects(source.authorizeOriginalSealedPublication(publication),{code:'SEALED_CONTENT_MULTIPART_AGREEMENT_CHANGED'});
+  await assert.rejects(recipient.openOriginalSealedContent({...openInput,originalMultipartAgreementDigest:agreement.agreementDigest}),
+    {code:'SEALED_CONTENT_ENVELOPE_BINDING_MISMATCH'});
+  assert.equal(q.unlocks,1);
+});
+test('K148 multipart authority is rechecked during Vault unlock, revocation prevents returning decrypted capture', {timeout:60000},async()=>{
+  const q=await sealedFixture(),c=captured(Buffer.alloc(600000,17),'event:k148:two','ASSET_PUT');
+  let selected=selectedMultipartFor(c.session);const digest=selected.agreementDigest;
+  const callback=async()=>selected;
+  const source=createT4OriginalVaultSealedContentPort({...q.common,role:'SOURCE',readOriginalMultipartAgreement:callback});
+  const sealed=await source.readOriginalSealedContent({...c.input,multipartProfile:T4_MULTIPART_OPAQUE_EXTENSION,
+    originalMultipartAgreementDigest:digest});
+  const recipient=q.recipient({readOriginalMultipartAgreement:callback,unlockPassphrase:async()=>{selected=null;return PASS;}});
+  await assert.rejects(recipient.openOriginalSealedContent({...q.openInput(c.session,sealed),originalMultipartAgreementDigest:digest}),
+    {code:'MULTIPART_AGREEMENT_WITNESS_INVALID'});
+});
+test('K148 selected multipart profile preserves the old cap for ordinary sessions and rejects over-cap or wrong-kind requests before key use', {timeout:60000},async()=>{
+  const q=await sealedFixture(),c=captured(Buffer.alloc(600000,17),'event:k148:three','ASSET_PUT'),selected=selectedMultipartFor(c.session);
+  const source=createT4OriginalVaultSealedContentPort({...q.common,role:'SOURCE',readOriginalMultipartAgreement:async()=>selected});
+  await assert.rejects(source.readOriginalSealedContent(c.input),{code:'SEALED_CONTENT_SOURCE_CAPTURE_REQUIRED'});
+  const large=captured(Buffer.alloc(T4_MULTIPART_MAX_CIPHERTEXT_BYTES+1),'event:k148:four','ASSET_PUT');
+  await assert.rejects(source.readOriginalSealedContent({...large.input,multipartProfile:T4_MULTIPART_OPAQUE_EXTENSION,
+    originalMultipartAgreementDigest:selected.agreementDigest}),{code:'SEALED_CONTENT_SOURCE_CAPTURE_REQUIRED'});
+  const object=captured(Buffer.alloc(600000),'event:k148:object');
+  await assert.rejects(source.readOriginalSealedContent({...object.input,multipartProfile:T4_MULTIPART_OPAQUE_EXTENSION,
+    originalMultipartAgreementDigest:selected.agreementDigest}),{code:'SEALED_CONTENT_MULTIPART_AGREEMENT_REQUIRED'});
 });
