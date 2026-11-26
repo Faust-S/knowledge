@@ -1,7 +1,7 @@
 import { CanonicalInstant } from '../../../foundation/time.mjs';
 import { canonicalStringify } from '../../../persistence/canonical-codec.mjs';
 import { normalizeProject, normalizeWork, assertProjectMethodologyCreation, assertProjectMethodologyCreationWork } from '../features/project-process/project-process.mjs';
-import { prepareWorkspaceMethodSourceInputs, reconstructWorkspaceMethodDraft } from '../features/workspace/workspace-project-method.mjs';
+import { prepareWorkspaceMethodSourceInputs, reconstructWorkspaceMethodDraft, inspectWorkspaceMethodMaterials } from '../features/workspace/workspace-project-method.mjs';
 import { projectProcessSourceObjectId } from './project-process-source-owner.mjs';
 import { projectProcessSourceBinding } from './project-process-source-contract.mjs';
 import { readWorkspaceMethodFromSourceOwner } from './project-process-method-readback.mjs';
@@ -22,6 +22,24 @@ function recordId(value){
   return value;
 }
 
+function makeEntry(workspaceId,kind,id,input,idValue){
+  const binding=projectProcessSourceBinding(kind);
+  return {kind,id,input,recordId:recordId(idValue),objectId:projectProcessSourceObjectId(kind,workspaceId,id),
+    family:binding.family,payload:kind==='project'?normalizeProject(input):normalizeWork(input)};
+}
+
+function bindExpectedRefs(workspaceId,entries){
+  const p=entries[0];
+  const byId=new Map(entries.slice(1).map(item=>[item.id,item]));
+  const ref=item=>({family:item.family,objectId:item.objectId,recordId:item.recordId});
+  for(const item of entries){
+    const heads=item.kind==='project'?{}:{project:ref(p),
+      ...Object.fromEntries(item.payload.dependencies.map(dep=>['predecessor:'+dep.predecessorWorkId,ref(byId.get(dep.predecessorWorkId))]))};
+    item.expectedRefs={workspaceId,canonicalHeads:heads};
+  }
+  return entries;
+}
+
 /** Build immutable inputs for the original owner create operations.
  * recordIds and knowledgeAt belong to this exact creation attempt. Retrying
  * requires the same values and identical method; never allocate fresh IDs
@@ -34,11 +52,7 @@ function prepareEntries({workspaceId,objects,draft,recordIds,knowledgeAt}){
     fail('METHOD_SOURCE_RECORD_ID_INVALID','Exactly one record ID per declared Project and Work is required');
   }
   const instant=knowledgeAt instanceof CanonicalInstant?knowledgeAt:CanonicalInstant.parse(knowledgeAt);
-  const entry=(kind,id,input,idValue)=>{
-    const binding=projectProcessSourceBinding(kind);
-    return {kind,id,input,recordId:recordId(idValue),objectId:projectProcessSourceObjectId(kind,workspaceId,id),
-      family:binding.family,payload:kind==='project'?normalizeProject(input):normalizeWork(input)};
-  };
+  const entry=(kind,id,input,idValue)=>makeEntry(workspaceId,kind,id,input,idValue);
   const projectRecordId=recordId(recordIds.project);
   const inputs=new Map(plan.workInputs.map(input=>[input.workId,input]));
   const workEntries=plan.writeOrder.map(id=>entry('work',id,inputs.get(id),recordIds.works[id]));
@@ -54,14 +68,7 @@ function prepareEntries({workspaceId,objects,draft,recordIds,knowledgeAt}){
   const p=entry('project',projectInput.projectId,projectInput,projectRecordId);
   assertProjectMethodologyCreation(p.payload,p.recordId);
   for(const item of workEntries) assertProjectMethodologyCreationWork(p.payload,item.payload,item.recordId);
-  const entries=[p,...workEntries];
-  const byId=new Map(entries.slice(1).map(item=>[item.id,item]));
-  const ref=item=>({family:item.family,objectId:item.objectId,recordId:item.recordId});
-  for(const item of entries){
-    const heads=item.kind==='project'?{}:{project:ref(p),
-      ...Object.fromEntries(item.payload.dependencies.map(dep=>['predecessor:'+dep.predecessorWorkId,ref(byId.get(dep.predecessorWorkId))]))};
-    item.expectedRefs={workspaceId,canonicalHeads:heads};
-  }
+  const entries=bindExpectedRefs(workspaceId,[p,...workEntries]);
   return {entries,instant,projectId:p.id};
 }
 
@@ -144,8 +151,8 @@ export async function createWorkspaceMethodThroughSourceOwner({owner,workspaceId
 }
 
 
-/** Historical creation intention, even when no Work has been saved. */
-export async function readWorkspaceMethodCreationIntent({owner,workspaceId,projectId}){
+// Build the original creation set without inventing an admitted material catalog.
+async function readCreationPlan({owner,workspaceId,projectId}){
   if(!owner||typeof owner.load!=='function') fail('METHOD_SOURCE_OWNER_REQUIRED','Original Project/Process source owner port required');
   const row=await owner.load('project',workspaceId,projectId),value=row?.value;
   if(!row||row.objectId!==projectProcessSourceObjectId('project',workspaceId,projectId)
@@ -169,7 +176,66 @@ export async function readWorkspaceMethodCreationIntent({owner,workspaceId,proje
   const draft=reconstructWorkspaceMethodDraft({workspaceId,project,works});
   const recordIds=Object.freeze({project:creation.projectRecordId,
     works:Object.freeze(Object.fromEntries(creation.steps.map(step=>[step.workId,step.recordId])))});
-  return Object.freeze({draft,recordIds,knowledgeAt:row.knowledgeAt,executionAuthority:false,writeAuthorized:false});
+  return {draft,recordIds,knowledgeAt:row.knowledgeAt,project,works};
+}
+
+/** Historical creation intention, even when no Work has been saved. */
+export async function readWorkspaceMethodCreationIntent(input){
+  const {draft,recordIds,knowledgeAt}=await readCreationPlan(input);
+  return Object.freeze({draft,recordIds,knowledgeAt,executionAuthority:false,writeAuthorized:false});
+}
+
+/** Read-only progress for the exact original attempt. Never represents
+ * a missing entry as completed, overwrites a conflicting revision, or grants
+ * access. The material review is independent of recorded source progress.
+ * This is an optimistic observation, not an atomic snapshot or a run gate.
+ */
+export async function inspectWorkspaceMethodCreation({owner,workspaceId,projectId,objects}){
+  if(!owner || typeof owner.history!=='function') fail('METHOD_SOURCE_OWNER_REQUIRED','Original source history port required');
+  const {draft,recordIds,knowledgeAt,project,works}=await readCreationPlan({owner,workspaceId,projectId});
+  const entries=bindExpectedRefs(workspaceId,[
+    makeEntry(workspaceId,'project',projectId,project,recordIds.project),
+    ...works.map(work=>makeEntry(workspaceId,'work',work.workId,work,recordIds.works[work.workId])),
+  ]);
+  const observed=new Map();
+  const sourceStates=new Map();
+  for(const item of entries){
+    const row=await owner.load(item.kind,workspaceId,item.id);
+    observed.set(item.recordId,row?.baseRevisionId??null);
+    const state=row ? (matches(row,item,knowledgeAt)?'CONFIRMED':'CONFLICT')
+      : (await owner.history(item.kind,workspaceId,item.id)).length ? 'CONFLICT':'MISSING';
+    sourceStates.set(item.recordId,state);
+  }
+  // An exact child is not a confirmed part of a recoverable creation set
+  // if its declared prerequisite closure has been deleted or changed.
+  for(let pass=0;pass<entries.length;pass++){
+    let changed=false;
+    for(const item of entries){
+      if(sourceStates.get(item.recordId)==='CONFIRMED'
+          && Object.values(item.expectedRefs.canonicalHeads).some(ref=>sourceStates.get(ref.recordId)!=='CONFIRMED')){
+        sourceStates.set(item.recordId,'CONFLICT');changed=true;
+      }
+    }
+    if(!changed)break;
+  }
+  // Recheck observed live heads; concurrent changes must be reviewed again.
+  for(const item of entries){
+    const row=await owner.load(item.kind,workspaceId,item.id);
+    if((row?.baseRevisionId??null)!==observed.get(item.recordId)
+        || (sourceStates.get(item.recordId)==='CONFIRMED' && (!row||!matches(row,item,knowledgeAt)))
+        || (!row && sourceStates.get(item.recordId)==='MISSING' && (await owner.history(item.kind,workspaceId,item.id)).length)){
+      fail('METHOD_SOURCE_REFERENCE_CHANGED','Source head changed during creation inspection');
+    }
+  }
+  const records=Object.freeze(entries.map(item=>Object.freeze({kind:item.kind,id:item.id,recordId:item.recordId,state:sourceStates.get(item.recordId)})));
+  const confirmedCount=records.filter(row=>row.state==='CONFIRMED').length;
+  const missingCount=records.filter(row=>row.state==='MISSING').length;
+  const conflictCount=records.filter(row=>row.state==='CONFLICT').length;
+  const materials=inspectWorkspaceMethodMaterials({workspaceId,objects,materials:draft.materials});
+  const materialReviewRequired=materials.some(item=>item.state!=='CURRENT');
+  const state=conflictCount?'CONFLICT':missingCount?'PARTIAL':'COMPLETE';
+  return Object.freeze({state,draft,records,materials,confirmedCount,missingCount,conflictCount,materialReviewRequired,
+    resumeCandidate:state==='PARTIAL'&&!materialReviewRequired,atomicSnapshot:false,writeAuthorized:false,executionAuthority:false});
 }
 
 /** Explicit recovery through the original owner; no automatic continuation,

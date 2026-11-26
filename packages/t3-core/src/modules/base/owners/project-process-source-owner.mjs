@@ -438,8 +438,16 @@ class ProjectProcessSourceOwnerCore {
 
   // This checks the exact prerequisite closure of planned source Work.
   // It does not compute readiness, schedule, run or result.
-  async #assertMethodPredecessorClosure(project,candidate,record,seen,visiting){
+  async #assertMethodPredecessorClosure(project,candidate,record,seen,visiting,initialCreation=false){
     const work=record.payload;
+    if(initialCreation){
+      const expected=project.payload.methodology.creation.steps.find(step=>step.workId===work.workId);
+      if(!expected || record.revision!==1 || record.recordId!==expected.recordId
+          || project.knowledgeAt.compare(record.knowledgeAt)!==0){
+        throw new ProjectProcessSourceOwnerError('Initial Work cannot depend on a different creation revision','PROJECT_PROCESS_METHOD_CREATION_REFERENCE_CHANGED');
+      }
+      assertProjectMethodologyCreationWork(project.payload,work,record.recordId);
+    }
     if(work.workId===candidate.workId || visiting.has(work.workId)){
       throw new ProjectProcessSourceOwnerError('Cyclic method prerequisite','PROJECT_PROCESS_METHODOLOGY_DEPENDENCY_CYCLE');
     }
@@ -466,7 +474,7 @@ class ProjectProcessSourceOwnerCore {
       if(!target || ref?.recordId!==target.recordId || ref?.objectId!==target.objectId || ref?.family!==target.family){
         throw new ProjectProcessSourceOwnerError('Predecessor closure contains a changed or unavailable revision','PROJECT_PROCESS_METHODOLOGY_REFERENCE_CHANGED');
       }
-      await this.#assertMethodPredecessorClosure(project,candidate,target,seen,visiting);
+      await this.#assertMethodPredecessorClosure(project,candidate,target,seen,visiting,initialCreation);
     }
     visiting.delete(work.workId);
     seen.set(work.workId,record.recordId);
@@ -496,7 +504,8 @@ class ProjectProcessSourceOwnerCore {
         }
       }
       if(kind==='work' && relation.relation.startsWith('predecessor:')){
-        await this.#assertMethodPredecessorClosure(project,payload,record,seen,visiting);
+        const initialCreation=Boolean(creationIdentity && project.revision===1 && project.payload.methodology?.creation);
+        await this.#assertMethodPredecessorClosure(project,payload,record,seen,visiting,initialCreation);
       }
       canonicalHeads[relation.relation]=Object.freeze({
         family:record.family,

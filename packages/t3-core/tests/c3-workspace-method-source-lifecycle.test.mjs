@@ -5,7 +5,7 @@ import { prepareWorkspaceMethodSourceInputs, reconstructWorkspaceMethodDraft } f
 import { PROJECT_PROCESS_SOURCE_ACTIVATION, ProjectProcessSourceOwner, createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { MemoryCanonicalAdapter, OwnerWriteGateway } from '../src/persistence/canonical-persistence.mjs';
 import { readWorkspaceMethodFromSourceOwner } from '../src/modules/base/owners/project-process-method-readback.mjs';
-import { createWorkspaceMethodThroughSourceOwner, readWorkspaceMethodCreationIntent, resumeWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
+import { createWorkspaceMethodThroughSourceOwner, readWorkspaceMethodCreationIntent, resumeWorkspaceMethodThroughSourceOwner, inspectWorkspaceMethodCreation } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { qualifyProjectProcessSameWorkspaceHistory } from '../src/modules/base/owners/project-process-history.mjs';
 
 const workspaceId='ws-method';
@@ -409,4 +409,80 @@ test('malformed creation plans and mismatched Project record IDs are rejected',a
   const second=await emptyOwner();
   await assert.rejects(second.create('project',{...value,recordId:'different',knowledgeAt}),code('INVALID_PROJECT_PROCESS_METHODOLOGY'));
   assert.equal((await second.audit()).length,0);
+});
+
+
+const inspectCreation=(owner,catalog=objects)=>inspectWorkspaceMethodCreation({owner,workspaceId,projectId:'project-a',objects:catalog});
+
+test('direct initial Work creation refuses an already revised prerequisite',async()=>{
+  const owner=await emptyOwner(),plan=prepare(),ids=creationIds();
+  await stopMethod(owner,'project-a.analyse');
+  const root=inputFor(plan,'prepare');
+  await owner.revise('work',{...root,methodology:{...root.methodology,instruction:'New source instruction'},
+    recordId:'prepare@2',baseRevisionId:ids.works[root.workId],knowledgeAt});
+  const analysis=inputFor(plan,'analyse');
+  await assert.rejects(owner.create('work',{...analysis,recordId:ids.works[analysis.workId],knowledgeAt}),
+    code('PROJECT_PROCESS_METHOD_CREATION_REFERENCE_CHANGED'));
+  assert.equal(await owner.load('work',workspaceId,analysis.workId),null);
+  assert.equal((await owner.audit()).length,3);
+});
+
+test('readback rejects first Work payload inconsistent with the stored original plan',async()=>{
+  const owner=await emptyOwner();await createMethod(owner);
+  const altered=port(owner,{load:async(kind,ws,id)=>{
+    const row=await owner.load(kind,ws,id);
+    if(kind==='work'&&id==='project-a.compute')return {...row,value:{...row.value,methodology:{...row.value.methodology,instruction:'altered'} }};
+    return row;
+  }});
+  await assert.rejects(read(altered),code('INVALID_PROJECT_PROCESS_METHODOLOGY'));
+});
+
+test('creation inspection reports exact progress and material review without making any writes',async()=>{
+  const owner=await emptyOwner();await stopMethod(owner);
+  const current=await inspectCreation(owner);
+  assert.equal(current.state,'PARTIAL');assert.equal(current.confirmedCount,3);assert.equal(current.missingCount,2);
+  assert.equal(current.conflictCount,0);assert.equal(current.resumeCandidate,true);assert.equal(current.atomicSnapshot,false);
+  assert.equal(current.writeAuthorized,false);assert.equal(current.executionAuthority,false);
+  assert.deepEqual(current.draft,fixture());
+  assert.equal(current.records.find(row=>row.id==='project-a.compute').state,'MISSING');
+  const stale=await inspectCreation(owner,[{...objects[0],revision:99},...objects.slice(1)]);
+  assert.equal(stale.state,'PARTIAL');assert.equal(stale.confirmedCount,3);
+  assert.equal(stale.materialReviewRequired,true);assert.equal(stale.resumeCandidate,false);
+  assert.equal((await owner.audit()).length,3);
+});
+
+test('complete creation inspection separates recorded completion from changed material status',async()=>{
+  const owner=await emptyOwner();await createMethod(owner);
+  const state=await inspectCreation(owner,objects.slice(1));
+  assert.equal(state.state,'COMPLETE');assert.equal(state.confirmedCount,5);
+  assert.equal(state.missingCount,0);assert.equal(state.materialReviewRequired,true);
+  assert.equal(state.resumeCandidate,false);assert.equal(state.executionAuthority,false);
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('inspection identifies conflicting and tombstoned records and transitive dependent stages',async()=>{
+  const owner=await emptyOwner();await createMethod(owner);const ids=creationIds(),plan=prepare();
+  const root=inputFor(plan,'prepare');
+  await owner.revise('work',{...root,recordId:'prepare@2',baseRevisionId:ids.works[root.workId],knowledgeAt});
+  const state=await inspectCreation(owner);
+  assert.equal(state.state,'CONFLICT');assert.equal(state.confirmedCount,1);assert.equal(state.conflictCount,4);
+  assert.equal(state.resumeCandidate,false);
+  await owner.release('work',{workspaceId,objectId:root.workId,recordId:'prepare@3',baseRevisionId:'prepare@2',knowledgeAt});
+  const released=await inspectCreation(owner);
+  assert.equal(released.state,'CONFLICT');assert.equal(released.missingCount,0);assert.equal(released.conflictCount,4);
+  assert.equal((await owner.audit()).length,7);
+});
+
+test('inspection detects changed live heads during observation and refuses cross-workspace recovery',async()=>{
+  const owner=await emptyOwner();await stopMethod(owner);let reads=0;
+  const root=inputFor(prepare(),'prepare');
+  const concurrent=port(owner,{load:async(kind,ws,id)=>{
+    if(kind==='work'&&id===root.workId&&++reads===2){
+      await owner.revise('work',{...root,recordId:'prepare@2',baseRevisionId:creationIds().works[root.workId],knowledgeAt});
+    }
+    return owner.load(kind,ws,id);
+  }});
+  await assert.rejects(inspectCreation(concurrent),code('METHOD_SOURCE_REFERENCE_CHANGED'));
+  await assert.rejects(inspectWorkspaceMethodCreation({owner,workspaceId:'foreign',projectId:'project-a',objects:[]}),code('METHOD_SOURCE_CREATION_UNAVAILABLE'));
+  assert.equal((await owner.audit()).length,4);
 });

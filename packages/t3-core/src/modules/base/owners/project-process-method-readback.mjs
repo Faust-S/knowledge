@@ -1,6 +1,8 @@
 import { projectProcessSourceObjectId } from './project-process-source-owner.mjs';
 import { projectProcessSourceBinding } from './project-process-source-contract.mjs';
 import { reconstructWorkspaceMethodDraft } from '../features/workspace/workspace-project-method.mjs';
+import { normalizeProject,normalizeWork,assertProjectMethodologyCreation,assertProjectMethodologyCreationWork } from '../features/project-process/project-process.mjs';
+import { CanonicalInstant } from '../../../foundation/time.mjs';
 
 function fail(code,message){
   throw Object.assign(new Error(message),{code});
@@ -44,6 +46,22 @@ export async function readWorkspaceMethodFromSourceOwner({owner,workspaceId,proj
   const workRefs=loaded.map((row,index)=>sourceRef('work',workspaceId,ids[index],row));
   const byId=new Map(ids.map((id,index)=>[id,workRefs[index]]));
   const draft=reconstructWorkspaceMethodDraft({workspaceId,project:project.value,works:loaded.map(row=>row.value)});
+  const initial=projectRef.revision===1 && project.value.methodology?.creation;
+  if(initial){
+    const normalized=normalizeProject(project.value);
+    assertProjectMethodologyCreation(normalized,projectRef.recordId);
+    if(!(project.knowledgeAt instanceof CanonicalInstant)) fail('METHOD_SOURCE_INCOMPATIBLE','First Project creation time is unavailable');
+    for(const row of loaded) if(row.revision===1){
+      assertProjectMethodologyCreationWork(normalized,normalizeWork(row.value),row.baseRevisionId);
+      if(!(row.knowledgeAt instanceof CanonicalInstant) || project.knowledgeAt.compare(row.knowledgeAt)!==0
+          || row.value.dependencies.some(dep=>{
+            const expected=initial.steps.find(step=>step.workId===dep.predecessorWorkId);
+            return !expected || row.refs?.canonicalHeads?.['predecessor:'+dep.predecessorWorkId]?.recordId!==expected.recordId;
+          })){
+        fail('METHOD_SOURCE_REFERENCE_CHANGED','First Work does not match the exact original creation set');
+      }
+    }
+  }
   for(const row of loaded){
     const refs=row.refs?.canonicalHeads;
     const expectedKeys=['project',...row.value.dependencies.map(dep=>'predecessor:'+dep.predecessorWorkId)];
