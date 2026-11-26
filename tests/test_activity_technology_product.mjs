@@ -56,6 +56,29 @@ test('D05 product resolves unspecified recipient settings without changing origi
  assert.equal(inputs.quality_plan_inputs.common.linkedOperationRouteId,'');
  assert.deepEqual(inputs.quality_plan_inputs.defects,[]);
  assert.equal(inputs.activated,false);assert.equal(JSON.stringify(c),before);
+ // The old projection remains byte-compatible for recipients with already
+ // saved deterministic application IDs; the enriched projection is explicit.
+ assert.ok(inputs.route_inputs.operations.every(o=>o.comment===''));
+ const scoped=structuredClone(p.object_data),op=scoped.technology.operations[0],check=scoped.technology.quality_checks[0];
+ scoped.technology.terms.local_context_guidance=[
+  'Сверить актуальный чертёж.',
+  'Операция '+op.operation_id+': Проверить упор до запуска.',
+  'Контрольная точка '+check.check_id+': Повторить контроль партии.'
+ ].join('\n');
+ b.quality[check.check_id].comment='Локальная отметка получателя';
+ const enriched=prepareD05RecipientInputs(scoped,b,{includeTransferGuidance:true});
+ assert.match(enriched.route_inputs.operations[0].comment,/Equipment of required class/);
+ assert.match(enriched.route_inputs.operations[0].comment,/Проверить упор до запуска/);
+ assert.ok(enriched.route_inputs.operations.slice(1).every(o=>!o.comment.includes('Проверить упор')));
+ assert.match(enriched.quality_plan_inputs.checks[0].comment,/Повторить контроль партии/);
+ assert.match(enriched.quality_plan_inputs.checks[0].comment,/Локальная отметка получателя/);
+ assert.match(enriched.quality_plan_inputs.common.requirementBasis,/Сверить актуальный чертёж/);
+ assert.equal(enriched.quality_plan_inputs.common.sourceDocuments,b.source_documents);
+ assert.equal(enriched.quality_plan_inputs.checks[0].upper_limit,'100.2');
+ assert.equal(enriched.quality_plan_inputs.checks[0].blocking,true);
+ assert.equal(enriched.activated,false);
+ scoped.technology.terms.local_context_guidance+='\nКонтрольная точка check_999: Не выпускать партию.';
+ assert.throws(()=>prepareD05RecipientInputs(scoped,b,{includeTransferGuidance:true}),{code:'TECHNOLOGY_D05_GUIDANCE_SCOPE_UNRESOLVED'});
 });
 test('D05 missing quality, incomplete decision, cyclic dependency and changed fixed values rejected',async()=>{
  const c=d05Candidate();

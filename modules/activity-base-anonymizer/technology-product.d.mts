@@ -27,6 +27,7 @@ export function preparePersonalTechnologyProduct(records:unknown,variantId:strin
 export function preparePersonalRecipientActivation(data:unknown,binding:unknown):{status:'RECIPIENT_ACTIVATION_PREVIEW';target:typeof PERSONAL_TARGET;
  job_kind:'task_prompt';payload:{message:string;use_memory:boolean;use_knowledge:boolean;use_web:boolean};
  options:{expected_workspace_id:string;due_at:string;interval_seconds:number};authority:'ORIGINAL_RECIPIENT_OWNER_REQUIRED';activated:false};
-export function prepareD05RecipientInputs(data:unknown,binding:unknown):{status:'RECIPIENT_INPUTS_PREVIEW';target:typeof D05_TARGET;
+export function reviewD05GuidanceScopes(data:unknown):{common:string[];operations:Record<string,string[]>;quality:Record<string,string[]>;unresolved:string[]};
+export function prepareD05RecipientInputs(data:unknown,binding:unknown,options?:{includeTransferGuidance:boolean}):{status:'RECIPIENT_INPUTS_PREVIEW';target:typeof D05_TARGET;
  route_inputs:Record<string,unknown>;quality_plan_inputs:{common:Record<string,unknown>;checks:Record<string,unknown>[];defects:[]};
  next:'SAVE_ROUTE_WITH_ORIGINAL_D05_THEN_LINK_AND_SAVE_QUALITY_PLAN';authority:'ORIGINAL_RECIPIENT_OWNER_REQUIRED';activated:false};

@@ -1,4 +1,4 @@
-export type PracticalLesson={lesson_id:string;control_number:number;control:string;operation_id:string|null;problem:string;action:string;disposition:string;
+export type PracticalLesson={lesson_id:string;control_number:number;check_id:string;control:string;operation_id:string|null;problem:string;action:string;disposition:string;
  observations:Array<{model_number:number;report_number:number;quality_report_number:number;recorded_defect_status:string;followup_status:string|null;recorded_recheck:boolean}>;
  scope:string;severity:string;deviation_type:string|null;wording_review_required:boolean;
  variants:Array<{problem:string;action:string;order_count:number;observations:PracticalLesson['observations']}>;

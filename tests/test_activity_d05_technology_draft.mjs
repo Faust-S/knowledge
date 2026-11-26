@@ -492,6 +492,11 @@ test('compatible route experience aligns actual controls across differing plan o
  assert.equal(scoped.document.comparison.recorded_scope.excluded_unaligned_controls,1);
  assert.equal(scoped.document.comparison.recorded_scope.excluded_unaligned_defects,1);
  assert.equal(out.lessons.length,1);
+ assert.equal(out.lessons[0].check_id,controls[0].check_id);
+ const singleUnaligned=structuredClone(r);
+ singleUnaligned.recorded_execution_review.profiles[0].reports[0].quality[0].canonical_control_number=null;
+ const omitted=await extractD05PracticalLessons(singleUnaligned,group.id,1);
+ assert.equal(omitted.lessons.length,0);assert.equal(omitted.excluded_unaligned_count,1);
  assert.equal(out.lessons[0].order_count,2);
  assert.equal(out.lessons[0].rechecked_order_count,2);
  assert.deepEqual(out.lessons[0].observations.map(v=>v.model_number),[1,2]);

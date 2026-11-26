@@ -49,6 +49,7 @@ export async function extractD05PracticalLessons(review,groupId,modelNumber,opti
  const scope=await selectD05PracticalExperience(review,groupId,modelNumber,options);
  const {model_numbers,reports:source}=scope;
  const combined=model_numbers.length>1;
+ const profile=review.technology_draft?.groups?.find(g=>g.group_id===groupId)?.profiles?.find(p=>p.model_number===modelNumber);
  const candidates=new Map();
  let excluded_unaligned_count=0;
  for(const {model_number,report,order_ref} of source){
@@ -68,12 +69,15 @@ export async function extractD05PracticalLessons(review,groupId,modelNumber,opti
    const last=later.at(-1);
    const followup=last?last.status:null;
    const recovered=defect.disposition==='rework'&&defect.status==='resolved'&&['passed','accepted_after_rework'].includes(followup);
-   const controlNumber=combined?q.canonical_control_number:q.control_number;
-   if(!validNumber(controlNumber)){excluded_unaligned_count++;continue;}
+   // Plan order is never the identity of a canonical check, even in one
+   // source. Keep the selected profile's symbolic scope for the portable rule.
+   const controlNumber=q.canonical_control_number;
+   const check=validNumber(controlNumber)?profile?.checks?.[controlNumber-1]:null;
+   if(!check||check.operation_id!==(q.operation_id??null)){excluded_unaligned_count++;continue;}
    const key=JSON.stringify([controlNumber,q.operation_id??null,q.scope,q.deviation_type??null,defect.severity,
     defect.disposition,practicalWordingKey(problem),practicalWordingKey(action)]);
    let item=candidates.get(key);
-   if(!item){item={control_number:controlNumber,control:q.control,operation_id:q.operation_id??null,
+   if(!item){item={control_number:controlNumber,check_id:check.id,control:q.control,operation_id:q.operation_id??null,
     key,problem,action,disposition:defect.disposition,scope:q.scope,severity:defect.severity,
     deviation_type:q.deviation_type??null,variants:new Map(),observations:[],orders:new Set(),recoveredOrders:new Set(),unresolvedOrders:new Set()};candidates.set(key,item);}
    const variantKey=JSON.stringify([problem,action]);

@@ -15,8 +15,14 @@ export function D05PracticalLessonsPanel({review,groupId,modelNumber,guidance,on
  if(!busy&&!error&&!result)return null;
  const pairKey=(p:{left_id:string;right_id:string})=>p.left_id+':'+p.right_id;
  const occupied=new Set(result?.related_candidates.filter(p=>Object.hasOwn(combined,pairKey(p))).flatMap(p=>[p.left_id,p.right_id])??[]);
- const lines=[...Object.entries(selected).filter(([id])=>!occupied.has(id)).map(([,v])=>v),...Object.values(combined)].map(x=>x.trim()).filter(Boolean);
- const additions=[...new Set(lines)].filter(line=>!guidance.includes(line));
+ const scoped=(id:string,value:string)=>{
+  const lesson=result?.lessons.find(l=>l.lesson_id===id);
+  return lesson?value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean).map(v=>'Контрольная точка '+lesson.check_id+': '+v):[];
+ };
+ const lines=[...Object.entries(selected).filter(([id])=>!occupied.has(id)).flatMap(([id,v])=>scoped(id,v)),
+  ...(result?.related_candidates??[]).flatMap(p=>Object.hasOwn(combined,pairKey(p))?scoped(p.left_id,combined[pairKey(p)]):[])];
+ const existing=new Set(guidance.split(/\r?\n/).map(v=>v.trim()));
+ const additions=[...new Set(lines)].filter(line=>!existing.has(line));
  const next=[guidance.trim(),...additions].filter(Boolean).join('\n');
  return <div className="activity-domain-group">
   <h3>Практические правила из зарегистрированных исправлений</h3>
@@ -27,7 +33,7 @@ export function D05PracticalLessonsPanel({review,groupId,modelNumber,guidance,on
   {busy?<p role="status">Сопоставляются зарегистрированные исправления…</p>:null}
   {error?<p role="alert">{error}</p>:null}
   {result?.lessons.slice(page*6,(page+1)*6).map(l=><div key={l.lesson_id} className="activity-domain-op">
-   <strong>{l.control}</strong><p>{l.problem}</p><p>Записанное действие: {l.action}</p>
+   <strong>{l.control}</strong><span>Область правила: {l.check_id}</span><p>{l.problem}</p><p>Записанное действие: {l.action}</p>
    {l.wording_review_required?<details open><summary>Сопоставленные формулировки: {l.variants.length}</summary>
     <p>Проверьте, что разные описания относятся к одному исправлению. Выбор общего правила не производится автоматически.</p>
     {l.variants.map(v=><div key={JSON.stringify([v.problem,v.action])}><p>{v.problem}</p><p>{v.action}</p><span>Заказов: {v.order_count}</span></div>)}</details>:null}

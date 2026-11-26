@@ -43,10 +43,7 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
  const check=profile.checks.find(c=>c.id===checkId);
  const scopeLabel=(id:string)=>id==='technology'?'Технология':
   operations.find(o=>o.id===id)?.name??profile.checks.find(c=>c.id===id)?.title??'Контрольная точка';
- const portableScopeLabel=(id:string)=>{
-  const label=form.operations?.[id]?.label?.trim().replace(/\s+/g,' ');
-  return id.startsWith('op_')?'Операция '+id+(label?' ('+label+')':''):'Контрольная точка '+id;
- };
+ const portableScopeLabel=(id:string)=>id.startsWith('op_')?'Операция '+id:'Контрольная точка '+id;
  const proposalOp=preview?.operations.find(o=>o.operation_id===opId);
  const mappedRows=(mapping?.rows??[]).map(r=>({...r,current_requirement:(r.field==='responsible_role'?form.quality_roles?.[r.scope]:form.operations?.[r.scope]?.[r.field])?.trim()||null}));
  const operationMapping=mappedRows.filter(r=>r.scope===opId);

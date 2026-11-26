@@ -258,10 +258,41 @@ function bindParameters(rows,provided){
  }));
 }
 const date=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)&&Number.isFinite(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v;
+// One existing text field carries scoped instructions, not a new product
+// schema. Stable symbolic headers are emitted by Activity's editor. Legacy
+// parenthesized display labels are readable but never used for matching.
+function partitionD05Guidance(t){
+ const operations=Object.fromEntries(t.operations.map(o=>[o.operation_id,[]]));
+ const quality=Object.fromEntries(t.quality_checks.map(c=>[c.check_id,[]]));
+ const common=[],unresolved=[];
+ const header=/^(?:(Операция|Operation|Контрольная точка|Quality check|Check)\s+)?((?:op|check)_[0-9]{3,5})(?:\s+\([^()\r\n]*\))?\s*:\s*(.*)$/iu;
+ const prefix=/^(?:(?:Операция|Operation|Контрольная точка|Quality check|Check)\s+)?(?:op|check)_/iu;
+ for(const original of t.terms.local_context_guidance.split(/\r?\n/)){
+  const line=original.trim();if(!line)continue;
+  const match=header.exec(line);
+  if(!match){(prefix.test(line)?unresolved:common).push(line);continue;}
+  const [,kind,scope,body]=match;
+  const target=Object.hasOwn(operations,scope)?operations:Object.hasOwn(quality,scope)?quality:null;
+  const rightKind=!kind||(target===operations?/^(?:Операция|Operation)$/iu.test(kind):/^(?:Контрольная точка|Quality check|Check)$/iu.test(kind));
+  if(!target||!rightKind||!body.trim()){unresolved.push(line);continue;}
+  target[scope].push(body.trim());
+ }
+ return {common,operations,quality,unresolved};
+}
+export function reviewD05GuidanceScopes(data){
+ const product=validateTechnologyProduct(data);
+ need(product.target===D05_TARGET,'TECHNOLOGY_D05_RECIPIENT_BINDING');
+ return partitionD05Guidance(product.technology);
+}
+const parameterGuidance=rows=>rows.filter(p=>p.mode==='PARAMETERIZE').map(p=>p.field+': '+p.guidance);
+function guidanceSection(title,lines){return lines.length?title+':\n'+lines.join('\n'):'';}
+function composeGuidance(...sections){return sections.filter(Boolean).join('\n\n');}
+
 /** Exact native D05 inputs. The original recipient domain calculates and
  * saves these using its existing services, assigning real object IDs.
  * No copied source identifiers, old orders, defects or actual results. */
-export function prepareD05RecipientInputs(data,binding){
+export function prepareD05RecipientInputs(data,binding,options={includeTransferGuidance:false}){
+ need(exact(options,['includeTransferGuidance'])&&typeof options.includeTransferGuidance==='boolean','TECHNOLOGY_D05_RECIPIENT_OPTIONS');
  const product=validateTechnologyProduct(data);
  need(product.target===D05_TARGET&&exact(binding,['order_name','start_date','due_date','route','operations','quality','product','product_version','batch','responsible','prep_date','requirement_basis','source_documents'])&&
   ['order_name','product','product_version','responsible','requirement_basis','source_documents'].every(k=>text(binding[k]))&&
@@ -269,6 +300,8 @@ export function prepareD05RecipientInputs(data,binding){
   (binding.due_date===''||date(binding.due_date)&&binding.due_date>=binding.start_date),'TECHNOLOGY_D05_RECIPIENT_BINDING');
  const t=product.technology;
  requireUsableD05DurationPairs(t);
+ const guidance=options.includeTransferGuidance?partitionD05Guidance(t):null;
+ need(!guidance||!guidance.unresolved.length,'TECHNOLOGY_D05_GUIDANCE_SCOPE_UNRESOLVED');
  const route=bindParameters(t.route_parameters,binding.route);
  need(exact(binding.operations,t.operations.map(o=>o.operation_id))&&exact(binding.quality,t.quality_checks.map(c=>c.check_id)),
   'TECHNOLOGY_D05_RECIPIENT_OPERATION_COVERAGE');
@@ -279,7 +312,11 @@ export function prepareD05RecipientInputs(data,binding){
    (b.material_ready_date===''||date(b.material_ready_date)),'TECHNOLOGY_D05_RECIPIENT_RESOURCE_BINDING');
   return {id:o.operation_id,name:o.label,type:o.kind,predecessors:copy(o.predecessors),parallel:o.parallel,isMilestone:o.milestone,
    ...bindParameters(o.parameters,b.parameters),performer:b.performer,equipment:b.equipment,material:b.material,
-   materialReady:b.material_ready,materialReadyDate:b.material_ready_date,comment:''};
+   materialReady:b.material_ready,materialReadyDate:b.material_ready_date,comment:guidance?composeGuidance(
+    guidanceSection('Функциональные требования технологии',[
+     'Исполнитель: '+o.role,'Оборудование: '+o.equipment_requirement,'Материал: '+o.material_requirement]),
+    guidanceSection('Правила выбора параметров',parameterGuidance(o.parameters)),
+    guidanceSection('Практические условия операции',guidance.operations[o.operation_id])):''};
  });
  const checks=t.quality_checks.map(c=>{
   const b=binding.quality[c.check_id];
@@ -292,14 +329,22 @@ export function prepareD05RecipientInputs(data,binding){
   const optional=['related_product_characteristic','unit','lower_limit','target_value','upper_limit','allowed_values','inspection_method_custom','action_custom'];
   for(const field of optional)if(!Object.hasOwn(values,field))values[field]='';
   return {check_id:c.check_id,title:c.title,control_type:c.control_type,related_operation_id:c.operation_id??'',
-   ...values,responsible_role:b.responsible_role,related_material_id:b.related_material_id,comment:b.comment};
+   ...values,responsible_role:b.responsible_role,related_material_id:b.related_material_id,comment:guidance?composeGuidance(
+    guidanceSection('Требования к ответственному за контроль',[c.responsible_role]),
+    guidanceSection('Практические условия контроля',guidance.quality[c.check_id]),
+    guidanceSection('Примечание получателя',b.comment?[b.comment]:[])):b.comment};
  });
  return {status:'RECIPIENT_INPUTS_PREVIEW',target:D05_TARGET,
   route_inputs:{orderName:binding.order_name,startDate:binding.start_date,dueDate:binding.due_date,...route,operations},
   // The domain must set linkedOperationRouteId from the actual save receipt.
   quality_plan_inputs:{common:{orderName:binding.order_name,product:binding.product,productVersion:binding.product_version,
    batch:binding.batch,quantity:route.quantity,responsible:binding.responsible,prepDate:binding.prep_date,
-   requirementBasis:binding.requirement_basis,sourceDocuments:binding.source_documents,linkedOperationRouteId:''},checks,defects:[]},
+   requirementBasis:guidance?composeGuidance(binding.requirement_basis,
+    guidanceSection('Применяемая технология',[product.title,'Назначение: '+t.terms.purpose,'Входы: '+t.terms.inputs,
+     'Результат: '+t.terms.outputs,'Применимость: '+t.terms.applicability,'Адаптация: '+t.terms.adaptation_guidance]),
+    guidanceSection('Правила выбора параметров маршрута',parameterGuidance(t.route_parameters)),
+    guidanceSection('Общие практические условия',guidance.common)):binding.requirement_basis,
+   sourceDocuments:binding.source_documents,linkedOperationRouteId:''},checks,defects:[]},
   next:'SAVE_ROUTE_WITH_ORIGINAL_D05_THEN_LINK_AND_SAVE_QUALITY_PLAN',
   authority:'ORIGINAL_RECIPIENT_OWNER_REQUIRED',activated:false};
 }
