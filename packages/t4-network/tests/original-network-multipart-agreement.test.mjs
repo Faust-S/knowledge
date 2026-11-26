@@ -23,6 +23,7 @@ import {createT4OriginalSourceSessionHead,readT4OriginalSourceSessionHead,create
   from '../src/network/original-network-publication.mjs';
 import {readT4OriginalNativeMultipartAgreement as agreement,validateT4OriginalNativeMultipartAgreement as validate}
   from '../src/network/original-network-multipart-agreement.mjs';
+import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID} from '../src/network/original-network-technical-schema.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {t4NativeFrameIndexKeys} from '../src/network/original-network-frame-address.mjs';
 import {discoverT4OriginalSourceSessionAnnouncement} from '../src/network/original-network-source-announcement.mjs';
@@ -580,6 +581,7 @@ test('K153 original cold migration reconciles multipart indexes in bounded pages
   assert.ok(root.frames.slice(1).every(x=>x.wireBytes===undefined));
   const migrate=createT4OriginalPublicationIndexMigrationStepper({
     ...session,sourceWorkspaceId:session.workspaceId,technicalWorkspaceId:'workspace:technical:'+source,localNodeRef:source,
+    technicalSchemaId:T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
     originalKernel:f.kernel,getMode:()=> 'T4_NETWORK',readOriginalHostContext:async()=>({
       workspaceId:'workspace:technical:'+source,originalWriteOwnerRef:session.originalWriteOwnerRef,nodeRef:source,
       scopeRef:session.scopeRef,hostSessionRef:f.host}),authorizeOriginalTechnicalRead:async()=>true,
