@@ -146,7 +146,7 @@ export function workspaceSavedViewDataMatches(actual, expected) {
 
 // A presentation is only a set of revision-bound references to objects already
 // in this Workspace. It never contains business payloads or grants access.
-const VIEW_MODES = new Set(['browse', 'queues', 'compare', 'receipts']);
+const VIEW_MODES = new Set(['browse', 'queues', 'compare', 'receipts', 'canvas']);
 const VIEW_SELECTION_LIMIT = 256;
 const OBJECT_ID = /^[A-Za-z0-9._:-]{1,128}$/u;
 
@@ -158,9 +158,44 @@ function parseViewObjectRef(value) {
   return Object.freeze({ object_id: value.object_id, revision: value.revision });
 }
 
+/** Layout belongs to the existing saved view, not to an object or executor. */
+export function reconcileWorkspaceCanvasLayout(selectedObjectIds, layout = null) {
+  const columns = layout?.columns === 1 ? 1 : 2;
+  const detailed = new Set(Array.isArray(layout?.detailed) ? layout.detailed : []);
+  const wide = new Set(Array.isArray(layout?.wide) ? layout.wide : []);
+  return Object.freeze({ columns,
+    detailed: Object.freeze(selectedObjectIds.filter((id) => detailed.has(id))),
+    wide: Object.freeze(selectedObjectIds.filter((id) => wide.has(id))),
+  });
+}
+
+function parseCanvasLayout(value, selectedObjectIds) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+      || Object.keys(value).length !== 3 || (value.columns !== 1 && value.columns !== 2)) return null;
+  const admitted = new Set(selectedObjectIds);
+  for (const refs of [value.detailed, value.wide]) {
+    if (!Array.isArray(refs) || refs.length > selectedObjectIds.length
+        || new Set(refs).size !== refs.length || refs.some((id) => !admitted.has(id))) return null;
+  }
+  return reconcileWorkspaceCanvasLayout(selectedObjectIds, value);
+}
+
+export function moveWorkspaceCanvasMaterial(selectedObjectIds, objectId, direction) {
+  if (!Array.isArray(selectedObjectIds) || selectedObjectIds.length > VIEW_SELECTION_LIMIT
+      || new Set(selectedObjectIds).size !== selectedObjectIds.length || ![-1, 1].includes(direction)) {
+    throw new Error('VIEW_STATE_PRESENTATION_INVALID');
+  }
+  const next = [...selectedObjectIds];
+  const index = next.indexOf(objectId), target = index + direction;
+  if (index >= 0 && target >= 0 && target < next.length) {
+    [next[index], next[target]] = [next[target], next[index]];
+  }
+  return Object.freeze(next);
+}
+
 export function parseWorkspaceViewPresentation(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
-      || Object.keys(value).length !== 4 || value.version !== 1
+      || Object.keys(value).length !== (value.mode === 'canvas' ? 5 : 4) || value.version !== 1
       || !VIEW_MODES.has(value.mode) || !Array.isArray(value.selected)
       || value.selected.length > VIEW_SELECTION_LIMIT) return null;
   const selected = [], ids = new Set();
@@ -173,7 +208,9 @@ export function parseWorkspaceViewPresentation(value) {
   if (value.detail !== null && !detail) return null;
   // The same selected object and detail cannot pin different revisions.
   if (detail && selected.some((ref) => ref.object_id === detail.object_id && ref.revision !== detail.revision)) return null;
-  return Object.freeze({ version: 1, mode: value.mode, selected: Object.freeze(selected), detail });
+  const canvas = value.mode === 'canvas' ? parseCanvasLayout(value.canvas, [...ids]) : null;
+  if (value.mode === 'canvas' ? !canvas : Object.hasOwn(value, 'canvas')) return null;
+  return Object.freeze({ version: 1, mode: value.mode, selected: Object.freeze(selected), detail, ...(canvas ? { canvas } : {}) });
 }
 
 export function workspaceViewPresentationMatches(actual, expected) {
@@ -182,7 +219,8 @@ export function workspaceViewPresentationMatches(actual, expected) {
   if (!left || !right || left.mode !== right.mode || left.selected.length !== right.selected.length) return false;
   const equalRef = (a, b) => a === null || b === null ? a === b
     : a.object_id === b.object_id && a.revision === b.revision;
-  return equalRef(left.detail, right.detail) && left.selected.every((ref, i) => equalRef(ref, right.selected[i]));
+  return equalRef(left.detail, right.detail) && left.selected.every((ref, i) => equalRef(ref, right.selected[i]))
+    && JSON.stringify(left.canvas ?? null) === JSON.stringify(right.canvas ?? null);
 }
 
 function scopedViewObjectIndex(workspaceId, objects) {
@@ -200,7 +238,7 @@ function scopedViewObjectIndex(workspaceId, objects) {
 }
 
 /** Capture the current selection, not a second copy of the selected data. */
-export function captureWorkspaceViewPresentation({ workspaceId, objects, mode, selectedObjectIds, detailObjectId }) {
+export function captureWorkspaceViewPresentation({ workspaceId, objects, mode, selectedObjectIds, detailObjectId, canvasLayout = null }) {
   if (!VIEW_MODES.has(mode) || !Array.isArray(selectedObjectIds) || selectedObjectIds.length > VIEW_SELECTION_LIMIT
       || new Set(selectedObjectIds).size !== selectedObjectIds.length) {
     throw saveError('VIEW_STATE_PRESENTATION_INVALID', 'The view mode or selection is invalid.');
@@ -214,7 +252,9 @@ export function captureWorkspaceViewPresentation({ workspaceId, objects, mode, s
   const selected = selectedObjectIds.map(exact);
   const detail = detailObjectId === null ? null : exact(detailObjectId);
   if (mode === 'browse' && selected.length === 0 && detail === null) return null;
-  return parseWorkspaceViewPresentation({ version: 1, mode, selected, detail });
+  return parseWorkspaceViewPresentation({ version: 1, mode, selected, detail,
+    ...(mode === 'canvas' ? { canvas: reconcileWorkspaceCanvasLayout(selectedObjectIds, canvasLayout) } : {}),
+  });
 }
 
 /** Restore only exact, currently admitted object revisions. No writes or
@@ -233,7 +273,27 @@ export function restoreWorkspaceViewPresentation({ workspaceId, objects, present
   const selected = parsed ? parsed.selected.map(current).filter((id) => id !== null) : [];
   const detail = parsed?.detail ? current(parsed.detail) : null;
   return Object.freeze({ mode: parsed?.mode ?? 'browse', selectedObjectIds: Object.freeze(selected),
-    detailObjectId: detail, changedCount: changed.size, unavailableCount: unavailable.size });
+    detailObjectId: detail, changedCount: changed.size, unavailableCount: unavailable.size,
+    ...(parsed?.mode === 'canvas' ? { canvasLayout: reconcileWorkspaceCanvasLayout(selected, parsed.canvas) } : {}),
+  });
+}
+
+/** The canvas mounts only current, uniquely admitted records. References in
+ * a saved view must first pass restoreWorkspaceViewPresentation; the caller
+ * supplies that admitted selection. No second payload store is produced. */
+export function projectWorkspaceCanvasMaterials({ workspaceId, objects, selectedObjectIds }) {
+  if (!Array.isArray(selectedObjectIds) || selectedObjectIds.length > VIEW_SELECTION_LIMIT
+      || new Set(selectedObjectIds).size !== selectedObjectIds.length) {
+    return Object.freeze({ status: 'INVALID_SELECTION', items: Object.freeze([]), unavailableCount: 0 });
+  }
+  const index = scopedViewObjectIndex(workspaceId, objects);
+  const records = new Map();
+  for (const object of objects) {
+    if (object?.workspace_id !== workspaceId || !index.get(object.object_id)) continue;
+    records.set(object.object_id, object);
+  }
+  const items = selectedObjectIds.map((id) => records.get(id)).filter(Boolean);
+  return Object.freeze({ status: 'READY', items: Object.freeze(items), unavailableCount: selectedObjectIds.length - items.length });
 }
 
 export function projectWorkspacePersistedViews({ workspaceId, profileId, objects }) {

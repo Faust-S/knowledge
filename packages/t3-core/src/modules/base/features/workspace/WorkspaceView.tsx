@@ -152,6 +152,7 @@ export function WorkspaceView(props: WorkspaceViewProps) {
   // ----- Workspace record / profile still loading -----------------------
   if (
     !workspace ||
+    workspace.workspace_id !== workspaceId ||
     workspaceState !== "ready" ||
     !profileMatchesWorkspace ||
     profile.status === "loading" ||
@@ -563,10 +564,16 @@ function WorkspaceCatalogSurface(props: CatalogSurfaceProps) {
         )}
       </section>
 
-      {objectsState === "ready" && profileDefinition && (
+      {profileDefinition && (objectsState === "ready" || objectsState === "loading" || objectsState === "error") && (
         <RichWorkspaceReadModel
+          key={JSON.stringify([workspaceId, profileDefinition.id])}
           workspace={ws}
-          objects={objects}
+          kernel={kernel}
+          viewerRegistry={viewerRegistry}
+          grantedOperations={grantedOperations}
+          activeCapabilities={activeCapabilities}
+          catalogReady={objectsState === "ready"}
+          objects={objectsState === "ready" ? objects : []}
           events={eventsState === "ready" ? events : []}
           eventsAvailable={eventsState === "ready"}
           profileDefinition={profileDefinition}

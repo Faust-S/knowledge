@@ -5,7 +5,10 @@ import type {
   WorkspaceRecord,
 } from "../../../../kernel-client/contracts/runtime-1.3.0";
 import type { WorkspaceProfileDefinition } from "../../../../profiles/definition";
-import type { CommandsFacade } from "../../../../workspace-contract";
+import type { CommandsFacade, KernelFacade } from "../../../../workspace-contract";
+import type { OperationId } from "../../../../kernel-client";
+import type { ViewerRegistry } from "../../../../workspace-host/registries/ViewerRegistry";
+import { WorkspaceMaterialCanvas } from "./WorkspaceMaterialCanvas";
 import { formatWorkspaceDate } from "../workspaces/workspace-format";
 import {
   RICH_WORKSPACE_RECEIPTS_BOUNDARY,
@@ -31,6 +34,9 @@ import {
   restoreWorkspaceViewPresentation,
   type WorkspacePersistedView,
   type WorkspaceViewPresentation,
+  type WorkspaceCanvasLayout,
+  reconcileWorkspaceCanvasLayout,
+  moveWorkspaceCanvasMaterial,
   projectWorkspacePersistedViews,
   workspaceViewStateCommandAvailability,
 } from "./workspace-persisted-view-state.mjs";
@@ -78,7 +84,7 @@ const VIEW_SAVE_MESSAGES: Readonly<Record<string, string>> = {
 };
 
 const VIEW_MODE_TITLES: Readonly<Record<WorkspaceMode, string>> = {
-  browse: "Объекты", queues: "Очереди", compare: "Сравнение", receipts: "Receipts",
+  browse: "Объекты", queues: "Очереди", compare: "Сравнение", receipts: "Receipts", canvas: "Полотно",
 };
 
 function viewSaveErrorMessage(error: unknown): string {
@@ -93,6 +99,11 @@ export function RichWorkspaceReadModel(props: {
   profileDefinition: WorkspaceProfileDefinition;
   eventsAvailable?: boolean;
   commands?: CommandsFacade;
+  kernel?: KernelFacade;
+  viewerRegistry?: ViewerRegistry;
+  grantedOperations?: readonly OperationId[];
+  activeCapabilities?: readonly string[];
+  catalogReady?: boolean;
   onRefreshObjects?: () => Promise<void>;
   onOpenObject: (workspaceId: string, objectId: string) => void;
 }) {
@@ -104,6 +115,7 @@ export function RichWorkspaceReadModel(props: {
   const [query, setQuery] = useState("");
   const [areaId, setAreaId] = useState<string | null>(null);
   const [mode, setMode] = useState<WorkspaceMode>("browse");
+  const [canvasLayout, setCanvasLayout] = useState<WorkspaceCanvasLayout>(() => reconcileWorkspaceCanvasLayout([]));
   const [windowOffset, setWindowOffset] = useState(0);
   const [detailState, setDetailState] = useState<{ workspaceId: string; objectId: string | null }>({
     workspaceId: workspace.workspace_id,
@@ -142,6 +154,8 @@ export function RichWorkspaceReadModel(props: {
     setPersistedViewError(null);
     setSavedViewEdit(null);
     setRestoredViewState(null);
+    setCanvasLayout(reconcileWorkspaceCanvasLayout([]));
+    setMode("browse");
     setOwnerCommandBusy(false);
     setOwnerCommandError(null);
     setOwnerCommandCompleted(null);
@@ -163,6 +177,9 @@ export function RichWorkspaceReadModel(props: {
     : selectionState.workspaceId === workspace.workspace_id ? selectionState.ids : [];
   const selectedDetailId = restoredPresentation ? restoredPresentation.detailObjectId
     : detailState.workspaceId === workspace.workspace_id ? detailState.objectId : null;
+  const admittedCanvasLayout = reconcileWorkspaceCanvasLayout(selectedObjectIds, canvasLayout);
+  const restorationNeedsReview = Boolean(restoredPresentation
+    && (restoredPresentation.changedCount || restoredPresentation.unavailableCount));
   const workingViews = workingViewState.workspaceId === workspace.workspace_id ? workingViewState.views : [];
   const workingViewTitle =
     workingViewTitleState.workspaceId === workspace.workspace_id ? workingViewTitleState.value : "";
@@ -265,7 +282,27 @@ export function RichWorkspaceReadModel(props: {
   };
   const adoptRestoredSelection = () => {
     if (!restoredPresentation) return;
+    if (mode === "canvas") {
+      // Explicitly accept only the available subset, keeping its revisions
+      // pinned rather than turning it into an unbound live selection.
+      const layout = reconcileWorkspaceCanvasLayout(restoredPresentation.selectedObjectIds, canvasLayout);
+      const presentation = captureWorkspaceViewPresentation({
+        workspaceId: workspace.workspace_id, objects, mode: "canvas",
+        selectedObjectIds: restoredPresentation.selectedObjectIds,
+        detailObjectId: restoredPresentation.detailObjectId, canvasLayout: layout,
+      });
+      if (presentation) {
+        setRestoredViewState({ workspaceId: workspace.workspace_id, profileId: profileDefinition.id, presentation });
+        setCanvasLayout(layout);
+        setPreparedCommandState({ workspaceId: workspace.workspace_id, command: null });
+        setOwnerCommandError(null);
+        setOwnerCommandCompleted(null);
+        setPersistedViewError(null);
+      }
+      return;
+    }
     resetTransientSelection();
+    setCanvasLayout(reconcileWorkspaceCanvasLayout(restoredPresentation.selectedObjectIds, canvasLayout));
     setSelectionState({ workspaceId: workspace.workspace_id, ids: [...restoredPresentation.selectedObjectIds] });
     setDetailState({ workspaceId: workspace.workspace_id, objectId: restoredPresentation.detailObjectId });
   };
@@ -286,11 +323,43 @@ export function RichWorkspaceReadModel(props: {
     setOwnerCommandError(null);
     setOwnerCommandCompleted(null);
   };
+  // Canvas operations use the same selection and presentation as the
+  // original saved-view owner. They never invoke a business command.
+  const replaceCanvasSelection = (ids: readonly string[], requestedDetailId = selectedDetailId) => {
+    if (restorationNeedsReview || persistedViewBusy !== null) return;
+    try {
+      const layout = reconcileWorkspaceCanvasLayout(ids, canvasLayout);
+      const detailObjectId = requestedDetailId && ids.includes(requestedDetailId) ? requestedDetailId : null;
+      const presentation = captureWorkspaceViewPresentation({
+        workspaceId: workspace.workspace_id, objects, mode: "canvas",
+        selectedObjectIds: ids, detailObjectId, canvasLayout: layout,
+      });
+      if (!presentation) throw new Error("VIEW_STATE_PRESENTATION_INVALID");
+      // Pin the composition even before saving. Moving a panel does not
+      // silently switch its selected source to a later object revision.
+      setRestoredViewState({ workspaceId: workspace.workspace_id, profileId: profileDefinition.id, presentation });
+      setCanvasLayout(layout);
+      setPreparedCommandState({ workspaceId: workspace.workspace_id, command: null });
+      setOwnerCommandError(null);
+      setOwnerCommandCompleted(null);
+      setPersistedViewError(null);
+    } catch (error) {
+      setPersistedViewError(viewSaveErrorMessage(error));
+    }
+  };
+  const changeWorkspaceMode = (value: WorkspaceMode) => {
+    if (value === "canvas" && mode !== "canvas") {
+      replaceCanvasSelection(selectedObjectIds);
+      setPreparedCommandState({ workspaceId: workspace.workspace_id, command: null });
+    }
+    setMode(value);
+  };
   const applyWorkingView = (view: Pick<WorkingView, "logicalAreaId" | "query" | "presentation">) => {
     setAreaId(view.logicalAreaId);
     setQuery(view.query);
     setWindowOffset(0);
     setMode(view.presentation?.mode ?? "browse");
+    setCanvasLayout(reconcileWorkspaceCanvasLayout(view.presentation?.selected.map(ref => ref.object_id) ?? [], view.presentation?.canvas));
     resetTransientSelection();
     if (view.presentation) {
       setRestoredViewState({
@@ -326,6 +395,7 @@ export function RichWorkspaceReadModel(props: {
     }
     return captureWorkspaceViewPresentation({
       workspaceId: workspace.workspace_id, objects, mode, selectedObjectIds, detailObjectId: selectedDetailId,
+      canvasLayout: admittedCanvasLayout,
     });
   };
   const createWorkingView = () => {
@@ -444,12 +514,13 @@ export function RichWorkspaceReadModel(props: {
     }
   };
   const prepareOwnerCommand = (command: PreparedWorkspaceOwnerCommand) => {
+    if (mode === "canvas" || restorationNeedsReview) return;
     setPreparedCommandState({ workspaceId: workspace.workspace_id, command });
     setOwnerCommandError(null);
     setOwnerCommandCompleted(null);
   };
   const executePreparedOwnerCommand = async () => {
-    if (!commands || !preparedCommand || !currentPreparedDescriptor || !preparedCommandCurrent || ownerCommandBusy) return;
+    if (mode === "canvas" || restorationNeedsReview || !commands || !preparedCommand || !currentPreparedDescriptor || !preparedCommandCurrent || ownerCommandBusy) return;
     const mutationGeneration = workspaceMutationGeneration.current;
     setOwnerCommandBusy(true);
     setOwnerCommandError(null);
@@ -518,6 +589,15 @@ export function RichWorkspaceReadModel(props: {
     }
   };
 
+  // Keep the view state mounted across catalog refreshes, but unmount all
+  // payload renderers and controls until the authoritative catalog is ready.
+  if (props.catalogReady === false) return (
+    <section data-testid="rich-workspace-catalog-pending" className="space-y-2 border border-slate-800 rounded p-4">
+      <h4 className="text-sm font-medium text-slate-100">Единая рабочая область</h4>
+      <p role="status" className="text-xs text-slate-400">Ожидается актуальный список материалов. Текущий вид сохранён в этой сессии.</p>
+    </section>
+  );
+
   return (
     <section
       aria-labelledby="rich-workspace-title"
@@ -527,7 +607,7 @@ export function RichWorkspaceReadModel(props: {
       <header className="space-y-1">
         <h4 id="rich-workspace-title" className="text-sm font-medium text-slate-100">Единая рабочая область</h4>
         <p className="text-xs text-slate-400">
-          Один Workspace · logical areas, bounded master/detail, рабочие виды и история без нового business write path.
+          Материалы, связанные представления, рабочие виды и история в одной рабочей области.
         </p>
       </header>
 
@@ -544,6 +624,7 @@ export function RichWorkspaceReadModel(props: {
         <div className="border border-slate-800 rounded p-2 text-xs"><span className="block text-slate-500">Object selection</span><strong className="text-slate-200">{selectedObjectIds.length}</strong></div>
       </div>
 
+      {mode !== "canvas" && <>
       <div className="space-y-2" data-testid="rich-workspace-logical-areas">
         <h5 className="text-xs font-medium text-slate-200">Логические области</h5>
         <div className="flex flex-wrap gap-2" role="group" aria-label="Фильтр по логической области">
@@ -561,9 +642,10 @@ export function RichWorkspaceReadModel(props: {
         <input id="rich-workspace-query" aria-label="Поиск по ID и типу объекта" value={query} onChange={(event) => applyQuery(event.target.value)} placeholder="object_id или schema_id" className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 min-h-[44px]" />
       </div>
 
+      </>}
       <nav className="flex flex-wrap gap-2" aria-label="Режим рабочей области" data-testid="rich-workspace-modes">
-        {([["browse", "Объекты"], ["queues", "Очереди"], ["compare", "Сравнение"], ["receipts", "Receipts"]] as const).map(([value, title]) => (
-          <button key={value} type="button" aria-pressed={mode === value} onClick={() => setMode(value)} className="px-3 py-1.5 text-xs rounded border border-slate-700 min-h-[44px]">{title}</button>
+        {([["browse", "Объекты"], ["canvas", "Полотно"], ["queues", "Очереди"], ["compare", "Сравнение"], ["receipts", "Receipts"]] as const).map(([value, title]) => (
+          <button key={value} type="button" aria-pressed={mode === value} onClick={() => changeWorkspaceMode(value)} className="px-3 py-1.5 text-xs rounded border border-slate-700 min-h-[44px]">{title}</button>
         ))}
       </nav>
       {restoredPresentation && (restoredPresentation.changedCount > 0 || restoredPresentation.unavailableCount > 0) && (
@@ -572,6 +654,22 @@ export function RichWorkspaceReadModel(props: {
           <button type="button" onClick={adoptRestoredSelection} className="px-3 py-1.5 rounded border border-slate-700 min-h-[44px]">Принять доступные материалы</button>
         </div>
       )}
+
+      {mode === "canvas" && <WorkspaceMaterialCanvas
+        key={JSON.stringify([workspace.workspace_id, profileDefinition.id])}
+        workspaceId={workspace.workspace_id} profileId={profileDefinition.id} objects={objects}
+        selectedObjectIds={selectedObjectIds} layout={admittedCanvasLayout}
+        focusedObjectId={selectedDetailId}
+        onFocus={id => replaceCanvasSelection(selectedObjectIds, selectedDetailId === id ? null : id)}
+        kernel={props.kernel} viewerRegistry={props.viewerRegistry}
+        grantedOperations={props.grantedOperations} activeCapabilities={props.activeCapabilities}
+        editable={!restorationNeedsReview && persistedViewBusy === null}
+        onLayout={layout => setCanvasLayout(reconcileWorkspaceCanvasLayout(selectedObjectIds, layout))}
+        onAdd={id => { if (!selectedObjectIds.includes(id)) replaceCanvasSelection([...selectedObjectIds, id]); }}
+        onRemove={id => replaceCanvasSelection(selectedObjectIds.filter(value => value !== id))}
+        onMove={(id, direction) => replaceCanvasSelection(moveWorkspaceCanvasMaterial(selectedObjectIds, id, direction))}
+        onOpenObject={onOpenObject} onRefreshObjects={onRefreshObjects}
+      />}
 
       {mode === "browse" ? (
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.72fr)]" data-testid="rich-workspace-master-detail">
@@ -620,7 +718,7 @@ export function RichWorkspaceReadModel(props: {
         </div>
       ) : null}
 
-      {ownerCommandDescriptors.length > 0 ? (
+      {mode !== "canvas" && ownerCommandDescriptors.length > 0 ? (
         <div className="border border-slate-800 rounded p-3 space-y-2 text-xs" data-testid="rich-workspace-owner-commands">
           <div>
             <h5 className="font-medium text-slate-200">Команды выбранных объектов</h5>
@@ -635,7 +733,7 @@ export function RichWorkspaceReadModel(props: {
                 <code className="text-[11px] text-slate-500">{preflight.status}</code>
                 <button
                   type="button"
-                  disabled={preflight.status !== "READY" || ownerCommandBusy}
+                  disabled={preflight.status !== "READY" || ownerCommandBusy || restorationNeedsReview}
                   onClick={() => preflight.status === "READY" && prepareOwnerCommand(preflight.prepared)}
                   className="ml-auto px-3 py-1.5 rounded border border-slate-700 min-h-[44px] disabled:opacity-40"
                   aria-label={`Подготовить команду ${descriptor.label}`}
@@ -650,7 +748,7 @@ export function RichWorkspaceReadModel(props: {
               <p className="text-slate-300">
                 Подготовлено: <strong>{preparedCommand.label}</strong> · {preparedCommand.draft.objects.length} object(s).
               </p>
-              {!preparedCommandCurrent ? (
+              {!preparedCommandCurrent || restorationNeedsReview ? (
                 <p className="text-amber-200" role="status">Подготовленная команда устарела после изменения Workspace/selection/revision.</p>
               ) : (
                 <button

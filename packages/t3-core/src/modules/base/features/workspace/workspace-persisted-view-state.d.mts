@@ -8,11 +8,18 @@ export interface WorkspaceViewObjectRef {
   readonly revision: number;
 }
 
+export interface WorkspaceCanvasLayout {
+  readonly columns: 1 | 2;
+  readonly detailed: readonly string[];
+  readonly wide: readonly string[];
+}
+
 export interface WorkspaceViewPresentation {
   readonly version: 1;
-  readonly mode: 'browse' | 'queues' | 'compare' | 'receipts';
+  readonly mode: 'browse' | 'queues' | 'compare' | 'receipts' | 'canvas';
   readonly selected: readonly WorkspaceViewObjectRef[];
   readonly detail: WorkspaceViewObjectRef | null;
+  readonly canvas?: WorkspaceCanvasLayout;
 }
 
 export interface WorkspaceViewRestoration {
@@ -21,6 +28,7 @@ export interface WorkspaceViewRestoration {
   readonly detailObjectId: string | null;
   readonly changedCount: number;
   readonly unavailableCount: number;
+  readonly canvasLayout?: WorkspaceCanvasLayout;
 }
 
 export interface WorkspacePersistedView {
@@ -87,6 +95,7 @@ export declare function captureWorkspaceViewPresentation(input: {
   mode: WorkspaceViewPresentation['mode'];
   selectedObjectIds: readonly string[];
   detailObjectId: string | null;
+  canvasLayout?: WorkspaceCanvasLayout | null;
 }): WorkspaceViewPresentation | null;
 
 export declare function restoreWorkspaceViewPresentation(input: {
@@ -94,6 +103,16 @@ export declare function restoreWorkspaceViewPresentation(input: {
   objects: readonly unknown[];
   presentation?: WorkspaceViewPresentation | null;
 }): WorkspaceViewRestoration;
+
+export declare function reconcileWorkspaceCanvasLayout(selectedObjectIds: readonly string[], layout?: WorkspaceCanvasLayout | null): WorkspaceCanvasLayout;
+
+export declare function moveWorkspaceCanvasMaterial(selectedObjectIds: readonly string[], objectId: string, direction: -1 | 1): readonly string[];
+
+export declare function projectWorkspaceCanvasMaterials<T>(input: {
+  workspaceId: string;
+  objects: readonly T[];
+  selectedObjectIds: readonly string[];
+}): Readonly<{status: 'READY' | 'INVALID_SELECTION'; items: readonly T[]; unavailableCount: number}>;
 
 export declare function projectWorkspacePersistedViews(input: {
   workspaceId: string;
