@@ -1004,9 +1004,12 @@ async function executeNativeReplacementRecipientStep(p,options){
     readOriginalSourceHostContext,authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalSourceWindow=null,verifyOriginalSourceSubject,
     authorizeOriginalSealedOpen,verifyOriginalSourceBinding,bindOriginalReplacementRecipientContentEvidence,
     authorizeOriginalReplacementRecipientApplyAdmission,createOriginalReplacementRecipientPhasePort,
-    enableOriginalReplacementApply=false,createOriginalReplacementRecipientAckPublicationPort,
+    readOriginalMultipartAgreement=null,enableOriginalReplacementApply=false,createOriginalReplacementRecipientAckPublicationPort,
     resolveOriginalSigningContext,signOriginalNodeBytes,retryMissing=false}=options;
+  const multipart=readOriginalMultipartAgreement!==null;
   if(selection.schema!=='IWXA_T4_ORIGINAL_LOCAL_REPLACEMENT_SELECTION_V1'||selection.role!=='RECIPIENT'||
+    (multipart&&(c.changeKind!=='ASSET_PUT'||typeof readOriginalMultipartAgreement!=='function'||
+      frameDiscoveryPort?.originalMultipartNegotiationEnabled!==true))||
     typeof enableOriginalReplacementApply!=='boolean'||typeof retryMissing!=='boolean'||
     !(enableOriginalReplacementApply?[null,'RECEIVED','VERIFIED','APPLY_INTENT']:[null,'RECEIVED']).includes(selection.originalLocalPhase)||
     selection.originalLocalPhaseRevision!==[null,'RECEIVED','VERIFIED','APPLY_INTENT'].indexOf(selection.originalLocalPhase)||
@@ -1033,8 +1036,9 @@ async function executeNativeReplacementRecipientStep(p,options){
   const scoped=(port,fields,code)=>scopeOriginalHostPort(port,p.isHostActive,fields,code);
   const publication=scoped(rawPublication,['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler','originalReplacementRecipientDiffPublication'],
     'RECIPIENT_NATIVE_REPLACEMENT_PUBLICATION_REQUIRED');
-  const discovery=scoped(frameDiscoveryPort,['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
-    'RECIPIENT_NATIVE_STEP_ORIGINAL_DISCOVERY_REQUIRED');
+  const discovery=scoped(frameDiscoveryPort,['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion',
+    'originalMultipartNegotiationEnabled'],'RECIPIENT_NATIVE_STEP_ORIGINAL_DISCOVERY_REQUIRED');
+  const readAgreement=multipart?live(readOriginalMultipartAgreement,'replacement-multipart-agreement'):null;
   const checkCursor=async()=>{await guard('replacement-recipient-frontier');
     if(!same(await p.originalRecipientCursorPort.readOriginalVerifiedCursor(),before))fail('RECIPIENT_NATIVE_REPLACEMENT_FRONTIER_CHANGED');};
   await checkCursor();
@@ -1058,6 +1062,7 @@ async function executeNativeReplacementRecipientStep(p,options){
     readOriginalSourceContentHistory:live(readOriginalSourceContentHistory,'replacement-source-content'),
     readOriginalOwnerEligibility:live(readOriginalOwnerEligibility,'replacement-owner-eligibility'),
     authorizeOriginalReplacement:live(authorizeOriginalReplacement,'authorize-replacement'),getMode:p.getMode,
+    ...(multipart?{readOriginalMultipartAgreement:readAgreement}:{}),
     authorizeOriginalRecipientSession:async()=>{await guard('discover-replacement-content');return true;}});};
   const readEvidence=async()=>{const v=await observe();if(v.state!=='CONTENT_VERIFIED')fail('SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_NOT_READY');return v.originalReplacementContentEvidence;};
   let applyStarted=false;
@@ -1067,6 +1072,7 @@ async function executeNativeReplacementRecipientStep(p,options){
       verifiedChangeRef:content.verifiedChangeRef,workspaceId:c.workspaceId,originalWriteOwnerRef:c.originalWriteOwnerRef,
       sourceNodeRef:c.sourceNodeRef,recipientNodeRef:c.recipientNodeRef,scopeRef:c.scopeRef,sessionRef:c.sessionRef,ownerEpoch:c.ownerEpoch,
       sourceCursorBefore:before,capturedWindowDigest:c.capturedWindowDigest,getMode:p.getMode,
+      ...(multipart?{originalMultipartCaptureSession:c}:{}),
       readOriginalHostContext:live(readOriginalSourceHostContext,'source-host-context'),authorizeOriginalRead:live(authorizeOriginalSourceRead,'authorize-source-read'),
       ...(readOriginalSourceWindow===null?{readOriginalEvents:live(readOriginalSourceEvents,'source-events')}:
         {readOriginalWindow:live(()=>readOriginalSourceWindow({session:c,sourceCursorBefore:before}),'source-window')}),verifyOriginalSourceSubject:live(verifyOriginalSourceSubject,'source-subject')});
@@ -1076,7 +1082,8 @@ async function executeNativeReplacementRecipientStep(p,options){
       originalSourceHeadProof:sourceHeadProof,encryptionContextRef:content.encryptionContextRef,originalCaptureSession:c,
       recipientNodeRef:c.recipientNodeRef,scopeRef:c.scopeRef,getMode:p.getMode,readOriginalHostContext:live(p.readOriginalHostContext,'open-context'),
       authorizeOriginalSealedOpen:live(authorizeOriginalSealedOpen,'authorize-open'),openOriginalSealedContent:live(open,'open-original-sealed'),
-      verifyOriginalSourceBinding:live(verifyOriginalSourceBinding,'verify-source-binding'),readOriginalReplacementRecipientContentEvidence:readEvidence});
+      verifyOriginalSourceBinding:live(verifyOriginalSourceBinding,'verify-source-binding'),readOriginalReplacementRecipientContentEvidence:readEvidence,
+      ...(multipart?{readOriginalMultipartAgreement:readAgreement}:{})});
     const args={received,readOriginalReplacementRecipientContentObservation:observe,
       authorizeOriginalReplacementRecipientApplyAdmission:live(authorizeOriginalReplacementRecipientApplyAdmission,'replacement-apply-admission'),getMode:p.getMode};
     let phase,ackPort;

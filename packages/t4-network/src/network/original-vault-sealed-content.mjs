@@ -197,7 +197,8 @@ export function createT4OriginalVaultSealedContentPort({
       return null;
     }
     if(!DIG(value)||readOriginalMultipartAgreement===null||
-      (replacementSession(session)&&(role!=='SOURCE'||readOriginalReplacementDiffAcceptance===null))||session.changeKind!=='ASSET_PUT'||
+      (replacementSession(session)&&(role==='SOURCE'?readOriginalReplacementDiffAcceptance===null:
+        readOriginalReplacementRecipientContentEvidence===null))||session.changeKind!=='ASSET_PUT'||
       (requireProfile?input.multipartProfile!==T4_MULTIPART_OPAQUE_EXTENSION:
         input.multipartProfile!==undefined&&input.multipartProfile!==T4_MULTIPART_OPAQUE_EXTENSION))
       fail('SEALED_CONTENT_MULTIPART_AGREEMENT_REQUIRED');
@@ -234,8 +235,12 @@ export function createT4OriginalVaultSealedContentPort({
     if(role==='RECIPIENT'){
       const evidence=validateT4OriginalReplacementContentEvidence(await readOriginalReplacementRecipientContentEvidence(
         Object.freeze({candidate:session,contentDigest:extra.contentDigest,encryptionContextRef:extra.encryptionContextRef,
+          ...(extra.originalMultipartAgreementDigest?{originalMultipartAgreementDigest:extra.originalMultipartAgreementDigest}:{}),
           originalReplacementContentReadRequired:true,originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false})),session);
-      if(evidence.contentDigest!==extra.contentDigest||evidence.encryptionContextRef!==extra.encryptionContextRef)
+      if(evidence.contentDigest!==extra.contentDigest||evidence.encryptionContextRef!==extra.encryptionContextRef||
+        Object.hasOwn(evidence.agreement,'originalMultipartAgreement')!==(extra.originalMultipartAgreementDigest!==undefined)||
+        (extra.originalMultipartAgreementDigest!==undefined&&
+          evidence.agreement.originalMultipartAgreement.agreementDigest!==extra.originalMultipartAgreementDigest))
         fail('SEALED_CONTENT_REPLACEMENT_EVIDENCE_MISMATCH');
       current();return evidence;
     }
@@ -253,7 +258,8 @@ export function createT4OriginalVaultSealedContentPort({
     current();
     const before=await replacementGate(session,extra);
     const multipart=await multipartGate(session,extra.originalMultipartAgreementDigest??null,extra);
-    if(replacementSession(session)&&multipart!==null&&!equal(before.originalMultipartAgreement,multipart))
+    if(replacementSession(session)&&multipart!==null&&
+      !equal(role==='SOURCE'?before.originalMultipartAgreement:before.agreement.originalMultipartAgreement,multipart))
       fail('SEALED_CONTENT_REPLACEMENT_MULTIPART_AGREEMENT_CHANGED');
     await signed.authorize({operation,input:{...identity,session,...extra,
       originalRecipientKeyFingerprint:fingerprint(entry.publicKey),

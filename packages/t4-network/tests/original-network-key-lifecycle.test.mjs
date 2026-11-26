@@ -1761,11 +1761,41 @@ test('K168 original source Vault seals successor multipart only with exact bilat
   selected=agreement;
   const compact={...publication};delete compact.originalMultipartAgreementDigest;
   await assert.rejects(source.authorizeOriginalSealedPublication(compact));
-  const recipient=q.recipient({readOriginalReplacementRecipientContentEvidence:async()=>assert.fail('unimplemented successor recipient must not open'),
-    readOriginalMultipartAgreement:async()=>agreement});
-  await assert.rejects(recipient.openOriginalSealedContent({...q.openInput(candidate,sealed),
-    originalMultipartAgreementDigest:agreement.agreementDigest}),{code:'SEALED_CONTENT_MULTIPART_AGREEMENT_REQUIRED'});
+  // The recipient still needs independent exact PRESENT anchors and its
+  // own live agreement. Model only that owner evidence here; the real
+  // Vault, original key registry and authenticated envelope are exercised.
+  const plan=await prepareT4CandidateMultipartOpaqueChunks({changeId:candidate.changeId,ownerRef:OWNER,
+    sourceContentRef:'capture:k168:asset',getMode:()=> 'T4_NETWORK',authorizeOriginalSealedContent:async()=>true,
+    readOriginalSealedContent:async()=>({ciphertext:sealed.ciphertext,encryptionContextRef:sealed.encryptionContextRef})});
+  const frames=Array.from({length:plan.bodies.length+2},(_,i)=>{
+    const sha256=i===0?agreement.headSha256:sha('k173:frame:'+i);
+    return {sequence:i+1,messageType:i===0?'HEADS':i===1?'CHANGE_REF':'CHUNK',key:sha256+'.t4n',sha256,
+      presentEventId:i===0?witness.originalSourceHeadPresentEventId:'event:k173:present:'+i,
+      presentRevision:3+i,presentChainHash:i===0?witness.originalSourceHeadPresentChainHash:'sha256:'+sha('k173:chain:'+i)};
+  });
+  const evidence={schema:'IWXA_T4_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_V1',state:'ORIGINAL_REPLACEMENT_CONTENT_VERIFIED',
+    candidate,agreement:witness,sourcePublicationCheckpointRef:'publication:k173:source',frames,
+    contentDigest:publication.contentDigest,encryptionContextRef:sealed.encryptionContextRef,
+    originalMultipartManifestDigest:plan.manifest.manifestDigest,
+    originalSourceContentPublicationVerified:true,originalRecipientDiffPublicationVerified:true,originalTransportIntegrityVerified:true,
+    originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false,originalBusinessApplied:false,
+    sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false};
+  let contentEvidence=null;
+  const recipient=q.recipient({readOriginalReplacementRecipientContentEvidence:async()=>contentEvidence,
+    readOriginalMultipartAgreement:async()=>selected});
+  const openInput={...q.openInput(candidate,sealed),originalMultipartAgreementDigest:agreement.agreementDigest};
+  await assert.rejects(recipient.openOriginalSealedContent(openInput),{code:'PUBLICATION_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_REQUIRED'});
+  contentEvidence=evidence;selected=different;
+  await assert.rejects(recipient.openOriginalSealedContent(openInput),{code:'SEALED_CONTENT_MULTIPART_AGREEMENT_CHANGED'});
+  selected=agreement;
   assert.equal(q.unlocks,0);
+  const opened=await recipient.openOriginalSealedContent(openInput);
+  assert.deepEqual(Buffer.from(opened.plaintext),c.content);
+  assert.equal(opened.originalMultipartAgreementDigest,agreement.agreementDigest);
+  const unlocks=q.unlocks;
+  contentEvidence={...evidence,contentDigest:d};
+  await assert.rejects(recipient.openOriginalSealedContent(openInput),{code:'SEALED_CONTENT_REPLACEMENT_EVIDENCE_MISMATCH'});
+  assert.equal(q.unlocks,unlocks);
   assert.ok(admissionReads>2&&agreementReads>2);
   active=false;const reads=admissionReads+agreementReads;
   await assert.rejects(source.authorizeOriginalSealedPublication(publication),{code:'ORIGINAL_HOST_LIFETIME_ENDED'});

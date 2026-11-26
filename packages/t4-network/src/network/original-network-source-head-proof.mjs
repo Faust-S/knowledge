@@ -4,7 +4,7 @@ import {validT4NativeSubjectRevision,
 import {T4_MULTIPART_OPAQUE_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,
   validateT4CandidateMultipartManifest} from './standard-network-multipart-opaque-chunks.mjs';
 import {readT4OriginalNativeMultipartAgreement} from './original-network-multipart-agreement.mjs';
-import {validateT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
+import {validateT4OriginalNativeCaptureSession,validateT4OriginalReplacementSessionCandidate} from './original-network-publication.mjs';
 import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest,selectT4OriginalLocalEventReadPorts} from './original-event-window.mjs';
 
 /**
@@ -56,7 +56,9 @@ export async function verifyT4OriginalSourceHeadCausality({
   if(multipart){
     verifiedHeads=structuredClone(verifiedHeads);verifiedDiffRequest=structuredClone(verifiedDiffRequest);
     verifiedChangeRef=structuredClone(verifiedChangeRef);
-    originalMultipartCaptureSession=validateT4OriginalNativeCaptureSession(structuredClone(originalMultipartCaptureSession));
+    const selected=structuredClone(originalMultipartCaptureSession);
+    originalMultipartCaptureSession=selected?.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_SESSION_CANDIDATE_V1'?
+      validateT4OriginalReplacementSessionCandidate(selected):validateT4OriginalNativeCaptureSession(selected);
   }
   const commit=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
   const history=readOriginalWindow===null?selectT4OriginalLocalEventReadPorts({readOriginalEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize}):

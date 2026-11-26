@@ -558,7 +558,7 @@ export async function openT4OriginalNetworkSubjectChange({
     fail('SUBJECT_ORIGINAL_REPLACEMENT_OPEN_PORT_REQUIRED');
   const multipart=Array.isArray(verifiedChangeRef?.verifiedCriticalExtensions)&&
     verifiedChangeRef.verifiedCriticalExtensions.includes(T4_MULTIPART_OPAQUE_EXTENSION);
-  if(multipart?(replacement||originalCaptureSession===null||typeof readOriginalMultipartAgreement!=='function'):
+  if(multipart?(originalCaptureSession===null||typeof readOriginalMultipartAgreement!=='function'):
     readOriginalMultipartAgreement!==null)fail('SUBJECT_MULTIPART_OPEN_PORT_REQUIRED');
   // Snapshot the successor receipts before any asynchronous owner reads.
   // No mutable caller body is allowed to change after its publication proof.
@@ -694,10 +694,15 @@ export async function openT4OriginalNetworkSubjectChange({
       ...proof,candidate:captureSession,originalReplacementContentReadRequired:true,liveNetworkAuthorityGranted:false})),captureSession);
     const incoming=[head,...verifiedChunks].sort((a,b)=>a.verifiedSequence-b.verifiedSequence);
     if(e.contentDigest!==change.contentDigest||e.encryptionContextRef!==encryptionContextRef||
+      Object.hasOwn(e.agreement,'originalMultipartAgreement')!==multipart||
+      (multipart&&(e.originalMultipartManifestDigest!==manifest.manifestDigest||
+        e.agreement.originalMultipartAgreement.agreementDigest!==head.originalMultipartAgreementDigest||
+        e.agreement.originalMultipartAgreement.headSha256!==originalSourceHeadProof.originalMultipartHeadSha256||
+        e.agreement.originalMultipartAgreement.diffSha256!==originalSourceHeadProof.originalMultipartDiffSha256))||
       e.agreement.originalRecipientPublicationCheckpointRef!==originalSourceHeadProof.originalRecipientPublicationCheckpointRef||
       e.frames.length!==incoming.length+1||incoming.some((f,i)=>f.verifiedSequence!==i+2||
         f.key!==e.frames[i+1].key||f.sha256!==e.frames[i+1].sha256||f.signedMessageType!==e.frames[i+1].messageType||
-        (i>0&&f.verifiedBody.chunkIndex!==i-1)))
+        (i>0&&(multipart?t4CandidateMultipartChunkSequence(f.verifiedBody)!==i+2:f.verifiedBody.chunkIndex!==i-1))))
       fail('SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_BINDING_MISMATCH');
     return e;
   }
@@ -755,6 +760,7 @@ export async function openT4OriginalNetworkSubjectChange({
       opened.originalBusinessApplied!==false||HASH(plaintext)!=='sha256:'+captureSession.capturedSha256))
       fail('SUBJECT_MULTIPART_CAPTURE_MISMATCH');
     if(replacement&&(opened.originalVaultUsed!==true||opened.originalCapturedBytesVerified!==true||
+      (multipart&&opened.originalMultipartAgreementDigest!==multipartAgreement.agreementDigest)||
       opened.originalBusinessApplied!==false||HASH(plaintext)!=='sha256:'+captureSession.capturedSha256))
       fail('SUBJECT_ORIGINAL_REPLACEMENT_CAPTURE_MISMATCH');
     source=type.decode(plaintext,...(multipart?[{enableMultipart:true}]:[]));
@@ -1347,6 +1353,11 @@ function replacementSubject(received){
     r.originalSubjectMutationInvoked!==false||r.originalBusinessApplied!==false)
     fail('SUBJECT_ORIGINAL_REPLACEMENT_SUBJECT_REQUIRED');
   const c=validateT4OriginalReplacementSessionCandidate(e?.candidate),v=validateT4OriginalReplacementContentEvidence(e,c);
+  const multipart=Object.hasOwn(v.agreement,'originalMultipartAgreement');
+  if(multipart?(r.originalMultipartAgreementDigest!==v.agreement.originalMultipartAgreement.agreementDigest||
+    r.originalMultipartManifestDigest!==v.originalMultipartManifestDigest):
+    (Object.hasOwn(r,'originalMultipartAgreementDigest')||Object.hasOwn(r,'originalMultipartManifestDigest')))
+    fail('SUBJECT_ORIGINAL_REPLACEMENT_SUBJECT_MISMATCH');
   if(!['sourceNodeRef','recipientNodeRef','scopeRef','sessionRef','changeId','ownerEpoch','changeKind','sourcePrefixDigestBefore','sourcePrefixDigestAfter']
       .every(k=>r[k]===c[k])||r.sha256!==c.capturedSha256||r.delta?.workspaceId!==c.workspaceId||
     r.delta?.originalWriteOwnerRef!==c.originalWriteOwnerRef||r.delta?.sourceEventId!==c.sourceEventId||
