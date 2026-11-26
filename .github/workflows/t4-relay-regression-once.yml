@@ -1,0 +1,21 @@
+name: T4 relay compatibility regression
+on:
+  push:
+    branches: ['ci/once/t4-relay-regression/c18cab35bacc611dd0d4fe0a5e7b7a3a4d4ce404']
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact candidate parent
+        run: test "$(git rev-parse HEAD^)" = "c18cab35bacc611dd0d4fe0a5e7b7a3a4d4ce404"
+      - run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - run: node --experimental-strip-types --test packages/t4-network/tests/original-native-kernel-relay.test.mjs packages/t4-network/tests/original-native-signed-kernel-relay.test.mjs
