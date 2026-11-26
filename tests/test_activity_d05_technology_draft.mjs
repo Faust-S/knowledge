@@ -493,6 +493,19 @@ test('compatible route experience aligns actual controls across differing plan o
  assert.equal(scoped.document.comparison.recorded_scope.excluded_unaligned_defects,1);
  assert.equal(out.lessons.length,1);
  assert.equal(out.lessons[0].check_id,controls[0].check_id);
+ const summaries=request.document.evidence.filter(e=>e.field==='recorded_correction_summary');
+ assert.equal(summaries.length,1);
+ const summary=JSON.parse(summaries[0].text);
+ assert.equal(summaries[0].scope,controls[0].check_id);
+ assert.equal(summary.order_count,2);assert.equal(summary.rechecked_order_count,2);assert.equal(summary.unresolved_order_count,0);
+ const byRef=new Map(request.document.evidence.map(e=>[e.ref,e]));
+ assert.ok(summary.cases.every(c=>byRef.get(c.defect_ref).field==='recorded_defect_report'&&
+  byRef.get(c.deviation_ref).scope===summaries[0].scope&&byRef.get(c.recheck_ref).scope===summaries[0].scope&&c.recorded_recheck));
+ const mixed=structuredClone(r);
+ mixed.recorded_execution_review.profiles[1].reports[0].defects[0].status='open';
+ const mixedRequest=await prepareD05ExtractionRequest(mixed,group.id,1,options);
+ const mixedSummary=JSON.parse(mixedRequest.document.evidence.find(e=>e.field==='recorded_correction_summary').text);
+ assert.equal(mixedSummary.status,'REQUIRES_REVIEW');assert.equal(mixedSummary.unresolved_order_count,1);
  const singleUnaligned=structuredClone(r);
  singleUnaligned.recorded_execution_review.profiles[0].reports[0].quality[0].canonical_control_number=null;
  const omitted=await extractD05PracticalLessons(singleUnaligned,group.id,1);
@@ -564,8 +577,24 @@ test('functional review reads exact optional context, retains declared controls 
  const cited=await reviewD05ExtractionProposal(r,g.id,1,modelProposal,option);
  assert.deepEqual(cited.note_review[0].cited_by,['technology.local_context_guidance']);
  assert.equal(cited.note_review[0].scope_needs_review,true);
+ fields['technology.local_context_guidance'].value='Уточнить область '+note.scope+' перед применением.';
+ assert.equal((await reviewD05ExtractionProposal(r,g.id,1,modelProposal,option)).note_review[0].scope_needs_review,true);
  fields['technology.local_context_guidance'].value='Операция '+note.scope+': '+note.text;
- assert.equal((await reviewD05ExtractionProposal(r,g.id,1,modelProposal,option)).note_review[0].scope_needs_review,false);
+ const scopedReview=await reviewD05ExtractionProposal(r,g.id,1,modelProposal,option);
+ assert.equal(scopedReview.note_review[0].scope_needs_review,false);
+ assert.deepEqual(scopedReview.scope_review.scoped_lines,['Операция '+note.scope+': '+note.text]);
+ const correction=withNotes.document.evidence.find(e=>e.field==='recorded_correction_summary');
+ assert.ok(correction);
+ fields['technology.local_context_guidance'].refs.push({ref:correction.ref,quote:'RECORDED_CORRECTIONS_NOT_CAUSAL_PROOF'});
+ assert.equal((await reviewD05ExtractionProposal(r,g.id,1,modelProposal,option)).correction_review[0].scope_needs_review,true);
+ fields['technology.local_context_guidance'].value+='\nКонтрольная точка '+correction.scope+': Повторить контроль партии.';
+ const aligned=await reviewD05ExtractionProposal(r,g.id,1,modelProposal,option);
+ assert.equal(aligned.correction_review[0].scope_needs_review,false);
+ // recordedCase has no later recheck, even though the defect is marked resolved.
+ assert.equal(aligned.correction_review[0].status,'REQUIRES_REVIEW');
+ assert.equal(aligned.correction_review[0].order_count,1);
+ assert.equal(aligned.correction_review[0].rechecked_order_count,0);
+ assert.equal(aligned.correction_review[0].unresolved_order_count,1);
  assert.doesNotMatch(withNotes.document_text,/PRIVATE_DRAWING_A|PRIVATE_ORDER_ALPHA|PRIVATE_MATERIAL_A|Не подтверждено наличие оснастки/);
  assert.ok(withNotes.document.evidence.some(e=>e.field==='recorded_operation_report'&&e.scope===cut(r)&&JSON.parse(e.text).declared_responsible_role==='Оператор лазерной резки'));
  await assert.rejects(()=>prepareD05ExtractionRequest(plain,g.id,1,{includeLocalInstructions:true}),{code:'TECHNOLOGY_D05_EXTRACTION_LOCAL_CONTEXT_REQUIRED'});

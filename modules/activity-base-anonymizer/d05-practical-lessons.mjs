@@ -47,6 +47,10 @@ export async function selectD05PracticalExperience(review,groupId,modelNumber,{i
 }
 export async function extractD05PracticalLessons(review,groupId,modelNumber,options){
  const scope=await selectD05PracticalExperience(review,groupId,modelNumber,options);
+ return summarizeD05PracticalExperience(review,groupId,modelNumber,scope);
+}
+// Reuse the very same selected reports for the existing model document.
+export async function summarizeD05PracticalExperience(review,groupId,modelNumber,scope){
  const {model_numbers,reports:source}=scope;
  const combined=model_numbers.length>1;
  const profile=review.technology_draft?.groups?.find(g=>g.group_id===groupId)?.profiles?.find(p=>p.model_number===modelNumber);
@@ -54,7 +58,7 @@ export async function extractD05PracticalLessons(review,groupId,modelNumber,opti
  let excluded_unaligned_count=0;
  for(const {model_number,report,order_ref} of source){
   const orderKey=combined?order_ref:report.report_number;
-  for(const defect of report.defects){
+  for(const [defectIndex,defect] of report.defects.entries()){
    const q=report.quality[defect.quality_report_number-1];
    if(!q||q.kind!=='CONTROL_REPORT'||!validNumber(q.control_number)||
       !['failed','passed_with_deviation','recheck_required'].includes(q.status))continue;
@@ -67,7 +71,9 @@ export async function extractD05PracticalLessons(review,groupId,modelNumber,opti
     v.scope===q.scope&&v.scope_number===q.scope_number&&validNumber(q.reported_sequence)&&
     validNumber(v.reported_sequence)&&v.reported_sequence>q.reported_sequence).sort((a,b)=>a.reported_sequence-b.reported_sequence);
    const last=later.at(-1);
-   const followup=last?last.status:null;
+   const alignedFollowup=last&&validNumber(q.canonical_control_number)&&
+    last.canonical_control_number===q.canonical_control_number&&(last.operation_id??null)===(q.operation_id??null)?last:null;
+   const followup=alignedFollowup?alignedFollowup.status:null;
    const recovered=defect.disposition==='rework'&&defect.status==='resolved'&&['passed','accepted_after_rework'].includes(followup);
    // Plan order is never the identity of a canonical check, even in one
    // source. Keep the selected profile's symbolic scope for the portable rule.
@@ -84,6 +90,7 @@ export async function extractD05PracticalLessons(review,groupId,modelNumber,opti
    let variant=item.variants.get(variantKey);
    if(!variant){variant={problem,action,orders:new Set(),observations:[]};item.variants.set(variantKey,variant);}
    const observation={model_number,report_number:report.report_number,quality_report_number:defect.quality_report_number,
+    defect_report_number:defectIndex+1,followup_quality_report_number:alignedFollowup?report.quality.indexOf(alignedFollowup)+1:null,
     recorded_defect_status:defect.status,followup_status:followup,recorded_recheck:recovered};
    item.observations.push(observation);variant.observations.push(observation);variant.orders.add(orderKey);
    item.orders.add(orderKey);

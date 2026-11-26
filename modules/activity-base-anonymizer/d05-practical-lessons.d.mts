@@ -1,5 +1,5 @@
 export type PracticalLesson={lesson_id:string;control_number:number;check_id:string;control:string;operation_id:string|null;problem:string;action:string;disposition:string;
- observations:Array<{model_number:number;report_number:number;quality_report_number:number;recorded_defect_status:string;followup_status:string|null;recorded_recheck:boolean}>;
+ observations:Array<{model_number:number;report_number:number;quality_report_number:number;defect_report_number:number;followup_quality_report_number:number|null;recorded_defect_status:string;followup_status:string|null;recorded_recheck:boolean}>;
  scope:string;severity:string;deviation_type:string|null;wording_review_required:boolean;
  variants:Array<{problem:string;action:string;order_count:number;observations:PracticalLesson['observations']}>;
  order_count:number;rechecked_order_count:number;unresolved_order_count:number;status:'REQUIRES_REVIEW'|'REPORTED_CORRECTION_AND_RECHECK';suggested_guidance:string|null};
@@ -11,3 +11,5 @@ export function extractD05PracticalLessons(review:unknown,groupId:string,modelNu
 export function selectD05PracticalExperience(review:unknown,groupId:string,modelNumber:number,options?:PracticalExperienceOptions):Promise<{
  model_numbers:number[];reports:unknown[];duplicate_order_count:number;source_references:import('./technology-disclosure-generalization.mjs').SourceReference[]}>;
 
+
+export function summarizeD05PracticalExperience(review:unknown,groupId:string,modelNumber:number,scope:Awaited<ReturnType<typeof selectD05PracticalExperience>>):Promise<PracticalLessonReview>;

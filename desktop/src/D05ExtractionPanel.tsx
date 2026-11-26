@@ -59,6 +59,17 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
   onApply(next,{...result.decisions,...decisions},result.suggested_title);
  }
  const fields=result?Object.entries(result.fields):[],pageSize=12;
+ const practicalRows=result?[...result.correction_review.map(row=>({...row,kind:'correction' as const})),
+  ...result.note_review.map(row=>({...row,kind:'note' as const}))]:[];
+ const currentGuidance=form.local_context_guidance??'';
+ const normalizeLine=(line:string)=>line.trim().replace(/^(?:Операция|Operation|Контрольная точка|Quality check|Check)\s+/iu,'');
+ const currentLines=new Set(currentGuidance.split(/\r?\n/).map(normalizeLine));
+ const newScoped=[...new Set(result?.scope_review.scoped_lines??[])].filter(line=>!currentLines.has(normalizeLine(line)));
+ const nextGuidance=[currentGuidance.trim(),...newScoped].filter(Boolean).join('\n');
+ function appendScoped(){
+  if(!result||!newScoped.length||nextGuidance.length>4096||result.scope_review.unresolved.length)return;
+  onApply({...form,local_context_guidance:nextGuidance},decisions,null);
+ }
  const family=request?.document.comparison.compatible_declarations;
  const recordedCount=request?.document.comparison.recorded_report_count??0;
  const recordedScope=request?.document.comparison.recorded_scope;
@@ -92,14 +103,21 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
     <div><strong>{result.proposed_fields.length}</strong><span>Предложения</span></div><div><strong>{result.missing_fields.length}</strong><span>Не установлено</span></div></div>
    <p>{result.product?'Предметное содержимое прошло проверку структуры.':'Нужны дополнительные предметные сведения или проверка обязательных условий.'} Исходные цитаты не заменяют проверку смысла.</p>
    {result.suggested_title?<p><strong>{result.suggested_title}</strong></p>:null}
-   {result.note_review.length?<details className="activity-domain-group"><summary>Исходные указания в предложении ({result.note_review.filter(n=>n.cited_by.length).length} / {result.note_review.length} со ссылками)</summary>
+   {practicalRows.length?<details className="activity-domain-group"><summary>Практический опыт в предложении ({practicalRows.filter(n=>n.cited_by.length).length} / {practicalRows.length} со ссылками)</summary>
     <p>Ссылка на исходное указание не доказывает сохранение его смысла. Проверьте неиспользованные указания и область применения перед заполнением черновика.</p>
-    {result.note_review.slice(notePage*6,(notePage+1)*6).map(n=><div key={n.ref} className="activity-domain-op">
-     <strong>{scopeLabel(n.scope)}</strong><p>{n.text}</p>
+    {practicalRows.slice(notePage*6,(notePage+1)*6).map(n=><div key={n.ref} className="activity-domain-op">
+     <strong>{scopeLabel(n.scope)}</strong><p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{n.text}</p>
+     {n.kind==='correction'?<p>Заказов: {n.order_count}. С зарегистрированной положительной повторной проверкой: {n.rechecked_order_count}. Требуют уточнения: {n.unresolved_order_count}.{n.wording_review_required?' Разные формулировки требуют согласования.':''}</p>:null}
      {n.cited_by.length?<p>Ссылки в полях: {n.cited_by.map(id=>{const [scope,field]=id.split('.');return scopeLabel(scope)+': '+(labels[field]??field);}).join('; ')}</p>:<p>В предложении нет ссылки на это указание.</p>}
-     {n.scope_needs_review?<p className="activity-v7-note hold">Проверьте привязку общего правила к исходной операции или контрольной точке.</p>:null}
+     {n.scope_needs_review?<p className="activity-v7-note hold">Нет одновременно ссылки в локальных требованиях и строки нужной области. Проверьте перенос правила.</p>:null}
     </div>)}
-    {result.note_review.length>6?<div className="activity-v7-actions"><button disabled={!notePage} onClick={()=>setNotePage(p=>p-1)}>Назад</button><span>{notePage+1} / {Math.ceil(result.note_review.length/6)}</span><button disabled={(notePage+1)*6>=result.note_review.length} onClick={()=>setNotePage(p=>p+1)}>Далее</button></div>:null}
+    {practicalRows.length>6?<div className="activity-v7-actions"><button disabled={!notePage} onClick={()=>setNotePage(p=>p-1)}>Назад</button><span>{notePage+1} / {Math.ceil(practicalRows.length/6)}</span><button disabled={(notePage+1)*6>=practicalRows.length} onClick={()=>setNotePage(p=>p+1)}>Далее</button></div>:null}
+   </details>:null}
+   {result.scope_review.unresolved.length?<p className="activity-v7-note hold">Некоторые строки содержат нераспознанные области. Уточните их в редакторе.</p>:null}
+   {currentGuidance.trim()&&newScoped.length?<details className="activity-domain-group"><summary>Новые практические условия ({newScoped.length})</summary>
+    <p>Существующие условия не заменяются. Сопоставьте новые указания с ними, исключите противоречия и частные сведения.</p>
+    <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{newScoped.join('\n')}</p>
+    <button disabled={nextGuidance.length>4096||!!result.scope_review.unresolved.length} onClick={appendScoped}>Добавить новые условия к существующим</button>
    </details>:null}
    <button className="activity-v7-primary" onClick={apply}>Заполнить незаполненные поля и настройки</button>
    <details><summary>Сведения и основания</summary>

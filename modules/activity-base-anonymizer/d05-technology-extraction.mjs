@@ -4,9 +4,9 @@
 import {ActivityHold,sha256Canonical} from './engine.mjs';
 import {prepareD05TechnologyProposal,prepareD05DisclosureCandidate} from './d05-route-comparison.mjs';
 import {suggestD05ParameterDecisions} from './d05-adaptation-suggestions.mjs';
-import {prepareD05TechnologyProduct} from './technology-product.mjs';
+import {prepareD05TechnologyProduct,partitionD05Guidance} from './technology-product.mjs';
 import {reviewD05RecurringTechnologies} from './d05-recurring-technology.mjs';
-import {selectD05PracticalExperience} from './d05-practical-lessons.mjs';
+import {selectD05PracticalExperience,summarizeD05PracticalExperience} from './d05-practical-lessons.mjs';
 import {explicitPracticalInstructions} from './practical-rule-wording.mjs';
 export const REQUEST='IWXA_ACTIVITY_D05_EXTRACTION_REQUEST_V1';
 export const PROPOSAL='IWXA_ACTIVITY_D05_EXTRACTION_PROPOSAL_V1';
@@ -19,7 +19,7 @@ const HINTS={
  outputs:'Tangible deliverable and acceptance conditions.',
  applicability:'Known applicability and limits; do not invent product ranges.',
  adaptation_guidance:'How recipient adapts order quantity, calendar and resources without changing technical requirements.',
- local_context_guidance:'Which missing local requirements must be established by recipient. Preserve applicable source note instructions and their operation or check scope, using the supplied symbolic operation/check IDs; no invented facts.',
+ local_context_guidance:'Recipient conditions and practical rules. Use one line per scoped rule: "op_001: instruction" or "check_001: instruction" with the exact supplied ID. Preserve conditions, correction and recheck; leave general rules unprefixed. No invented facts.',
  label:'Generalized operation name that preserves its actual subject and function.',
  role:'Functional performer responsibility and competence, not personal identity. A declared role in a recorded operation report is not proof of qualification.',
  equipment:'Required equipment function, characteristics or limits; unknown is not no requirement.',
@@ -80,15 +80,17 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
    }else quality.push({...row,quality_report_number:index+1});
   }
   const defects=[];
-  for(const row of report.defects){
+  for(const [index,row] of report.defects.entries()){
    const check_id=controlScopes.get(row.quality_report_number);
    if(!check_id){excludedDefects++;continue;}
-   defects.push({...row,check_id});
+   defects.push({...row,check_id,defect_report_number:index+1});
   }
   // IDs of orders, native objects and revisions stay local, even though the
   // source digest below is bound to the original selected report identities.
   return {model_number,operations:report.operations,actuals:report.actuals,quality,defects};
  });
+ const lessons=selectedReports?await summarizeD05PracticalExperience(review,groupId,modelNumber,selectedReports):null;
+ const reportOrdinals=new Map((selectedReports?.reports??[]).map(({model_number,report},i)=>[model_number+':'+report.report_number,i+1]));
  const recordedCount=recorded.length;
  const recordedScope=recordedCount||selectedReports?.duplicate_order_count?{
   report_count:recordedCount,model_count:new Set(recorded.map(p=>p.model_number)).size,
@@ -120,7 +122,8 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
   if(value===null||value===undefined)return;
   const content=typeof value==='string'?value:serial(value);
   need(text(content,8192),'TECHNOLOGY_D05_EXTRACTION_EVIDENCE_VALUE');
-  evidence.push({ref:'evidence_'+String(evidence.length+1).padStart(4,'0'),scope,field,text:content,kind});
+  const ref='evidence_'+String(evidence.length+1).padStart(4,'0');
+  evidence.push({ref,scope,field,text:content,kind});return ref;
  };
  const field=(scope,k)=>fields.push({id:fieldId(scope,k),scope,field:k,instruction:HINTS[k]});
  for(const k of ['title',...TERMS])field('technology',k);
@@ -130,12 +133,35 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
   add('technology','recorded_report_scope',{...recordedScope,
    interpretation:'Reported practical experience; actual durations and measurements are not normative limits, independent observation or final acceptance. Unaligned control reports and duplicate orders are excluded.'});
   let reportNumber=0;
+  const qualityRefs=new Map(),defectRefs=new Map();
   for(const report of recorded){
    reportNumber++;
    for(const op of report.operations)add(op.operation_id,'recorded_operation_report',{report_number:reportNumber,meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED',...op});
    for(const row of report.actuals)add('technology','recorded_actuals_report',{report_number:reportNumber,meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED',...row});
-   for(const row of report.quality)add(row.check_id??'technology','recorded_quality_report',{report_number:reportNumber,meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED',...row});
-   for(const row of report.defects)add(row.check_id,'recorded_defect_report',{report_number:reportNumber,meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED',...row});
+   for(const row of report.quality){
+    const ref=add(row.check_id??'technology','recorded_quality_report',{report_number:reportNumber,meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED',...row});
+    qualityRefs.set(reportNumber+':'+row.quality_report_number,ref);
+   }
+   for(const row of report.defects){
+    const ref=add(row.check_id,'recorded_defect_report',{report_number:reportNumber,meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED',...row});
+    defectRefs.set(reportNumber+':'+row.defect_report_number,ref);
+   }
+  }
+  // Reuse local correction analysis and exact aliases, without duplicating
+  // original comments or copying native source identifiers.
+  for(const lesson of lessons?.lessons??[]){
+   const cases=lesson.observations.map(o=>{
+    const ordinal=reportOrdinals.get(o.model_number+':'+o.report_number);
+    const defect_ref=defectRefs.get(ordinal+':'+o.defect_report_number);
+    const deviation_ref=qualityRefs.get(ordinal+':'+o.quality_report_number);
+    const recheck_ref=o.followup_quality_report_number===null?null:qualityRefs.get(ordinal+':'+o.followup_quality_report_number);
+    need(defect_ref&&deviation_ref&&(o.followup_quality_report_number===null||recheck_ref),'TECHNOLOGY_D05_EXTRACTION_CORRECTION_LINK');
+    return {defect_ref,deviation_ref,recheck_ref,recorded_recheck:o.recorded_recheck,followup_status:o.followup_status};
+   });
+   add(lesson.check_id,'recorded_correction_summary',{meaning:'RECORDED_CORRECTIONS_NOT_CAUSAL_PROOF',
+    scope:lesson.scope,status:lesson.status,order_count:lesson.order_count,
+    rechecked_order_count:lesson.rechecked_order_count,unresolved_order_count:lesson.unresolved_order_count,
+    wording_review_required:lesson.wording_review_required,cases});
   }
  }
  for(const note of notes)add(note.scope,'source_note_instruction',note.value);
@@ -166,7 +192,8 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
   'Every field is {value:string or null,basis:"SOURCE_SUPPORTED" or "PROPOSED" or "MISSING",refs:[{ref:"evidence_0001",quote:"exact substring"}],note:string}. '+
   'Use SOURCE_SUPPORTED only when the cited source supports the content, PROPOSED for explicit functional suggestions with an explanation, MISSING with null and reason when necessary. '+
   'For an operation or quality role cite that scope, or its linked check or operation. Preserve all original technical controls; the existing domain engine supplies numeric conditions and dependencies. '+
-  'Evidence fields recorded_* describe recorded practice, not a new normative requirement. Compare reported conditions only within their linked check or operation and report number. Source note instructions require review; keep their applicable conditions and scope. '+
+  'Evidence fields recorded_* describe recorded practice, not a new normative requirement. For recorded_correction_summary follow the exact evidence aliases for deviation, action and recheck. Do not convert unresolved corrections into successful methods or infer causation. Preserve different material conditions. '+
+  'In local_context_guidance put each scoped practical rule on its own line, prefixed by the exact op_ or check_ ID followed by a colon, without bullets or headings. Cite its source instruction, correction summary or original defect. Preserve applicability, action, recheck and mandatory restrictions; never generalize a local correction to unrelated checks. '+
   'Never claim physical execution, approval, anonymity or permission to export. No other fields or external actions.';
  return {document,document_text,request_sha256,source_sha256,objective,field_count:fields.length,
   export_allowed:false,iwxa_package:null};
@@ -211,13 +238,33 @@ export async function reviewD05ExtractionProposal(review,groupId,modelNumber,pro
    else (form.operations[f.scope]??={})[f.field]=row.value;
   }
  }
- // Citation coverage is local review information only. A cited source note
- // is not proof that the model preserved the instruction or its meaning.
- const note_review=document.evidence.filter(e=>e.field==='source_note_instruction').map(e=>{
-  const cited_by=Object.entries(fields).filter(([,row])=>row.refs.some(ref=>ref.ref===e.ref)).map(([id])=>id);
-  const scope_needs_review=e.scope!=='technology'&&cited_by.some(id=>id.startsWith('technology.')&&!fields[id].value.includes(e.scope));
-  return {ref:e.ref,scope:e.scope,text:e.text,cited_by,scope_needs_review};
+ // Citation and scope coverage are review aids, not semantic equivalence.
+ const profile=review.technology_draft.groups.find(g=>g.group_id===groupId).profiles.find(p=>p.model_number===modelNumber);
+ const group=review.groups.find(g=>g.id===groupId);
+ const guidance=partitionD05Guidance({terms:{local_context_guidance:form.local_context_guidance??''},
+  operations:group.operations.map(o=>({operation_id:o.id})),quality_checks:profile.checks.map(c=>({check_id:c.id}))});
+ const scopeLines=scope=>scope==='technology'?guidance.common:guidance.operations[scope]??guidance.quality[scope]??[];
+ const coverage=(scope,aliases)=>{
+  const cited_by=Object.entries(fields).filter(([,row])=>row.refs.some(ref=>aliases.has(ref.ref))).map(([id])=>id);
+  return {cited_by,scope_needs_review:cited_by.length>0&&(!cited_by.includes('technology.local_context_guidance')||!scopeLines(scope).length)};
+ };
+ const note_review=document.evidence.filter(e=>e.field==='source_note_instruction').map(e=>({
+  ref:e.ref,scope:e.scope,text:e.text,...coverage(e.scope,new Set([e.ref]))
+ }));
+ const correction_review=document.evidence.filter(e=>e.field==='recorded_correction_summary').map(e=>{
+  const summary=JSON.parse(e.text),aliases=new Set([e.ref,...summary.cases.map(c=>c.defect_ref)]);
+  const variants=[...new Set(summary.cases.map(c=>{
+   const d=JSON.parse(refs.get(c.defect_ref).text);
+   return [d.description,d.resolution_note].filter(Boolean).join(': ');
+  }))];
+  return {ref:e.ref,scope:e.scope,text:variants.join('\n'),status:summary.status,order_count:summary.order_count,
+   rechecked_order_count:summary.rechecked_order_count,unresolved_order_count:summary.unresolved_order_count,
+   wording_review_required:summary.wording_review_required,...coverage(e.scope,aliases)};
  });
+ const scope_review={unresolved:guidance.unresolved,scoped_lines:[
+  ...Object.entries(guidance.operations).flatMap(([id,lines])=>lines.map(line=>'Операция '+id+': '+line)),
+  ...Object.entries(guidance.quality).flatMap(([id,lines])=>lines.map(line=>'Контрольная точка '+id+': '+line))
+ ]};
  const decisions=suggestD05ParameterDecisions(review,groupId,modelNumber).decisions;
  const candidate=prepareD05DisclosureCandidate(review,groupId,modelNumber,form,decisions);
  // A complete semantic proposal is still NOT an accepted technology. The
@@ -229,7 +276,7 @@ export async function reviewD05ExtractionProposal(review,groupId,modelNumber,pro
  }
  return {status:'LOCAL_D05_EXTRACTION_REVIEW',request_sha256:request.request_sha256,
   source_sha256:request.source_sha256,fields,form,decisions,suggested_title:title,missing_fields:missing,
-  proposed_fields:proposed,candidate,product,product_hold,note_review,
+  proposed_fields:proposed,candidate,product,product_hold,note_review,correction_review,scope_review,
   source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED',evidence_semantics:'EXACT_QUOTATIONS_NOT_SEMANTIC_PROOF',
   export_allowed:false,iwxa_package:null};
 }

@@ -261,12 +261,12 @@ const date=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)&&Number.isFinit
 // One existing text field carries scoped instructions, not a new product
 // schema. Stable symbolic headers are emitted by Activity's editor. Legacy
 // parenthesized display labels are readable but never used for matching.
-function partitionD05Guidance(t){
+export function partitionD05Guidance(t){
  const operations=Object.fromEntries(t.operations.map(o=>[o.operation_id,[]]));
  const quality=Object.fromEntries(t.quality_checks.map(c=>[c.check_id,[]]));
  const common=[],unresolved=[];
  const header=/^(?:(Операция|Operation|Контрольная точка|Quality check|Check)\s+)?((?:op|check)_[0-9]{3,5})(?:\s+\([^()\r\n]*\))?\s*:\s*(.*)$/iu;
- const prefix=/^(?:(?:Операция|Operation|Контрольная точка|Quality check|Check)\s+)?(?:op|check)_/iu;
+ const prefix=/^(?:[-*•]\s+|\d+[.)]\s+)?(?:(?:Операция|Operation|Контрольная точка|Quality check|Check)\s+)?(?:op|check)_/iu;
  for(const original of t.terms.local_context_guidance.split(/\r?\n/)){
   const line=original.trim();if(!line)continue;
   const match=header.exec(line);
