@@ -23,7 +23,7 @@ export function ProductGeneralizationPanel({product,reports,onRevision,disabled=
  const [additional,setAdditional]=useState<SourceReference[]>([]),[privateValue,setPrivateValue]=useState(''),[functional,setFunctional]=useState('');
  const references=useMemo(()=>[...sourceReferences,...additional],[sourceReferences,additional]);
  const list=Object.values(reports);
- const canAdd=privateValue.trim().length>=3&&functional.trim().length>0&&!functional.trim().includes(privateValue.trim())&&references.length<512;
+ const canAdd=privateValue.trim().length>=3&&functional.trim().length>0&&!functional.trim().includes(privateValue.trim())&&!/[\u0000-\u001f\u007f]/.test(privateValue+functional)&&references.length<512;
  function addReference(){
   if(!canAdd)return;
   const row:SourceReference={value:privateValue.trim(),replacement:functional.trim(),kind:'LOCAL_REFERENCE'};

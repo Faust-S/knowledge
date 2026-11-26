@@ -22,7 +22,7 @@ export function TechnologyDisclosurePanel({review,groupId,profile,operations,for
  const candidate=computed?.form===form&&computed.decisions===decisions?computed.value:null;
  const sourceReferences=useMemo<SourceReference[]>(()=>{
   const r=review as D05RouteReview;
-  if(!r.groups?.some(g=>g.id===groupId&&g.model_numbers.includes(profile.model_number)))return [];
+  if(!r?.groups?.some(g=>g.id===groupId&&g.model_numbers.includes(profile.model_number)))return [];
   return r.recorded_execution_review?.profiles.find(p=>p.model_number===profile.model_number)?.source_references??[];
  },[review,groupId,profile.model_number]);
  const fields=profile.conditions.filter(c=>c.use==='ADAPTATION_REVIEW');

@@ -26,7 +26,7 @@ export async function extractD05PracticalLessons(review,groupId,modelNumber){
     validNumber(v.reported_sequence)&&v.reported_sequence>q.reported_sequence).sort((a,b)=>a.reported_sequence-b.reported_sequence);
    const last=later.at(-1);
    const followup=last?last.status:null;
-   const recovered=defect.status==='resolved'&&['passed','accepted_after_rework'].includes(followup);
+   const recovered=defect.disposition==='rework'&&defect.status==='resolved'&&['passed','accepted_after_rework'].includes(followup);
    const key=JSON.stringify([q.control_number,problem,action,defect.disposition]);
    let item=candidates.get(key);
    if(!item){item={control_number:q.control_number,control:q.control,operation_id:q.operation_id??null,
@@ -47,7 +47,7 @@ export async function extractD05PracticalLessons(review,groupId,modelNumber){
    null;
   rows.push({...rest,lesson_id:'lesson_'+await sha256Canonical({groupId,modelNumber,control:rest.control_number,
     problem:rest.problem,action:rest.action,disposition:rest.disposition}),
-   order_count:orders.size,rechecked_order_count:recoveredOrders.size,unresolved_order_count:unresolvedOrders.size,
+   order_count:orders.size,rechecked_order_count:[...recoveredOrders].filter(n=>!unresolvedOrders.has(n)).length,unresolved_order_count:unresolvedOrders.size,
    status:state,suggested_guidance:guidance&&guidance.length<=4096?guidance:null});
  }
  rows.sort((a,b)=>b.rechecked_order_count-a.rechecked_order_count||b.order_count-a.order_count||cmp(a.lesson_id,b.lesson_id));

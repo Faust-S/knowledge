@@ -125,3 +125,28 @@ test('reports must cover the current product, and the same profile cannot count 
  await assert.rejects(()=>prepareProductGeneralization(p,[changed]),{code:'PRESIDIO_RESULT_COVERAGE_INVALID'});
  const plan=await prepareProductGeneralization(p,[raw]);assert.equal(plan.groups.length,0);assert.equal(plan.anonymity,'NOT_ESTABLISHED');
 });
+
+test('known private aliases and roles supplement Presidio without copying source identity into the revised product',async()=>{
+ const c=d05Candidate();
+ c.technology.terms.local_context_guidance='Проверка у Иван Тестовый. Согласовать с ООО Частный цех. Лазер 2 мм.';
+ c.technology.operations[0].role='Иван Тестовый';
+ c.technology.quality_checks[0].title='Контроль ширины 100 мм у ООО Частный цех';
+ const p=await prepareD05TechnologyProduct(c,'Правило Иван Тестовый');
+ const refs=[{value:'Иван Тестовый',replacement:'оператор пресса',kind:'PERFORMER'},
+  {value:'ООО Частный цех',replacement:'подрядчик получателя',kind:'CONTRACTOR'}];
+ const plan=await prepareProductGeneralization(p,[],'ru',refs);
+ assert.equal(plan.screening_profile_count,0);assert.equal(plan.finding_count,0);
+ assert.equal(plan.matched_reference_count,2);assert.equal(plan.automatic_group_count,2);
+ const changes=select(plan,plan.groups.map(g=>({group_id:g.group_id,replacement:g.suggested_replacement})));
+ const out=await applyProductGeneralization(p,[],changes,refs);
+ const t=out.preview.object_data.technology;
+ assert.equal(t.operations[0].role,'оператор пресса');
+ assert.match(t.terms.local_context_guidance,/Лазер 2 мм/);
+ assert.match(t.quality_checks[0].title,/100 мм/);
+ assert.deepEqual(t.quality_checks[0].declared_fields,p.object_data.technology.quality_checks[0].declared_fields);
+ for(const ref of refs)assert.ok(!JSON.stringify(out.preview.object_data).includes(ref.value));
+ assert.equal(out.preview.export_allowed,false);
+ await assert.rejects(()=>applyProductGeneralization(p,[],changes,[refs[0]]),{code:'TECHNOLOGY_GENERALIZATION_STALE'});
+ const conflict=await prepareProductGeneralization(p,[],'ru',[...refs,{...refs[0],replacement:'контролёр'}]);
+ assert.equal(conflict.groups.find(g=>g.value===refs[0].value).suggested_replacement,null);
+});

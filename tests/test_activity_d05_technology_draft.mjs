@@ -404,3 +404,38 @@ test('original signed D05 Host reads actual reports only on explicit selection a
  change=true;defectReads=0;
  await assert.rejects(()=>reviewSelectedD05RouteModels({...config,includeRecordedReports:true}),{code:'D05_ROUTE_HOST_SOURCE_CHANGED'});
 });
+
+import {extractD05PracticalLessons} from '../modules/activity-base-anonymizer/d05-practical-lessons.mjs';
+test('recorded corrective practice produces a draft rule only for a linked positive recheck in the same scope',async()=>{
+ const {review:r,group}=await extractionCase({recorded:true});
+ const result=await extractD05PracticalLessons(r,group.id,1);
+ assert.equal(result.lessons.length,1);
+ const lesson=result.lessons[0];
+ assert.equal(lesson.status,'REPORTED_CORRECTION_AND_RECHECK');
+ assert.equal(lesson.order_count,1);assert.equal(lesson.rechecked_order_count,1);
+ assert.match(lesson.suggested_guidance,/Настроить упор, проверить ширину первой детали/);
+ assert.match(lesson.suggested_guidance,/Не менять допуски/);
+ const wrong=structuredClone(r);
+ const report=wrong.recorded_execution_review.profiles[0].reports[0];
+ report.quality[1].scope='BATCH_REPORT';report.quality[1].scope_number=1;
+ const unresolved=await extractD05PracticalLessons(wrong,group.id,1);
+ assert.equal(unresolved.lessons[0].suggested_guidance,null);
+ const repeated=structuredClone(r),first=repeated.recorded_execution_review.profiles[0].reports[0];
+ first.defects.push(structuredClone(first.defects[0]));
+ assert.equal((await extractD05PracticalLessons(repeated,group.id,1)).lessons[0].order_count,1);
+ const lastFailed=structuredClone(r),qr=lastFailed.recorded_execution_review.profiles[0].reports[0].quality;
+ qr.push({...qr[1],reported_sequence:3,status:'failed'});
+ assert.equal((await extractD05PracticalLessons(lastFailed,group.id,1)).lessons[0].suggested_guidance,null);
+});
+test('explicit private source references are available locally but do not enter the extraction document by themselves',async()=>{
+ const data=recordedCase();
+ const order=data.find(x=>x.object.object_id==='private-order-001').object.data.value;
+ order.plan_snapshot.request={customer:'ООО Тестовый заказчик'};
+ const op=data.find(x=>x.object.object_id==='private-execution-001').object.data.value.operation_executions[0];
+ op.responsibleName='Тестовый Исполнитель';op.responsibleRole='Оператор пресса';op.contractor={contractor:'ООО Тестовый подрядчик'};
+ const r=review(data),g=r.groups[0],refs=r.recorded_execution_review.profiles[0].source_references;
+ assert.equal(refs.length,3);
+ assert.ok(refs.some(x=>x.value===op.responsibleName&&x.replacement==='Оператор пресса'));
+ const request=await prepareD05ExtractionRequest(r,g.id,1);
+ for(const ref of refs)assert.ok(!request.document_text.includes(ref.value));
+});

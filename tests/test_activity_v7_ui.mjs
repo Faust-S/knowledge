@@ -170,7 +170,7 @@ test('A4.4 reads actual candidate-bound local Presidio result without automatic 
 
 test('D05 proposal UI prepares a local model request, validates exact returned fields and does not overwrite user corrections',()=>{
  const panel=load('../desktop/src/D05ExtractionPanel.tsx'),editor=load('../desktop/src/TechnologyProposalEditor.tsx');
- assert.match(editor,/<D05ExtractionPanel/);
+ assert.match(editor,/<D05ExtractionPanel/);assert.match(editor,/<D05PracticalLessonsPanel/);
  assert.match(panel,/prepareD05ExtractionRequest\(review,groupId,modelNumber,\{includeCompatibleDeclarations,includeRecordedReports\}\)/);
  assert.match(panel,/reviewD05ExtractionProposal\(review,groupId,modelNumber,raw,\{includeCompatibleDeclarations,includeRecordedReports\}\)/);
  assert.match(panel,/useState\(true\)/);assert.match(panel,/family.member_count/);assert.match(panel,/setCompatible/);
@@ -182,8 +182,8 @@ test('D05 proposal UI prepares a local model request, validates exact returned f
 test('complete product screening offers batch functional corrections, resetting all reports when the product changes',()=>{
  const panel=load('../desktop/src/ProductPresidioReviewPanel.tsx'),general=load('../desktop/src/ProductGeneralizationPanel.tsx');
  assert.match(panel,/setRawReports\(\{\}\)/);
- assert.match(panel,/ProductGeneralizationPanel key=\{product.product_sha256\}/);
- assert.match(general,/prepareProductGeneralization\(product,Object.values\(reports\),language\)/);
+ assert.match(panel,/ProductGeneralizationPanel product=\{product\} reports=\{rawReports\} sourceReferences=\{sourceReferences\}/);
+ assert.match(general,/prepareProductGeneralization\(product,Object.values\(reports\),language,references\)/);
  assert.match(general,/applyProductGeneralization\(product,Object.values\(reports\)/);
  assert.match(general,/onRevision\(value.preview\)/);
  assert.doesNotMatch(general,/fetch\(|putObject|exportPackage|localStorage/);
