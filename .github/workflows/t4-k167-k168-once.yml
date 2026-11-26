@@ -1,0 +1,36 @@
+name: T4 K167 K168 successor backing and source Vault
+on:
+  push:
+    branches:
+      - 'ci/once/t4-k167-k168/45147c8fba81'
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public candidate and source checks
+        run: |
+          test "$(git rev-parse HEAD^)" = "45147c8fba81c4e9dec9ae60029eb5247e22752f"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+          npm run check --prefix packages/t4-network
+      - name: Successor admission and original multipart publication
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test --test-name-pattern='K58|K60|K83|K165|K166|K167' tests/original-network-session-phases.test.mjs
+      - name: Original Registry and Vault crypto boundaries
+        if: ${{ !cancelled() }}
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test --test-name-pattern='K38|K44|K60|K148|K150|K158|K168' tests/original-network-key-lifecycle.test.mjs
+      - name: Original native backing and publication regression
+        if: ${{ !cancelled() }}
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test tests/original-network-publication.test.mjs tests/original-network-publication-multipart-backing.test.mjs
