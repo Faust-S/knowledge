@@ -28,7 +28,7 @@ jobs:
         run: |
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d05-t3-release \
-            --profile 1.6.0-navigation-resume \
+            --profile 1.6.0-publication-recovery \
             --revision site=5e3ff328f7b31d7fa69b86a0759b914148c921df \
             --revision subject=547148d8cd74838e0dd384c9da2f196e3595bf9d \
             --revision assistant=e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f \
@@ -51,8 +51,8 @@ jobs:
       detail_routes: 4
       grounded_advice: true
       full_release: true
-      rendered_link_audit: true
-      navigation_resume: true
-      publication_recovery: false
+      rendered_link_audit: false
+      navigation_resume: false
+      publication_recovery: true
     secrets:
       DOMEN: ${{ secrets.DOMEN }}

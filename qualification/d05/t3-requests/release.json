@@ -35,10 +35,11 @@
     45692010068,
     45695493606,
     45697492951,
-    45778304289
+    45778304289,
+    45780282826
   ],
   "scopeExpansionAllowed": false,
-  "reason": "Correct repeated document navigation in test harness only, without changing exact site or original component pins. Require synthetic browser transport fixture before expensive product build and unchanged strict product navigation and publication gates. No Codex handoff until confirmed completed success.",
+  "reason": "Publication-only recovery of the exact functionally qualified source tree from run 45780282826. Require prior immutable evidence, strict actual DOMEN write preflight with bounded response classification, exact retained tree reconstruction, private publication and independent byte-identical rebuild. No model or product regression reruns. No permission changes.",
   "productAccepted": false,
   "remotePublicationVerified": false,
   "formatOnlyCorrection": false,
@@ -47,5 +48,5 @@
   "manualDispatchOnly": false,
   "oneTimeDispatchAllowed": true,
   "ciRequestSchema": "IWXA_CI_ONCE/1",
-  "ciProfile": "1.6.0-navigation-resume"
+  "ciProfile": "1.6.0-publication-recovery"
 }

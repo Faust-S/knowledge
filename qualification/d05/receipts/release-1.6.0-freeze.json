@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FUNCTIONALLY_QUALIFIED_PRIVATE_PUBLICATION_BLOCKED",
+  "status": "FUNCTIONALLY_QUALIFIED_EXACT_PUBLICATION_RECOVERY_PREPARED",
   "scope": "1.6.0",
   "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -180,7 +180,7 @@
   "manualDispatchOnly": false,
   "hardwareFirst": true,
   "oneTimeDispatchAllowed": true,
-  "ciProfile": "1.6.0-navigation-resume",
+  "ciProfile": "1.6.0-publication-recovery",
   "oneTimeRequestVerifierBlob": "85d548c38f27106675243866ca00d1ef82b41051",
   "oneTimeRequestLocalRealGitCases": {
     "passed": 15,
@@ -634,6 +634,21 @@
     "previousGreenStepDidNotProveWrite": true,
     "accessFailureIsNotAProductDefect": true,
     "credentialsChanged": false,
-    "doNotInferMissingPermissionOrRateLimitWithoutResponseEvidence": true
+    "doNotInferMissingPermissionOrRateLimitWithoutResponseEvidence": true,
+    "recovery": {
+      "priorReceiptCommit": "e622e4a3fe45ab1032e32598feddce06e85073a3",
+      "expectedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+      "strictPreflightBeforeDependencyInstall": true,
+      "credential": "DOMEN_UNCHANGED",
+      "samePrivateRepository": true,
+      "diagnosticResponseClassification": true,
+      "controlledJavaScriptClassifierFixtures": {
+        "passed": 14,
+        "total": 14
+      },
+      "actualHttpDiagnostic": "NOT_RUN",
+      "automaticCredentialFallback": false,
+      "repeatedProductTests": false
+    }
   }
 }
