@@ -27,7 +27,7 @@
   "networkWireUnchanged": true,
   "accepted": false,
   "blocking": [
-    "Complete latest original immutable Runtime witness; no DB9 claim from this witness.",
+    "Complete independent native pilot Runtime witness. Existing original K036 corporate return Exchange collision remains FAIL; qualify corrected original Kernel candidate separately.",
     "Bundle and supply canonical installed network factories and actual native profile provider; SOURCE original Registry/evaluator adoption remains unimplemented, RECIPIENT composition is staged only.",
     "Provision exact original signed grants, durable keys and separate existing Registry/technical workspaces in authorized original owners.",
     "Original DB9 qualification and actual two-node installed pilot.",
@@ -44,14 +44,15 @@
     "The previous three long files now pass 119/119 in run 45887831413; its exact earlier candidate is 206a289b.",
     "Current source extends the original scoped Registry binding, never initializes on disappearance of an admitted authority record. New T4 passport grants no original Access authority; both product-local routes reject unconfigured pilot admission.",
     "Compared full Git trees: all 66 original network src blobs unchanged; five additional integration modules.",
-    "One new public grouped run in this cycle; no private Actions or Codex."
+    "One new public grouped run in this cycle; no private Actions or Codex.",
+    "Latest exact public source run: 110/110 changed contracts, TypeScript and complete build PASS; legacy accepted K036 failed the return archive before pilot execution. Split test witnesses and keep the prior failure visible. No original Kernel modification or fabricated receipts."
   ],
   "additionalTests": {
     "packages/t4-network/tests/original-native-network-product-activation.test.mjs": "9f1fd80a9f76a2dd9f99d7367d804cc1acfe0f02",
     "packages/t4-network/tests/original-installed-control-factories.test.mjs": "9391594c3d36003edcdce510514c5b73e6d258a1",
     "packages/t4-network/tests/original-installed-control-http.test.mjs": "9d29f4c3908667604c77738d266db47f8650f361",
     "packages/t4-network/tests/original-installed-product-passport.test.mjs": "5a8fcd4139b5d42485164bcbb2cff10e118b7fe5",
-    "packages/t3-core/tests/t3-company-original-runtime-roundtrip.test.mjs": "4bf186c30015ec59d5a873dd84b98e46b6667c5d"
+    "packages/t3-core/tests/t3-company-original-runtime-roundtrip.test.mjs": "dbdf49d314e51cd7d4c703bafbfc7b82fd8cc4da"
   },
   "localRelayQualification": {
     "candidate": "976efab7eca7afa09995d0ffa63413c3b99834d7",
@@ -79,8 +80,8 @@
     ]
   },
   "sourceCandidate": {
-    "commit": "3c38288c59cba9256fbfdbfc7fa4f0728a5ff3b8",
-    "tree": "57ba22f93b9050452c2d7b5d3757be694e29454b"
+    "commit": "3eaf02f3a611fc8716b7a55b3fb9c0d8f536d150",
+    "tree": "3cf1a2cda61a39c68d819e79b646966636391061"
   },
   "publicQualification": {
     "previous": {
@@ -147,13 +148,27 @@
       "run": 45890920799,
       "ciCommit": "8f96677a6a7b457ef847c49be74829bd41618edf",
       "candidate": "3c38288c59cba9256fbfdbfc7fa4f0728a5ff3b8",
-      "state": "IN_PROGRESS",
+      "state": "FAIL",
       "dependencies": "PASS",
-      "registryRelayPassportContracts": "PASS",
+      "registryRelayPassportContracts": {
+        "pass": 110,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
       "typecheck": "PASS",
       "build": "PASS",
-      "immutableOriginalRuntime": "IN_PROGRESS",
-      "scope": "Public source and qualified K036 artifact with modeled browser platform; not DB9 or installed product acceptance."
+      "immutableOriginalRuntime": "FAIL_BEFORE_PILOT",
+      "scope": "Public source and qualified K036 artifact with modeled browser platform; not DB9 or installed product acceptance.",
+      "originalArtifactSha256": "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68",
+      "failure": "Existing complete corporate return archive at employeeCold.bound.importCommit: IMPORT_EVENT_ID_COLLISION (KERNEL_UNAVAILABLE). Pilot block was not executed; process subsequently timed out."
+    },
+    "independentPilotWitness": {
+      "run": 45891507458,
+      "ciCommit": "0576d9d5bb711212aa9507688430368972178a78",
+      "candidate": "3eaf02f3a611fc8716b7a55b3fb9c0d8f536d150",
+      "state": "IN_PROGRESS",
+      "scope": "Separate native pilot test name only; does not requalify or hide earlier full corporate return-archive failure."
     }
   },
   "frozenNetworkSource": {
