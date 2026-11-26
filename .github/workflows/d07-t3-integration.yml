@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Release restores exact qualified inputs into encrypted public transit; build-only is diagnostic"
+        description: "Release prepares encrypted Windows handoff of exact qualified dist and retained inputs; build-only is diagnostic"
         type: choice
         required: true
         default: release
@@ -595,54 +595,28 @@ jobs:
           [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
           echo "dist_tree_sha256=$digest" >> "$GITHUB_OUTPUT"
           echo D07_T3_ACCEPTANCE_DIST=PASS
-      - name: Seal qualified inputs for the agent, never publish private source or plaintext
+      - name: Seal complete qualified release for Windows handoff
         if: ${{ success() && (github.event_name != 'workflow_dispatch' || inputs.mode == 'release') }}
         working-directory: site
         env:
-          D07_TRANSIT_PUBLIC_KEY: MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAhsztOo/L2EEnss2COwxsOBbvuI4FaUm7h7ZWg+BkcvJAJ0WSUBHVjTAcllOLgXb3sccp6SdmT8eeD3bYn76b2ynPSg3MBXqFMFSxGOX8Ewhq/k1DygkJtNVeMiM5C7l8VjLeqvJykQ0Wk9p45E2j/yOSe3hzYnMcBV70yDB8TtHc0BZv2BYiob930znf2nHrnFSMPzKwKn4jjGrfoZvY3Bk/b4LnAmcOJhHEIiUqgmbGqVmOIVQgLHkuRAWnwz2sCiMTXqvdaBULrA/Pz0r+d4VBg9RGSnUXQec1guPAlE4t+Kps7wZwXhdvIbnUJJhPxv9tRF48aa50LYQQxQ6G/z6f164xmHv2LVBjp4xEQuTOuqa7sukf/IzRWdSMOSNdQSOWGyAJvt8pL+xQmhL1lJzC8nh+RafN31S8/sAVpPnnJqz5qCAipgWvmuBDsmD5S5ehf+NihPt6owPcx2f08w4zDXZlGmsoXwDj3jx6bDkTTFqAg/NYYf4b6w5b/guXAgMBAAE=
+          D07_TRANSIT_PUBLIC_KEY: MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA4UNNZ3BGuSuAdelTcJiuwNXbMQWnCYHc0tRAJMmICE5SoPdiFGHGx8bihBAwxPpZwrfUaGphiLeXiSMxzlKNI+EWPVH6qpE+vWUUTdnFC2C/7STTO6W6nCpdmmrkvEqB71KypggGfSCgEHF8d2CVCc3nQey2+8K1eyHIyXxWrLEZv0IWx6LZST3VlhLzOlZUj1QvZPwSHCk/kE6bzztErDq6Na1UIyUiXOSjiVMp3Jl2moISGWyIJO27sieApk21ThD+PFIc4pdHtPTnVqUGKSxmp1eV3tgPQGTFQ8T7gIQCqHKcBwg01Sfm1+ej3gPg4aBFsiH6DJCs+Cf1yNxQBhGL5yvNJ8VZvbUIvd7RP1A7FTRDp9Wt1Z/XFY9uuNjPu3NoVYvAsH5UnouS8v3bkC7exenAOAlWz3CAnLryqJDgptnN1Vzx0AejlsKXoUTQQx2tgWCTksREFtusMnFFgjht8Spkk1gvjL+Ee5D8q158y2fkqTK+K9RXFHBR9lLBAgMBAAE=
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "20ca06ee2f07b430dbd6b59f72822b45f0527bd4"
-          node scripts/verify-d07-retained-index.mjs
-          node ../pipeline/scripts/d07-stage-qualified-result.mjs "$PWD" "$RUNNER_TEMP/d07-transit" "20ca06ee2f07b430dbd6b59f72822b45f0527bd4" "d614243c9dbfc596f7c0c2a8d5ef516ab3703aa5b61b6ec4c9a2538d49749d69" "$GITHUB_RUN_ID" "$D07_TRANSIT_PUBLIC_KEY"
-      - name: Publish only ciphertext parts to a dedicated temporary PUBLIC branch
+          node ../pipeline/scripts/d07-package-qualified-handoff.mjs seal "$PWD" "$RUNNER_TEMP/d07-handoff" "$GITHUB_RUN_ID" "$D07_TRANSIT_PUBLIC_KEY"
+      - name: Retain ciphertext only as a short-lived public workflow artifact
         if: ${{ success() && (github.event_name != 'workflow_dispatch' || inputs.mode == 'release') }}
-        env:
-          GH_TOKEN: ${{ github.token }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: d07-qualified-windows-handoff-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/d07-handoff/header.json
+            ${{ runner.temp }}/d07-handoff/payload.bin
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+      - name: Record handoff without private publication
+        if: ${{ success() && (github.event_name != 'workflow_dispatch' || inputs.mode == 'release') }}
         run: |
-          set -euo pipefail
-          set +x
-          unset GIT_TRACE GIT_TRACE_PACKET GIT_TRACE_CURL GIT_CURL_VERBOSE GIT_TRACE2 GIT_TRACE2_EVENT GH_DEBUG
-          export GIT_TERMINAL_PROMPT=0
-          test "$GITHUB_REPOSITORY" = Faust-S/knowledge
-          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
-          target="refs/heads/transit/d07/20ca06ee2f07b430dbd6b59f72822b45f0527bd4/$GITHUB_RUN_ID"
-          out="$RUNNER_TEMP/d07-transit"
-          test -f "$out/header.json"
-          test -d "$out/parts"
-          git -C "$out" init -q
-          git -C "$out" add -- header.json parts
-          git -C "$out" -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "D07 encrypted transient build result [skip ci] [skip actions]"
-          ask="$RUNNER_TEMP/d07-public-askpass"
-          cat > "$ask" <<'ASKPASS'
-          #!/bin/sh
-          case "$1" in
-            *Username*) printf '%s\n' x-access-token ;;
-            *Password*) printf '%s\n' "$GH_TOKEN" ;;
-            *) exit 1 ;;
-          esac
-          ASKPASS
-          chmod 700 "$ask"
-          export GIT_ASKPASS="$ask"
-          url=https://github.com/Faust-S/knowledge.git
-          git -C "$out" -c credential.helper= -c http.extraheader= -c http.https://github.com/.extraheader= push "$url" "HEAD:$target" > "$RUNNER_TEMP/d07-transit-push.log" 2>&1 || { echo D07_TRANSIT_PUBLIC_WRITE=FAIL; exit 1; }
-          sha="$(git -C "$out" rev-parse HEAD)"
-          observed="$(git -C "$out" -c credential.helper= ls-remote --exit-code "$url" "$target")"
-          test "$observed" = "$(printf '%s\t%s' "$sha" "$target")"
-          echo "D07_TRANSIT_BRANCH=$target"
-          echo "D07_TRANSIT_COMMIT=$sha"
-          echo D07_TRANSIT_PUBLIC_WRITE=PASS
+          echo D07_HANDOFF_ARTIFACT=PASS
           echo D07_T3_PRIVATE_WRITE=NOT_ATTEMPTED
           echo D07_T3_PRODUCT_ACCEPTED=false
-      # The agent downloads, authenticates, reconstructs and commits the private inputs.
-      # No private publication or private write credential is used by this workflow.
