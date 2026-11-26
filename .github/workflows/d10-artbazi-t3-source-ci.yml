@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: acc03b8af994c28f0b4de6073ef3a3330a055e84
+          ref: b056cd594a8a498d3e6bbea3abbea5831f70312b
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi
-          ref: 9f9f3373e74d0cdac7aaa5381fe74b6b3a3c6ce7
+          ref: ef8cdf03d6e580ab79f26e23cdc00d3fed9af1d4
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -77,6 +77,9 @@ jobs:
           fi
           cmp -s models/assistant-skills.json ../site/public/assets/d10-assistant-skills.json
           echo "D10_T3_CANONICAL_SKILL_PROJECTION=PASS"
+          cmp -s src/commercial/company-monthly-plan.mjs ../site/runtime/artbazi-module/runtime/company-monthly-plan.mjs
+          cmp -s src/commercial/campaign-month.mjs ../site/runtime/artbazi-module/runtime/campaign-month.mjs
+          echo "D10_T3_CANONICAL_MONTH_PROJECTIONS=PASS"
       - name: Build last qualified T2 site at the exact future T3 origin
         working-directory: previous-site
         env:
@@ -263,6 +266,7 @@ jobs:
             else
               echo "::error::D10_T3_PRODUCT_JOURNEY_$script=FAIL"
               grep -E '^D10_[A-Z0-9_]+=(PASS|NOT_RUN|[0-9]+)$' "$log" | tail -20 || true
+              grep -E '^D10_PUBLIC_JOURNEY_[a-z0-9-]+=(PASS|FAIL stage=(navigate|input|save) reason=[A-Za-z0-9_-]+)$' "$log" | tail -23 || true
               grep -oE '(TimeoutError|AssertionError|TypeError|ReferenceError|ERR_[A-Z0-9_]+)' "$log" | sort -u | head -10 || true
               failed=1
             fi
