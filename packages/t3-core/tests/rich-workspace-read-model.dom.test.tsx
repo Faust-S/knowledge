@@ -189,3 +189,75 @@ describe("G4-S1 RichWorkspaceReadModel DOM", () => {
     expect((screen.getByLabelText("Название рабочего вида") as HTMLInputElement).value).toBe("");
     expect(screen.queryByTestId("rich-workspace-persisted-view-error")).toBeNull();
   });
+
+function savedViewFixture(viewId: string, name: string, revision = 7, query = "note-1"): ObjectRecord {
+  return { ...objects[0], object_id: "saved-view:" + viewId,
+    schema_id: "iwxa.workspace.internal.saved-view", schema_version: "1.0.0", revision,
+    data: { version: 1, view_id: viewId, name, profile_id: "generic", logical_area_id: "notes", query } };
+}
+
+describe("Saved view identity and lifecycle", () => {
+  const legacy = savedViewFixture("view-33df4422", "research-1bz9n7f-dpq");
+  it("creates a distinct saved view when two different names shared the old 32-bit ID", async () => {
+    const invoke = vi.fn(async (_id: string, _args?: unknown) => ({ ok: true }));
+    const commands = { has: (id: string) => id === "workspace.view-state.save", invoke };
+    render(<RichWorkspaceReadModel workspace={workspace} objects={[...objects, legacy]} events={events}
+      profileDefinition={profile} commands={commands} onOpenObject={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Название рабочего вида"), { target: { value: "research-1153a0-1t3y" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить в Workspace" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    expect(invoke.mock.calls[0][0]).toBe("workspace.view-state.save");
+    expect(invoke.mock.calls[0][1]).toMatchObject({ workspaceId: "w", name: "research-1153a0-1t3y",
+      baseRevision: 0, viewId: expect.stringMatching(/^view-[0-9a-f]{32}$/) });
+  });
+
+  it("explicitly edits and renames a legacy record using its original identity and revision", async () => {
+    const invoke = vi.fn(async (_id: string, _args?: unknown) => ({ ok: true }));
+    const commands = { has: (id: string) => id === "workspace.view-state.save", invoke };
+    render(<RichWorkspaceReadModel workspace={workspace} objects={[...objects, legacy]} events={events}
+      profileDefinition={profile} commands={commands} onOpenObject={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Изменить сохранённый вид research-1bz9n7f-dpq" }));
+    expect((screen.getByLabelText("Название рабочего вида") as HTMLInputElement).value).toBe("research-1bz9n7f-dpq");
+    fireEvent.change(screen.getByLabelText("Название рабочего вида"), { target: { value: "New name" } });
+    fireEvent.change(screen.getByLabelText("Поиск по ID и типу объекта"), { target: { value: "task-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить в Workspace" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    expect(invoke.mock.calls[0][1]).toMatchObject({ viewId: "view-33df4422", baseRevision: 7, name: "New name", query: "task-1" });
+  });
+
+  it("refuses a stale explicit edit instead of silently taking a newer base revision", async () => {
+    const invoke = vi.fn(async (_id: string, _args?: unknown) => ({ ok: true }));
+    const commands = { has: (id: string) => id === "workspace.view-state.save", invoke };
+    const refresh = vi.fn(async () => {});
+    const props = {workspace, events, profileDefinition: profile, commands, onRefreshObjects: refresh, onOpenObject: () => {}};
+    const { rerender } = render(<RichWorkspaceReadModel {...props} objects={[...objects, legacy]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Изменить сохранённый вид research-1bz9n7f-dpq" }));
+    fireEvent.change(screen.getByLabelText("Название рабочего вида"), { target: { value: "Changed" } });
+    rerender(<RichWorkspaceReadModel {...props} objects={[...objects, {...legacy, revision: 8}]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить в Workspace" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(invoke).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByTestId("rich-workspace-persisted-view-error")).toBeTruthy());
+  });
+
+  it("reconciles an unknown create through its exact readback without a second write", async () => {
+    let saved: ObjectRecord | undefined;
+    const invoke = vi.fn(async (_id: string, args?: unknown) => {
+      const data = args as { viewId: string; name: string; logicalAreaId: string | null; query: string };
+      saved = savedViewFixture(data.viewId, data.name, 1, data.query);
+      saved.data = {...(saved.data as Record<string, unknown>), logical_area_id: data.logicalAreaId};
+      throw new Error("lost ACK");
+    });
+    const commands = { has: (id: string) => id === "workspace.view-state.save", invoke };
+    const props = {workspace, events, profileDefinition: profile, commands, onOpenObject: () => {}};
+    const { rerender } = render(<RichWorkspaceReadModel {...props} objects={objects} />);
+    fireEvent.change(screen.getByLabelText("Название рабочего вида"), { target: { value: "Recovered view" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить в Workspace" }));
+    await waitFor(() => expect(screen.getByTestId("rich-workspace-persisted-view-error")).toBeTruthy());
+    expect(saved).toBeDefined();
+    rerender(<RichWorkspaceReadModel {...props} objects={[...objects, saved!]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить в Workspace" }));
+    await waitFor(() => expect((screen.getByLabelText("Название рабочего вида") as HTMLInputElement).value).toBe(""));
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+});

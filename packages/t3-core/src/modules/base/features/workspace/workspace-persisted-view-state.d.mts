@@ -31,6 +31,30 @@ export declare function buildPersistedWorkspaceSavedViewId(input: {
   name: string;
 }): string;
 
+export interface WorkspaceSavedViewEdit {
+  readonly viewId: string;
+  readonly baseRevision: number;
+}
+
+export interface WorkspaceSavedViewSaveTarget extends WorkspaceSavedViewEdit {
+  readonly action: 'CREATE' | 'UPDATE' | 'ALREADY_SAVED';
+  readonly name: string;
+}
+
+export declare function prepareWorkspacePersistedViewSave(input: {
+  workspaceId: string;
+  profileId: string;
+  name: string;
+  logicalAreaId: string | null;
+  query: string;
+  objects: readonly unknown[];
+  edit?: WorkspaceSavedViewEdit | null;
+  pendingCreateId?: string | null;
+  allocateId?: () => string;
+}): Readonly<WorkspaceSavedViewSaveTarget>;
+
+export declare function workspaceSavedViewDataMatches(actual: unknown, expected: unknown): boolean;
+
 export declare function projectWorkspacePersistedViews(input: {
   workspaceId: string;
   profileId: string;

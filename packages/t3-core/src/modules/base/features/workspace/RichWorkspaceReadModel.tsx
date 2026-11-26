@@ -26,7 +26,8 @@ import {
 } from "./rich-workspace-command-preflight";
 import {
   WORKSPACE_VIEW_STATE_COMMANDS,
-  buildPersistedWorkspaceSavedViewId,
+  prepareWorkspacePersistedViewSave,
+  type WorkspacePersistedView,
   projectWorkspacePersistedViews,
   workspaceViewStateCommandAvailability,
 } from "./workspace-persisted-view-state.mjs";
@@ -38,6 +39,29 @@ type WorkingView = {
   title: string;
   logicalAreaId: string | null;
   query: string;
+};
+
+type SavedViewEdit = {
+  workspaceId: string;
+  profileId: string;
+  viewId: string;
+  baseRevision: number;
+};
+
+type PendingViewCreate = {
+  workspaceId: string;
+  profileId: string;
+  nameKey: string;
+  viewId: string;
+};
+
+const VIEW_SAVE_MESSAGES: Readonly<Record<string, string>> = {
+  VIEW_STATE_SAVE_INPUT_INVALID: "Проверьте название и фильтр представления.",
+  VIEW_STATE_EDIT_TARGET_UNAVAILABLE: "Представление больше недоступно. Обновите список и откройте его заново.",
+  VIEW_STATE_NAME_EXISTS: "Другое представление уже имеет это название.",
+  VIEW_STATE_NAME_AMBIGUOUS: "Есть несколько представлений с таким названием. Выберите нужное через «Изменить».",
+  VIEW_STATE_CREATE_REVIEW_REQUIRED: "Предыдущее сохранение или одноимённое представление уже найдено. Откройте его перед изменением.",
+  VIEW_STATE_ID_COLLISION: "Не удалось выделить новый идентификатор представления. Обновите список.",
 };
 
 export function RichWorkspaceReadModel(props: {
@@ -76,6 +100,8 @@ export function RichWorkspaceReadModel(props: {
     workspaceId: workspace.workspace_id,
     value: "",
   });
+  const [savedViewEdit, setSavedViewEdit] = useState<SavedViewEdit | null>(null);
+  const pendingViewCreate = useRef<PendingViewCreate | null>(null);
   const [persistedViewBusy, setPersistedViewBusy] = useState<string | null>(null);
   const [persistedViewError, setPersistedViewError] = useState<string | null>(null);
   const [preparedCommandState, setPreparedCommandState] = useState<{
@@ -91,6 +117,7 @@ export function RichWorkspaceReadModel(props: {
     workspaceMutationGeneration.current += 1;
     setPersistedViewBusy(null);
     setPersistedViewError(null);
+    setSavedViewEdit(null);
     setOwnerCommandBusy(false);
     setOwnerCommandError(null);
     setOwnerCommandCompleted(null);
@@ -98,13 +125,15 @@ export function RichWorkspaceReadModel(props: {
     return () => {
       workspaceMutationGeneration.current += 1;
     };
-  }, [workspace.workspace_id]);
+  }, [workspace.workspace_id, profileDefinition.id]);
 
   const selectedObjectIds = selectionState.workspaceId === workspace.workspace_id ? selectionState.ids : [];
   const selectedDetailId = detailState.workspaceId === workspace.workspace_id ? detailState.objectId : null;
   const workingViews = workingViewState.workspaceId === workspace.workspace_id ? workingViewState.views : [];
   const workingViewTitle =
     workingViewTitleState.workspaceId === workspace.workspace_id ? workingViewTitleState.value : "";
+  const editingView = savedViewEdit?.workspaceId === workspace.workspace_id
+    && savedViewEdit.profileId === profileDefinition.id ? savedViewEdit : null;
 
   const persistedViews = useMemo(
     () => projectWorkspacePersistedViews({
@@ -217,6 +246,26 @@ export function RichWorkspaceReadModel(props: {
     setWindowOffset(0);
     setMode("browse");
     resetTransientSelection();
+    if (editingView) {
+      setSavedViewEdit(null);
+      setWorkingViewTitleState({ workspaceId: workspace.workspace_id, value: "" });
+    }
+  };
+  const editPersistedView = (view: WorkspacePersistedView) => {
+    applyWorkingView(view);
+    setSavedViewEdit({
+      workspaceId: workspace.workspace_id,
+      profileId: profileDefinition.id,
+      viewId: view.viewId,
+      baseRevision: view.baseRevision,
+    });
+    setWorkingViewTitleState({ workspaceId: workspace.workspace_id, value: view.name });
+    setPersistedViewError(null);
+  };
+  const cancelSavedViewEdit = () => {
+    setSavedViewEdit(null);
+    setWorkingViewTitleState({ workspaceId: workspace.workspace_id, value: "" });
+    setPersistedViewError(null);
   };
   const createWorkingView = () => {
     const title = workingViewTitle.trim();
@@ -239,6 +288,7 @@ export function RichWorkspaceReadModel(props: {
       };
     });
     setWorkingViewTitleState({ workspaceId: workspace.workspace_id, value: "" });
+    setSavedViewEdit(null);
   };
   const removeWorkingView = (viewId: string) => {
     setWorkingViewState((current) => {
@@ -254,30 +304,52 @@ export function RichWorkspaceReadModel(props: {
   };
   const persistCurrentView = async () => {
     const title = workingViewTitle.trim();
-    if (!title || !commands || !viewStateAvailability.save) return;
-    const viewId = buildPersistedWorkspaceSavedViewId({
-      workspaceId: workspace.workspace_id,
-      profileId: profileDefinition.id,
-      name: title,
-    });
-    const existing = persistedViews.views.find((view) => view.viewId === viewId);
+    if (!title || !commands || !viewStateAvailability.save || persistedViewBusy !== null) return;
     const mutationGeneration = workspaceMutationGeneration.current;
-    setPersistedViewBusy(`save:${viewId}`);
+    setPersistedViewBusy("save");
     setPersistedViewError(null);
     try {
-      await commands.invoke(WORKSPACE_VIEW_STATE_COMMANDS.save, {
+      const pending = pendingViewCreate.current;
+      const sameIntent = pending && pending.workspaceId === workspace.workspace_id
+        && pending.profileId === profileDefinition.id && pending.nameKey === title.toLowerCase();
+      const prepared = prepareWorkspacePersistedViewSave({
         workspaceId: workspace.workspace_id,
-        viewId,
-        name: title,
         profileId: profileDefinition.id,
+        name: title,
         logicalAreaId: areaId,
         query: query.trim(),
-        baseRevision: existing?.baseRevision ?? 0,
+        objects,
+        edit: editingView,
+        pendingCreateId: !editingView && sameIntent ? pending.viewId : null,
       });
-      if (mutationGeneration !== workspaceMutationGeneration.current) return;
+      if (prepared.action === "CREATE") {
+        pendingViewCreate.current = {
+          workspaceId: workspace.workspace_id,
+          profileId: profileDefinition.id,
+          nameKey: title.toLowerCase(),
+          viewId: prepared.viewId,
+        };
+      }
+      if (prepared.action !== "ALREADY_SAVED") {
+        await commands.invoke(WORKSPACE_VIEW_STATE_COMMANDS.save, {
+          workspaceId: workspace.workspace_id,
+          viewId: prepared.viewId,
+          name: prepared.name,
+          profileId: profileDefinition.id,
+          logicalAreaId: areaId,
+          query: query.trim(),
+          baseRevision: prepared.baseRevision,
+        });
+        if (mutationGeneration !== workspaceMutationGeneration.current) return;
+        await refreshAfterViewStateMutation();
+        if (mutationGeneration !== workspaceMutationGeneration.current) return;
+      }
+      if ((onRefreshObjects || prepared.action === "ALREADY_SAVED")
+        && pendingViewCreate.current?.viewId === prepared.viewId) {
+        pendingViewCreate.current = null;
+      }
+      setSavedViewEdit(null);
       setWorkingViewTitleState({ workspaceId: workspace.workspace_id, value: "" });
-      await refreshAfterViewStateMutation();
-      if (mutationGeneration !== workspaceMutationGeneration.current) return;
     } catch (error) {
       if (mutationGeneration !== workspaceMutationGeneration.current) return;
       const classification = classifyWorkspacePersistedViewMutationError(error);
@@ -290,7 +362,8 @@ export function RichWorkspaceReadModel(props: {
           setPersistedViewError(`Конфликт версии; автоматический повтор запрещён. Не удалось обновить данные: ${refreshError instanceof Error ? refreshError.message : String(refreshError)}`);
         }
       } else {
-        setPersistedViewError(error instanceof Error ? error.message : String(error));
+        const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+        setPersistedViewError(VIEW_SAVE_MESSAGES[code] ?? (error instanceof Error ? error.message : String(error)));
       }
     } finally {
       if (mutationGeneration === workspaceMutationGeneration.current) {
@@ -346,6 +419,10 @@ export function RichWorkspaceReadModel(props: {
         baseRevision,
       });
       if (mutationGeneration !== workspaceMutationGeneration.current) return;
+      if (pendingViewCreate.current?.workspaceId === workspace.workspace_id
+        && pendingViewCreate.current.profileId === profileDefinition.id
+        && pendingViewCreate.current.viewId === viewId) pendingViewCreate.current = null;
+      if (editingView?.viewId === viewId) cancelSavedViewEdit();
       await refreshAfterViewStateMutation();
       if (mutationGeneration !== workspaceMutationGeneration.current) return;
     } catch (error) {
@@ -569,7 +646,9 @@ export function RichWorkspaceReadModel(props: {
             <label className="flex-1 min-w-[14rem] text-xs text-slate-300">Название рабочего вида<input value={workingViewTitle} onChange={(event) => setWorkingViewTitleState({ workspaceId: workspace.workspace_id, value: event.target.value })} className="mt-1 w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 min-h-[44px]" placeholder="Например: Заметки по текущему поиску" /></label>
             <button type="button" disabled={!workingViewTitle.trim()} onClick={createWorkingView} className="px-3 py-1.5 text-xs rounded bg-slate-800 min-h-[44px] disabled:opacity-40">Вид на эту вкладку</button>
             {viewStateAvailability.save && <button type="button" disabled={!workingViewTitle.trim() || persistedViewBusy !== null} onClick={() => void persistCurrentView()} className="px-3 py-1.5 text-xs rounded bg-emerald-800 min-h-[44px] disabled:opacity-40">Сохранить в Workspace</button>}
+            {editingView && <button type="button" disabled={persistedViewBusy !== null} onClick={cancelSavedViewEdit} className="px-3 py-1.5 text-xs rounded border border-slate-700 min-h-[44px] disabled:opacity-40">Отменить изменение</button>}
           </div>
+          {editingView && <p role="status" className="text-xs text-emerald-300">Изменение сохранённого представления. Название и фильтр будут сохранены в той же записи.</p>}
           <p className="text-[11px] text-slate-500">Текущий снимок: область {areaId ?? "все"}; поиск {query.trim() ? `«${query.trim()}»` : "без поиска"}. Локальный вид живёт только в текущей вкладке; persisted вид проходит через owner command.</p>
           {persistedViewError && <p role="alert" className="text-xs text-rose-200" data-testid="rich-workspace-persisted-view-error">Не удалось изменить сохранённое представление: {persistedViewError}</p>}
           {persistedViews.views.length > 0 && (
@@ -578,7 +657,7 @@ export function RichWorkspaceReadModel(props: {
               <ul className="space-y-1">{persistedViews.views.map((view) => (
                 <li key={view.viewId} className="flex flex-wrap items-center gap-2 border border-emerald-900/50 rounded p-2 text-xs" data-testid="rich-workspace-persisted-view">
                   <span className="text-slate-200">{view.title}</span><span className="text-[11px] text-slate-500">область {view.logicalAreaId ?? "все"}{view.query ? ` · поиск «${view.query}»` : ""}</span>
-                  <span className="ml-auto flex gap-1"><button type="button" onClick={() => applyWorkingView(view)} className="px-3 py-1.5 rounded bg-slate-800 min-h-[44px]" aria-label={`Применить сохранённый вид ${view.title}`}>Применить</button>{viewStateAvailability.delete && <button type="button" disabled={persistedViewBusy !== null} onClick={() => void deletePersistedView(view.viewId, view.baseRevision)} className="px-3 py-1.5 rounded border border-slate-700 min-h-[44px] disabled:opacity-40" aria-label={`Удалить сохранённый вид ${view.title}`}>Удалить</button>}</span>
+                  <span className="ml-auto flex gap-1"><button type="button" onClick={() => applyWorkingView(view)} className="px-3 py-1.5 rounded bg-slate-800 min-h-[44px]" aria-label={`Применить сохранённый вид ${view.title}`}>Применить</button>{viewStateAvailability.save && <button type="button" disabled={persistedViewBusy !== null} onClick={() => editPersistedView(view)} className="px-3 py-1.5 rounded bg-slate-800 min-h-[44px] disabled:opacity-40" aria-label={`Изменить сохранённый вид ${view.title}`}>Изменить</button>}{viewStateAvailability.delete && <button type="button" disabled={persistedViewBusy !== null} onClick={() => void deletePersistedView(view.viewId, view.baseRevision)} className="px-3 py-1.5 rounded border border-slate-700 min-h-[44px] disabled:opacity-40" aria-label={`Удалить сохранённый вид ${view.title}`}>Удалить</button>}</span>
                 </li>
               ))}</ul>
             </div>

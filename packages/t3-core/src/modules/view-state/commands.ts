@@ -5,6 +5,7 @@ import type {
 import type { CommitResult, OperationId } from "@/kernel-client/contracts/runtime-1.3.0";
 import { isSafeOpaqueId } from "@/shell/routing";
 import { MODULE_ID } from "./module-id";
+import { workspaceSavedViewDataMatches } from "../base/features/workspace/workspace-persisted-view-state.mjs";
 import {
   WORKSPACE_SAVED_VIEW_SCHEMA_ID,
   WORKSPACE_SAVED_VIEW_SCHEMA_VERSION,
@@ -69,6 +70,7 @@ function requireCommitReceipt(
     schemaId?: string;
     schemaVersion?: string;
     viewId?: string;
+    data?: WorkspaceSavedViewData;
   },
 ): void {
   if (!receipt || typeof receipt !== "object" || typeof receipt.deduplicated !== "boolean") {
@@ -92,7 +94,8 @@ function requireCommitReceipt(
   }
   if (expected.viewId !== undefined) {
     const data = object.data as Partial<WorkspaceSavedViewData> | null;
-    if (!data || data.view_id !== expected.viewId || data.version !== 1) {
+    if (!data || data.view_id !== expected.viewId || data.version !== 1
+      || !workspaceSavedViewDataMatches(data, expected.data)) {
       throw new Error("VIEW_STATE_COMMIT_RECEIPT_DATA_MISMATCH");
     }
   }
@@ -144,6 +147,7 @@ export async function saveWorkspaceView(
     schemaId: WORKSPACE_SAVED_VIEW_SCHEMA_ID,
     schemaVersion: WORKSPACE_SAVED_VIEW_SCHEMA_VERSION,
     viewId,
+    data,
   });
   return receipt;
 }
