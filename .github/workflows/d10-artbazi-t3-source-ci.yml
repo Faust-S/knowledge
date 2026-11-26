@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: deaad118331a21a143b677283d3ddd39358f38a6
+          ref: d980221cabb24ac18b1c2ce625ce4ae761f04534
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi
-          ref: 895bbcb5a649b0cfb28d97651a43b647ea4f7de6
+          ref: 91302e25d28a32b3e41c773a407cb2c26f2c9445
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -79,6 +79,9 @@ jobs:
           echo "D10_T3_CANONICAL_SKILL_PROJECTION=PASS"
           cmp -s src/commercial/company-monthly-plan.mjs ../site/runtime/artbazi-module/runtime/company-monthly-plan.mjs
           cmp -s src/commercial/campaign-month.mjs ../site/runtime/artbazi-module/runtime/campaign-month.mjs
+          for model in commercial-review-context commercial-review-signals revops-cycle; do
+            cmp -s "src/commercial/$model.mjs" "../site/runtime/artbazi-module/runtime/$model.mjs"
+          done
           echo "D10_T3_CANONICAL_MONTH_PROJECTIONS=PASS"
       - name: Build last qualified T2 site at the exact future T3 origin
         working-directory: previous-site
