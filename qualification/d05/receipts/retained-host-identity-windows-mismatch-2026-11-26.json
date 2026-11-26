@@ -1,0 +1,52 @@
+{
+  "schema": "IWXA_D05_T3_LOCAL_ASSEMBLY_IDENTITY_MISMATCH/1",
+  "sourcePins": {
+    "site": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+    "assistant": "e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f",
+    "oneCore": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+    "subject": "547148d8cd74838e0dd384c9da2f196e3595bf9d"
+  },
+  "expectedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+  "reportedWindowsTree": "c33f6e2dde9f5c7ec08b6518a03e06f046a83394",
+  "reportedPlatformSha256Matches": true,
+  "reportedHostPreparationCompleted": true,
+  "reportedWindowsCoreFilemode": false,
+  "reportedQualifiedTreeAvailableLocally": false,
+  "archiveCreated": false,
+  "actualMismatchCause": "UNCONFIRMED",
+  "priorFunctionalReceipt": "qualification/d05/receipts/45780282826-linux.json",
+  "priorQualificationScope": "Independent dist builds from the same prepared Host, not independent reconstruction of Host across operating systems.",
+  "previousHandoffError": "Linux was recommended rather than required despite the strict exact-tree gate.",
+  "qualifiedEnvironment": {
+    "runnerImage": "ubuntu-26.04",
+    "runnerImageVersion": "20261116.202.1",
+    "os": "Ubuntu 26.04.1 LTS",
+    "node": "22.16.0",
+    "npm": "10.9.2"
+  },
+  "probe": {
+    "workflow": "d05-t3-host-identity",
+    "profile": "1.6.0-linux-host-identity",
+    "exactPins": {
+      "site": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+      "subject": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
+      "assistant": "e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f",
+      "one-core": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+      "qualified-request": "7b2f1ddddbfd0b117138c971cf94a6d44ae5cb2f",
+      "expected-tree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+      "reported-windows-tree": "c33f6e2dde9f5c7ec08b6518a03e06f046a83394"
+    },
+    "helperBlob": "30d94211dbfcb2ac6c18b589e82bf67f71cde113",
+    "testBlob": "bbe4fe98786cc2b4172f171f5841b137b31729d6",
+    "localNodeGitFixtureTests": {
+      "passed": 3,
+      "total": 3
+    },
+    "productTestsRepeated": false,
+    "privatePublication": false,
+    "privateArtifactUpload": false,
+    "actualLinuxHostReconstruction": "NOT_RUN"
+  },
+  "handoff": "HOLD_UNTIL_INDEPENDENT_LINUX_IDENTITY_CONFIRMED",
+  "productAccepted": false
+}

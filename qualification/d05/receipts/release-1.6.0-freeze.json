@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FUNCTIONALLY_QUALIFIED_OWNER_AUTHORIZED_LOCAL_HOSTING_ASSEMBLY",
+  "status": "FUNCTIONALLY_QUALIFIED_LOCAL_ASSEMBLY_IDENTITY_MISMATCH",
   "scope": "1.6.0",
   "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -548,7 +548,7 @@
     }
   ],
   "assemblyHandoff": {
-    "status": "LOCAL_ASSEMBLY_AUTHORIZED_FROM_EXACT_QUALIFIED_SOURCE_PINS",
+    "status": "HOLD_LOCAL_ASSEMBLY_UNTIL_LINUX_IDENTITY_PROVEN",
     "sourceRepository": "Faust-S/cehovod.ru",
     "retainedBranch": "work/2026-11-25-d05-t3-retained-inputs",
     "expectedParent": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
@@ -582,7 +582,33 @@
       "oneCore": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
       "subject": "547148d8cd74838e0dd384c9da2f196e3595bf9d"
     },
-    "environment": "Linux or WSL matching the qualified Linux build; existing compatible Chrome for the build's required prerender only."
+    "environment": "Linux x86_64, matching the actual Ubuntu 26.04 qualification, not native Windows. Exact identity must be independently confirmed.",
+    "latestAttempt": {
+      "receipt": "qualification/d05/receipts/retained-host-identity-windows-mismatch-2026-11-26.json",
+      "expectedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+      "reportedWindowsTree": "c33f6e2dde9f5c7ec08b6518a03e06f046a83394",
+      "archiveCreated": false,
+      "reason": "EXACT_RETAINED_TREE_MISMATCH"
+    },
+    "independentHostIdentityProbe": {
+      "workflow": "d05-t3-host-identity",
+      "profile": "1.6.0-linux-host-identity",
+      "request": null,
+      "sourcePins": {
+        "site": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+        "subject": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
+        "assistant": "e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f",
+        "one-core": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+        "qualified-request": "7b2f1ddddbfd0b117138c971cf94a6d44ae5cb2f",
+        "expected-tree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+        "reported-windows-tree": "c33f6e2dde9f5c7ec08b6518a03e06f046a83394"
+      },
+      "localTests": {
+        "passed": 3,
+        "total": 3
+      },
+      "state": "PREPARED"
+    }
   },
   "functionalQualification": {
     "receipt": "qualification/d05/receipts/45780282826-linux.json",
