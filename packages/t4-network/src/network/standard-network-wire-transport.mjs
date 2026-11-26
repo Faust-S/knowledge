@@ -754,15 +754,15 @@ export function createT4CandidateFrameTransport({
   // Exact successor discovery is available only on the indexed profile.
   // It performs one immutable lookup and normal live signature/Access/
   // replay verification. No scan and no permission to apply.
-  async function discoverReplacementSourceHead({selector,requiredCryptoSuite}={}){
-    if(!indexed||!selector||Object.keys(selector).sort().join(',')!==
+  async function discoverReplacementSourceHead({selector,requiredCryptoSuite,enableOriginalMultipartNegotiation:multipart=false}={}){
+    if(typeof multipart!=='boolean'||(multipart&&!enableOriginalMultipartNegotiation)||!indexed||!selector||Object.keys(selector).sort().join(',')!==
       'changeId,ownerEpoch,previousSessionRef,sessionRef,sourceNodeRef'||
       ![selector.previousSessionRef,selector.sessionRef,selector.changeId].every(ID)||
       selector.previousSessionRef===selector.sessionRef)
       fail('WIRE_DISCOVERY_REPLACEMENT_HEAD_SELECTOR_INVALID');
     const selected=Object.freeze({...selector,messageType:'HEADS',sequence:1});
     const found=await indexedRead({selector:selected,requiredCryptoSuite,replacementHead:true,
-      supportedCriticalExtensions:[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]},await hostSnapshot());
+      supportedCriticalExtensions:[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,...(multipart?[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:[])]},await hostSnapshot());
     return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_REPLACEMENT_HEAD_V1',...indexedResult(found?[found]:[],1),
       createsStore:false,createsScheduler:false,originalNewAttemptAdmissionStillRequired:true});
   }

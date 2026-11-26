@@ -16,7 +16,8 @@ import {t4OriginalDeletedSubjectRevision} from './original-deletion-delta.mjs';
 import {assembleT4CandidateOpaqueChunks}
   from './standard-network-opaque-chunks.mjs';
 import {T4_MULTIPART_OPAQUE_EXTENSION,T4_MULTIPART_MAX_CHUNKS,assembleT4CandidateMultipartOpaqueChunks,
-  T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,createT4NativeMultipartOffer,validateT4NativeMultipartOffer}
+  T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,createT4NativeMultipartOffer,validateT4NativeMultipartOffer,
+  createT4NativeMultipartSelection}
   from './standard-network-multipart-opaque-chunks.mjs';
 import {validateT4OriginalNativeMultipartAgreement} from './original-network-multipart-agreement.mjs';
 import {createT4OriginalMultipartBacking,readT4OriginalMultipartBacking,
@@ -204,6 +205,25 @@ export function readT4OriginalReplacementSourceHead({identity,body,sessionRef,so
   return deepFreeze({candidate,sourceCursorBefore:original.sourceCursorBefore,sourceCursorAfter:original.sourceCursorAfter,
     ...(offerMultipart?{multipartOffer:clone(initialHead.multipartOffer)}:{}),
     liveNetworkAuthorityGranted:false,originalNewAttemptAdmissionStillRequired:true});
+}
+// An explicit handshake profile binds DIFF to the exact signed successor
+// HEAD. It does not select a content writer or authorize subject mutation.
+export function readT4OriginalReplacementHandshakeProfile({candidate,headBody,headSha256,headExtensions,
+  enableOriginalMultipartNegotiation=false}={}){
+  const c=validateT4OriginalReplacementSessionCandidate(candidate);
+  if(typeof enableOriginalMultipartNegotiation!=='boolean'||!SHA(headSha256)||
+    !Array.isArray(headExtensions)||headExtensions.length!==(enableOriginalMultipartNegotiation?2:1)||
+    !headExtensions.includes(T4_REPLACEMENT_SOURCE_SESSION_EXTENSION)||
+    headExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION)!==enableOriginalMultipartNegotiation||
+    Object.hasOwn(headBody??{},'multipartOffer')!==enableOriginalMultipartNegotiation)
+    fail('PUBLICATION_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH');
+  const read=readT4OriginalReplacementSourceHead({identity:c.originalCaptureSession,body:headBody,
+    sessionRef:c.sessionRef,expectedCandidate:c});
+  return deepFreeze({multipart:enableOriginalMultipartNegotiation,
+    diffBody:{familyRef:c.familyRef,fromHeads:[c.sourcePrefixDigestBefore],
+      ...(enableOriginalMultipartNegotiation?{multipartSelection:createT4NativeMultipartSelection({
+        offer:read.multipartOffer,headSha256})}:{})},
+    diffExtensions:enableOriginalMultipartNegotiation?[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:[]});
 }
 function descriptor(entry){
   return {sequence:entry.sequence,messageType:entry.messageType,sha256:entry.sha256};
@@ -704,7 +724,7 @@ export function validateT4OriginalReplacementSourceIntentStatus(value,identity){
   return deepFreeze(s);
 }
 
-export function validateT4OriginalReplacementRecipientAdmissionEvidence(value,identity){
+export function validateT4OriginalReplacementRecipientAdmissionEvidence(value,identity,{enableOriginalMultipartNegotiation=false}={}){
   const v=clone(value),e=v?.eligibility,h=v?.head,s=v?.sourceIntent,a=s?.originalReplacementSourceAdmission;
   const c=validateT4OriginalReplacementSessionCandidate(identity);
   if(v?.schema!=='IWXA_T4_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_EVIDENCE_V1'||
@@ -722,7 +742,6 @@ export function validateT4OriginalReplacementRecipientAdmissionEvidence(value,id
     h.verifiedScopeRef!==c.scopeRef||h.verifiedOwnerEpoch!==c.ownerEpoch||
     !ID(h.verifiedSignerRef)||!ID(h.verifiedMessageId)||!ID(h.verifiedCryptoSuite)||
     !SHA(h.sha256)||h.key!==h.sha256+'.t4n'||
-    !same(h.verifiedCriticalExtensions,[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION])||
     h.originalSignatureVerified!==true||h.originalAccessVerified!==true||
     h.originalReplayCheckpointRecorded!==true||h.networkBytesVerified!==true||
     h.originalSubjectMutationInvoked!==false||h.originalBusinessApplied!==false||h.originalT3ExchangeCalled!==false||
@@ -730,13 +749,15 @@ export function validateT4OriginalReplacementRecipientAdmissionEvidence(value,id
     fail('PUBLICATION_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_INVALID');
   readT4OriginalReplacementSourceHead({identity:c.originalCaptureSession,body:h.verifiedBody,
     sessionRef:c.sessionRef,sourceCursorBefore:e.sourceCursorBefore,expectedCandidate:c});
+  readT4OriginalReplacementHandshakeProfile({candidate:c,headBody:h.verifiedBody,headSha256:h.sha256,
+    headExtensions:h.verifiedCriticalExtensions,enableOriginalMultipartNegotiation});
   return deepFreeze(v);
 }
 
 // A K59 selection is an independently re-read witness, not a general
 // authorization. The exact local HEADS PRESENT anchor is checked separately
 // by the publication port before any successor content write.
-export function validateT4OriginalReplacementDiffAcceptance(value,identity){
+export function validateT4OriginalReplacementDiffAcceptance(value,identity,{enableOriginalMultipartNegotiation=false}={}){
   const v=clone(value),c=validateT4OriginalReplacementSessionCandidate(identity);
   if(v?.schema!=='IWXA_T4_ORIGINAL_REPLACEMENT_DIFF_SELECTION_V1'||
     v.state!=='ORIGINAL_REPLACEMENT_DIFF_VERIFIED'||!same(v.candidate,c)||
@@ -756,6 +777,14 @@ export function validateT4OriginalReplacementDiffAcceptance(value,identity){
     ![v.originalSourceHeadPresentRevision,v.originalRecipientPublicationRevision]
       .every(n=>Number.isSafeInteger(n)&&n>=1))
     fail('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED');
+  if(typeof enableOriginalMultipartNegotiation!=='boolean'||
+    Object.hasOwn(v,'originalMultipartAgreement')!==enableOriginalMultipartNegotiation)
+    fail('PUBLICATION_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH');
+  if(enableOriginalMultipartNegotiation){
+    const agreement=validateT4OriginalNativeMultipartAgreement({agreement:v.originalMultipartAgreement,
+      session:c,headSha256:v.originalSourceHeadKey.slice(0,-4)});
+    if(agreement.diffSha256!==v.diffSha256)fail('PUBLICATION_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH');
+  }
   return deepFreeze(v);
 }
 
@@ -1055,8 +1084,10 @@ export function createT4OriginalNetworkPublicationPort({
     fail('PUBLICATION_MULTIPART_ORIGINAL_PORTS_REQUIRED');
   if(typeof enableOriginalMultipartNegotiation!=='boolean'||
     (readOriginalMultipartAgreement!==null&&typeof readOriginalMultipartAgreement!=='function')||
-    (enableOriginalMultipartNegotiation&&(control||replacement||identity.changeKind!=='ASSET_PUT'||
-      (source&&!historicalReadOnly&&(!multipartBackingEnabled||readOriginalMultipartAgreement===null))))||
+    (enableOriginalMultipartNegotiation&&(control||identity.changeKind!=='ASSET_PUT'||
+      (replacement?(!historicalReadOnly&&(replacementContent||replacementAck||
+        frameTransport.originalMultipartNegotiationEnabled!==true||readOriginalMultipartAgreement!==null)):
+        (source&&!historicalReadOnly&&(!multipartBackingEnabled||readOriginalMultipartAgreement===null)))))||
     (!enableOriginalMultipartNegotiation&&readOriginalMultipartAgreement!==null))
     fail('PUBLICATION_NATIVE_MULTIPART_NEGOTIATION_PORTS_REQUIRED');
   const remoteNodeRef=source?identity.recipientNodeRef:identity.sourceNodeRef;
@@ -1120,7 +1151,14 @@ export function createT4OriginalNetworkPublicationPort({
       await authorizeOriginalControlPublication(proof)!==true)
       fail('PUBLICATION_ORIGINAL_CONTROL_AUTHORITY_DENIED',{operation,purpose});
     if(replacement&&!source&&(operation==='t1.putObject'||operation.startsWith('t4.network.publish.'))){
-      validateT4OriginalReplacementRecipientAdmissionEvidence(await readOriginalReplacementRecipientAdmission(proof),identity);
+      const admitted=validateT4OriginalReplacementRecipientAdmissionEvidence(await readOriginalReplacementRecipientAdmission(proof),identity,
+        {enableOriginalMultipartNegotiation});
+      if(enableOriginalMultipartNegotiation&&signedFrame?.messageType==='DIFF_REQUEST'){
+        const profile=readT4OriginalReplacementHandshakeProfile({candidate:identity,headBody:admitted.head.verifiedBody,
+          headSha256:admitted.head.sha256,headExtensions:admitted.head.verifiedCriticalExtensions,enableOriginalMultipartNegotiation});
+        if(!same(signedFrame.body,profile.diffBody)||!same(signedFrame.criticalExtensions,profile.diffExtensions))
+          fail('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_INVALID');
+      }
       if(isReplacementAck(signedFrame?.messageType)){
         if(!replacementAck)fail('PUBLICATION_ORIGINAL_REPLACEMENT_ACK_ADMISSION_REQUIRED');
         if(operation==='t1.putObject')await requireReplacementAck(ctx,frame);
@@ -1193,7 +1231,10 @@ export function createT4OriginalNetworkPublicationPort({
     // original root selection and complete immutable backing before any write.
     // Do not activate the new wire extension through the legacy ledger.
     const negotiated=frame.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION);
-    if(negotiated&&!enableOriginalMultipartNegotiation)fail('PUBLICATION_NATIVE_MULTIPART_NEGOTIATION_REQUIRED');
+    if(negotiated&&!enableOriginalMultipartNegotiation&&!(replacement&&historicalReadOnly))
+      fail('PUBLICATION_NATIVE_MULTIPART_NEGOTIATION_REQUIRED');
+    if(replacement&&!historicalReadOnly&&['HEADS','DIFF_REQUEST'].includes(frame.messageType)&&
+      negotiated!==enableOriginalMultipartNegotiation)fail('PUBLICATION_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH');
     const multipart=frame.criticalExtensions.includes(T4_MULTIPART_OPAQUE_EXTENSION);
     if(multipart&&(!allowMultipart||!multipartBackingEnabled||!source||identity.changeKind!=='ASSET_PUT'||
       !['CHANGE_REF','CHUNK'].includes(frame.messageType)||!same(frame.criticalExtensions,[T4_MULTIPART_OPAQUE_EXTENSION])))
@@ -1206,11 +1247,13 @@ export function createT4OriginalNetworkPublicationPort({
     const b=frame.body;
     if(replacement&&(frame.messageType==='DIFF_REQUEST'||frame.messageType==='HEADS')){
       if(source){
-        if(frame.sequence!==1||!same(frame.criticalExtensions,[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]))
-          fail('PUBLICATION_ORIGINAL_REPLACEMENT_HEAD_INVALID');
-        readT4OriginalReplacementSourceHead({identity,body:b,sessionRef:frame.sessionRef,expectedCandidate:identity});
-      }else if(frame.sequence!==1||!same(frame.criticalExtensions,[])||
-        !same(b,{familyRef:identity.familyRef,fromHeads:[identity.sourcePrefixDigestBefore]}))
+        if(frame.sequence!==1)fail('PUBLICATION_ORIGINAL_REPLACEMENT_HEAD_INVALID');
+        readT4OriginalReplacementHandshakeProfile({candidate:identity,headBody:b,headSha256:entry.sha256,
+          headExtensions:frame.criticalExtensions,enableOriginalMultipartNegotiation:negotiated});
+      }else if(frame.sequence!==1||!same(frame.criticalExtensions,negotiated?[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:[])||
+        (negotiated?identity.changeKind!=='ASSET_PUT'||b.familyRef!==identity.familyRef||
+          !same(b.fromHeads,[identity.sourcePrefixDigestBefore]):
+          !same(b,{familyRef:identity.familyRef,fromHeads:[identity.sourcePrefixDigestBefore]})))
         fail('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_INVALID');
       return frame;
     }
@@ -1303,6 +1346,9 @@ export function createT4OriginalNetworkPublicationPort({
     };
   }
   function verifySessionEntries(entries){
+    // Negotiation must never fall back to the old compact payload path.
+    if(replacement&&entries.length>1&&frameFor(entries[0]).criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION))
+      fail('PUBLICATION_REPLACEMENT_MULTIPART_CONTENT_NOT_ENABLED');
     if(replacement&&source){
       if(frameFor(entries[0]).messageType!=='HEADS'||entries.length===2||
         entries.slice(1).some((e,i)=>frameFor(e).messageType!==(i===0?'CHANGE_REF':'CHUNK')))
@@ -1477,7 +1523,7 @@ export function createT4OriginalNetworkPublicationPort({
           multipartReservation:clone(multipartReservation)})},extensions:{},
       event:{event_type:EVENT,payload:event}};
     const first=slots.length?entries[slots[0].sequence-1]:null;
-    await guard(ctx,'t1.putObject',action,first&&((replacement&&isContent(first.messageType))||isReplacementAck(first.messageType))?first:null);
+    await guard(ctx,'t1.putObject',action,first&&((replacement&&(isContent(first.messageType)||enableOriginalMultipartNegotiation))||isReplacementAck(first.messageType))?first:null);
     if(multipartPlan){
       if(Buffer.byteLength(JSON.stringify(sorted(input.data)),'utf8')>MAX_WIRE_BYTES)
         fail('PUBLICATION_MULTIPART_ROOT_TOO_LARGE');
@@ -2319,7 +2365,8 @@ export function createT4OriginalNetworkPublicationPort({
         'PUBLICATION_ORIGINAL_WIRE_LIFETIME_REQUIRED')}:{}),
     }),
     ...(control?{originalControlPublication:true,originalNewAttemptAdmissionStillRequired:true}:{}),
-    ...(replacement?{...(source?{originalReplacementAnnouncementPublication:true}:
+    ...(replacement?{...(enableOriginalMultipartNegotiation?{originalReplacementMultipartHandshakeEnabled:true}:{}),
+      ...(source?{originalReplacementAnnouncementPublication:true}:
       {originalReplacementRecipientDiffPublication:true}),originalNewAttemptAdmissionStillRequired:true,
       ...(replacementContent?{originalReplacementSourceContentPublication:true,readOriginalReplacementPublishedContent}:{}),
       ...(replacementAck?{originalReplacementRecipientAckPublication:true}:{})}:{}),

@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {validateT4OriginalReplacementSessionCandidate,createT4OriginalNetworkPublicationPort,readT4OriginalReplacementSourceHead,
-  validateT4OriginalReplacementSourceIntentStatus,validateT4OriginalReplacementRecipientApplyAdmission}
+  validateT4OriginalReplacementSourceIntentStatus,validateT4OriginalReplacementRecipientApplyAdmission,readT4OriginalReplacementHandshakeProfile}
   from './original-network-publication.mjs';
 import {createT4OriginalReplacementHistoricalPhasePort,createT4OriginalNetworkSessionPhasePort,
   requireT4OriginalRetiredAttemptStatus} from './original-network-session-phases.mjs';
@@ -76,9 +76,11 @@ export function createT4OriginalReplacementOwnerRecipientDiffRequest({session,re
   const frame=decodeT4CandidateFrame(bytes);
   if(frame.messageType!=='HEADS'||frame.sequence!==1||frame.sourceNodeRef!==c.sourceNodeRef||
     frame.recipientNodeRef!==c.recipientNodeRef||frame.scopeRef!==c.scopeRef||frame.ownerEpoch!==c.ownerEpoch||
-    frame.sessionRef!==c.sessionRef||!same(frame.criticalExtensions,[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]))
+    frame.sessionRef!==c.sessionRef)
     fail('REPLACEMENT_DIFF_HISTORY_HEAD_INVALID');
-  readT4OriginalReplacementSourceHead({identity:c.originalCaptureSession,body:frame.body,sessionRef:c.sessionRef,expectedCandidate:c});
+  readT4OriginalReplacementHandshakeProfile({candidate:c,headBody:frame.body,
+    headSha256:createHash('sha256').update(bytes).digest('hex'),headExtensions:frame.criticalExtensions,
+    enableOriginalMultipartNegotiation:Object.hasOwn(frame.body,'multipartOffer')});
   return Object.freeze({schema:T4_REPLACEMENT_RECIPIENT_DIFF_REQUEST,session:c,requesterNodeRef,ownerNodeRef,headWireBase64,
     originalHistoricalEvidenceOnly:true,originalSubjectMutationAllowed:false,originalFrameRetryAllowed:false});
 }
@@ -261,8 +263,17 @@ export async function readT4OriginalReplacementOwnerHistory({request,technicalSc
     async function readDiff(){
       const saved=await publication.inspectOriginalPublication();await guard();
       if(saved.frames[0]?.state!=='PRESENT')return result('WAITING_FOR_RECIPIENT_DIFF_PRESENT',{acceptedHead:null,diff:null});
-      const acceptedHead=await verifyT4CandidateHistoricalReceivedFrame({wireBytes:Buffer.from(r.headWireBase64,'base64'),localNodeRef,
-        scopeRef:c.scopeRef,requiredCryptoSuite,supportedCriticalExtensions:[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION],
+      const headBytes=Buffer.from(r.headWireBase64,'base64'),head=decodeT4CandidateFrame(headBytes);
+      const profile=readT4OriginalReplacementHandshakeProfile({candidate:c,headBody:head.body,
+        headSha256:createHash('sha256').update(headBytes).digest('hex'),headExtensions:head.criticalExtensions,
+        enableOriginalMultipartNegotiation:Object.hasOwn(head.body,'multipartOffer')});
+      const exactDiff=decodeT4CandidateFrame(saved.frames[0].wireBytes);
+      const canonical=x=>JSON.stringify(x,(_k,v)=>v&&typeof v==='object'&&!Array.isArray(v)?
+        Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
+      if(canonical(exactDiff.body)!==canonical(profile.diffBody)||!same(exactDiff.criticalExtensions,profile.diffExtensions))
+        fail('REPLACEMENT_DIFF_HISTORY_PROOF_MISMATCH');
+      const acceptedHead=await verifyT4CandidateHistoricalReceivedFrame({wireBytes:headBytes,localNodeRef,
+        scopeRef:c.scopeRef,requiredCryptoSuite,supportedCriticalExtensions:head.criticalExtensions,
         verifyOriginalHistoricalNodeSignature,readOriginalHistoricalReplayEvidence:replay.readOriginalHistoricalReplayEvidence});await guard();
       const d=await publication.readOriginalHistoricalPublishedFrame({sequence:1,includePresentEventAnchor:true});await guard();
       if(d.sessionRef!==c.sessionRef||d.messageType!=='DIFF_REQUEST'||d.sequence!==1||d.sha256!==saved.frames[0].sha256||
