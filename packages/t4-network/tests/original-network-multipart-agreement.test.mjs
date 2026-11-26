@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash,generateKeyPairSync,sign,verify} from 'node:crypto';
+import {createHash,generateKeyPairSync,sign,verify,createCipheriv,createDecipheriv} from 'node:crypto';
+import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
+import {verifyT4OriginalAssetDelta} from '../src/network/original-asset-delta.mjs';
+import {verifyT4OriginalSourceHeadCausality} from '../src/network/original-network-source-head-proof.mjs';
+import {discoverT4OriginalNetworkSessionContent,openT4OriginalNetworkSubjectChange,
+  applyT4OriginalNetworkSubjectChange,inspectT4OriginalNetworkRecipientResult,createT4OriginalNetworkAppliedAckBody}
+  from '../src/network/original-network-subject-apply.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,
   T4_ORIGINAL_SOURCE_SESSION_EXTENSION as HEAD_EXT,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION as AGREEMENT_EXT,
   T4_MULTIPART_OPAQUE_EXTENSION as EXT} from '../src/network/standard-network-wire-candidate.mjs';
@@ -20,14 +26,25 @@ const hex=x=>createHash('sha256').update(x).digest('hex'),d=x=>'sha256:'+hex(x);
 const identityDigest=(name,x)=>hex('IWXA-T4-ORIGINAL-'+name+'-V1\0'+JSON.stringify(sorted(x)));
 const family={workspaceId:'workspace:subject',originalWriteOwnerRef:'owner:1',sourceNodeRef:'node:A',recipientNodeRef:'node:B',scopeRef:'scope:1'};
 const key={...family,ownerEpoch:1,sourceEventId:'event:source:2'};
-const session={schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SESSION_V1',...key,sourceRevision:2,sourceEventDigest:d('event'),
-  sourcePrefixDigestBefore:d('before'),sourcePrefixDigestAfter:d('after'),capturedWindowDigest:d('window'),
-  capturedSha256:hex('asset'),changeKind:'ASSET_PUT',familyRef:'family:t4:'+identityDigest('NATIVE-FAMILY',family),
+const originalEvents=[
+  {event_id:'event:source:1',event_type:'source.object.created',workspace_id:family.workspaceId,object_id:'object:1',revision:1,
+    occurred_at:'2026-11-25T00:00:00.000Z',service_id:'kernel:1',payload:{}},
+  {event_id:key.sourceEventId,event_type:'source.asset.updated',workspace_id:family.workspaceId,object_id:'object:1',revision:2,
+    occurred_at:'2026-11-25T00:00:01.000Z',service_id:'kernel:1',payload:{assetId:'asset:1'}}];
+const history={workspaceId:family.workspaceId,originalWriteOwnerRef:family.originalWriteOwnerRef,maxEvents:1,
+  authorizeOriginalRead:async()=>true,readOriginalEvents:async()=>structuredClone(originalEvents)};
+const before=(await readT4OriginalEventWindow(history)).nextCursor;
+const capture=await readT4OriginalEventWindow({...history,cursor:before}),after=capture.nextCursor;
+const assetBytes=Buffer.alloc(450000,37);
+const asset=verifyT4OriginalAssetDelta({schema:'IWXA_T4_ORIGINAL_ASSET_DELTA_V1',
+  workspaceId:family.workspaceId,originalWriteOwnerRef:family.originalWriteOwnerRef,assetId:'asset:1',objectId:'object:1',
+  mime:'application/octet-stream',baseRevision:1,sourceRevision:2,sourceEventId:key.sourceEventId,
+  sourceEventDigest:capture.window.eventRefs[0].eventDigest,windowDigest:capture.window.windowDigest,
+  originalEventType:originalEvents[1].event_type,bytesBase64:assetBytes.toString('base64'),assetBytesSha256:hex(assetBytes),assetSize:assetBytes.length});
+const session={schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SESSION_V1',...key,sourceRevision:2,sourceEventDigest:asset.delta.sourceEventDigest,
+  sourcePrefixDigestBefore:before.sourcePrefixDigest,sourcePrefixDigestAfter:after.sourcePrefixDigest,capturedWindowDigest:asset.delta.windowDigest,
+  capturedSha256:asset.sha256,changeKind:'ASSET_PUT',familyRef:'family:t4:'+identityDigest('NATIVE-FAMILY',family),
   sessionRef:'session:t4:'+identityDigest('NATIVE-SESSION',key),changeId:'change:t4:'+identityDigest('NATIVE-CHANGE',key)};
-const cursor=(lastEventId,seenEventCount,sourcePrefixDigest)=>({schema:'IWXA_T4_ORIGINAL_EVENT_CURSOR_V1',
-  workspaceId:session.workspaceId,originalWriteOwnerRef:session.originalWriteOwnerRef,lastEventId,seenEventCount,sourcePrefixDigest,
-  originalPermissionProof:false});
-const before=cursor('event:source:1',1,session.sourcePrefixDigestBefore),after=cursor(session.sourceEventId,2,session.sourcePrefixDigestAfter);
 const suite='suite:ed25519',source=session.sourceNodeRef,recipient=session.recipientNodeRef;
 const keys=new Map([[source,generateKeyPairSync('ed25519')],[recipient,generateKeyPairSync('ed25519')]]);
 const verifyOriginalNodeSignature=async p=>p.signerRef==='key:'+p.sourceNodeRef&&verify(null,p.bytes,keys.get(p.sourceNodeRef).publicKey,p.signature);
@@ -45,10 +62,10 @@ const diffBody={familyRef:session.familyRef,fromHeads:[session.sourcePrefixDiges
 const diffBytes=await signed(recipient,'DIFF_REQUEST',1,diffBody,[AGREEMENT_EXT]);
 const selector={sourceNodeRef:source,sessionRef:session.sessionRef,ownerEpoch:session.ownerEpoch};
 const extensions=[HEAD_EXT,AGREEMENT_EXT,EXT];
-async function contentPlan(fill=17){
+async function contentPlan(fill=17,encrypted=null){
   const plan=await prepareT4CandidateMultipartOpaqueChunks({changeId:session.changeId,ownerRef:session.originalWriteOwnerRef,
     sourceContentRef:'asset:1',getMode:()=> 'T4_NETWORK',authorizeOriginalSealedContent:async()=>true,
-    readOriginalSealedContent:async()=>({ciphertext:Buffer.alloc(524289,fill),encryptionContextRef:'context:1'})});
+    readOriginalSealedContent:async()=>({ciphertext:encrypted??Buffer.alloc(524289,fill),encryptionContextRef:'context:1'})});
   const change={changeId:session.changeId,changeKind:'ASSET_PUT',eventRef:session.sourceEventId,
     ownerRef:session.originalWriteOwnerRef,sourceRevision:session.sourceRevision,contentDigest:plan.manifest.contentDigest,
     parents:[session.sourcePrefixDigestBefore],multipartManifest:plan.manifest};
@@ -122,7 +139,7 @@ function fixture(){
     const ra=agreement({session,sourceHead:h.receipt,recipientDiff:rd,localRole:'RECIPIENT',requiredCryptoSuite:suite});
     selected.set(source,sa);selected.set(recipient,ra);return {sp,rp,sh,rd,hr:h.receipt,dr:df.receipt,sa,ra};
   }
-  async function prepare(sp){await sp.prepareOriginalMultipartBacking({wireBytes:payload.frames});return sp.prepareOriginalMultipartPublication();}
+  async function prepare(sp,plan=payload){await sp.prepareOriginalMultipartBacking({wireBytes:plan.frames});return sp.prepareOriginalMultipartPublication();}
   function inject(bytes){const sha=hex(bytes),f=decodeT4CandidateFrame(bytes);remote.set(sha+'.t4n',new Uint8Array(bytes));
     for(const key of t4NativeFrameIndexKeys(f))indexes.set(key,sha);}
   return {objects,events,remote,indexes,replay,selected,transport,port,publish,negotiate,prepare,inject,
@@ -213,4 +230,120 @@ test('K146 transport rejects unselected content before original replay and detec
   let calls=0;const q=f.transport(recipient,true,{readOriginalMultipartAgreement:async()=>++calls===1?ra:null});
   await assert.rejects(q.discoverUniqueSignedFrame(request),code('MULTIPART_AGREEMENT_WITNESS_INVALID'));
   assert.equal(f.replay.has(replayKey),false);
+});
+
+function discoveryArgs(f,overrides={}){
+  return {session,frameDiscoveryPort:f.transport(recipient),requiredCryptoSuite:suite,
+    authorizeOriginalRecipientSession:async()=>true,requireSourceAnnouncement:true,sourceCursorBefore:before,
+    readOriginalMultipartAgreement:async()=>f.selected.get(recipient)??null,...overrides};
+}
+test('K147 original subject discovery never opens or applies an incomplete multipart set and derives exact missing fragments',async()=>{
+  const f=fixture(),{sp}=await f.negotiate(),args=discoveryArgs(f);
+  assert.equal((await discoverT4OriginalNetworkSessionContent(args)).state,'WAITING_FOR_CHANGE');
+  await f.prepare(sp);await sp.publishOriginalMultipartFrames({limit:3});
+  const incomplete=await discoverT4OriginalNetworkSessionContent(args);
+  assert.equal(incomplete.state,'WAITING_FOR_CHUNKS');assert.equal(incomplete.missingMultipartChunks.length,63);
+  assert.equal(incomplete.missingMultipartChunks.at(-1).partIndex,1);
+  assert.equal(incomplete.originalDecryptionInvoked,false);assert.equal(incomplete.originalBusinessApplied,false);
+  f.restart();await f.port(source).publishOriginalMultipartFrames({limit:64});
+  const complete=await discoverT4OriginalNetworkSessionContent(discoveryArgs(f));
+  assert.equal(complete.state,'CONTENT_VERIFIED');assert.equal(complete.verifiedChunks.length,65);
+  assert.equal(complete.originalSourceEventAndSubjectNotYetVerified,true);assert.equal(complete.originalDecryptionInvoked,false);
+});
+test('K147 page metadata cannot fabricate completeness, skip a slot or change signed content',async()=>{
+  const f=fixture(),{sp}=await f.negotiate();await f.prepare(sp);await sp.publishOriginalMultipartFrames({limit:3});
+  const port=f.transport(recipient),call=port.discoverOriginalMultipartContentPage;
+  for(const rewrite of [p=>({...p,nextSequence:null}),p=>({...p,missing:p.missing.slice(1)}),
+    p=>({...p,receipts:[p.receipts[0],p.receipts[0]]})]){
+    await assert.rejects(discoverT4OriginalNetworkSessionContent(discoveryArgs(f,{frameDiscoveryPort:{...port,
+      discoverOriginalMultipartContentPage:async a=>rewrite(await call(a))}})),
+      e=>['SUBJECT_MULTIPART_PAGE_INVALID','SUBJECT_MULTIPART_PAGE_SLOT_INVALID'].includes(e.code));
+  }
+});
+const keyBytes=Buffer.alloc(32,93),iv=Buffer.alloc(12,19);
+function seal(bytes){
+  const cipher=createCipheriv('aes-256-gcm',keyBytes,iv);cipher.setAAD(Buffer.from(session.changeId));
+  return Buffer.concat([iv,cipher.update(bytes),cipher.final(),cipher.getAuthTag()]);
+}
+async function openedFixture({differentCapture=false}={}){
+  const f=fixture(),{sp,rd,sa}=await f.negotiate();
+  const original= differentCapture?verifyT4OriginalAssetDelta({...asset.delta,bytesBase64:Buffer.alloc(assetBytes.length,21).toString('base64'),
+    assetBytesSha256:hex(Buffer.alloc(assetBytes.length,21))}):asset;
+  const plan=await contentPlan(17,seal(original.bytes));await f.prepare(sp,plan);
+  let pending=await sp.publishOriginalMultipartFrames({limit:64});while(pending.remainingFrames>0)pending=await sp.publishOriginalMultipartFrames({limit:64});
+  // Explicitly recover from the original publication journal, not a saved in-memory plan.
+  await f.port(source).publishOriginalMultipartFrames({limit:64});
+  const discovered=await discoverT4OriginalNetworkSessionContent(discoveryArgs(f));
+  assert.equal(discovered.state,'CONTENT_VERIFIED');
+  const headArgs={verifiedHeads:discovered.verifiedHeads,verifiedDiffRequest:rd,verifiedChangeRef:discovered.verifiedChangeRef,
+    ...family,sessionRef:session.sessionRef,ownerEpoch:session.ownerEpoch,sourceCursorBefore:before,
+    capturedWindowDigest:session.capturedWindowDigest,originalMultipartCaptureSession:session,getMode:()=> 'T4_NETWORK',
+    readOriginalHostContext:async()=>({workspaceId:family.workspaceId,originalWriteOwnerRef:family.originalWriteOwnerRef,
+      nodeRef:source,scopeRef:family.scopeRef,hostSessionRef:'host:source'}),authorizeOriginalRead:async()=>true,
+    readOriginalEvents:history.readOriginalEvents,verifyOriginalSourceSubject:async()=>true};
+  const headProof=await verifyT4OriginalSourceHeadCausality(headArgs);
+  assert.equal(headProof.originalMultipartAgreementDigest,sa.agreementDigest);
+  let opens=0;
+  const args={verifiedChangeRef:discovered.verifiedChangeRef,verifiedChunks:discovered.verifiedChunks,originalSourceHeadProof:headProof,
+    encryptionContextRef:discovered.encryptionContextRef,recipientNodeRef:recipient,scopeRef:session.scopeRef,getMode:()=> 'T4_NETWORK',
+    readOriginalHostContext:async()=>({nodeRef:recipient,scopeRef:session.scopeRef,hostSessionRef:'host:recipient',
+      originalWriteOwnerRef:session.originalWriteOwnerRef}),authorizeOriginalSealedOpen:async()=>true,
+    verifyOriginalSourceBinding:async()=>true,originalCaptureSession:session,
+    readOriginalMultipartAgreement:async()=>f.selected.get(recipient)??null,
+    openOriginalSealedContent:async p=>{
+      opens++;const raw=Buffer.from(p.ciphertext),decipher=createDecipheriv('aes-256-gcm',keyBytes,raw.subarray(0,12));
+      decipher.setAAD(Buffer.from(session.changeId));decipher.setAuthTag(raw.subarray(-16));
+      return {authenticated:true,plaintext:new Uint8Array(Buffer.concat([decipher.update(raw.subarray(12,-16)),decipher.final()])),
+        originalVaultUsed:true,originalCapturedBytesVerified:true,originalBusinessApplied:false};
+    }};
+  return {f,args,headArgs,get opens(){return opens;}};
+}
+test('K147 original HEAD/DIFF causality, complete AES-GCM plaintext, one original Asset mutation and cold result readback',async()=>{
+  const t=await openedFixture(),received=await openT4OriginalNetworkSubjectChange(t.args);
+  assert.equal(t.opens,1);assert.equal(received.sha256,asset.sha256);assert.equal(received.originalBusinessApplied,false);
+  assert.equal(received.originalMultipartAgreementDigest,t.args.originalSourceHeadProof.originalMultipartAgreementDigest);
+  let stored={asset:{workspace_id:family.workspaceId,asset_id:'asset:1',object_id:'object:1',mime:asset.delta.mime,revision:1},
+    bytes:new Uint8Array([1])},writes=0;const events=[];
+  const kernel={hasOperation:op=>['t1.getAsset','t1.getObject','t1.listEventsSince','t1.putAsset'].includes(op),
+    async getAsset(){return structuredClone(stored);},
+    async getObject(w,id){return {object:{workspace_id:w,object_id:id,revision:1,deleted:false}};},
+    async listEventsSince(){return structuredClone(events);},
+    async putAsset(input){writes++;assert.equal(input.base_revision,stored.asset.revision);
+      stored={asset:{...stored.asset,revision:input.base_revision+1,size:input.bytes.length},bytes:new Uint8Array(input.bytes)};
+      const e={event_id:'event:recipient:asset',workspace_id:input.workspace_id,object_id:input.object_id,revision:stored.asset.revision,
+        event_type:input.event.event_type,payload:input.event.payload,idempotency_key:input.event.idempotency_key};events.push(e);
+      return {asset:stored.asset,event:e};}};
+  const a={received,originalKernel:kernel,getMode:()=> 'T4_NETWORK',authorizeOriginalRead:async()=>true,
+    authorizeOriginalWrite:async()=>true,verifyOriginalSourceEvent:async()=>true};
+  assert.equal((await inspectT4OriginalNetworkRecipientResult(a)).state,'NOT_APPLIED');
+  const result=await applyT4OriginalNetworkSubjectChange(a);assert.equal(result.originalBusinessApplied,true);assert.equal(writes,1);
+  assert.deepEqual(stored.bytes,new Uint8Array(assetBytes));
+  const ack=createT4OriginalNetworkAppliedAckBody({received,verifiedResult:result,ackRef:'ack:asset'});
+  assert.equal(ack.recipientEventRef,events[0].event_id);assert.equal(ack.recipientRevision,2);
+  assert.equal((await inspectT4OriginalNetworkRecipientResult(a)).state,'APPLIED_VERIFIED');
+  assert.equal((await applyT4OriginalNetworkSubjectChange(a)).originalCommitInvoked,false);assert.equal(writes,1);
+});
+test('K147 incomplete set, missing original agreement and wrong source proof never invoke decryption',async()=>{
+  const t=await openedFixture();
+  await assert.rejects(openT4OriginalNetworkSubjectChange({...t.args,verifiedChunks:t.args.verifiedChunks.slice(1)}),
+    code('MULTIPART_CHUNKS_INCOMPLETE'));
+  await assert.rejects(openT4OriginalNetworkSubjectChange({...t.args,readOriginalMultipartAgreement:null}),
+    code('SUBJECT_MULTIPART_OPEN_PORT_REQUIRED'));
+  await assert.rejects(openT4OriginalNetworkSubjectChange({...t.args,originalSourceHeadProof:{...t.args.originalSourceHeadProof,
+    originalMultipartDiffSha256:hex('wrong')}}),code('SUBJECT_MULTIPART_SOURCE_BINDING_MISMATCH'));
+  await assert.rejects(verifyT4OriginalSourceHeadCausality({...t.headArgs,originalMultipartCaptureSession:null}),
+    code('HEAD_MULTIPART_AGREEMENT_REQUIRED'));
+  assert.equal(t.opens,0);
+});
+test('K147 authenticated encryption cannot substitute another valid original Asset capture',async()=>{
+  const t=await openedFixture({differentCapture:true});
+  await assert.rejects(openT4OriginalNetworkSubjectChange(t.args),code('SUBJECT_MULTIPART_CAPTURE_MISMATCH'));
+  assert.equal(t.opens,1);
+});
+test('K147 agreement revocation during authenticated open denies received subject proof',async()=>{
+  const t=await openedFixture(),open=t.args.openOriginalSealedContent;
+  await assert.rejects(openT4OriginalNetworkSubjectChange({...t.args,openOriginalSealedContent:async p=>{
+    const result=await open(p);t.f.selected.delete(recipient);return result;
+  }}),code('MULTIPART_AGREEMENT_WITNESS_INVALID'));
+  assert.equal(t.opens,1);
 });
