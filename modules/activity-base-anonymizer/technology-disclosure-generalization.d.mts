@@ -3,10 +3,10 @@ import type {ProductTextEditKind,ProductRevisionReview} from './technology-produ
 export type SourceReference={value:string;replacement:string;kind:'CUSTOMER'|'PERFORMER'|'CONTRACTOR'|'LOCAL_REFERENCE'};
 export type GeneralizationSpan={path:string;start:number;end:number;edit_kind:ProductTextEditKind;detected:boolean};
 export type GeneralizationGroup={group_id:string;value:string;types:string[];languages:string[];score:number;spans:GeneralizationSpan[];
- editable_count:number;blocked_count:number;source_kinds:SourceReference['kind'][];mode:'SOURCE_REFERENCE_SUGGESTION'|'DIRECT_CONTACT_SUGGESTION'|'CONTEXT_REQUIRED'|'DOMAIN_REVIEW_REQUIRED';suggested_replacement:string|null};
+ editable_count:number;blocked_count:number;source_kinds:SourceReference['kind'][];source_variant:boolean;mode:'SOURCE_REFERENCE_VARIANT'|'SOURCE_REFERENCE_SUGGESTION'|'DIRECT_CONTACT_SUGGESTION'|'CONTEXT_REQUIRED'|'DOMAIN_REVIEW_REQUIRED';suggested_replacement:string|null};
 export type GeneralizationPlan={status:'LOCAL_PRODUCT_GENERALIZATION_PROPOSAL';base_product_sha256:string;
  report_sha256:string[];source_reference_sha256:string;language:'ru'|'en';groups:GeneralizationGroup[];proposal_sha256:string;finding_count:number;
- group_count:number;automatic_group_count:number;source_reference_count:number;matched_reference_count:number;screening_profile_count:number;requires_owner_review:true;anonymity:'NOT_ESTABLISHED';export_allowed:false;iwxa_package:null};
+ group_count:number;automatic_group_count:number;source_reference_count:number;matched_reference_count:number;source_variant_count:number;screening_profile_count:number;requires_owner_review:true;anonymity:'NOT_ESTABLISHED';export_allowed:false;iwxa_package:null};
 export function prepareProductGeneralization(preview:unknown,reports:unknown,language?:'ru'|'en',references?:SourceReference[]):Promise<GeneralizationPlan>;
 export function applyProductGeneralization(preview:unknown,reports:unknown,choices:unknown,references?:SourceReference[]):Promise<{preview:ProductPreview;
  local_review:ProductRevisionReview;

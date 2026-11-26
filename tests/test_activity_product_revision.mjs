@@ -199,3 +199,22 @@ test('content review detects explicit gaps and supports correction using the exi
  assert.ok(review.issues.some(i=>i.code==='PARAMETER_WITHOUT_SELECTION_RULE'));
  assert.ok(!review.issues.some(i=>i.path.endsWith('equipment_requirement')));
 });
+
+test('known names include complete case and quote variants but never preselect ambiguous aliases',async()=>{
+ const c=d05Candidate();
+ c.technology.terms.local_context_guidance='Согласовать с ООО «Частный цех» и ООО "ЧАСТНЫЙ ЦЕХ". ООО «ЧАСТНЫЙ ЦЕХ 2» оставить для предметного уточнения.';
+ const p=await prepareD05TechnologyProduct(c,'Part');
+ const refs=[{value:'ООО «Частный цех»',replacement:'подрядчик получателя',kind:'CONTRACTOR'}];
+ const plan=await prepareProductGeneralization(p,[],'ru',refs);
+ assert.equal(plan.groups.length,2);
+ assert.equal(plan.source_variant_count,1);assert.equal(plan.automatic_group_count,1);
+ const alias=plan.groups.find(g=>g.source_variant);
+ assert.equal(alias.value,'ООО "ЧАСТНЫЙ ЦЕХ"');
+ assert.equal(alias.mode,'SOURCE_REFERENCE_VARIANT');
+ assert.equal(alias.suggested_replacement,refs[0].replacement);
+ const changes=select(plan,plan.groups.map(g=>({group_id:g.group_id,replacement:g.suggested_replacement})));
+ const out=await applyProductGeneralization(p,[],changes,refs);
+ assert.equal(out.preview.object_data.technology.terms.local_context_guidance,
+  'Согласовать с подрядчик получателя и подрядчик получателя. ООО «ЧАСТНЫЙ ЦЕХ 2» оставить для предметного уточнения.');
+ assert.equal(out.preview.export_allowed,false);
+});

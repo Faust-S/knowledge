@@ -39,7 +39,7 @@ export function ProductGeneralizationPanel({product,reports,onRevision,disabled=
   setBusy(true);
   void prepareProductGeneralization(product,Object.values(reports),language,references).then(p=>{
    if(token!==epoch.current)return;
-   setPlan(p);setChoices(Object.fromEntries(p.groups.map(g=>[g.group_id,{selected:g.suggested_replacement!==null,
+   setPlan(p);setChoices(Object.fromEntries(p.groups.map(g=>[g.group_id,{selected:g.suggested_replacement!==null&&!g.source_variant,
     replacement:g.suggested_replacement??''}])));
   }).catch(()=>{if(token===epoch.current)setError('Не удалось подготовить пакетное обобщение для текущей редакции. Проверьте результаты анализатора; большую выборку обработайте по отдельным технологиям.');})
    .finally(()=>{if(token===epoch.current)setBusy(false);});
@@ -91,13 +91,14 @@ export function ProductGeneralizationPanel({product,reports,onRevision,disabled=
    <div><strong>{plan.group_count}</strong><span>Различных ссылок</span></div>
    <div><strong>{plan.automatic_group_count}</strong><span>Готовых предложений</span></div>
    <div><strong>{selected.length}</strong><span>Выбрано</span></div></div>
-   {plan.source_reference_count>0?<p>Известных исходных обозначений: {plan.source_reference_count}. Найдено в текущей редакции: {plan.matched_reference_count}.</p>:null}
+   {plan.source_reference_count>0?<p>Известных исходных обозначений: {plan.source_reference_count}. Групп совпадений в текущей редакции: {plan.matched_reference_count}. Вариантов написания: {plan.source_variant_count}.</p>:null}
    {!plan.groups.length?<p>В доступных проверках и известных обозначениях нет совпадений. Это не подтверждает анонимность.</p>:null}
    {plan.groups.slice(page*8,(page+1)*8).map(g=>{
     const choice=choices[g.group_id];
     return <div className="activity-domain-op" key={g.group_id}>
      <strong style={{overflowWrap:'anywhere'}}>{g.value}</strong>
      <span>{[...g.types.map(t=>kindNames[t]??t),...g.source_kinds.map(k=>sourceNames[k])].join(', ')} · {g.spans.length} совпадений</span>
+     {g.source_variant?<p>Вариант написания известного имени или организации. Уточните его функциональное обозначение; замена не выбрана автоматически.</p>:null}
      {g.blocked_count?<p className="activity-v7-note hold">Нельзя изменить без предметного пересмотра: {g.blocked_count} совпадений.</p>:null}
      {g.editable_count>0&&choice?<><label><input type="checkbox" disabled={blocked} checked={choice.selected}
       onChange={e=>setChoices(x=>({...x,[g.group_id]:{...x[g.group_id],selected:e.target.checked}}))}/> Применить замену в доступных полях</label>

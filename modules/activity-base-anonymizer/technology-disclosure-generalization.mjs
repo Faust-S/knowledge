@@ -7,7 +7,7 @@ import {validateTechnologyProduct,TECHNOLOGY_SCHEMA,TECHNOLOGY_VERSION} from './
 const need=(ok,code)=>{if(!ok)throw new ActivityHold(code);};
 const exact=(v,keys)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
 const cmp=(a,b)=>a<b?-1:a>b?1:0;
-const word=c=>!!c&&/[\p{L}\p{N}_]/u.test(c);
+const word=c=>!!c&&/[\p{L}\p{M}\p{N}_]/u.test(c);
 const email=/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 const phone=/^\+[0-9 ()-]{10,24}$/;
 const direct=(value,types,score)=>{
@@ -36,6 +36,26 @@ function occurrences(row,value,kind){
   at=pos+Math.max(1,value.length);
  }
  return out;
+}
+// Known multiword personal/organization names can have different casing,
+// horizontal spacing and quote styles. These are candidate aliases only.
+// Do not fold contacts, internal identifiers, numeric values or inflection.
+function nameVariantPattern(ref){
+ if(ref.kind==='LOCAL_REFERENCE'||!/^[\p{L}\p{M} \u00a0\u202f«»„“”"'-]+$/u.test(ref.value)||
+  (ref.value.match(/[\p{L}\p{M}]+/gu)??[]).length<2)return null;
+ const escape=v=>v.replace(/[.*+?^$(){}[\]\\]/g,'\\const spanKey=x=>x.path+':'+x.start+':'+x.end;');
+ return new RegExp(ref.value.split(/([ \u00a0\u202f]+|[«»„“”"])/u).map(part=>
+  /^[ \u00a0\u202f]+$/u.test(part)?'[ \\u00a0\\u202f]+':/^[«»„“”"]$/u.test(part)?'[«»„“”"]':escape(part)).join(''),'giu');
+}
+function variantOccurrences(row,ref,pattern){
+ const matches=[];
+ pattern.lastIndex=0;
+ for(const m of row.text.matchAll(pattern)){
+  const value=m[0];if(value===ref.value)continue;
+  const start=row.offsets.get(m.index),end=row.offsets.get(m.index+value.length);
+  if(start!==undefined&&end!==undefined&&boundary(row.points,start,end,value,null))matches.push({value,start,end});
+ }
+ return matches;
 }
 const spanKey=x=>x.path+':'+x.start+':'+x.end;
 const digit=s=>/\d/.test(s);
@@ -96,6 +116,18 @@ export async function prepareProductGeneralization(preview,reports,language='ru'
    if(!g.spans.has(spanKey(span)))g.spans.set(spanKey(span),span);
   }
   if(g.spans.size){g.references.push(ref);groups.set(ref.value,g);}
+  const pattern=nameVariantPattern(ref);
+  if(pattern){
+   for(const row of inventory)for(const pos of variantOccurrences(row,ref,pattern)){
+    let variant=groups.get(pos.value);
+    if(!variant){variant={value:pos.value,types:new Set(),languages:new Set(),score:0,spans:new Map(),references:[]};groups.set(pos.value,variant);}
+    if(!variant.references.some(r=>r.value===ref.value&&r.replacement===ref.replacement&&r.kind===ref.kind))variant.references.push(ref);
+    variant.source_variant=true;
+    const span={path:row.path,start:pos.start,end:pos.end,edit_kind:row.edit_kind,detected:false};
+    if(!variant.spans.has(spanKey(span)))variant.spans.set(spanKey(span),span);
+    need(groups.size<=512,'TECHNOLOGY_GENERALIZATION_GROUP_LIMIT');
+   }
+  }
  }
  need(groups.size<=512,'TECHNOLOGY_GENERALIZATION_GROUP_LIMIT');
  let spanCount=0;
@@ -127,8 +159,8 @@ export async function prepareProductGeneralization(preview,reports,language='ru'
    (g.references.length?referenceSuggestion:kind?wording[language][kind]:null):null;
   result.push({group_id:'g_'+String(result.length+1).padStart(4,'0'),value:g.value,types,languages:[...g.languages].sort(cmp),
    score:g.score,spans,editable_count:editable.length,blocked_count:blocked,
-   source_kinds:[...new Set(g.references.map(r=>r.kind))].sort(cmp),
-   mode:editable.length===0?'DOMAIN_REVIEW_REQUIRED':suggestion?(g.references.length?'SOURCE_REFERENCE_SUGGESTION':'DIRECT_CONTACT_SUGGESTION'):'CONTEXT_REQUIRED',
+   source_kinds:[...new Set(g.references.map(r=>r.kind))].sort(cmp),source_variant:g.source_variant===true,
+   mode:editable.length===0?'DOMAIN_REVIEW_REQUIRED':suggestion?(g.source_variant?'SOURCE_REFERENCE_VARIANT':g.references.length?'SOURCE_REFERENCE_SUGGESTION':'DIRECT_CONTACT_SUGGESTION'):'CONTEXT_REQUIRED',
    suggested_replacement:suggestion});
  }
  // A single direct identifier may be detected by both profiles. Do not
@@ -150,8 +182,8 @@ export async function prepareProductGeneralization(preview,reports,language='ru'
  const body={base_product_sha256:preview.product_sha256,report_sha256,language,source_reference_sha256:await sha256Canonical(known),groups:result};
  return {status:'LOCAL_PRODUCT_GENERALIZATION_PROPOSAL',...body,proposal_sha256:await sha256Canonical(body),
   finding_count:reviews.reduce((n,r)=>n+r.finding_count,0),group_count:result.length,
-  source_reference_count:known.length,matched_reference_count:result.filter(g=>g.source_kinds.length>0).length,screening_profile_count:reviews.length,
-  automatic_group_count:result.filter(g=>g.suggested_replacement!==null).length,
+  source_reference_count:known.length,matched_reference_count:result.filter(g=>g.source_kinds.length>0).length,source_variant_count:result.filter(g=>g.source_variant).length,screening_profile_count:reviews.length,
+  automatic_group_count:result.filter(g=>g.suggested_replacement!==null&&!g.source_variant).length,
   requires_owner_review:true,anonymity:'NOT_ESTABLISHED',export_allowed:false,iwxa_package:null};
 }
 export async function applyProductGeneralization(preview,reports,choices,references=[]){
