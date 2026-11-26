@@ -4,7 +4,7 @@ import { normalizeProject, normalizeWork } from '../src/modules/base/features/pr
 import { prepareWorkspaceMethodSourceInputs, reconstructWorkspaceMethodDraft } from '../src/modules/base/features/workspace/workspace-project-method.mjs';
 import { PROJECT_PROCESS_SOURCE_ACTIVATION, ProjectProcessSourceOwner, createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { MemoryCanonicalAdapter, OwnerWriteGateway } from '../src/persistence/canonical-persistence.mjs';
-import { readWorkspaceMethodFromSourceOwner } from '../src/modules/base/owners/project-process-method-readback.mjs';
+import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from '../src/modules/base/owners/project-process-method-readback.mjs';
 import { createWorkspaceMethodThroughSourceOwner, readWorkspaceMethodCreationIntent, resumeWorkspaceMethodThroughSourceOwner, inspectWorkspaceMethodCreation } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { qualifyProjectProcessSameWorkspaceHistory } from '../src/modules/base/owners/project-process-history.mjs';
 import { previewWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
@@ -628,4 +628,96 @@ test('new stage preview refuses a previously used logical Work identity',async()
   await owner.release('work',{workspaceId,objectId:oldWork.workId,recordId:'removed@2',baseRevisionId:oldRef.recordId,knowledgeAt});
   await assert.rejects(revisionPreview(owner,current,fixture()),code('METHOD_REVISION_STAGE_ID_USED'));
   assert.equal((await owner.audit()).length,before+1);
+});
+
+const historical=(owner,expected)=>readHistoricalWorkspaceMethod({owner,workspaceId,projectId:'project-a',expected});
+
+test('historical method read opens exact original revision set after selective changes without reading live heads',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  draft.steps.find(step=>step.id==='analyse').instruction='Updated analysis';
+  const preview=await revisionPreview(owner,base,draft);
+  for(const op of preview.workOperations.filter(item=>item.operation==='REVISE')){
+    await owner.revise('work',{...op.input,recordId:op.baseRef.recordId+'@new',baseRevisionId:op.baseRef.recordId,knowledgeAt});
+  }
+  const current=await read(owner);
+  assert.deepEqual(current.draft,draft);
+  const port={history:owner.history.bind(owner),load:()=>{throw new Error('Unexpected head read');}};
+  const old=await historical(port,base);
+  assert.deepEqual(old.draft,fixture());assert.deepEqual(old.workRefs,base.workRefs);
+  assert.equal(old.historicalRead,true);assert.equal(old.currentHeadVerified,false);
+  assert.equal(old.atomicSnapshot,false);assert.equal(old.executionAuthority,false);assert.equal(old.writeAuthorized,false);
+  assert.equal((await owner.audit()).length,7);
+  await assert.rejects(revisionPreview(owner,old,fixture()),code('METHOD_REVISION_BASE_CHANGED'));
+});
+
+test('historical read never substitutes newer prerequisites into an older selected Work set',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  draft.steps.find(step=>step.id==='analyse').instruction='Updated analysis';
+  const preview=await revisionPreview(owner,base,draft);
+  for(const op of preview.workOperations.filter(item=>item.operation==='REVISE')){
+    await owner.revise('work',{...op.input,recordId:op.baseRef.recordId+'@new',baseRevisionId:op.baseRef.recordId,knowledgeAt});
+  }
+  const current=await read(owner);
+  const mixed={...base,workRefs:base.workRefs.map(ref=>ref.objectId.endsWith('.analyse')
+    ?current.workRefs.find(other=>other.objectId===ref.objectId):ref)};
+  await assert.rejects(historical(owner,mixed),code('METHOD_SOURCE_REFERENCE_CHANGED'));
+  assert.deepEqual((await historical(owner,current)).draft,draft);
+});
+
+test('historical read retains removed source Work without resurrecting it',async()=>{
+  const {owner,base}=await revisionFixture();
+  const ref=base.workRefs.find(item=>item.objectId.endsWith('.analyse'));
+  await owner.release('work',{workspaceId,objectId:'project-a.analyse',recordId:'historical-release',baseRevisionId:ref.recordId,knowledgeAt});
+  assert.equal(await owner.load('work',workspaceId,'project-a.analyse'),null);
+  await assert.rejects(read(owner),code('METHOD_SOURCE_INCOMPLETE'));
+  const old=await historical(owner,base);
+  assert.deepEqual(old.draft,fixture());
+  assert.equal(await owner.load('work',workspaceId,'project-a.analyse'),null);
+  assert.equal((await owner.audit()).length,6);
+  const tombstone={...base,workRefs:base.workRefs.map(item=>item===ref?{...item,recordId:'historical-release',revision:2}:item)};
+  await assert.rejects(historical(owner,tombstone),code('METHOD_HISTORY_INCOMPLETE'));
+});
+
+test('historical read rejects missing, duplicate, foreign and wrong-version selection refs',async()=>{
+  const {owner,base}=await revisionFixture();
+  await assert.rejects(historical(owner,{...base,workRefs:base.workRefs.slice(1)}),code('METHOD_HISTORY_REF_INVALID'));
+  await assert.rejects(historical(owner,{...base,workRefs:[base.workRefs[0],...base.workRefs.slice(0,-1)]}),code('METHOD_HISTORY_REF_INVALID'));
+  await assert.rejects(historical(owner,{...base,projectRef:{...base.projectRef,objectId:'project:other:project-a'}}),code('METHOD_HISTORY_REF_INVALID'));
+  await assert.rejects(historical(owner,{...base,projectRef:{...base.projectRef,recordId:'absent'}}),code('METHOD_HISTORY_INCOMPLETE'));
+  await assert.rejects(historical(owner,{...base,projectRef:{...base.projectRef,revision:2}}),code('METHOD_HISTORY_INCOMPLETE'));
+});
+
+test('historical read refuses incomplete prefixes and identities supplied by a malformed history port',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  draft.steps.find(step=>step.id==='review').instruction='Revised conclusion';
+  const preview=await revisionPreview(owner,base,draft);
+  const op=opFor(preview,'review');
+  await owner.revise('work',{...op.input,recordId:'conclusion@2',baseRevisionId:op.baseRef.recordId,knowledgeAt});
+  const current=await read(owner);
+  const missing={history:async(kind,ws,id)=>{
+    const rows=await owner.history(kind,ws,id);return id==='project-a.review'?rows.slice(1):rows;}};
+  await assert.rejects(historical(missing,current),code('METHOD_HISTORY_INCOMPLETE'));
+  const wrongOwner={history:async(kind,ws,id)=>{
+    const rows=await owner.history(kind,ws,id);return kind==='project'?rows.map(row=>({...row,ownerId:'other-owner'})):rows;}};
+  await assert.rejects(historical(wrongOwner,current),code('PROJECT_PROCESS_HISTORY_OWNER_MISMATCH'));
+  const wrongCommand={history:async(kind,ws,id)=>{
+    const rows=await owner.history(kind,ws,id);return kind==='project'?rows.map(row=>({...row,commandId:'unrelated.create'})):rows;}};
+  await assert.rejects(historical(wrongCommand,current),code('METHOD_HISTORY_REF_INVALID'));
+  assert.equal((await owner.audit()).length,6);
+});
+
+test('historical read of revised Project uses its declared composition and exact historical pins',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  const catalog=objects.map(row=>row.object_id==='model'?{...row,revision:77}:row);
+  draft.materials=draft.materials.map(ref=>ref.object_id==='model'?{...ref,revision:77}:ref);
+  draft.steps.reverse();
+  const preview=await revisionPreview(owner,base,draft,catalog);
+  await owner.revise('project',{...preview.projectOperation.input,recordId:'historical-project@2',baseRevisionId:base.projectRef.recordId,knowledgeAt});
+  for(const op of preview.workOperations){
+    await owner.revise('work',{...op.input,recordId:op.baseRef.recordId+'@changed',baseRevisionId:op.baseRef.recordId,knowledgeAt});
+  }
+  const current=await read(owner);
+  assert.deepEqual((await historical(owner,base)).draft,fixture());
+  assert.deepEqual((await historical(owner,{...current,workRefs:[...current.workRefs].reverse()})).draft,draft);
+  assert.equal((await owner.audit()).length,10);
 });
