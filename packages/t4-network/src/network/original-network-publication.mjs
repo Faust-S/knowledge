@@ -605,8 +605,22 @@ export function createT4OriginalPublicationIndexMigrationStepper({
         const sequences=saved.frames.filter(f=>f.state==='PRESENT').map(f=>f.sequence);
         const multipart=saved.multipartBackingReserved===true;
         const retired=await readRetired(record);
-        if(migrationFrameOffset>0&&(!multipart||retired!==null||completedRecords.has(record.session.changeId)||migrationFrameOffset>=sequences.length))
+        if(migrationFrameOffset>0&&(!multipart||completedRecords.has(record.session.changeId)||migrationFrameOffset>=sequences.length))
           fail('NATIVE_INDEX_MIGRATION_INVENTORY_CHANGED');
+        if(migrationFrameOffset>0&&retired!==null){
+          // A signed original retirement may commit between two bounded
+          // migration wakes. It is a stop fence, not an inventory error.
+          // Discard the old ephemeral scan (control publication may also
+          // have changed), restart against the exact fresh original
+          // inventory, and never repair another address of this attempt.
+          if(!same(await readRetired(record),retired))fail('NATIVE_INDEX_MIGRATION_RETIREMENT_CONFLICT');
+          migrationInventory=null;completedRecords=null;migrationPosition=0;migrationFrameOffset=0;
+          migratedFrames=0;skippedCompleted=0;retiredRecords.clear();skippedRetired=0;
+          return Object.freeze({state:'NETWORK_INDEX_MIGRATION_PROGRESS',migratedPublicationCount:0,
+            pendingPublicationCount:records.length,verifiedMigratedFrameCount:0,
+            originalRetirementRestartRequired:true,originalSupersessionEventId:retired.originalSupersessionEventId,
+            originalFramePutInvoked:false,originalSubjectMutationInvoked:false});
+        }
         if(retired!==null){
           if(completedRecords.has(record.session.changeId))fail('NATIVE_INDEX_MIGRATION_RETIREMENT_CONFLICT');
           retiredRecords.set(record.checkpointRef,retired);skippedRetired++;

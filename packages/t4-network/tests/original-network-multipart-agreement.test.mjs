@@ -5,7 +5,8 @@ import {createT4OriginalHostDispatchTaskBinding} from '../src/network/original-h
 import {createT4OriginalHostRecipientDispatcher} from '../src/network/original-host-recipient-dispatcher.mjs';
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort} from '../src/network/original-network-host-cursor.mjs';
 import {createT4OriginalRecipientAppliedVerifier} from '../src/network/original-network-subject-apply.mjs';
-import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
+import {createT4OriginalNetworkSessionPhasePort,requireT4OriginalRetiredAttemptStatus} from '../src/network/original-network-session-phases.mjs';
+import {prepareT4OriginalSupersessionControl} from '../src/network/original-network-session-supersession.mjs';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {verifyT4OriginalAssetDelta} from '../src/network/original-asset-delta.mjs';
 import {verifyT4OriginalSourceHeadCausality} from '../src/network/original-network-source-head-proof.mjs';
@@ -114,7 +115,7 @@ function fixture(){
       assert.equal(createOnly,true);assert.equal(hex(bytes),expectedSha256);assert.equal(key,expectedSha256+'.t4n');puts++;
       if(lostPut==='before'){lostPut=null;throw new T4TransferError('NETWORK_UNAVAILABLE');}
       const seen=remote.has(key);if(seen)assert.deepEqual(remote.get(key),bytes);else remote.set(key,new Uint8Array(bytes));
-      if(lostPut==='after'){lostPut=null;throw new T4TransferError('OUTCOME_UNKNOWN');}
+      if(lostPut==='after'){lostPut=null;throw new T4TransferError('OUTCOME_UNKNOWN',{operation:'PUT'});}
       return {key,sha256:expectedSha256,state:seen?'ALREADY_PRESENT_VERIFIED':'PUBLISHED_AND_READ_BACK'};
     },
     async getSnapshot({key,expectedSha256}){gets++;const bytes=remote.get(key);
@@ -488,7 +489,11 @@ async function readFixtureAgreement(f,node){
   return agreement({session,sourceHead:node===source?published:found.receipt,recipientDiff:node===source?found.receipt:published,
     localRole:node===source?'SOURCE':'RECIPIENT',requiredCryptoSuite:suite});
 }
-for(const historical of [false,true])test(historical?'K160 original retained multipart ACK recovers both source phases after transport loss without live agreement or repeated subject write':'K152 existing SOURCE and RECIPIENT owner tasks negotiate multipart, recover cold, apply once and confirm both original frontiers',async()=>{
+for(const scenario of ['compact-regression','historical','warm-index'])test(scenario==='historical'?
+  'K160 original retained multipart ACK recovers both source phases after transport loss without live agreement or repeated subject write':
+  scenario==='warm-index'?'K162 active original source and recipient repair lost handshake, CHANGE_REF and first/last chunk addresses then complete once':
+  'K152 existing SOURCE and RECIPIENT owner tasks negotiate multipart, recover cold, apply once and confirm both original frontiers',async()=>{
+  const historical=scenario==='historical',warm=scenario==='warm-index';
   const f=fixture(),r=originalRecipientTask(f),sourceCursor=()=>createT4OriginalNetworkHostCursorPort(originalCursorArgs(f,source));
   const replay=()=>createT4OriginalNetworkReplayPort({...originalCursorArgs(f,source),localNodeRef:source,scopeRef:session.scopeRef});
   let retired=false,historySignatures=0;
@@ -521,6 +526,20 @@ for(const historical of [false,true])test(historical?'K160 original retained mul
   // same independent live HEAD/DIFF proofs, not an invented grant.
   const sa=await readFixtureAgreement(f,source),ra=await readFixtureAgreement(f,recipient);
   assert.deepEqual(sa,ra);f.selected.set(source,sa);f.selected.set(recipient,ra);
+  if(warm){
+    const sp=await f.port(source).inspectOriginalPublication(),rp=await f.port(recipient).inspectOriginalPublication();
+    const heads=t4NativeFrameIndexKeys(decodeT4CandidateFrame(sp.frames[0].wireBytes)),
+      diffs=t4NativeFrameIndexKeys(decodeT4CandidateFrame(rp.frames[0].wireBytes));
+    for(const k of [...heads,...diffs])assert.ok(f.indexes.delete(k));
+    const physical=f.puts,writes=f.writes,indexWrites=f.indexWrites,n=t.signatures,m=r.signatures;
+    assert.equal((await host.runNativeSourceStep(t.options())).state,'WAITING_FOR_DIFF');
+    for(const k of heads)assert.equal(f.indexes.get(k),sp.frames[0].sha256);
+    for(const k of diffs)assert.equal(f.indexes.has(k),false);
+    assert.equal((await receiver.runNativeOwnerStep(r.options())).state,'WAITING_FOR_CHANGE');
+    for(const k of diffs)assert.equal(f.indexes.get(k),rp.frames[0].sha256);
+    assert.equal(f.indexWrites,indexWrites+heads.length+diffs.length);
+    assert.equal(f.puts,physical);assert.equal(f.writes,writes);assert.equal(t.signatures,n);assert.equal(r.signatures,m);
+  }
   assert.equal((await receiver.runNativeOwnerStep(r.options())).state,'WAITING_FOR_CHANGE');
   assert.equal(r.opens,0);assert.equal(r.writes,0);
   let step=await host.runNativeSourceStep(t.options());
@@ -540,7 +559,31 @@ for(const historical of [false,true])test(historical?'K160 original retained mul
   assert.equal(final.multipartPlanDigest,first.multipartPlanDigest);
   assert.deepEqual(final.frames.map(x=>x.sha256),first.frames.map(x=>x.sha256));
   assert.equal((await host.runNativeSourceStep(t.options())).state,'PUBLISHED_RECORDED');
-  assert.equal((await host.runNativeSourceStep(t.options())).state,'WAITING_FOR_ACK');
+  if(warm){
+    const selected=[final.frames[1],final.frames[2],final.frames.at(-1)];
+    const addresses=selected.map(e=>t4NativeFrameIndexKeys(decodeT4CandidateFrame(e.wireBytes))[0]);
+    for(const k of addresses)assert.ok(f.indexes.delete(k));
+    const physical=f.puts,writes=f.writes,indices=f.indexWrites;
+    const firstWait=await host.runNativeSourceStep(t.options());
+    assert.equal(firstWait.state,'WAITING_FOR_ACK');
+    assert.equal(firstWait.originalMultipartIndexRecovery.startSequence,3);
+    assert.equal(firstWait.originalMultipartIndexRecovery.repairedIndexCount,1);
+    assert.equal(f.indexes.get(addresses[0]),selected[0].sha256);
+    assert.equal(f.indexes.get(addresses[1]),selected[1].sha256);
+    assert.equal(f.indexes.has(addresses[2]),false);
+    const waiting=await receiver.runNativeOwnerStep(r.options());
+    assert.equal(waiting.state,'WAITING_FOR_CHUNKS');assert.equal(r.opens,0);assert.equal(r.writes,0);
+    let next=firstWait.originalMultipartIndexRecovery.nextSequence;
+    while(next!==null){
+      const repaired=await host.runNativeSourceStep(t.options());
+      assert.equal(repaired.state,'WAITING_FOR_ACK');
+      assert.equal(repaired.originalMultipartIndexRecovery.startSequence,next);
+      next=repaired.originalMultipartIndexRecovery.nextSequence;
+    }
+    assert.equal(f.indexes.get(addresses[2]),selected[2].sha256);
+    assert.equal(f.indexWrites,indices+3);assert.equal(f.puts,physical);assert.equal(f.writes,writes);
+    assert.equal(t.signatures,n);assert.equal(t.seals,1);
+  }else assert.equal((await host.runNativeSourceStep(t.options())).state,'WAITING_FOR_ACK');
   assert.equal((await t.phase().inspectOriginalSession()).currentPhase,'PUBLISHED');
   assert.equal((await receiver.runNativeOwnerStep(r.options())).state,'RECEIVED_RECORDED');
   assert.equal((await receiver.runNativeOwnerStep(r.options())).state,'VERIFIED_RECORDED');
@@ -865,4 +908,71 @@ test('K161 multipart lost raw PUT response recovers only original missing index 
   assert.equal(f.puts,before);assert.equal(f.indexWrites,indices+1);assert.equal(f.indexes.get(address),saved.sha256);
   const confirmed=(await f.port(source).inspectOriginalPublication()).frames[2];
   assert.equal(confirmed.state,'PRESENT');assert.equal(confirmed.attempts,1);
+});
+
+test('K162 healthy address pages do not reread selected backing; exact conflicts, denied migration, missing raw bytes and retired authority fail closed',async()=>{
+  const f=fixture(),{sp}=await f.negotiate();await f.prepare(sp);
+  let wake=await sp.publishOriginalMultipartFrames();while(wake.remaining)wake=await sp.publishOriginalMultipartFrames();
+  const saved=await sp.inspectOriginalPublication(),a=saved.frames[2],b=saved.frames[3];
+  const ka=t4NativeFrameIndexKeys(decodeT4CandidateFrame(a.wireBytes))[0],kb=t4NativeFrameIndexKeys(decodeT4CandidateFrame(b.wireBytes))[0];
+  const deny=()=>assert.fail('healthy metadata page must not reconstruct or authorize content');
+  const probe=f.port(source,true,{authorizeOriginalMultipartBacking:deny,authorizeOriginalSealedPublication:deny,
+    readOriginalMultipartAgreement:deny,verifyOriginalNodeSignature:deny});
+  const physical=f.puts,writes=f.writes,indices=f.indexWrites;
+  const healthy=await probe.reconcileOriginalMultipartIndexPage({startSequence:3,limit:32});
+  assert.equal(healthy.checkedFrameCount,32);assert.equal(healthy.repairedIndexCount,0);
+  assert.equal(healthy.healthyIndexIsNotContentReadback,true);
+  f.indexes.delete(ka);f.indexes.set(kb,hex('conflict'));
+  await assert.rejects(sp.reconcileOriginalMultipartIndexPage({startSequence:3,limit:2}),code('WIRE_NATIVE_INDEX_SLOT_CONFLICT'));
+  assert.equal(f.indexes.has(ka),false);assert.equal(f.indexWrites,indices);
+  f.indexes.set(kb,b.sha256);
+  const denied=f.port(source,true,{authorizeOriginalFramePublish:async p=>p.operation!=='t4.network.publish.index.migrate'});
+  await assert.rejects(denied.reconcileOriginalMultipartIndexPage({startSequence:3,limit:2}),code('PUBLICATION_ORIGINAL_AUTHORITY_DENIED'));
+  assert.equal(f.indexes.has(ka),false);
+  f.remote.delete(a.key);
+  await assert.rejects(sp.reconcileOriginalMultipartIndexPage({startSequence:3,limit:2}),
+    e=>e?.code==='PUBLICATION_INDEX_MIGRATION_OUTCOME_UNKNOWN'&&e.details.originalCode==='REMOTE_NOT_FOUND');
+  assert.equal(f.indexes.has(ka),false);assert.equal(f.remote.has(a.key),false);
+  f.remote.set(a.key,a.wireBytes);f.selected.delete(source);
+  await assert.rejects(sp.reconcileOriginalMultipartIndexPage({startSequence:3,limit:2}),code('MULTIPART_AGREEMENT_WITNESS_INVALID'));
+  assert.equal(f.indexes.has(ka),false);
+  assert.equal(f.puts,physical);assert.equal(f.writes,writes);assert.equal(f.indexWrites,indices);
+});
+test('K163 original terminal retirement between bounded migration wakes restarts inventory without repairing retired content',async()=>{
+  const f=fixture(),{sp}=await f.negotiate();await f.prepare(sp);
+  await sp.publishOriginalMultipartFrames({limit:4});
+  const saved=await sp.inspectOriginalPublication(),slot=saved.frames[2],index=t4NativeFrameIndexKeys(decodeT4CandidateFrame(slot.wireBytes))[0];
+  const phase=createT4OriginalNetworkSessionPhasePort({...session,technicalWorkspaceId:'workspace:technical:'+source,
+    localNodeRef:source,originalKernel:f.kernel,getMode,
+    readOriginalHostContext:async()=>({workspaceId:'workspace:technical:'+source,originalWriteOwnerRef:session.originalWriteOwnerRef,
+      nodeRef:source,scopeRef:session.scopeRef,hostSessionRef:f.host}),authorizeOriginalTechnicalRead:allow,
+    authorizeOriginalTechnicalWrite:allow,verifyOriginalPhaseEvidence:allow,verifyOriginalRecipientApplied:async()=>false,
+    authorizeOriginalSourceSupersession:allow});
+  const inspect=async({session:s})=>{
+    const status=await phase.inspectOriginalRetiredAttempt();
+    return status===null?null:{...requireT4OriginalRetiredAttemptStatus(status,s,'SOURCE',phase.checkpointRef),
+      sessionRef:s.sessionRef,changeId:s.changeId,role:'SOURCE'};
+  };
+  const migrate=createT4OriginalPublicationIndexMigrationStepper({...session,sourceWorkspaceId:session.workspaceId,
+    technicalWorkspaceId:'workspace:technical:'+source,localNodeRef:source,technicalSchemaId:T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
+    originalKernel:f.kernel,getMode,readOriginalHostContext:async()=>({workspaceId:'workspace:technical:'+source,
+      originalWriteOwnerRef:session.originalWriteOwnerRef,nodeRef:source,scopeRef:session.scopeRef,hostSessionRef:f.host}),
+    authorizeOriginalTechnicalRead:allow,inspectOriginalRetiredAttempt:inspect,createOriginalPublicationPort:async()=>f.port(source)});
+  const first=await migrate();assert.equal(first.state,'NETWORK_INDEX_MIGRATION_PROGRESS');
+  assert.equal(first.verifiedMigratedFrameCount,1);
+  const initial=await phase.inspectOriginalSession();
+  const plan=prepareT4OriginalSupersessionControl({session,expectedPhaseRevision:0,
+    expectedPhaseChainHash:d('recipient genesis'),decisionRef:'decision:k163',requestRef:'request:k163'});
+  const retired=await phase.recordOriginalSourceSupersession({expectedRevision:initial.revision,expectedChainHash:initial.chainHash,
+    retirementAckDigest:d('retirement ack fixture'),retirement:{...plan.claim.body,
+      retirementCheckpointRef:'t4:net:session:recipient-fixture',retirementRevision:1,
+      retirementChainHash:d('recipient retired'),retirementEventId:'event:k163:retired'}});
+  f.indexes.delete(index);f.selected.clear();
+  const physical=f.puts,writes=f.writes,indices=f.indexWrites,reads=f.gets;
+  const restart=await migrate();assert.equal(restart.originalRetirementRestartRequired,true);
+  assert.equal(restart.originalSupersessionEventId,retired.originalSupersessionEventId);
+  const done=await migrate();assert.equal(done.state,'NETWORK_INDEX_MIGRATION_COMPLETE');
+  assert.equal(done.skippedRetiredPublicationCount,1);assert.equal(done.verifiedMigratedFrameCount,0);
+  assert.equal(f.indexes.has(index),false);assert.equal(f.puts,physical);assert.equal(f.writes,writes);
+  assert.equal(f.indexWrites,indices);assert.equal(f.gets,reads);
 });
