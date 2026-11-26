@@ -8,6 +8,7 @@ import type {createTrustedPublisherHandoff,createTrustedAgeExchange}
   from "@/t3/index.mjs";
 import type { CreateWorkspaceHostRuntimeInput } from "@/workspace-host/runtime";
 import { SignedSelectedWorkspaceGate } from "@/workspace-host/bootstrap/SignedSelectedWorkspaceGate";
+import { ImportView } from "@/modules/exchange/features/packages/ImportView";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -472,4 +473,24 @@ it("first-run diagnostic never exposes untyped private exception detail or treat
   expect(diagnostic.textContent).not.toMatch(/secret|arbitrary/);
   expect(createWorkspace).not.toHaveBeenCalled();
   expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
+});
+
+
+it("the installed corporate chooser opens the same original file input without starting an import",async()=>{
+  const importPreview=vi.fn(),listWorkspaces=vi.fn(async()=>[]);
+  const k={sessionInfo:{service_id:"iwxa.personal-agent.workspace"},listWorkspaces,importPreview,
+    hasOperation:(op:string)=>op==="t2.importPreview"} as unknown as KernelFacade;
+  const commands={has:()=>false,invoke:async()=>undefined} as CommandsFacade;
+  const view=render(<ImportView kernel={k} commands={commands} signedWorkspaceScope/>);
+  const input=await screen.findByTestId("import-file") as HTMLInputElement;
+  expect(input.hidden).toBe(true);
+  const click=vi.spyOn(input,"click").mockImplementation(()=>{});
+  fireEvent.click(screen.getByRole("button",{name:"Выбрать архив .iwxa"}));
+  expect(click).toHaveBeenCalledTimes(1);
+  expect(importPreview).not.toHaveBeenCalled();
+  view.rerender(<ImportView kernel={k} commands={commands}/>);
+  expect((screen.getByTestId("import-file") as HTMLInputElement).hidden).toBe(false);
+  expect(screen.queryByRole("button",{name:"Выбрать архив .iwxa"})).toBeNull();
+  expect(importPreview).not.toHaveBeenCalled();
+  click.mockRestore();
 });

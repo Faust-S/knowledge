@@ -825,7 +825,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     state, canPreview, signedCompany, signedFullReady, installedCompany,
     canCommit:state.handle?canCommitToken(state.handle.preview_token):canCommit,
     canCancel:state.handle?canCancelToken(state.handle.preview_token):canCancel,
-    canPlainPreview:kernel.hasOperation("t2.importPreview"),localWorkspaces,
+    canPlainPreview:kernel.hasOperation("t2.importPreview"),localWorkspaces,plainFileInputRef,
     onFile, runCommit, cancelActive, dispatch,
     pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed,
     openPwaFile,
@@ -844,6 +844,7 @@ interface RenderProps {
   signedFullReady: boolean;
   installedCompany: boolean;
   canPlainPreview: boolean;
+  plainFileInputRef: React.RefObject<HTMLInputElement | null>;
   canCommit: boolean;
   canCancel: boolean;
   localWorkspaces: readonly WorkspaceRecord[];
@@ -871,7 +872,7 @@ interface RenderProps {
 function renderImport(p: RenderProps) {
   const {
     state, canPreview, signedCompany, signedFullReady, installedCompany, canCommit, canCancel, canPlainPreview, localWorkspaces,
-    onFile, runCommit, cancelActive, dispatch,
+    plainFileInputRef, onFile, runCommit, cancelActive, dispatch,
     pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed, openPwaFile,
     protectedExchange, ageFile, setAgeFile, ageBusy, ageError, openAgeFile,
     nativeReadbackAvailable,nativeReadbackBusy,nativeReadbackMessage,
