@@ -1,0 +1,45 @@
+name: T4 multipart direct and end-to-end qualification
+on:
+  push:
+    branches: ['ci/once/t4-native-multipart-k152/7fbccbac67cb971ad25295fe864b821ee2a9ed54']
+permissions:
+  contents: read
+concurrency:
+  group: t4-multipart-k152-7fbccbac67cb971ad25295fe864b821ee2a9ed54
+  cancel-in-progress: false
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: |
+          test "$(git rev-parse HEAD^)" = "7fbccbac67cb971ad25295fe864b821ee2a9ed54"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Only new direct cases after fixture correction
+        run: node --experimental-strip-types --test --test-name-pattern='K151 original native SOURCE refuses|K152 original recipient must|K152 new recipient profile' packages/t4-network/tests/original-network-multipart-agreement.test.mjs
+  multipart:
+    needs: focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: |
+          test "$(git rev-parse HEAD^)" = "7fbccbac67cb971ad25295fe864b821ee2a9ed54"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Complete native owner route, lost response and cold recovery
+        run: node --experimental-strip-types --test --test-concurrency=1 --test-name-pattern='K152 existing SOURCE and RECIPIENT owner tasks' packages/t4-network/tests/original-network-multipart-agreement.test.mjs
