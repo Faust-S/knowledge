@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {verifyT4OriginalAssetDelta} from '../src/network/original-asset-delta.mjs';
+import {createHash} from 'node:crypto';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {createT4OriginalHostCaptureAdapter} from '../src/network/original-host-capture-adapter.mjs';
 import {originalT4CapturedDeletionInput} from '../src/network/original-deletion-delta.mjs';
@@ -566,4 +568,105 @@ test('K139 original Host recovery closure requires explicit original consent and
   await assert.rejects(recoveryHost(f,rows).reconcileNextOriginalCapture({workspaceId:scope.workspaceId,expectedOriginalSourceEventId:'event:missing'}),
     {code:'ORIGINAL_HOST_CAPTURE_RECOVERY_SOURCE_EVENT_MISMATCH'});
   assert.equal(f.events.length,1);
+});
+
+function backingFixture(){
+  const f=dispatchFixture();f.params.enableOriginalCaptureBacking=true;return f;
+}
+async function backedAsset(){
+  const sourceCursor=(await dispatchIntent()).sourceCursor;
+  const bytes=Uint8Array.from(Buffer.alloc(600000,173));
+  const event={event_type:'source.asset',payload:{iwxa_t4_capture_ref:query.captureRef},idempotency_key:'key:asset'};
+  const input={workspace_id:scope.workspaceId,asset_id:'asset:large',object_id:'object:1',mime:'application/octet-stream',
+    base_revision:0,bytes,event};
+  const operation={...input,bytesBase64:Buffer.from(bytes).toString('base64')};delete operation.bytes;
+  const i={...query,schema:'IWXA_T4_ORIGINAL_SUBJECT_MUTATION_INTENT_V1',kind:'ASSET_PUT',
+    subjectId:input.asset_id,sourceCursor,operation,idempotencyKey:event.idempotency_key};
+  const checked=verifyT4OriginalAssetDelta({schema:'IWXA_T4_ORIGINAL_ASSET_DELTA_V1',...scope,assetId:input.asset_id,
+    objectId:input.object_id,mime:input.mime,baseRevision:0,sourceRevision:1,sourceEventId:'event:asset:1',
+    sourceEventDigest:'sha256:'+'a'.repeat(64),originalEventType:event.event_type,windowDigest:'sha256:'+'b'.repeat(64),
+    bytesBase64:operation.bytesBase64,assetBytesSha256:createHash('sha256').update(bytes).digest('hex'),assetSize:bytes.length});
+  const o={...query,schema:'IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1',kind:'ASSET_PUT',subjectId:input.asset_id,
+    sourceEventId:checked.delta.sourceEventId,originalT3MutationConfirmed:true,networkPublished:false,recipientApplied:false,
+    bytesBase64:checked.bytes.toString('base64'),sha256:checked.sha256,key:checked.key};
+  return {i,input,o};
+}
+const admitAsset=(p,a)=>p.admitOriginalCaptureDispatch({intent:a.i,operation:'t1.putAsset',input:a.input});
+const rootOf=(f,role)=>[...f.objects.values()].find(r=>r.object.data.role===role).object;
+test('K149 large capture backing preserves exact legacy logical digest, original dispatch and bounded root records cold',async()=>{
+  const a=await backedAsset(),f=backingFixture(),p=f.port();
+  const legacy=dispatchFixture();await legacy.port().persistOriginalIntent(a.i);
+  await p.persistOriginalIntent(a.i);
+  assert.equal(rootOf(f,'intent').data.recordDigest,rootOf(legacy,'intent').data.recordDigest);
+  assert.equal(rootOf(f,'intent').data.captureBacking.segments.length,2);
+  assert.equal(rootOf(f,'intent').data.payload.operation.bytesBase64,undefined);
+  assert.equal(await admitAsset(p,a),digestT4OriginalCaptureCommand('t1.putAsset',a.input));
+  await p.persistOriginalOutbox(a.o);
+  assert.equal(rootOf(f,'outbox').data.captureBacking.segments.length,3);
+  assert.equal(rootOf(f,'outbox').data.payload.bytesBase64,undefined);
+  for(const row of f.objects.values())assert.ok(Buffer.byteLength(JSON.stringify(row.object.data))<1024*1024);
+  f.restart();const cold=f.port();
+  assert.deepEqual(await cold.readOriginalIntent(query),a.i);
+  assert.deepEqual(await cold.readOriginalOutbox(query),a.o);
+  assert.equal((await cold.inspectOriginalCaptureDispatch(query)).decision,'ADMITTED');
+  assert.deepEqual((await cold.readOriginalCaptureInventory(scope)).pairs[0].outbox,a.o);
+  assert.equal((await cold.listOriginalPendingIntents(scope)).length,0);
+  assert.equal(f.writes,8);
+  await assert.rejects(createT4OriginalHostCaptureLedgerPort({...f.params,enableOriginalCaptureBacking:false}).readOriginalIntent(query),
+    {code:'CAPTURE_LEDGER_BACKING_PROFILE_REQUIRED'});
+});
+test('K149 lost original segment reply does not create an Intent, cold exact staging reuses committed segment',async()=>{
+  const a=await backedAsset(),f=backingFixture(),p=f.port();f.lose();
+  await assert.rejects(p.persistOriginalIntent(a.i),{code:'CAPTURE_LEDGER_ORIGINAL_WRITE_OUTCOME_UNKNOWN'});
+  assert.equal(f.writes,1);assert.equal(await p.readOriginalIntent(query),null);
+  assert.deepEqual(await p.listOriginalPendingIntents(scope),[]);
+  f.restart();const cold=f.port();await cold.persistOriginalIntent(a.i);
+  assert.equal(f.writes,3);assert.deepEqual(await cold.readOriginalIntent(query),a.i);
+});
+test('K149 lost root reply recovers complete selected Intent without restaging or new command',async()=>{
+  const a=await backedAsset(),f=backingFixture(),k=f.params.originalKernel,put=k.putObject;
+  k.putObject=async input=>{if(input.data.role==='intent')f.lose();return put(input);};
+  await assert.rejects(f.port().persistOriginalIntent(a.i),{code:'CAPTURE_LEDGER_ORIGINAL_WRITE_OUTCOME_UNKNOWN'});
+  f.restart();const cold=f.port();assert.deepEqual(await cold.readOriginalIntent(query),a.i);
+  assert.equal(await cold.persistOriginalIntent(a.i),false);assert.equal(f.writes,3);
+});
+test('K149 missing selected segment, substituted Event identity and changed bytes fail closed',async()=>{
+  const a=await backedAsset(),f=backingFixture(),p=f.port();await p.persistOriginalIntent(a.i);
+  const x=rootOf(f,'intent').data.captureBacking.segments[0],row=f.objects.get(x.objectId);
+  const e=f.events.find(e=>e.object_id===x.objectId);
+  f.objects.delete(x.objectId);
+  await assert.rejects(p.readOriginalIntent(query),{code:'CAPTURE_LEDGER_BACKING_MISSING'});
+  f.objects.set(x.objectId,row);e.event_id='event:substituted';
+  await assert.rejects(p.readOriginalIntent(query),{code:'CAPTURE_LEDGER_BACKING_EVENT_NOT_PROVEN'});
+  e.event_id=x.eventId;row.object.data.chars='B'+row.object.data.chars.slice(1);
+  await assert.rejects(p.listOriginalPendingIntents(scope),{code:'CAPTURE_LEDGER_BACKING_INVALID'});
+});
+test('K149 revocation of exact backing Object write/read denies the selected record; unselected backing is not a queue',async()=>{
+  const a=await backedAsset(),f=backingFixture(),p=f.port();
+  f.params.authorizeOriginalTechnicalWrite=q=>!q.originalCaptureBacking;
+  await assert.rejects(f.port().persistOriginalIntent(a.i),{code:'CAPTURE_LEDGER_ORIGINAL_AUTHORITY_DENIED'});
+  assert.equal(f.writes,0);
+  f.params.authorizeOriginalTechnicalWrite=()=>true;await f.port().persistOriginalIntent(a.i);
+  f.params.authorizeOriginalTechnicalRead=q=>!q.originalCaptureBacking;
+  await assert.rejects(f.port().readOriginalIntent(query),{code:'CAPTURE_LEDGER_ORIGINAL_AUTHORITY_DENIED'});
+  f.params.authorizeOriginalTechnicalRead=()=>true;const pending=await pendingOf(p);
+  assert.equal(pending.automaticSubjectMutationAllowed,false);
+  assert.equal(pending.kind,'ASSET_PUT');
+});
+test('K149 original root manifest is bound by its Event, cannot be substituted or grant old profile access',async()=>{
+  const a=await backedAsset(),f=backingFixture();await f.port().persistOriginalIntent(a.i);
+  const r=rootOf(f,'intent');r.data.captureBacking.segments.reverse();
+  await assert.rejects(f.port().readOriginalIntent(query),{code:'CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN'});
+  f.params.enableOriginalDispatchEvidence=false;
+  assert.throws(()=>f.port(),{code:'CAPTURE_LEDGER_BACKING_PROFILE_REQUIRED'});
+});
+test('K149 selected large backing is rechecked after second original catalog observation',async()=>{
+  const a=await backedAsset(),f=backingFixture(),p=f.port();await p.persistOriginalIntent(a.i);
+  const x=rootOf(f,'intent').data.captureBacking.segments[0],k=f.params.originalKernel,old=k.listObjects;
+  let scans=0;k.listObjects=async(...args)=>{
+    const result=await old(...args);
+    if(++scans===2)f.objects.get(x.objectId).object.data.chars='B'+f.objects.get(x.objectId).object.data.chars.slice(1);
+    return result;
+  };
+  await assert.rejects(p.readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_BACKING_INVALID'});
 });

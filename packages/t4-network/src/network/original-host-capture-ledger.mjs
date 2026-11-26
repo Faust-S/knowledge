@@ -239,6 +239,7 @@ export function createT4OriginalHostCaptureLedgerPort({
     if(!enableOriginalCaptureBacking)fail('CAPTURE_LEDGER_BACKING_PROFILE_REQUIRED');
     const b=d.captureBacking,field=fieldFor(d);
     if(!object(b)||b.schema!==BACKING_SCHEMA||field===null||b.field!==field||!DIG(d.recordDigest)||
+      (field==='operation.bytesBase64'&&!object(d.payload?.operation))||
       fieldValue(d,field)!==undefined||!Number.isInteger(b.totalChars)||b.totalChars<=BACKING_CHARS||
       b.totalChars>BACKING_RECORD_LIMIT||b.totalChars%4!==0||!Array.isArray(b.segments)||
       b.segments.length!==Math.ceil(b.totalChars/BACKING_CHARS)||
@@ -324,7 +325,7 @@ export function createT4OriginalHostCaptureLedgerPort({
     if(o?.workspace_id!==technicalWorkspaceId||o.object_id!==objectId||
       o.schema_id!==T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID||o.schema_version!=='1.0.0'||
       o.revision!==1||o.deleted===true||d?.schema!==SCHEMA||
-      d.role!==role||d.captureRef!==query.captureRef||
+      !object(d.payload)||d.role!==role||d.captureRef!==query.captureRef||
       (query.kind!==undefined&&query.kind!==d.kind)||
       (query.subjectId!==undefined&&query.subjectId!==d.subjectId)||
       (query.objectId!==undefined&&d.kind==='OBJECT_PUT'&&query.objectId!==d.subjectId))
