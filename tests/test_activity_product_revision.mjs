@@ -55,7 +55,7 @@ test('D05 suggestions populate all existing decisions, preserve a selected profi
 
 import {sha256Canonical} from '../modules/activity-base-anonymizer/engine.mjs';
 import {productTextInventory} from '../modules/activity-base-anonymizer/presidio-text-review.mjs';
-import {prepareProductGeneralization,applyProductGeneralization} from '../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
+import {prepareProductGeneralization,applyProductGeneralization,prepareContextualGeneralizationRequest,reviewContextualGeneralizationProposal,CONTEXTUAL_PROPOSAL} from '../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 async function scan(p,language,find){
  const inventory=productTextInventory(p.object_data);
  const fields=inventory.map(r=>({path:r.path,text_length:Array.from(r.text).length,findings:find(r).map(f=>{
@@ -270,4 +270,54 @@ test('native D05 duration is positive and a retained duration always keeps its o
  binding.operations[target.operation_id].parameters.duration='2';
  assert.equal(prepareD05RecipientInputs(p.object_data,binding).route_inputs.operations[0].duration,'2');
  assert.equal(prepareD05RecipientInputs(p.object_data,binding).quality_plan_inputs.checks[0].upper_limit,'100.2');
+});
+
+const contextualReply=(req,rows)=>({profile:CONTEXTUAL_PROPOSAL,request_sha256:req.request_sha256,
+ fields:Object.fromEntries(req.document.fields.map(f=>[f.path,rows[f.path]??{decision:'RETAIN',value:null,reason:'Technical content retained'}]))});
+test('contextual generalization rewrites complete recipient statements differently, preserves meaningful references and binds the selected fields',async()=>{
+ const p=await preparePersonalTechnologyProduct(personalRows(),'routine_001',{...personalProposal(),
+  title:'Alpha weekly review',instructions:'Send the weekly review to Alpha before Monday. Do not send without approval.',
+  result_requirements:['Verify the Alpha criterion and preserve the limit of 10 mm.']});
+ const refs=[{value:'Alpha',replacement:'recipient function',kind:'LOCAL_REFERENCE'}];
+ const paths=['object_data.technology.instructions','object_data.technology.result_requirements.0','object_data.title'];
+ const request=await prepareContextualGeneralizationRequest(p,[],'en',refs,paths);
+ assert.equal(request.field_count,3);assert.ok(request.editable_field_count>3);
+ assert.equal(request.document.fields.find(f=>f.path===paths[0]).matches[0].value,'Alpha');
+ const reordered=await prepareContextualGeneralizationRequest(p,[],'en',refs,[...paths].reverse());
+ assert.equal(reordered.request_sha256,request.request_sha256);
+ const proposal=contextualReply(request,{
+  [paths[0]]:{decision:'REWRITE',value:'Send the weekly review to the designated reviewer before Monday. Do not send without approval.',reason:'Replace internal recipient by its role'},
+  [paths[1]]:{decision:'RETAIN',value:null,reason:'Alpha may identify a required criterion; verify with owner'},
+  [paths[2]]:{decision:'REWRITE',value:'Weekly review',reason:'Remove local program name'}});
+ const before=JSON.stringify(p),out=await reviewContextualGeneralizationProposal(p,[],'en',refs,paths,proposal);
+ assert.equal(out.changed_field_count,2);assert.equal(out.remaining_match_field_count,1);
+ assert.deepEqual(out.revision.preview.object_data.technology.result_requirements,p.object_data.technology.result_requirements);
+ assert.equal(out.revision.preview.object_data.title,'Weekly review');
+ assert.equal(out.revision.preview.export_allowed,false);assert.equal(out.anonymity,'NOT_ESTABLISHED');
+ assert.equal(JSON.stringify(p),before);
+ await assert.rejects(()=>reviewContextualGeneralizationProposal(p,[],'en',refs,paths.slice(0,2),proposal),{code:'TECHNOLOGY_CONTEXTUAL_GENERALIZATION_REQUEST_CHANGED'});
+ await assert.rejects(()=>prepareContextualGeneralizationRequest(p,[],'en',refs,['object_data.technology.cadence.mode']),{code:'TECHNOLOGY_CONTEXTUAL_GENERALIZATION_SELECTION'});
+ await assert.rejects(()=>reviewContextualGeneralizationProposal(out.revision.preview,[],'en',refs,paths,proposal),{code:'TECHNOLOGY_CONTEXTUAL_GENERALIZATION_REQUEST_CHANGED'});
+});
+test('contextual D05 proposal cannot erase technical measurements or move a practical rule to another operation',async()=>{
+ const c=d05Candidate(),id=c.technology.operations[0].operation_id,other=c.technology.operations[1].operation_id;
+ c.technology.operations[0].equipment_requirement='Станок LT-02 для листа 2 мм';
+ c.technology.terms.local_context_guidance='Операция '+id+': Проверить упор LT-02 перед запуском.';
+ const p=await prepareD05TechnologyProduct(c,'Private part');
+ const paths=['object_data.technology.terms.local_context_guidance','object_data.technology.operations.0.equipment_requirement','object_data.title'];
+ const request=await prepareContextualGeneralizationRequest(p,[],'ru',[],paths);
+ assert.equal(request.document.read_only_context.related_operations[0].operation_id,id);
+ const out=await reviewContextualGeneralizationProposal(p,[],'ru',[],paths,contextualReply(request,{
+  [paths[0]]:{decision:'REWRITE',value:'Операция '+other+': Проверить упор перед запуском.',reason:'Generalize'},
+  [paths[1]]:{decision:'REWRITE',value:'Подходящий станок',reason:'Generalize'},
+  [paths[2]]:{decision:'REWRITE',value:'Изготовление детали',reason:'Remove local name'}}));
+ assert.equal(out.changed_field_count,1);assert.equal(out.blocked_field_count,2);
+ assert.equal(out.fields.find(f=>f.path===paths[0]).block,'PRACTICAL_SCOPE_CHANGED');
+ assert.equal(out.fields.find(f=>f.path===paths[1]).block,'TECHNICAL_MARKERS_CHANGED');
+ assert.deepEqual(out.revision.preview.object_data.technology,p.object_data.technology);
+ const safe=await reviewContextualGeneralizationProposal(p,[],'ru',[],paths,contextualReply(request,{
+  [paths[0]]:{decision:'REWRITE',value:'Операция '+id+': Проверить упор оборудования перед запуском.',reason:'Retain action and condition'},
+  [paths[1]]:{decision:'REWRITE',value:'Станок для обработки листа 2 мм',reason:'Preserve thickness and required function'}}));
+ assert.equal(safe.changed_field_count,2);assert.equal(safe.blocked_field_count,0);
+ assert.deepEqual(safe.revision.preview.object_data.technology.quality_checks,p.object_data.technology.quality_checks);
 });
