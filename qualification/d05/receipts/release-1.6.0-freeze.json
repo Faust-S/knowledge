@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "NAVIGATION_TRANSPORT_QUALIFICATION_REQUESTED",
+  "status": "TRANSPORT_FIXTURE_AND_CANONICAL_BROWSER_GATES_PASS_RENDERED_NAVIGATION_PENDING",
   "scope": "1.6.0",
   "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -30,8 +30,8 @@
   },
   "scopeExpansionAllowed": false,
   "productAccepted": false,
-  "qualification": "FAIL_NAVIGATION",
-  "publication": "NOT_RUN",
+  "qualification": "IN_PROGRESS_RENDERED_NAVIGATION",
+  "publication": "PREFLIGHT_PASS_FULL_PRIVATE_PUBLICATION_PENDING",
   "notes": "Only release blockers may change this candidate. Keep all existing source, protected production, offline, hardware and publication gates. Codex may assemble the hosting archive only after stable qualification, not perform testing or preparation. Full release also requires a test-only rendered navigation audit after original browser gates; it does not replace protected or hardware evidence.",
   "originalFrozenSiteCommit": "0d88c6822a224cb54d8f7908b216e41f98dfd550",
   "originalFrozenWitnessCommit": "3af00278ef77eb38084df4e9c7854528380dc615",
@@ -165,7 +165,7 @@
       "rootCauseNotYetProven": true,
       "fix": "fresh page per visit; explicit disabled browser cache and service worker bypass; separate no-store HTTP target verification; exact response error classification; real browser fixture before product build",
       "localBrowserExecution": "BLOCKED_BY_ADMINISTRATOR_ON_LOOPBACK",
-      "fixtureState": "PREPARED_NOT_EXECUTED",
+      "fixtureState": "PASS_REAL_BROWSER_CI_STEP_14",
       "localNodeTests": {
         "passed": 2,
         "total": 2,
@@ -483,7 +483,8 @@
     "archiveContents": "dist/ contents at archive root, including .htaccess; no source, dependencies, logs, models or development output",
     "allowedCodexWork": "assemble from qualified retained tree and package resulting dist; record archive SHA-256",
     "forbiddenCodexWork": "source changes, rebuilding original platform inputs, independent product tests, production activation",
-    "releaseGate": "PASS all grouped release stages, exact remote source tree readback and byte-identical private reproduction"
+    "releaseGate": "PASS all grouped release stages, exact remote source tree readback and byte-identical private reproduction",
+    "browserBuildPrerequisite": "Existing compatible system Chrome/Edge resolved by scripts/lib/resolve-browser-executable.ts for the product's own prerender; no separately initiated Codex browser acceptance."
   },
   "oneTimeRequest": {
     "runId": 45780282826,
@@ -495,6 +496,52 @@
     "conclusionAtRecording": null,
     "matchingRuns": 1,
     "immutable": true,
-    "priorEvidenceRun": 45697492951
+    "priorEvidenceRun": 45697492951,
+    "functionalProgress": {
+      "jobId": 139773898412,
+      "status": "in_progress",
+      "conclusion": null,
+      "passedSteps": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        25,
+        26,
+        27,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "activeSteps": [
+        47
+      ],
+      "failedSteps": [],
+      "notFinal": true
+    }
   }
 }
