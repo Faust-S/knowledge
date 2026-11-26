@@ -468,7 +468,7 @@ test('K46 retirement authority is explicit, recipient-only, and never inferred f
 // Real Ed25519 wire signatures and the original replay/phase contracts.
 // The transport and Kernel ports here are fixtures, not an installed Host
 // or proof of durable outgoing control publication.
-async function controlFixture({indexed=false,realSourceHistory=false,canonicalCapture=false}={}){
+async function controlFixture({indexed=false,realSourceHistory=false,canonicalCapture=false,multipartHandshake=false}={}){
   const f=retirementFixture(),sourceStore=fakeKernel(),ws='ws:k47:subject',epoch=2,
     suite='X25519_AES256GCM_ED25519',sha=x=>createHash('sha256').update(x).digest('hex');
   const sourceEventId='event:k47:original',sourceEvents=[{event_id:'event:k47:baseline',workspace_id:ws,
@@ -479,7 +479,8 @@ async function controlFixture({indexed=false,realSourceHistory=false,canonicalCa
     maxEvents:1,authorizeOriginalRead:async()=>true,readOriginalEvents};
   const originalBefore=realSourceHistory?(await readT4OriginalEventWindow(originalRead)).nextCursor:null;
   const originalWindow=realSourceHistory?await readT4OriginalEventWindow({...originalRead,cursor:originalBefore}):null;
-  const capture={kind:'OBJECT_PUT',captureRef:'capture:k47:one',
+  if(multipartHandshake)f.base.changeKind='ASSET_PUT';
+  const capture={kind:multipartHandshake?'ASSET_PUT':'OBJECT_PUT',captureRef:'capture:k47:one',
     workspaceId:ws,originalWriteOwnerRef:owner,sourceEventId,sourceRevision:7,
     originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
     sourceWindow:originalWindow?.window??{lastEventId:sourceEventId,eventRefs:[{eventDigest:H}],windowDigest:B,
@@ -546,7 +547,9 @@ async function controlFixture({indexed=false,realSourceHistory=false,canonicalCa
       persistOriginalReplayDecision:replay.persistOriginalReplayDecision,
       verifyOriginalHistoricalNodeSignature:historicalSignature(node),
       readOriginalHistoricalReplayEvidence:replay.readOriginalHistoricalReplayEvidence,
-      readOriginalHistoricalAppliedAckSlot:replay.readOriginalHistoricalAppliedAckSlot});
+      readOriginalHistoricalAppliedAckSlot:replay.readOriginalHistoricalAppliedAckSlot,
+      ...(multipartHandshake?{enableOriginalMultipartNegotiation:true,
+        readOriginalMultipartAgreement:async()=>assert.fail('handshake must not authorize content')}: {})});
   };
   const signing=node=>({getMode,requiredCryptoSuite:suite,
     resolveOriginalSigningContext:async p=>{assert.equal(p.originalNodeSigningAuthorityRequired,true);
@@ -613,7 +616,7 @@ async function controlFixture({indexed=false,realSourceHistory=false,canonicalCa
       authorizeOriginalFramePublish:async()=>true,readOriginalReplacementEligibility,
       verifyOriginalNodeSignature:async p=>p.signerRef===sourceKey.id&&
         verify(null,Buffer.from(p.bytes),sourceKey.publicKey,Buffer.from(p.signature)),verifyOriginalHistoricalNodeSignature:historicalSignature(sourceNodeRef),
-      frameTransport:transport(sourceNodeRef),...extra});
+      frameTransport:transport(sourceNodeRef),...(multipartHandshake?{enableOriginalMultipartNegotiation:true}:{}),...extra});
   const createReplacementRecipientPort=async({session:identity},readOriginalReplacementRecipientAdmission,extra={})=>
     createT4OriginalNetworkPublicationPort({session:identity,localNodeRef:recipientNodeRef,technicalWorkspaceId:workspace,
       originalKernel:f.kernel.kernel,getMode,readOriginalHostContext:context(recipientNodeRef,workspace),
@@ -621,9 +624,9 @@ async function controlFixture({indexed=false,realSourceHistory=false,canonicalCa
       authorizeOriginalFramePublish:async()=>true,readOriginalReplacementRecipientAdmission,
       verifyOriginalNodeSignature:async p=>p.signerRef===recipientKey.id&&
         verify(null,Buffer.from(p.bytes),recipientKey.publicKey,Buffer.from(p.signature)),verifyOriginalHistoricalNodeSignature:historicalSignature(recipientNodeRef),
-      frameTransport:transport(recipientNodeRef),...extra});
+      frameTransport:transport(recipientNodeRef),...(multipartHandshake?{enableOriginalMultipartNegotiation:true}:{}),...extra});
   const recipientAdmissionOptions=phase=>({...eligibilityOptions(),sourceAdmissionPhasePort:phase,
-    frameDiscoveryPort:transport(recipientNodeRef),authorizeOriginalReplacementRecipientAdmission:async p=>
+    frameDiscoveryPort:transport(recipientNodeRef),...(multipartHandshake?{enableOriginalMultipartNegotiation:true}:{}),authorizeOriginalReplacementRecipientAdmission:async p=>
       recipientAllowed&&p.originalSourceIntentVerified===true&&p.originalRecipientDiffOnly===true&&p.originalSubjectMutationAllowed===false});
   const publishReplacementDiff=(phase,patch={})=>publishT4OriginalReplacementRecipientDiff({
     ...recipientAdmissionOptions(phase),createOriginalReplacementRecipientPublicationPort:createReplacementRecipientPort,
@@ -632,14 +635,14 @@ async function controlFixture({indexed=false,realSourceHistory=false,canonicalCa
       return {permissionRef:'permission:k47:'+recipientNodeRef,signerRef:recipientKey.id};},
     signOriginalNodeBytes:signing(recipientNodeRef).signOriginalNodeBytes,...patch});
   const publishReplacement=(patch={})=>publishT4OriginalReplacementSourceHead({...eligibilityOptions(),
-    createOriginalReplacementPublicationPort:createReplacementPort,
+    ...(multipartHandshake?{enableOriginalMultipartNegotiation:true}:{}),createOriginalReplacementPublicationPort:createReplacementPort,
     resolveOriginalSigningContext:async p=>{
       assert.equal(p.originalReplacementAnnouncementOnly,true);
       assert.equal(p.session.originalCaptureSession.sessionRef,session.sessionRef);
       return {permissionRef:'permission:k47:'+sourceNodeRef,signerRef:sourceKey.id};},
     signOriginalNodeBytes:signing(sourceNodeRef).signOriginalNodeBytes,...patch});
   const discoverReplacement=(patch={})=>discoverT4OriginalReplacementSourceHead({...eligibilityOptions(),
-    frameDiscoveryPort:transport(recipientNodeRef),...patch});
+    frameDiscoveryPort:transport(recipientNodeRef),...(multipartHandshake?{enableOriginalMultipartNegotiation:true}:{}),...patch});
   const before=await phase().inspectOriginalSession();
   const plan=(requestRef='request:k47:one')=>prepareT4OriginalSupersessionControl({session,
     expectedPhaseRevision:before.revision,expectedPhaseChainHash:before.chainHash,decisionRef:'decision:k47:one',requestRef});
@@ -2376,4 +2379,95 @@ test('K86 K87 K88 K89 original tasks recover one business write, confirm ACK and
   assert.deepEqual((await sourceCursor.inspectOriginalHostCursor()).originalT3NextCursor,x.sourceCursorAfter);
   assert.deepEqual(await cursor.readOriginalVerifiedCursor(),x.sourceCursorAfter);
   assert.equal(subjectWrites,1);assert.equal(x.signatureCount(),beforeTerminal.signs);assert.equal(x.counts().networkPuts,beforeTerminal.puts);
+});
+
+import {validateT4OriginalReplacementDiffAcceptance,readT4OriginalReplacementHandshakeProfile}
+  from '../src/network/original-network-publication.mjs';
+import {T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION} from '../src/network/standard-network-wire-candidate.mjs';
+
+test('K165 exact successor multipart HEAD, original INTENT and DIFF converge after cold attach without enabling content',async()=>{
+  const x=await controlFixture({indexed:true,multipartHandshake:true});await closeInitialAttempt(x);
+  const createPhase=async({session:c,admission},readOriginalReplacementSourceAdmission)=>x.sourcePhase({
+    sessionRef:c.sessionRef,authorizeOriginalSourceSupersession:null,replacementSourceAdmission:admission,
+    readOriginalReplacementSourceAdmission});
+  const opts={...x.eligibilityOptions(),enableOriginalMultipartNegotiation:true};
+  const admit=()=>admitT4OriginalReplacementSourcePhase({...opts,
+    createOriginalReplacementPublicationPort:x.createReplacementPort,createOriginalReplacementSourcePhasePort:createPhase});
+  assert.equal((await x.discoverReplacement()).state,'WAITING_FOR_REPLACEMENT_HEAD');
+  const head=await x.publishReplacement(),c=head.candidate;
+  assert.equal(c.changeKind,'ASSET_PUT');
+  assert.equal(head.liveNetworkAuthorityGranted,false);
+  const source=await x.createReplacementPort({session:c},()=>x.eligibility());
+  const h=(await source.inspectOriginalPublication()).frames[0],frame=decodeT4CandidateFrame(h.wireBytes);
+  assert.ok(frame.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION));
+  assert.equal(frame.body.replacement.previousSessionRef,x.session.sessionRef);
+  const profile=readT4OriginalReplacementHandshakeProfile({candidate:c,headBody:frame.body,
+    headSha256:h.sha256,headExtensions:frame.criticalExtensions,enableOriginalMultipartNegotiation:true});
+  assert.equal(profile.multipart,true);
+  await assert.rejects(x.discoverReplacement({enableOriginalMultipartNegotiation:false}));
+  const a=await admit(),phase=await createPhase({session:c,admission:a.admission},async()=>true);
+  assert.equal((await phase.inspectOriginalSession()).currentPhase,'INTENT');
+  assert.equal(a.admission.headSha256,h.sha256);
+  const recipientAdmission=()=>readT4OriginalReplacementRecipientAdmission(x.recipientAdmissionOptions(phase));
+  const recipient=await x.createReplacementRecipientPort({session:c},recipientAdmission);
+  const discover=patch=>discoverT4OriginalReplacementRecipientDiff({...opts,sourceAdmissionPhasePort:phase,
+    sourcePublicationPort:source,recipientPublicationPort:recipient,frameDiscoveryPort:x.transport(sourceNodeRef),
+    readOriginalReplacementRecipientAdmission:recipientAdmission,
+    authorizeOriginalReplacementDiffAcceptance:async proof=>proof.originalSubjectMutationAllowed===false&&
+      /^sha256:[a-f0-9]{64}$/.test(proof.originalMultipartAgreementDigest),...patch});
+  assert.equal((await discover()).state,'WAITING_FOR_REPLACEMENT_DIFF');
+  const puts=x.counts().networkPuts,signs=x.signatureCount();
+  x.denyRecipient();
+  await assert.rejects(x.publishReplacementDiff(phase),isCode('REPLACEMENT_RECIPIENT_ADMISSION_DENIED'));
+  assert.equal(x.counts().networkPuts,puts);assert.equal(x.signatureCount(),signs);
+  x.allowRecipient();
+  const diff=await x.publishReplacementDiff(phase);
+  assert.equal(diff.liveNetworkAuthorityGranted,false);
+  const d=(await recipient.inspectOriginalPublication()).frames[0];
+  const decoded=decodeT4CandidateFrame(d.wireBytes);
+  assert.deepEqual(decoded.body,profile.diffBody);
+  assert.deepEqual(decoded.criticalExtensions,profile.diffExtensions);
+  assert.equal(x.counts().networkPuts,puts+1);assert.equal(x.signatureCount(),signs+1);
+  const result=await discover();
+  assert.equal(result.state,'ORIGINAL_REPLACEMENT_DIFF_VERIFIED');
+  assert.equal(result.originalMultipartAgreement.headSha256,h.sha256);
+  assert.equal(result.originalMultipartAgreement.diffSha256,d.sha256);
+  assert.equal(result.originalMultipartAgreement.originalSubjectAuthorityGranted,false);
+  assert.deepEqual(validateT4OriginalReplacementDiffAcceptance(result,c,{enableOriginalMultipartNegotiation:true}),result);
+  assert.throws(()=>validateT4OriginalReplacementDiffAcceptance(result,c),isCode('PUBLICATION_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH'));
+  assert.throws(()=>validateT4OriginalReplacementDiffAcceptance({...result,diffSha256:'f'.repeat(64),diffKey:'f'.repeat(64)+'.t4n'},c,
+    {enableOriginalMultipartNegotiation:true}),isCode('PUBLICATION_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH'));
+  const noWrites={source:x.sourceStore.calls,recipient:x.f.kernel.calls,puts:x.counts().networkPuts,signs:x.signatureCount()};
+  x.f.restart();
+  assert.equal((await x.publishReplacement()).publicationState,'ALREADY_PRESENT_VERIFIED');
+  assert.equal((await x.publishReplacementDiff(phase)).publicationState,'ALREADY_PRESENT_VERIFIED');
+  assert.deepEqual(await discover(),result);
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,puts:x.counts().networkPuts,signs:x.signatureCount()},noWrites);
+  // Neither a negotiated handshake nor a compact port can admit content
+  // before the successor multipart publication and subject routes exist.
+  await assert.rejects(source.prepareSignedBatch({slots:[{sequence:2,messageType:'CHANGE_REF'}],
+    createSignedFrames:async()=>assert.fail('content signing')}));
+  await assert.rejects(recipient.prepareSignedBatch({slots:[{sequence:2,messageType:'APPLIED_ACK'}],
+    createSignedFrames:async()=>assert.fail('ack signing')}));
+  await assert.rejects(x.createReplacementPort({session:c},()=>x.eligibility(),{
+    readOriginalReplacementDiffAcceptance:()=>discover(),authorizeOriginalSealedPublication:async()=>true}),
+    isCode('PUBLICATION_NATIVE_MULTIPART_NEGOTIATION_PORTS_REQUIRED'));
+  const compact=await x.createReplacementPort({session:c},()=>x.eligibility(),{
+    enableOriginalMultipartNegotiation:false,readOriginalReplacementDiffAcceptance:()=>discover(),authorizeOriginalSealedPublication:async()=>true});
+  await assert.rejects(compact.inspectOriginalPublication(),isCode('PUBLICATION_NATIVE_MULTIPART_NEGOTIATION_REQUIRED'));
+  x.changeFrontier();await assert.rejects(discover(),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));x.restoreFrontier();
+  // Independently read original history with no network or live signer.
+  const historyOptions=request=>({...x.historicalReadOptions(request.ownerNodeRef),request,
+    requiredCryptoSuite:opts.requiredCryptoSuite,verifyOriginalRecipientApplied:async()=>false,
+    verifyOriginalHistoricalNodeSignature:x.historicalSignature(request.ownerNodeRef),
+    authorizeOriginalHostWire:async()=>true,authorizeOriginalOwnerHistoryRead:async()=>true});
+  const request=createT4OriginalReplacementOwnerRecipientDiffRequest({session:c,requesterNodeRef:sourceNodeRef,
+    ownerNodeRef:recipientNodeRef,headWireBase64:Buffer.from(h.wireBytes).toString('base64')});
+  const historical=await readT4OriginalReplacementOwnerHistory(historyOptions(request));
+  assert.equal(historical.state,'ORIGINAL_RECIPIENT_DIFF_HISTORY_VERIFIED');
+  assert.equal(historical.diff.sha256,d.sha256);
+  assert.equal(historical.liveNetworkAuthorityGranted,false);
+  x.rotateSource();x.rotateRecipient();x.offline();
+  assert.deepEqual(await readT4OriginalReplacementOwnerHistory(historyOptions(request)),historical);
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,puts:x.counts().networkPuts,signs:x.signatureCount()},noWrites);
 });
