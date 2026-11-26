@@ -639,7 +639,7 @@ export function createT4OriginalPublicationIndexMigrationStepper({
           // Verify the returned sequence and immutable byte address as well
           // as the count. A success with the wrong frame is not progress.
           for(const [i,frame] of observed.frames.entries()){
-            const exact=saved.frames.find(f=>f.sequence===sequences[i]);
+            const exact=saved.frames.find(f=>f.sequence===page[i]);
             if(frame.sequence!==exact.sequence||frame.sha256!==exact.sha256||
               frame.key!==exact.key||frame.messageType!==exact.messageType||
               frame.exactOriginalSignedFrameReadback!==true||frame.nativeSessionIndexVerified!==true||
