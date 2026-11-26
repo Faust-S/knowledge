@@ -2680,6 +2680,58 @@ test('K167 successor multipart original backing CAS, explicit bilateral gate, lo
   await assert.rejects(recipientTransport.discoverOriginalMultipartContentPage({selector:{sourceNodeRef,sessionRef:c.sessionRef,ownerEpoch:c.ownerEpoch},
     requiredCryptoSuite:opts.requiredCryptoSuite,replacementFrameAnchors:wrongAnchors}),isCode('WIRE_REPLACEMENT_CONTENT_PUBLICATION_ANCHOR_MISMATCH'));
   assert.equal(x.phaseWrites(),recipientPhaseWrites);
+  // K174: exercise the original phase and ACK ports; the subject Result is
+  // deliberately modeled here, not claimed as a real Asset mutation.
+  const e=found.originalReplacementContentEvidence,actualEvent='event:k174:asset:result';
+  const applyAdmission={schema:'IWXA_T4_ORIGINAL_REPLACEMENT_RECIPIENT_APPLY_ADMISSION_V1',candidate:c,contentEvidence:e,
+    originalSourcePublishedEventId:phaseResult.originalSourcePublishedEventId,originalSourcePublishedChainHash:phaseResult.chainHash,
+    originalStateDigest:B,originalCapturedSha256:c.capturedSha256,originalSourcePublishedVerified:true,originalCanonicalSubjectVerified:true,
+    originalSubjectMutationInvoked:false,originalBusinessApplied:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false};
+  const body={changeId:c.changeId,contentDigest:e.contentDigest,recipientEventRef:actualEvent,recipientRevision:c.sourceRevision,
+    recipientStateDigest:B,ackRef:'ack:t4:'+createHash('sha256').update(JSON.stringify(['IWXA-T4-ORIGINAL-APPLIED-ACK-V1',c.sessionRef,c.changeId,
+      c.capturedSha256,actualEvent,c.sourceRevision,B])).digest('hex')};
+  let resultVerified=true,ackPort;
+  const peerPhase=()=>x.f.port({sessionRef:c.sessionRef,changeId:c.changeId,recipientApplyIntentRequired:true,
+    authorizeOriginalRecipientSupersession:null,verifyOriginalPhaseEvidence:async()=>true,
+    verifyOriginalRecipientApplied:async p=>resultVerified&&p.originalRecipientEventId===actualEvent&&p.originalRecipientStateDigest===B,
+    replacementRecipientAdmission:applyAdmission,readOriginalReplacementRecipientApplyAdmission:async()=>applyAdmission,
+    readOriginalReplacementRecipientAckPublication:readPeerAck});
+  async function readAckAdmission(){
+    const s=await peerPhase().inspectOriginalSession();
+    if(!resultVerified||!['APPLY_INTENT','APPLIED'].includes(s.currentPhase))throw Object.assign(Error('result missing'),{code:'TEST_RECIPIENT_RESULT_MISSING'});
+    return {schema:'IWXA_T4_ORIGINAL_REPLACEMENT_APPLIED_ACK_ADMISSION_V1',admission:applyAdmission,body,
+      recipientPhaseCheckpointRef:s.checkpointRef,originalApplyIntentEventId:s.originalReplacementRecipientApplyIntentEventId,
+      originalRecipientResultVerified:true,originalDurableApplyIntentVerified:true,originalBusinessApplied:true,
+      originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false};
+  }
+  async function readPeerAck(){return {admission:await readAckAdmission(),publication:await ackPort.readOriginalPublishedFrame({sequence:2,includePresentEventAnchor:true})};}
+  ackPort=await x.createReplacementRecipientPort({session:c},admission,{readOriginalReplacementAppliedAckAdmission:readAckAdmission});
+  const sourceAckArgs={sourceAdmissionPhasePort:phaseFor(),sourcePublicationPort:cold,recipientPhasePort:peerPhase(),
+    recipientPublicationPort:ackPort,readOriginalReplacementRecipientAckPublication:readPeerAck,
+    frameDiscoveryPort:x.transport(sourceNodeRef,{readOriginalMultipartAgreement}),requiredCryptoSuite:opts.requiredCryptoSuite,getMode:opts.getMode,
+    authorizeOriginalReplacementSourceAckConfirmation:async p=>p.originalRecipientResultVerified===true};
+  assert.equal(await readT4OriginalReplacementSourceAckEvidence(sourceAckArgs),null);
+  await peerPhase().advanceOriginalSessionPhase({phase:'RECEIVED',evidence:{evidenceRef:e.frames[2].key,evidenceDigest:'sha256:'+e.frames[2].sha256}});
+  await peerPhase().advanceOriginalSessionPhase({phase:'VERIFIED',evidence:{evidenceRef:e.frames[1].key,evidenceDigest:B}});
+  await peerPhase().advanceOriginalSessionPhase({phase:'APPLY_INTENT',evidence:{evidenceRef:e.frames[1].key,evidenceDigest:'sha256:'+c.capturedSha256}});
+  const signAck=()=>signT4CandidateFrame({unsignedFrame:createT4CandidateUnsignedFrame({
+    messageType:'APPLIED_ACK',messageId:'message:k174:ack',sourceNodeRef:recipientNodeRef,recipientNodeRef:sourceNodeRef,
+    scopeRef,sessionRef:c.sessionRef,ownerEpoch:c.ownerEpoch,sequence:2,...x.recipientSigner(),cryptoSuite:opts.requiredCryptoSuite,
+    criticalExtensions:[],body}),signOriginalNodeBytes:x.signRecipientAck});
+  resultVerified=false;await assert.rejects(ackPort.prepareSignedBatch({slots:[{sequence:2,messageType:'APPLIED_ACK'}],
+    createSignedFrames:async()=>assert.fail('missing result must not sign')}),isCode('TEST_RECIPIENT_RESULT_MISSING'));
+  resultVerified=true;
+  await ackPort.prepareSignedBatch({slots:[{sequence:2,messageType:'APPLIED_ACK'}],createSignedFrames:async()=>[await signAck()]});
+  await ackPort.publishPreparedFrame({sequence:2});
+  assert.equal(await readT4OriginalReplacementSourceAckEvidence(sourceAckArgs),null);
+  const ack=await ackPort.readOriginalPublishedFrame({sequence:2,includePresentEventAnchor:true});
+  await peerPhase().advanceOriginalSessionPhase({phase:'APPLIED',evidence:{evidenceRef:ack.key,evidenceDigest:'sha256:'+ack.sha256,
+    originalRecipientEventId:actualEvent,originalRecipientRevision:c.sourceRevision,originalRecipientStateDigest:B}});
+  const ackEvidence=await readT4OriginalReplacementSourceAckEvidence(sourceAckArgs);
+  assert.equal(ackEvidence.originalRecipientResultVerified,true);
+  assert.equal(ackEvidence.sourceCursorAdvanced,false);
+  assert.equal(ackEvidence.recipientCursorAdvanced,false);
+  assert.equal(ackEvidence.recipientAckAdmission.body.recipientEventRef,actualEvent);
   const beforeHistory=counts();x.rotateSource();x.rotateRecipient();x.offline();x.f.restart();
   assert.deepEqual(await readHistory(),history);
   assert.deepEqual(counts(),beforeHistory);

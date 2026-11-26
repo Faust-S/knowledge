@@ -1647,7 +1647,9 @@ export async function readT4OriginalReplacementSourceAckEvidence({sourceAdmissio
   authorizeOriginalReplacementSourceAckConfirmation}={}){
   mode(getMode);
   const c=source?.session,ownerRead=readOriginalRecipientTerminalHistory!==null;
-  if(source?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||source.originalReplacementSourceContentPublication!==true||
+  const multipart=source?.originalReplacementMultipartContentPublication===true;
+  if(source?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
+    (source.originalReplacementSourceContentPublication===true)===multipart||
     source.originalT3OnlyStore!==true||typeof source.readOriginalReplacementPublishedContent!=='function'||
     (ownerRead?(typeof readOriginalRecipientTerminalHistory!=='function'||recipient!==null||recipientPhase!==null||readOriginalReplacementRecipientAckPublication!==null):
       (recipient?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||recipient.originalReplacementRecipientAckPublication!==true||
@@ -1715,6 +1717,8 @@ export async function readT4OriginalReplacementSourceAckEvidence({sourceAdmissio
         fail('REPLACEMENT_SOURCE_ACK_ORIGINAL_PUBLICATION_MISMATCH');
     }
     if(ownerRead)batch=await source.readOriginalReplacementPublishedContent();mode(getMode);
+    if(Object.hasOwn(batch?.agreement??{},'originalMultipartAgreement')!==multipart)
+      fail('REPLACEMENT_SOURCE_ACK_ORIGINAL_PUBLICATION_MISMATCH');
     const inbound=clone(found.receipt);delete inbound.exactPreviouslyVerifiedReplay;
     const witness=validateT4OriginalReplacementSourceAckEvidence({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_SOURCE_ACK_EVIDENCE_V1',
       candidate:session,sourcePublication:batch,recipientAckAdmission:ack.admission,recipientAckPublication:published,recipientPhase:peer,
