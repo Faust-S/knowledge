@@ -1,0 +1,78 @@
+name: D08 isolated plan-fact correction regression
+on:
+  push:
+    branches: ['qa/2026-11-26-d08-plan-fact-1ae1542']
+    paths: ['.github/workflows/d08-plan-fact-qualification.yml']
+permissions:
+  contents: read
+concurrency:
+  group: d08-plan-fact-1ae1542-one-shot
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: github.event.before == '22293b803f1dc28c6a0d484c1c1dac80818c97c1' && github.event.deleted != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: 'true'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout exact corrected private site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: '1ae154200650dad0372d4ec914c2328734531e1e'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify pinned identity
+        run: |
+          test "$(git -C site rev-parse HEAD)" = '1ae154200650dad0372d4ec914c2328734531e1e'
+          echo D08_CORRECTED_PIN=PASS
+      - name: Install dependencies without caching private data
+        id: install
+        working-directory: site
+        run: |
+          rc=0
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d08-install.log" 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then echo D08_CORRECTED_INSTALL=FAIL; exit "$rc"; fi
+          echo D08_CORRECTED_INSTALL=PASS
+      - name: Site TypeScript check
+        if: steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          npm run check:types > "$RUNNER_TEMP/d08-types.log" 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo D08_CORRECTED_TYPES=FAIL
+            grep -E '^[A-Za-z0-9_./-]+\([0-9]+,[0-9]+\): error TS[0-9]+' "$RUNNER_TEMP/d08-types.log" | sed -E 's/(: error TS[0-9]+):.*/\1/' | head -30 || true
+            exit "$rc"
+          fi
+          echo D08_CORRECTED_TYPES=PASS
+      - name: Full grouped adapters and rendering regression
+        if: always() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          npm run test:d08:adapters > "$RUNNER_TEMP/d08-adapters.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d08-adapters.log" || true
+          if [ "$rc" -ne 0 ]; then
+            echo D08_CORRECTED_ADAPTERS=FAIL
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-adapters.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -30 || true
+            awk '/^not ok / {bad=1} /^ok / {bad=0} bad && /location:/ {print}' "$RUNNER_TEMP/d08-adapters.log" | grep -oE 'tests/[A-Za-z0-9_-]+\.test\.mjs:[0-9]+:[0-9]+' | head -30 || true
+            if grep -q 'React is not defined' "$RUNNER_TEMP/d08-adapters.log"; then echo D08_RENDER_REACT_BINDING=FAIL; fi
+            if grep -q 'ERR_ASSERTION' "$RUNNER_TEMP/d08-adapters.log"; then echo D08_ASSERTION=FAIL; fi
+            exit "$rc"
+          fi
+          echo D08_CORRECTED_ADAPTERS=PASS
+      - name: Discard private source, generated files and local logs
+        if: always()
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/site"
+          rm -f "$RUNNER_TEMP/d08-install.log" "$RUNNER_TEMP/d08-types.log" "$RUNNER_TEMP/d08-adapters.log"
