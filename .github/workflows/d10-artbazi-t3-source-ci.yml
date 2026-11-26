@@ -10,15 +10,39 @@ permissions:
 jobs:
   d10-t3:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 65
     steps:
       - name: Checkout exact D10 candidate
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 273aa5e1efb5c67b2fb4f7cb49e981ab91bd5a13
+          ref: acc03b8af994c28f0b4de6073ef3a3330a055e84
           token: ${{ secrets.DOMEN }}
           path: site
+          persist-credentials: false
+      - name: Checkout exact canonical D10 domain
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/artbazi
+          ref: 9f9f3373e74d0cdac7aaa5381fe74b6b3a3c6ce7
+          token: ${{ secrets.DOMEN }}
+          path: domain
+          persist-credentials: false
+      - name: Checkout last qualified T2 site for existing profile migration
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/artbazi.ru
+          ref: e626f93f96e8545a0a9438faf2934687be1982c7
+          token: ${{ secrets.DOMEN }}
+          path: previous-site
+          persist-credentials: false
+      - name: Checkout original qualified T2 for migration
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          path: previous-t2
           persist-credentials: false
       - name: Checkout original T3 release source
         uses: actions/checkout@v4
@@ -40,6 +64,38 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
+      - name: Canonical domain CASE-001-010 and original assistant skills
+        working-directory: domain
+        shell: bash
+        run: |
+          if npm install --no-save --no-package-lock --ignore-scripts > "$RUNNER_TEMP/d10-t3-domain-install.log" 2>&1 &&
+             npm run test:d10:cases > "$RUNNER_TEMP/d10-t3-domain.log" 2>&1 &&
+             node --test tests/d10-t3-assistant-skills.test.mjs > "$RUNNER_TEMP/d10-t3-domain-skills.log" 2>&1; then
+            echo "D10_T3_DOMAIN_CASES_AND_SKILLS=PASS"
+          else
+            echo "::error::D10_T3_DOMAIN_CASES_AND_SKILLS=FAIL"; exit 1
+          fi
+          cmp -s models/assistant-skills.json ../site/public/assets/d10-assistant-skills.json
+          echo "D10_T3_CANONICAL_SKILL_PROJECTION=PASS"
+      - name: Build last qualified T2 site at the exact future T3 origin
+        working-directory: previous-site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/previous-t2
+          ARTBAZI_LOCAL_HTTPS_ORIGIN: https://127.0.0.1:4342
+        shell: bash
+        run: |
+          if bun install --frozen-lockfile > "$RUNNER_TEMP/d10-t3-previous-install.log" 2>&1 &&
+             npm run build:t2:site > "$RUNNER_TEMP/d10-t3-previous-build.log" 2>&1; then
+            echo "D10_T3_PREVIOUS_EXACT_T2_BUILD=PASS"
+          else
+            echo "::error::D10_T3_PREVIOUS_EXACT_T2_BUILD=FAIL"
+            grep -oE 'ARTBAZI_SITE_T2_[A-Z0-9_]+|ARTBAZI_LOCAL_HTTPS_ORIGIN_INVALID|TS[0-9]+' "$RUNNER_TEMP/d10-t3-previous-build.log" | sort -u | head -20 || true
+            exit 1
+          fi
+          mv dist "$RUNNER_TEMP/d10-t2-before-t3-dist"
+          test -f "$RUNNER_TEMP/d10-t2-before-t3-dist/artbazi-t2-build.json"
+          cd ..
+          rm -rf previous-site previous-t2 domain
       - name: Frozen D10 dependencies
         working-directory: site
         shell: bash
@@ -53,20 +109,22 @@ jobs:
         working-directory: site
         shell: bash
         run: |
-          for gate in check:t3:source check:types; do
+          failed=0
+          for gate in check:t3:source check:types check:commercial check:crm check:group-e check:t2-host-route check:search-metadata sales:test; do
             log="$RUNNER_TEMP/d10-t3-${gate//:/-}.log"
             if npm run "$gate" > "$log" 2>&1; then
               echo "$gate=PASS"
-              if [[ "$gate" == "check:t3:source" ]]; then
+              if [[ "$gate" != "sales:test" ]]; then
                 grep -E '^# (tests|pass|fail) [0-9]+$' "$log" || true
               fi
             else
               echo "::error::$gate=FAIL"
               grep -oE 'TS[0-9]{4}|D10_T3_INPUT_[A-Z0-9_]+' "$log" | sort | uniq -c | head -30 || true
               grep -E '^# (tests|pass|fail) [0-9]+$' "$log" || true
-              exit 1
+              failed=1
             fi
           done
+          exit "$failed"
       - name: Compile original T3 Host with D10 and one original BLI engine
         working-directory: site
         shell: bash
@@ -126,7 +184,288 @@ jobs:
           console.log("D10_T3_BUILD_CANDIDATE=PASS");
           console.log("D10_T3_INDEPENDENT_PRODUCT_ACCEPTANCE=NOT_RUN");
           NODE
+      - name: Exact production snapshot on real Apache
+        working-directory: site
+        shell: bash
+        run: |
+          if ! command -v apache2 >/dev/null; then
+            sudo apt-get update > "$RUNNER_TEMP/d10-t3-apache-install.log" 2>&1
+            sudo apt-get install -y apache2 >> "$RUNNER_TEMP/d10-t3-apache-install.log" 2>&1
+          fi
+          if python3 scripts/tests/d10-t3-apache-http.py dist > "$RUNNER_TEMP/d10-t3-apache.log" 2>&1; then
+            grep -E '^D10_T3_APACHE(_PHYSICAL|_ALIASES)?=(PASS|[0-9]+)
+        working-directory: site
+        shell: bash
+        env:
+          ARTBAZI_LOCAL_HTTPS_ORIGIN: https://127.0.0.1:4342
+        run: |
+          if npm run build:t3:site > "$RUNNER_TEMP/d10-t3-https.log" 2>&1; then
+            echo "D10_T3_HTTPS_BUILD=PASS"
+          else
+            echo "::error::D10_T3_HTTPS_BUILD=FAIL"
+            grep -oE 'D10_T3_(BUILD|ASSEMBLY)_PHASE=[A-Z_]+|D10_T3_(INPUT|SHELL)_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_PWA_[A-Z0-9_]+' "$RUNNER_TEMP/d10-t3-https.log" | tail -35 || true
+            exit 1
+          fi
+      - name: Original browser assistant, confirmed campaign and cold offline readback
+        if: ${{ !cancelled() && steps.https_dist.outcome == 'success' }}
+        working-directory: site
+        shell: bash
+        run: |
+          if node scripts/tests/d10-t3-original-browser.mjs > "$RUNNER_TEMP/d10-t3-browser.log" 2>&1; then
+            grep -E '^D10_T3_(BROWSER_[A-Z_]+|REAL_MODEL_INFERENCE)=(PASS|NOT_RUN)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
+          else
+            grep -E '^D10_T3_BROWSER_[A-Z_]+=(PASS|[A-Z_]+|[A-Za-z]+Error)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
+            echo "::error::D10_T3_BROWSER_REGRESSION=FAIL"; exit 1
+          fi
+      - name: All 16 existing product journeys against exact T3 HTTPS dist
+        if: ${{ !cancelled() && steps.https_dist.outcome == 'success' }}
+        working-directory: site
+        shell: bash
+        env:
+          D10_T3_PRODUCT_HTTPS: "1"
+        run: |
+          failed=0
+          passed=0
+          scripts=(
+            d10-case004-browser-smoke
+            d10-public-23-journey-browser
+            d10-case005-browser-smoke
+            d10-case006-browser-smoke
+            d10-case007-browser-smoke
+            d10-case008-browser-smoke
+            d10-case009-browser-smoke
+            d10-case010-browser-smoke
+            d10-commercial-review-browser-smoke
+            d10-case008-promotion-kernel-browser
+            d10-case009-pipeline-kernel-browser
+            d10-case010-quotes-kernel-browser
+            d10-revops-action-kernel-browser
+            d10-public-kernel-transfer-browser
+            d10-case010-real-cold-host-browser
+            d10-multifamily-iwxa-browser
+          )
+          for script in "${scripts[@]}"; do
+            log="$RUNNER_TEMP/d10-t3-$script.log"
+            if timeout 300s node "scripts/tests/$script.mjs" > "$log" 2>&1; then
+              echo "D10_T3_PRODUCT_JOURNEY_$script=PASS"
+              passed=$((passed+1))
+            else
+              echo "::error::D10_T3_PRODUCT_JOURNEY_$script=FAIL"
+              grep -E '^D10_[A-Z0-9_]+=(PASS|NOT_RUN|[0-9]+)
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP"/d10-t3-*.log
+          rm -rf "$RUNNER_TEMP/d10-t2-before-t3-dist" "$RUNNER_TEMP/d10-prepared-host" "$RUNNER_TEMP/d10-portable"
+ "$RUNNER_TEMP/d10-t3-apache.log"
+          else
+            echo "::error::D10_T3_APACHE=FAIL"
+            grep -oE 'D10_T3_APACHE_[A-Z_]+' "$RUNNER_TEMP/d10-t3-apache.log" | sort -u | head -20 || true
+            exit 1
+          fi
+          if npm run check:htaccess > "$RUNNER_TEMP/d10-t3-htaccess.log" 2>&1; then
+            echo "D10_T3_HTACCESS_GATE=PASS"
+          else
+            echo "::error::D10_T3_HTACCESS_GATE=FAIL"; exit 1
+          fi
       - name: Build disposable HTTPS qualification dist
+        id: https_dist
+        working-directory: site
+        shell: bash
+        env:
+          ARTBAZI_LOCAL_HTTPS_ORIGIN: https://127.0.0.1:4342
+        run: |
+          if npm run build:t3:site > "$RUNNER_TEMP/d10-t3-https.log" 2>&1; then
+            echo "D10_T3_HTTPS_BUILD=PASS"
+          else
+            echo "::error::D10_T3_HTTPS_BUILD=FAIL"
+            grep -oE 'D10_T3_(BUILD|ASSEMBLY)_PHASE=[A-Z_]+|D10_T3_(INPUT|SHELL)_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_PWA_[A-Z0-9_]+' "$RUNNER_TEMP/d10-t3-https.log" | tail -35 || true
+            exit 1
+          fi
+      - name: Original browser assistant, confirmed campaign and cold offline readback
+        working-directory: site
+        shell: bash
+        run: |
+          if node scripts/tests/d10-t3-original-browser.mjs > "$RUNNER_TEMP/d10-t3-browser.log" 2>&1; then
+            grep -E '^D10_T3_(BROWSER_[A-Z_]+|REAL_MODEL_INFERENCE)=(PASS|NOT_RUN)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
+          else
+            grep -E '^D10_T3_BROWSER_[A-Z_]+=(PASS|[A-Z_]+|[A-Za-z]+Error)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
+            echo "::error::D10_T3_BROWSER_REGRESSION=FAIL"; exit 1
+          fi
+      - name: Delete private build logs
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP"/d10-t3-*.log
+ "$log" | tail -20 || true
+              grep -oE '(TimeoutError|AssertionError|TypeError|ReferenceError|ERR_[A-Z0-9_]+)' "$log" | sort -u | head -10 || true
+              failed=1
+            fi
+          done
+          echo "D10_T3_PRODUCT_JOURNEYS_PASSED=$passed"
+          if [[ "$passed" == "16" ]]; then echo "D10_T3_PRODUCT_JOURNEYS=PASS"; fi
+          exit "$failed"
+      - name: Existing T2 browser profile to T3 with new CRM write
+        if: ${{ !cancelled() && steps.https_dist.outcome == 'success' }}
+        working-directory: site
+        shell: bash
+        env:
+          D10_T3_PRODUCT_HTTPS: "1"
+          D10_T2_BEFORE_T3_DIST: ${{ runner.temp }}/d10-t2-before-t3-dist
+        run: |
+          if timeout 300s node scripts/tests/d10-case010-real-cold-host-browser.mjs > "$RUNNER_TEMP/d10-t3-migration.log" 2>&1; then
+            grep -E '^D10_T2_T3_[A-Z_]+=PASS
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP"/d10-t3-*.log
+ "$RUNNER_TEMP/d10-t3-apache.log"
+          else
+            echo "::error::D10_T3_APACHE=FAIL"
+            grep -oE 'D10_T3_APACHE_[A-Z_]+' "$RUNNER_TEMP/d10-t3-apache.log" | sort -u | head -20 || true
+            exit 1
+          fi
+          if npm run check:htaccess > "$RUNNER_TEMP/d10-t3-htaccess.log" 2>&1; then
+            echo "D10_T3_HTACCESS_GATE=PASS"
+          else
+            echo "::error::D10_T3_HTACCESS_GATE=FAIL"; exit 1
+          fi
+      - name: Build disposable HTTPS qualification dist
+        id: https_dist
+        working-directory: site
+        shell: bash
+        env:
+          ARTBAZI_LOCAL_HTTPS_ORIGIN: https://127.0.0.1:4342
+        run: |
+          if npm run build:t3:site > "$RUNNER_TEMP/d10-t3-https.log" 2>&1; then
+            echo "D10_T3_HTTPS_BUILD=PASS"
+          else
+            echo "::error::D10_T3_HTTPS_BUILD=FAIL"
+            grep -oE 'D10_T3_(BUILD|ASSEMBLY)_PHASE=[A-Z_]+|D10_T3_(INPUT|SHELL)_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_PWA_[A-Z0-9_]+' "$RUNNER_TEMP/d10-t3-https.log" | tail -35 || true
+            exit 1
+          fi
+      - name: Original browser assistant, confirmed campaign and cold offline readback
+        working-directory: site
+        shell: bash
+        run: |
+          if node scripts/tests/d10-t3-original-browser.mjs > "$RUNNER_TEMP/d10-t3-browser.log" 2>&1; then
+            grep -E '^D10_T3_(BROWSER_[A-Z_]+|REAL_MODEL_INFERENCE)=(PASS|NOT_RUN)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
+          else
+            grep -E '^D10_T3_BROWSER_[A-Z_]+=(PASS|[A-Z_]+|[A-Za-z]+Error)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
+            echo "::error::D10_T3_BROWSER_REGRESSION=FAIL"; exit 1
+          fi
+      - name: Delete private build logs
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP"/d10-t3-*.log
+ "$RUNNER_TEMP/d10-t3-migration.log"
+            grep -q '^D10_T2_T3_EXISTING_PROFILE_MIGRATION=PASS
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP"/d10-t3-*.log
+ "$RUNNER_TEMP/d10-t3-apache.log"
+          else
+            echo "::error::D10_T3_APACHE=FAIL"
+            grep -oE 'D10_T3_APACHE_[A-Z_]+' "$RUNNER_TEMP/d10-t3-apache.log" | sort -u | head -20 || true
+            exit 1
+          fi
+          if npm run check:htaccess > "$RUNNER_TEMP/d10-t3-htaccess.log" 2>&1; then
+            echo "D10_T3_HTACCESS_GATE=PASS"
+          else
+            echo "::error::D10_T3_HTACCESS_GATE=FAIL"; exit 1
+          fi
+      - name: Build disposable HTTPS qualification dist
+        id: https_dist
+        working-directory: site
+        shell: bash
+        env:
+          ARTBAZI_LOCAL_HTTPS_ORIGIN: https://127.0.0.1:4342
+        run: |
+          if npm run build:t3:site > "$RUNNER_TEMP/d10-t3-https.log" 2>&1; then
+            echo "D10_T3_HTTPS_BUILD=PASS"
+          else
+            echo "::error::D10_T3_HTTPS_BUILD=FAIL"
+            grep -oE 'D10_T3_(BUILD|ASSEMBLY)_PHASE=[A-Z_]+|D10_T3_(INPUT|SHELL)_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_PWA_[A-Z0-9_]+' "$RUNNER_TEMP/d10-t3-https.log" | tail -35 || true
+            exit 1
+          fi
+      - name: Original browser assistant, confirmed campaign and cold offline readback
+        working-directory: site
+        shell: bash
+        run: |
+          if node scripts/tests/d10-t3-original-browser.mjs > "$RUNNER_TEMP/d10-t3-browser.log" 2>&1; then
+            grep -E '^D10_T3_(BROWSER_[A-Z_]+|REAL_MODEL_INFERENCE)=(PASS|NOT_RUN)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
+          else
+            grep -E '^D10_T3_BROWSER_[A-Z_]+=(PASS|[A-Z_]+|[A-Za-z]+Error)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
+            echo "::error::D10_T3_BROWSER_REGRESSION=FAIL"; exit 1
+          fi
+      - name: Delete private build logs
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP"/d10-t3-*.log
+ "$RUNNER_TEMP/d10-t3-migration.log"
+          else
+            grep -E '^D10_(COLD_|T2_T3_|CASE010_KERNEL_)[A-Z_]+=(PASS|[0-9]+)
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP"/d10-t3-*.log
+ "$RUNNER_TEMP/d10-t3-apache.log"
+          else
+            echo "::error::D10_T3_APACHE=FAIL"
+            grep -oE 'D10_T3_APACHE_[A-Z_]+' "$RUNNER_TEMP/d10-t3-apache.log" | sort -u | head -20 || true
+            exit 1
+          fi
+          if npm run check:htaccess > "$RUNNER_TEMP/d10-t3-htaccess.log" 2>&1; then
+            echo "D10_T3_HTACCESS_GATE=PASS"
+          else
+            echo "::error::D10_T3_HTACCESS_GATE=FAIL"; exit 1
+          fi
+      - name: Build disposable HTTPS qualification dist
+        id: https_dist
+        working-directory: site
+        shell: bash
+        env:
+          ARTBAZI_LOCAL_HTTPS_ORIGIN: https://127.0.0.1:4342
+        run: |
+          if npm run build:t3:site > "$RUNNER_TEMP/d10-t3-https.log" 2>&1; then
+            echo "D10_T3_HTTPS_BUILD=PASS"
+          else
+            echo "::error::D10_T3_HTTPS_BUILD=FAIL"
+            grep -oE 'D10_T3_(BUILD|ASSEMBLY)_PHASE=[A-Z_]+|D10_T3_(INPUT|SHELL)_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_PWA_[A-Z0-9_]+' "$RUNNER_TEMP/d10-t3-https.log" | tail -35 || true
+            exit 1
+          fi
+      - name: Original browser assistant, confirmed campaign and cold offline readback
+        working-directory: site
+        shell: bash
+        run: |
+          if node scripts/tests/d10-t3-original-browser.mjs > "$RUNNER_TEMP/d10-t3-browser.log" 2>&1; then
+            grep -E '^D10_T3_(BROWSER_[A-Z_]+|REAL_MODEL_INFERENCE)=(PASS|NOT_RUN)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
+          else
+            grep -E '^D10_T3_BROWSER_[A-Z_]+=(PASS|[A-Z_]+|[A-Za-z]+Error)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
+            echo "::error::D10_T3_BROWSER_REGRESSION=FAIL"; exit 1
+          fi
+      - name: Delete private build logs
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP"/d10-t3-*.log
+ "$RUNNER_TEMP/d10-t3-migration.log" | tail -30 || true
+            grep -oE '(TimeoutError|AssertionError|TypeError|ReferenceError|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d10-t3-migration.log" | sort -u | head -10 || true
+            echo "::error::D10_T2_T3_EXISTING_PROFILE_MIGRATION=FAIL"; exit 1
+          fi
+      - name: Delete private build logs
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP"/d10-t3-*.log
+ "$RUNNER_TEMP/d10-t3-apache.log"
+          else
+            echo "::error::D10_T3_APACHE=FAIL"
+            grep -oE 'D10_T3_APACHE_[A-Z_]+' "$RUNNER_TEMP/d10-t3-apache.log" | sort -u | head -20 || true
+            exit 1
+          fi
+          if npm run check:htaccess > "$RUNNER_TEMP/d10-t3-htaccess.log" 2>&1; then
+            echo "D10_T3_HTACCESS_GATE=PASS"
+          else
+            echo "::error::D10_T3_HTACCESS_GATE=FAIL"; exit 1
+          fi
+      - name: Build disposable HTTPS qualification dist
+        id: https_dist
         working-directory: site
         shell: bash
         env:
