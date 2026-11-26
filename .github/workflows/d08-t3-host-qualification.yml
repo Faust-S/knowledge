@@ -1,0 +1,115 @@
+name: D08 original T3 Host and assistant qualification
+on:
+  push:
+    branches: ['qa/2026-11-26-d08-t3-host-8392021']
+    paths: ['.github/workflows/d08-t3-host-qualification.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: d08-t3-host-8392021-once
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: github.event.before == '22293b803f1dc28c6a0d484c1c1dac80818c97c1' && github.event.deleted != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CI: 'true'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - name: Checkout exact private domain
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops
+          ref: 'badc6d6d632f7ffe09b1dc8208b3e61bfe632851'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: domain
+      - name: Checkout exact private site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: '83920215834c61d39d669aa6240a89039d079017'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - name: Checkout original released T3 source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: '326f725c44d69ac99f6b912241e9e8a6c3d716a5'
+          persist-credentials: false
+          path: original
+      - name: Checkout original assistant
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: '5e3083788aa541921559de29d3457d4a52bbba00'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: assistant
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download original portable candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: iwxa-t3-mobile-portable-candidate-326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          run-id: 45395047723
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/d08-original-platform
+      - name: Check pins and corrected responsibility
+        shell: bash
+        run: |
+          set -e
+          test "$(git -C domain rev-parse HEAD)" = 'badc6d6d632f7ffe09b1dc8208b3e61bfe632851'
+          test "$(git -C site rev-parse HEAD)" = '83920215834c61d39d669aa6240a89039d079017'
+          test "$(git -C original rev-parse HEAD)" = '326f725c44d69ac99f6b912241e9e8a6c3d716a5'
+          test "$(git -C assistant rev-parse HEAD)" = '5e3083788aa541921559de29d3457d4a52bbba00'
+          cmp -s domain/model/iwxa-domain-boundaries.mjs site/src/lib/iwxa-domain-boundaries.mjs
+          cmp -s domain/model/iwxa-domain-boundaries.mjs site/t2-site-module/marketops/decision/iwxa-domain-boundaries.mjs
+          node --check site/scripts/prepare-d08-t3-host.mjs
+          node --check site/scripts/verify-d08-t3-host.mjs
+          rc=0
+          (cd domain && node --test tests/enterprise-sector-guidance.test.mjs) > "$RUNNER_TEMP/d08-subject.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d08-subject.log" || true
+          test "$rc" = 0
+          rc=0
+          (cd site && node --test tests/iwxa-domain-boundaries.test.mjs tests/business-launch-review.test.mjs) > "$RUNNER_TEMP/d08-site.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d08-site.log" || true
+          test "$rc" = 0
+          echo D08_T3_BOUNDARY_AND_SYNTAX=PASS
+      - name: Prepare exact original Host and assistant
+        shell: bash
+        run: |
+          set -e
+          cd site
+          archive="$RUNNER_TEMP/d08-original-platform/platform-inputs.zip"
+          npm run check:t3:inputs -- "$archive" > "$RUNNER_TEMP/d08-archive.log" 2>&1 || { echo D08_T3_PLATFORM=FAIL; exit 1; }
+          echo D08_T3_PLATFORM=PASS
+          rc=0
+          npm run prepare:t3:host -- "$GITHUB_WORKSPACE/original/packages/t3-core" "$RUNNER_TEMP/d08-prepared-host" "$archive" "$GITHUB_WORKSPACE/assistant" > "$RUNNER_TEMP/d08-host.log" 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo D08_T3_HOST=FAIL
+            grep -oE 'D08_T3_HOST_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-host.log" | sort -u | head -30 || true
+            grep -E '^[A-Za-z0-9_./-]+\([0-9]+,[0-9]+\): error TS[0-9]+' "$RUNNER_TEMP/d08-host.log" | sed -E 's/(: error TS[0-9]+):.*/\1/' | head -25 || true
+            exit "$rc"
+          fi
+          grep -E '^\{"status":"D08_T3_HOST_SOURCE_BUILT"' "$RUNNER_TEMP/d08-host.log"
+          echo D08_T3_HOST=PASS
+      - name: Read back prepared Host files and input identity
+        shell: bash
+        run: |
+          set -e
+          cd site
+          npm run check:t3:host -- "$RUNNER_TEMP/d08-prepared-host" > "$RUNNER_TEMP/d08-readback.log" 2>&1 || { echo D08_T3_READBACK=FAIL; exit 1; }
+          grep -E '^\{"status":"D08_T3_PREPARED_HOST_VERIFIED"' "$RUNNER_TEMP/d08-readback.log"
+          echo D08_T3_READBACK=PASS
+      - name: Discard private sources and generated output
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/domain" "$GITHUB_WORKSPACE/site" "$GITHUB_WORKSPACE/assistant" "$GITHUB_WORKSPACE/original" "$RUNNER_TEMP/d08-prepared-host" "$RUNNER_TEMP/d08-original-platform"
+          rm -f "$RUNNER_TEMP"/d08-*.log
