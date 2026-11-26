@@ -1,6 +1,6 @@
 // Fixed local Activity operations for the existing Agent U01 adapter.
 import {groupPersonalRoutineEvidence,preparePersonalTechnologyProduct,prepareD05TechnologyProduct,
- preparePersonalRecipientActivation,prepareD05RecipientInputs} from '../modules/activity-base-anonymizer/technology-product.mjs';
+ preparePersonalRecipientActivation,prepareD05RecipientInputs,reviewTechnologyRecipientReadiness} from '../modules/activity-base-anonymizer/technology-product.mjs';
 import {preparePersonalExtractionRequest,reviewPersonalExtractionBundle} from '../modules/activity-base-anonymizer/personal-technology-extraction.mjs';
 import {prepareD05ExtractionRequest,reviewD05ExtractionProposal} from '../modules/activity-base-anonymizer/d05-technology-extraction.mjs';
 import {prepareProductGeneralization,applyProductGeneralization,prepareContextualGeneralizationRequest,reviewContextualGeneralizationProposal,prepareContextualGeneralizationPlan,reviewContextualGeneralizationPlan} from '../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
@@ -25,6 +25,8 @@ const operations={
  '--d05-product':{keys:['candidate','title'],run:v=>prepareD05TechnologyProduct(v.candidate,v.title)},
  '--personal-recipient':{keys:['product','binding'],run:v=>preparePersonalRecipientActivation(v.product,v.binding)},
  '--d05-recipient':{keys:['product','binding'],run:v=>prepareD05RecipientInputs(v.product,v.binding)},
+ '--d05-recipient-transfer':{keys:['product','binding'],run:v=>prepareD05RecipientInputs(v.product,v.binding,{includeTransferGuidance:true})},
+ '--recipient-readiness':{keys:['product'],run:v=>reviewTechnologyRecipientReadiness(v.product)},
 };
 try{
  const args=process.argv.slice(2);

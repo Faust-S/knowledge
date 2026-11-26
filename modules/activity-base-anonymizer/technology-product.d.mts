@@ -32,3 +32,8 @@ export function reviewD05GuidanceScopes(data:unknown):{common:string[];operation
 export function prepareD05RecipientInputs(data:unknown,binding:unknown,options?:{includeTransferGuidance:boolean}):{status:'RECIPIENT_INPUTS_PREVIEW';target:typeof D05_TARGET;
  route_inputs:Record<string,unknown>;quality_plan_inputs:{common:Record<string,unknown>;checks:Record<string,unknown>[];defects:[]};
  next:'SAVE_ROUTE_WITH_ORIGINAL_D05_THEN_LINK_AND_SAVE_QUALITY_PLAN';authority:'ORIGINAL_RECIPIENT_OWNER_REQUIRED';activated:false};
+
+export type RecipientReadiness={status:'LOCAL_RECIPIENT_READINESS';applicability:'REQUIRES_RECIPIENT_REVIEW';recipient_validation:'REQUIRES_ORIGINAL_CONSUMER';activated:false}&(
+ {target:typeof PERSONAL_TARGET;blockers:Array<'TECHNOLOGY_PERSONAL_RECIPIENT_MESSAGE_LIMIT'>;prompt_limit:number;required_prompt_characters:number;recipient_context_capacity:number;cadence:PersonalRoutineTechnology['cadence'];result_requirement_count:number;context_requirement_count:number}|
+ {target:typeof D05_TARGET;blockers:Array<'TECHNOLOGY_D05_DURATION_REQUIRES_FIXED_UNIT'|'TECHNOLOGY_D05_GUIDANCE_SCOPE_UNRESOLVED'>;duration_issues:string[];unresolved_guidance:string[];operation_count:number;quality_check_count:number;parameter_mapping_count:number;resource_mapping_count:number;guidance_count:number});
+export function reviewTechnologyRecipientReadiness(data:unknown):RecipientReadiness;

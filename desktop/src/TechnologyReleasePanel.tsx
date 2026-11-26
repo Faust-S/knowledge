@@ -1,5 +1,5 @@
 import {createContext,useContext,useLayoutEffect,useRef,useState} from 'react';
-import type {ProductPreview} from '../../modules/activity-base-anonymizer/technology-product.mjs';
+import {reviewTechnologyRecipientReadiness,type ProductPreview} from '../../modules/activity-base-anonymizer/technology-product.mjs';
 import type {TechnologyReleasePort,TechnologyReleaseResult} from '../../modules/activity-base-anonymizer/technology-release-host.mjs';
 export const TechnologyReleaseContext=createContext<TechnologyReleasePort|null>(null);
 const labels:Record<string,string>={
@@ -63,7 +63,8 @@ export function TechnologyReleasePanel({product}:{product:ProductPreview}){
  const [unknown,setUnknown]=useState(false);
  useLayoutEffect(()=>{generation.current++;dispatch.current=false;setBusy(false);setResult(null);setUnknown(false);
   return()=>{generation.current++;};},[host,product.product_sha256]);
- const blocked=unknown||!!result&&(result.export_confirmed||result.file_saved!==false||
+ const readiness=reviewTechnologyRecipientReadiness(product.object_data);
+ const blocked=readiness.blockers.length>0||unknown||!!result&&(result.export_confirmed||result.file_saved!==false||
   result.status==='TECHNOLOGY_RELEASE_RECONCILIATION_REQUIRED');
  async function release(){
   if(!host||dispatch.current||blocked)return;
@@ -81,6 +82,20 @@ export function TechnologyReleasePanel({product}:{product:ProductPreview}){
  return <div className="activity-domain-proposal">
   <ProductContents product={product}/>
   <h3>Передача технологии</h3>
+  <div className="activity-domain-group">
+   <h4>Применение у получателя</h4>
+   {readiness.target==='PERSONAL_AGENT_TASK_PROMPT'?<>
+    <p>Инструкция для Personal Agent: {readiness.required_prompt_characters} из {readiness.prompt_limit} символов. Место для собственного контекста получателя: до {readiness.recipient_context_capacity} символов.</p>
+    <p>Критериев результата: {readiness.result_requirement_count}. Требований к источникам и контексту: {readiness.context_requirement_count}.</p>
+    {readiness.blockers.length?<p className="activity-v7-note hold">Полная инструкция превышает допустимый объём штатного задания Agent. Содержательно сократите её в редакторе, не удаляя обязательные условия.</p>:null}
+   </>:<>
+    <p>Операций: {readiness.operation_count}. Контрольных точек: {readiness.quality_check_count}. Настраиваемых параметров: {readiness.parameter_mapping_count}. Соответствий ресурсов: {readiness.resource_mapping_count}. Практических условий: {readiness.guidance_count}.</p>
+    {readiness.duration_issues.length?<p className="activity-v7-note hold">Уточните длительность и единицу времени операций: {readiness.duration_issues.join(', ')}.</p>:null}
+    {readiness.unresolved_guidance.length?<details className="activity-v7-note hold"><summary>Уточните область практических правил ({readiness.unresolved_guidance.length})</summary>
+     {readiness.unresolved_guidance.map((v,i)=><p key={i} style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{v}</p>)}</details>:null}
+   </>}
+   <p>{readiness.blockers.length?'Устраните указанные несоответствия перед выпуском.':'Известные ограничения формата применения соблюдены. Соответствие ресурсов, полезность и фактическое выполнение проверяет сам получатель.'}</p>
+  </div>
   <p>Передаётся только показанное предметное содержимое. Изменение редакции требует нового решения владельца. Принятый черновик и текстовая проверка не дают права раскрытия.</p>
   {host?<><div className="activity-v7-actions"><button className="activity-v7-primary" disabled={busy||blocked}
    onClick={()=>void release()}>Проверить у владельца и выпустить .iwxa</button></div>

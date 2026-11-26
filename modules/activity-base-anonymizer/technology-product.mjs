@@ -224,25 +224,39 @@ export async function preparePersonalTechnologyProduct(records,variantId,proposa
   need(technology.cadence.interval_seconds===variant.interval_seconds,'TECHNOLOGY_PERSONAL_CADENCE_CHANGED');
  return preview({title,target:PERSONAL_TARGET,technology});
 }
+// One exact message constructor is used both for feasibility and for the
+// existing recipient projection. The native Python Agent counts Unicode
+// code points, not UTF-16 units. Never shorten a mandatory instruction.
+const PERSONAL_MESSAGE_LIMIT=32000,PERSONAL_CONTEXT_LIMIT=8000;
+const characterCount=v=>Array.from(v).length;
+function personalRecipientMessage(t,localContext){
+ return ['Purpose: '+t.purpose,'Inputs: '+t.inputs,'Outputs: '+t.outputs,'Applicability: '+t.applicability,
+  'Procedure:\n'+t.instructions,'Result requirements:\n'+t.result_requirements.map(x=>'- '+x).join('\n'),
+  'Context requirements:\n'+t.context_requirements.map(x=>'- '+x).join('\n'),
+  'Recipient context:\n'+localContext,
+  'If input or capability is missing, report the gap. Do not claim execution or approval without evidence.'].join('\n\n');
+}
+// Date.parse accepts overflow dates and 24:00 which native datetime does not.
+function personalDue(v){
+ if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(v)||
+   v.startsWith('0000-')||!Number.isFinite(Date.parse(v)))return false;
+ const normalized=v.includes('.')?v.replace(/\.(\d{1,3})Z$/,(_,digits)=>'.'+digits.padEnd(3,'0')+'Z'):v.replace(/Z$/,'.000Z');
+ return new Date(v).toISOString()===normalized;
+}
 /** A binding preview for ORIGINAL recipient Agent. It never creates or
  * schedules work itself. The selected owner validates source flags, time,
  * task creation, tool rights, review and local persistence. */
 export function preparePersonalRecipientActivation(data,binding){
  const product=validateTechnologyProduct(data);
  need(product.target===PERSONAL_TARGET&&exact(binding,['workspace_id','due_at','interval_seconds','use_memory','use_knowledge','use_web','local_context'])&&
-  code(binding.workspace_id)&&typeof binding.due_at==='string'&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(binding.due_at)&&
-  Number.isFinite(Date.parse(binding.due_at))&&int(binding.interval_seconds,60,31536000)&&
+  code(binding.workspace_id)&&personalDue(binding.due_at)&&int(binding.interval_seconds,60,31536000)&&
   ['use_memory','use_knowledge','use_web'].every(k=>typeof binding[k]==='boolean')&&
-  (binding.local_context===''||text(binding.local_context,8000)),'TECHNOLOGY_PERSONAL_RECIPIENT_BINDING');
+  (binding.local_context===''||text(binding.local_context,PERSONAL_CONTEXT_LIMIT)),'TECHNOLOGY_PERSONAL_RECIPIENT_BINDING');
  const t=product.technology;
  if(t.cadence.mode==='RETAIN_INTERVAL')need(t.cadence.interval_seconds===binding.interval_seconds,'TECHNOLOGY_PERSONAL_CADENCE_CHANGED');
  // The transfer carries a procedure, not the source Task or its authority.
- const message=['Purpose: '+t.purpose,'Inputs: '+t.inputs,'Outputs: '+t.outputs,'Applicability: '+t.applicability,
-  'Procedure:\n'+t.instructions,'Result requirements:\n'+t.result_requirements.map(x=>'- '+x).join('\n'),
-  'Context requirements:\n'+t.context_requirements.map(x=>'- '+x).join('\n'),
-  'Recipient context:\n'+binding.local_context,
-  'If input or capability is missing, report the gap. Do not claim execution or approval without evidence.'].join('\n\n');
- need(message.length<=32000,'TECHNOLOGY_PERSONAL_RECIPIENT_MESSAGE_LIMIT');
+ const message=personalRecipientMessage(t,binding.local_context);
+ need(characterCount(message)<=PERSONAL_MESSAGE_LIMIT,'TECHNOLOGY_PERSONAL_RECIPIENT_MESSAGE_LIMIT');
  return {status:'RECIPIENT_ACTIVATION_PREVIEW',target:PERSONAL_TARGET,job_kind:'task_prompt',
   payload:{message,use_memory:binding.use_memory,use_knowledge:binding.use_knowledge,use_web:binding.use_web},
   options:{expected_workspace_id:binding.workspace_id,due_at:binding.due_at,interval_seconds:binding.interval_seconds},
@@ -347,4 +361,38 @@ export function prepareD05RecipientInputs(data,binding,options={includeTransferG
    sourceDocuments:binding.source_documents,linkedOperationRouteId:''},checks,defects:[]},
   next:'SAVE_ROUTE_WITH_ORIGINAL_D05_THEN_LINK_AND_SAVE_QUALITY_PLAN',
   authority:'ORIGINAL_RECIPIENT_OWNER_REQUIRED',activated:false};
+}
+
+
+/** Check concrete receiver constraints before releasing a new technology.
+ * This does not establish recipient capabilities, grant rights, execute a
+ * scheduler or calculate a production route. Old archives remain readable.
+ */
+export function reviewTechnologyRecipientReadiness(data){
+ const product=validateTechnologyProduct(data),t=product.technology,blockers=[];
+ const common={status:'LOCAL_RECIPIENT_READINESS',target:product.target,
+  applicability:'REQUIRES_RECIPIENT_REVIEW',recipient_validation:'REQUIRES_ORIGINAL_CONSUMER',activated:false};
+ if(product.target===PERSONAL_TARGET){
+  const required_prompt_characters=characterCount(personalRecipientMessage(t,''));
+  if(required_prompt_characters>PERSONAL_MESSAGE_LIMIT)blockers.push('TECHNOLOGY_PERSONAL_RECIPIENT_MESSAGE_LIMIT');
+  return {...common,blockers,prompt_limit:PERSONAL_MESSAGE_LIMIT,required_prompt_characters,
+   recipient_context_capacity:Math.max(0,Math.min(PERSONAL_CONTEXT_LIMIT,PERSONAL_MESSAGE_LIMIT-required_prompt_characters)),
+   cadence:{...t.cadence},result_requirement_count:t.result_requirements.length,context_requirement_count:t.context_requirements.length};
+ }
+ // A legal legacy archive can contain a zero retained duration. Keep the
+ // reader compatible, but do not present it as directly transferable.
+ const duration_issues=t.operations.filter(o=>{
+  const d=o.parameters.find(p=>p.field==='duration'),u=o.parameters.find(p=>p.field==='unit');
+  return d.mode==='RETAIN_DECLARATION'&&(!canRetainD05Parameter('duration',d.value)||u.mode!=='RETAIN_DECLARATION');
+ }).map(o=>o.operation_id);
+ if(duration_issues.length)blockers.push('TECHNOLOGY_D05_DURATION_REQUIRES_FIXED_UNIT');
+ const scopes=partitionD05Guidance(t);
+ if(scopes.unresolved.length)blockers.push('TECHNOLOGY_D05_GUIDANCE_SCOPE_UNRESOLVED');
+ return {...common,blockers,duration_issues,unresolved_guidance:scopes.unresolved,
+  operation_count:t.operations.length,quality_check_count:t.quality_checks.length,
+  parameter_mapping_count:t.route_parameters.filter(p=>p.mode==='PARAMETERIZE').length+
+   t.operations.reduce((n,o)=>n+o.parameters.filter(p=>p.mode==='PARAMETERIZE').length,0),
+  resource_mapping_count:t.operations.length*3+t.quality_checks.length+
+   t.quality_checks.filter(c=>c.declared_fields.some(f=>f.field==='related_material_id')).length,
+  guidance_count:scopes.common.length+Object.values(scopes.operations).reduce((n,v)=>n+v.length,0)+Object.values(scopes.quality).reduce((n,v)=>n+v.length,0)};
 }

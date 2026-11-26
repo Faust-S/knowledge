@@ -31,6 +31,8 @@ OPERATIONS = {
     "d05_product_prepare": ("node", "activity-technology-product.mjs", ("--d05-product",)),
     "personal_recipient_prepare": ("node", "activity-technology-product.mjs", ("--personal-recipient",)),
     "d05_recipient_prepare": ("node", "activity-technology-product.mjs", ("--d05-recipient",)),
+    "d05_recipient_transfer": ("node", "activity-technology-product.mjs", ("--d05-recipient-transfer",)),
+    "technology_recipient_readiness": ("node", "activity-technology-product.mjs", ("--recipient-readiness",)),
     "route_compare": ("node", "activity-d05-route-review.mjs", ()),
     "technology_draft": ("node", "activity-d05-route-review.mjs", ("--technology-draft",)),
     "technology_proposal": ("node", "activity-d05-route-review.mjs", ("--technology-proposal",)),

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {buildD05RouteQualityComparisonExample,reviewD05ResultSelection,prepareD05DisclosureCandidate}
  from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 import {groupPersonalRoutineEvidence,preparePersonalTechnologyProduct,preparePersonalRecipientActivation,
- prepareD05TechnologyProduct,prepareD05RecipientInputs,validateTechnologyProduct,PERSONAL_TARGET,D05_TARGET}
+ prepareD05TechnologyProduct,prepareD05RecipientInputs,validateTechnologyProduct,reviewTechnologyRecipientReadiness,PERSONAL_TARGET,D05_TARGET}
  from '../modules/activity-base-anonymizer/technology-product.mjs';
 
 import {personalRows,personalProposal,personalBinding,d05Candidate,d05Binding} from './activity_technology_product_fixture.mjs';
@@ -106,4 +106,48 @@ test('fixed local Agent product CLI matches the same product and recipient input
  assert.equal(activation.status,0);assert.deepEqual(JSON.parse(activation.stdout),preparePersonalRecipientActivation(p.object_data,binding));
  const refused=invoke('--personal-product',{records:records.slice(0,1),variant_id:'routine_001',proposal});
  assert.equal(refused.status,2);assert.equal(JSON.parse(refused.stdout).status,'HOLD');
+});
+
+test('recipient readiness uses the actual native personal message budget and rejects invalid UTC dates',async()=>{
+ const p=await preparePersonalTechnologyProduct(personalRows(),'routine_001',personalProposal());
+ const empty={...personalBinding(),local_context:''},base=preparePersonalRecipientActivation(p.object_data,empty);
+ const ready=reviewTechnologyRecipientReadiness(p.object_data);
+ assert.equal(ready.required_prompt_characters,Array.from(base.payload.message).length);
+ assert.equal(ready.recipient_context_capacity,8000);
+ assert.deepEqual(ready.blockers,[]);
+ const large=structuredClone(p.object_data);
+ large.technology.instructions='x'.repeat(16000);
+ large.technology.result_requirements=Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+'x'.repeat(998));
+ const oversized=reviewTechnologyRecipientReadiness(large);
+ assert.ok(oversized.required_prompt_characters>32000);
+ assert.equal(oversized.recipient_context_capacity,0);
+ assert.deepEqual(oversized.blockers,['TECHNOLOGY_PERSONAL_RECIPIENT_MESSAGE_LIMIT']);
+ assert.throws(()=>preparePersonalRecipientActivation(large,empty),{code:'TECHNOLOGY_PERSONAL_RECIPIENT_MESSAGE_LIMIT'});
+ const near=structuredClone(p.object_data);
+ near.technology.instructions='x'.repeat(16000);
+ near.technology.result_requirements=Array.from({length:14},(_,i)=>String(i).padStart(2,'0')+'x'.repeat(998));
+ const budget=reviewTechnologyRecipientReadiness(near);
+ assert.ok(budget.recipient_context_capacity>0&&budget.recipient_context_capacity<8000);
+ assert.equal(Array.from(preparePersonalRecipientActivation(near,{...empty,local_context:'x'.repeat(budget.recipient_context_capacity)}).payload.message).length,32000);
+ assert.throws(()=>preparePersonalRecipientActivation(near,{...empty,local_context:'x'.repeat(budget.recipient_context_capacity+1)}),{code:'TECHNOLOGY_PERSONAL_RECIPIENT_MESSAGE_LIMIT'});
+ for(const due_at of ['2030-02-30T08:00:00Z','2030-01-02T24:00:00Z','0000-01-02T08:00:00Z'])
+  assert.throws(()=>preparePersonalRecipientActivation(p.object_data,{...empty,due_at}),{code:'TECHNOLOGY_PERSONAL_RECIPIENT_BINDING'});
+ assert.equal(preparePersonalRecipientActivation(p.object_data,{...empty,due_at:'2032-02-29T08:00:00.1Z'}).activated,false);
+ const astral=structuredClone(near);astral.technology.instructions='😀'.repeat(8000);
+ const unicode=reviewTechnologyRecipientReadiness(astral);
+ assert.equal(unicode.required_prompt_characters,budget.required_prompt_characters-8000);
+});
+test('recipient readiness identifies unusable legacy duration and unbound scoped rules without modifying the archive',async()=>{
+ const p=await prepareD05TechnologyProduct(d05Candidate(),'Part'),data=structuredClone(p.object_data);
+ const valid=reviewTechnologyRecipientReadiness(data);
+ assert.deepEqual(valid.blockers,[]);
+ assert.equal(valid.operation_count,data.technology.operations.length);
+ assert.equal(valid.quality_check_count,data.technology.quality_checks.length);
+ const op=data.technology.operations[0];
+ op.parameters.find(p=>p.field==='duration').value='0';
+ data.technology.terms.local_context_guidance+='\nКонтрольная точка check_999: Не выпускать партию.';
+ const before=JSON.stringify(data),review=reviewTechnologyRecipientReadiness(data);
+ assert.deepEqual(review.blockers,['TECHNOLOGY_D05_DURATION_REQUIRES_FIXED_UNIT','TECHNOLOGY_D05_GUIDANCE_SCOPE_UNRESOLVED']);
+ assert.deepEqual(review.duration_issues,[op.operation_id]);assert.equal(review.unresolved_guidance.length,1);
+ assert.equal(JSON.stringify(data),before);assert.equal(review.activated,false);
 });
