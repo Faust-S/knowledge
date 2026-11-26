@@ -991,7 +991,9 @@ test('K51 replacement HEADS has a separate deterministic predecessor index and c
     isCode('WIRE_FIELDS_INVALID'));
   const conflict={...body,replacement:{...body.replacement,decisionDigest:H}};
   const conflictBytes=await x.signHead(conflict,candidate.sessionRef,[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]);
-  await assert.rejects(sender.publishSignedFrame({wireBytes:conflictBytes}),isCode('WIRE_NETWORK_PUBLICATION_OUTCOME_UNKNOWN'));
+  const putsBeforeConflict=x.counts().networkPuts;
+  await assert.rejects(sender.publishSignedFrame({wireBytes:conflictBytes}),isCode('WIRE_NATIVE_INDEX_SLOT_CONFLICT'));
+  assert.equal(x.counts().networkPuts,putsBeforeConflict);
   assert.equal(x.indexes.get(predecessorIndex),published.sha256);
   assert.equal(x.indexes.get(rootIndex),rootReceipt.sha256);
 });
