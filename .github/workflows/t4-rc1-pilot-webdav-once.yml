@@ -1,0 +1,35 @@
+name: T4 RC1 real serial pilot WebDAV
+on:
+  push:
+    branches:
+      - 'ci/once/t4-rc1-pilot-webdav/e4385348c2ea'
+permissions:
+  contents: read
+jobs:
+  pilot-webdav:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact RC source and existing locked transport
+        run: |
+          test "$(git rev-parse HEAD^)" = "e4385348c2ea7ccea624836a36f4b9519bf82763"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+          python3 -m py_compile packages/t4-network/scripts/qualify_webdav.py
+          node --check packages/t4-network/tests/network/standard-network-native-webdav.test.mjs
+      - name: Use standard actual Apache server
+        run: |
+          if ! command -v apache2 >/dev/null || ! command -v htpasswd >/dev/null || ! command -v openssl >/dev/null || ! test -f /usr/lib/apache2/modules/mod_mpm_prefork.so; then
+            sudo apt-get update
+            sudo apt-get install -y apache2 apache2-utils openssl
+          fi
+      - name: Actual HTTPS native frame contention, transport regression and cold read
+        working-directory: packages/t4-network
+        run: npm run test:network
