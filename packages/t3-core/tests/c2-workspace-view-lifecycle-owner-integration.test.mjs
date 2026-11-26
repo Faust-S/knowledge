@@ -55,3 +55,51 @@ test('original saved-view owner preserves identity, presentation, revisions, del
   assert.equal((await read(legacy)).data.name,firstName);
   assert.equal((await read(legacy)).revision,1);
 });
+
+test('original owner preserves exact canvas layout and refuses stale competing edits', async () => {
+  const gateway = new OwnerWriteGateway({adapter:new MemoryCanonicalAdapter()});
+  const owner = new WorkspaceViewStateOwner({gateway,now:()=> '2026-11-26T18:00:00Z'});
+  await gateway.initialize();
+  const workspaceId='w',profileId='generic',viewId='view-'+'a'.repeat(32);
+  const objects=['A','B','C'].map((id,i)=>({workspace_id:workspaceId,object_id:id,
+    schema_id:'note',revision:i+1,data:{title:'private fixture '+id}}));
+  const capture=(overrides={})=>views.captureWorkspaceViewPresentation({
+    workspaceId,objects,mode:'canvas',selectedObjectIds:['C','B','A'],detailObjectId:'B',
+    canvasLayout:{columns:2,detailed:['A','B'],wide:['C']},...overrides});
+  const presentation=capture();
+  const envelope=(base_revision,pres)=>({workspace_id:workspaceId,object_id:'saved-view:'+viewId,
+    schema_id:'iwxa.workspace.internal.saved-view',schema_version:'1.0.0',
+    data:{version:1,view_id:viewId,name:'Study',profile_id:profileId,logical_area_id:null,query:'',presentation:pres},
+    extensions:{owner_module:'iwxa.workspace.view-state'},base_revision});
+  const read=(from=owner)=>from.getObject({workspace_id:workspaceId,object_id:'saved-view:'+viewId});
+  const created=await owner.putObject(envelope(0,presentation));
+  assert.equal(created.object.revision,1);
+  assert.ok(views.workspaceSavedViewDataMatches(created.object.data,envelope(0,presentation).data));
+  const reopened=new WorkspaceViewStateOwner({gateway});
+  const saved=await read(reopened);
+  assert.ok(views.workspaceSavedViewDataMatches(saved.data,created.object.data));
+  const projected=views.projectWorkspacePersistedViews({workspaceId,profileId,objects:[saved]});
+  const restored=views.restoreWorkspaceViewPresentation({workspaceId,objects,presentation:projected.views[0].presentation});
+  assert.deepEqual(restored.selectedObjectIds,['C','B','A']);
+  assert.equal(restored.detailObjectId,'B');
+  assert.deepEqual(restored.canvasLayout,presentation.canvas);
+  assert.equal(JSON.stringify(saved.data).includes('private fixture'),false);
+  const request={workspaceId,profileId,name:'Study',logicalAreaId:null,query:'',objects:[saved]};
+  assert.throws(()=>views.prepareWorkspacePersistedViewSave(request),e=>e.code==='VIEW_STATE_EDIT_REQUIRED');
+  const changed=capture({selectedObjectIds:['B','C'],detailObjectId:'B',
+    canvasLayout:{columns:1,detailed:['B'],wide:[]}});
+  const edit=views.prepareWorkspacePersistedViewSave({...request,presentation:changed,edit:{viewId,baseRevision:1}});
+  assert.equal(edit.viewId,viewId);
+  assert.equal(edit.baseRevision,1);
+  const updated=await reopened.putObject(envelope(edit.baseRevision,changed));
+  assert.equal(updated.object.revision,2);
+  assert.equal(updated.object.data.presentation.canvas.columns,1);
+  await assert.rejects(owner.putObject(envelope(1,presentation)),e=>e.code==='REVISION_CONFLICT');
+  const altered=[objects[0],{...objects[1],revision:7},objects[2]];
+  const revisedView=await read();
+  const partial=views.restoreWorkspaceViewPresentation({workspaceId,objects:altered,presentation:revisedView.data.presentation});
+  assert.equal(partial.changedCount,1);
+  assert.equal(partial.detailObjectId,null);
+  assert.deepEqual(partial.selectedObjectIds,['C']);
+  assert.equal((await read()).data.presentation.detail.revision,2);
+});
