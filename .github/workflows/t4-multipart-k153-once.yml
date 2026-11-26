@@ -1,0 +1,29 @@
+name: T4 K153 publication recovery qualification
+on:
+  push:
+    branches: ['ci/once/t4-multipart-k153/f323743cb5c4b78268d1b6b370f6d2c0ccd9fd9b']
+permissions:
+  contents: read
+concurrency:
+  group: t4-multipart-k153-f323743cb5c4b78268d1b6b370f6d2c0ccd9fd9b
+  cancel-in-progress: false
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: |
+          test "$(git rev-parse HEAD^)" = "f323743cb5c4b78268d1b6b370f6d2c0ccd9fd9b"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Original publication and multipart regression
+        run: node --experimental-strip-types --test --test-concurrency=2 packages/t4-network/tests/original-network-publication.test.mjs packages/t4-network/tests/original-network-publication-multipart-backing.test.mjs
+      - name: New cold index repair, no resend or permission bypass
+        run: node --experimental-strip-types --test --test-name-pattern='K153' packages/t4-network/tests/original-network-multipart-agreement.test.mjs
