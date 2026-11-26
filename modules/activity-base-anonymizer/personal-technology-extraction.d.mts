@@ -8,7 +8,7 @@ export const FIELDS:ExtractionField[];
 export type FieldReview={value:string|string[]|null;basis:'SOURCE_SUPPORTED'|'PROPOSED'|'MISSING';refs:Array<{id:string;path:string;quote:string}>;note:string};
 export type ExtractionReview={status:'LOCAL_PERSONAL_EXTRACTION_REVIEW';request_sha256:string;source_sha256:string;variant_id:string;
  fields:Record<ExtractionField,FieldReview>;missing_fields:ExtractionField[];proposed_fields:ExtractionField[];
- proposal:unknown;product:ProductPreview|null;source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED';
+ proposal:unknown;product:ProductPreview|null;practical_experience:PersonalPracticalExperience;practical_coverage:PersonalPracticalCoverage[];source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED';
  evidence_semantics:'EXACT_QUOTATIONS_NOT_SEMANTIC_PROOF';export_allowed:false;iwxa_package:null};
 export function preparePersonalExtractionRequest(source:unknown):Promise<{document:unknown;document_text:string;request_sha256:string;source_sha256:string;source_rows:PersonalEvidenceRow[];variant_id:string;export_allowed:false;iwxa_package:null}>;
 export function reviewPersonalExtractionBundle(bundle:unknown):Promise<ExtractionReview>;
@@ -16,7 +16,8 @@ export function reviewPersonalExtractionBundle(bundle:unknown):Promise<Extractio
 export type PersonalPracticalRule={rule_id:string;kind:'HUMAN_REVIEW_CRITERION'|'REPORTED_CONTEXT_LIMITATION';source_text:string;
  suggested_text:string;occurrence_count:number;evidence:Array<{id:string;path:string;quote:string}>;
  wording_review_required:boolean;variants:Array<{source_text:string;occurrence_count:number;evidence:Array<{id:string;path:string;quote:string}>}>};
+export type PersonalPracticalCoverage={rule_id:string;expected_field:'result_requirements'|'context_requirements';cited_by:ExtractionField[];exact_in_expected_field:boolean};
 export type PersonalPracticalExperience={status:'LOCAL_PERSONAL_PRACTICAL_EXPERIENCE';source_sha256:string;variant_id:string;
- occurrence_count:number;rules:PersonalPracticalRule[];related_candidates:Array<import('./practical-rule-wording.mjs').RelatedWordingPair&{left:PersonalPracticalRule;right:PersonalPracticalRule}>;related_comparison_limited:boolean;source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED';
+ occurrence_count:number;rules:PersonalPracticalRule[];single_candidates:PersonalPracticalRule[];related_candidates:Array<import('./practical-rule-wording.mjs').RelatedWordingPair&{left:PersonalPracticalRule;right:PersonalPracticalRule}>;related_comparison_limited:boolean;source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED';
  evidence_semantics:'REPEATED_EXPLICIT_STATEMENTS_NOT_EXTERNAL_EXECUTION';export_allowed:false;iwxa_package:null};
 export function reviewPersonalPracticalExperience(source:unknown):Promise<PersonalPracticalExperience>;

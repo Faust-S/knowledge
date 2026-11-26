@@ -29,7 +29,7 @@ export function PersonalRoutineReviewPanel(){
    const raw=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await f.arrayBuffer()));
    const extracted=raw?.status===BUNDLE?await reviewPersonalExtractionBundle(raw):null;
    const acceptedSource=extracted?raw.source:raw?.status===SOURCE?raw:null;
-   const practical=acceptedSource?await reviewPersonalPracticalExperience(acceptedSource):null;
+   const practical=extracted?.practical_experience??(acceptedSource?await reviewPersonalPracticalExperience(acceptedSource):null);
    const data=acceptedSource?acceptedSource.rows:raw?.status==='LOCAL_ACTIVITY_ROUTINE_SOURCE'&&raw.export_allowed===false?raw.rows:raw;
    const grouped=await groupPersonalRoutineEvidence(data);
    if(token!==generation.current)return;
@@ -93,7 +93,7 @@ export function PersonalRoutineReviewPanel(){
        {row.note?<span>{row.note}</span>:null}{row.refs.map((r,i)=><span key={i}>{r.quote}</span>)}</div>;})}</div>:null}
      </div>:null}
      {experience?.variant_id===selected?<PersonalPracticalExperiencePanel key={experience.source_sha256+':'+selected}
-      experience={experience} requirements={form.requirements} contexts={form.contexts}
+      experience={experience} coverage={extraction?.variant_id===selected?extraction.practical_coverage:undefined} requirements={form.requirements} contexts={form.contexts}
       onApply={(requirements,contexts)=>{invalidate();setForm(old=>({...old,requirements,contexts}));}}/>:null}
      <h3>Технология для другого пользователя</h3>
      <p>Обобщите назначение, способ работы и критерии. Не переносите личные имена, адреса, аккаунты, права и результаты исходных задач.</p>

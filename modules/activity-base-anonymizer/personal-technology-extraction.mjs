@@ -68,7 +68,10 @@ export async function preparePersonalExtractionRequest(source){
 // locally. Recognized grammatical variants are grouped for explicit review.
 // Claims and draft artifacts are not promoted into requirements.
 export async function reviewPersonalPracticalExperience(source){
- const {document,source_sha256,variant_id}=await readPersonalExtractionSource(source);
+ return summarizePersonalPracticalExperience(await readPersonalExtractionSource(source));
+}
+// Reuse the source-bound document already read by the extraction reviewer.
+async function summarizePersonalPracticalExperience({document,source_sha256,variant_id}){
  const candidates=new Map();
  const add=(kind,value,id,path)=>{
   if(!text(value,1000)||/[\r\n]/.test(value))return;
@@ -92,7 +95,8 @@ export async function reviewPersonalPracticalExperience(source){
  const singletonCriteria=[...candidates.values()].filter(r=>r.occurrences.size===1&&r.kind==='HUMAN_REVIEW_CRITERION').length;
  const tooManyRelated=singletonCriteria>160;
  for(const row of candidates.values()){
-  if(row.occurrences.size<2&&(tooManyRelated||row.kind!=='HUMAN_REVIEW_CRITERION'))continue;
+  // Keep even a single explicit instruction or limitation for review.
+  // It is not a repeated rule and is never selected automatically.
   const variants=[...row.variants].map(([source_text,refs])=>({source_text,occurrence_count:refs.size,evidence:[...refs.values()]}))
    .sort((a,b)=>b.occurrence_count-a.occurrence_count||compare(a.source_text,b.source_text));
   const primary=variants[0].source_text;
@@ -107,11 +111,12 @@ export async function reviewPersonalPracticalExperience(source){
   (row.occurrences.size>=2?rules:single).push(rule);
  }
  rules.sort((a,b)=>compare(a.kind,b.kind)||b.occurrence_count-a.occurrence_count||compare(a.rule_id,b.rule_id));
- const candidatesForReview=compareRelatedPracticalWordings(single.filter(r=>r.kind==='HUMAN_REVIEW_CRITERION').map(r=>({id:r.rule_id,partition:r.kind,sections:[r.source_text],observations:[...new Set(r.evidence.map(e=>e.id))]})));
+ single.sort((a,b)=>compare(a.kind,b.kind)||compare(a.source_text,b.source_text)||compare(a.rule_id,b.rule_id));
+ const candidatesForReview=tooManyRelated?{pairs:[],limited:true}:compareRelatedPracticalWordings(single.filter(r=>r.kind==='HUMAN_REVIEW_CRITERION').map(r=>({id:r.rule_id,partition:r.kind,sections:[r.source_text],observations:[...new Set(r.evidence.map(e=>e.id))]})));
  const byId=new Map(single.map(r=>[r.rule_id,r]));
  const related_candidates=candidatesForReview.pairs.map(p=>({...p,left:byId.get(p.left_id),right:byId.get(p.right_id)}));
  return {status:'LOCAL_PERSONAL_PRACTICAL_EXPERIENCE',source_sha256,variant_id,related_candidates,related_comparison_limited:tooManyRelated||candidatesForReview.limited,
-  occurrence_count:document.observations.length,rules,source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED',
+  occurrence_count:document.observations.length,rules,single_candidates:single,source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED',
   evidence_semantics:'REPEATED_EXPLICIT_STATEMENTS_NOT_EXTERNAL_EXECUTION',export_allowed:false,iwxa_package:null};
 }
 function referencedText(document,id,path){
@@ -152,6 +157,20 @@ function fieldReview(field,row,document){
  }
  return clone(row);
 }
+// Direct coverage only: an exact line or quotation is not a semantic
+// equivalence test. A partial citation to the same note is not enough to
+// mark the complete practical instruction as cited.
+function reviewPracticalCoverage(experience,fields){
+ return [...experience.rules,...experience.single_candidates].map(rule=>{
+  const expected_field=rule.kind==='HUMAN_REVIEW_CRITERION'?'result_requirements':'context_requirements';
+  const value=fields[expected_field].value;
+  const expectedTexts=new Set([rule.suggested_text,...(rule.kind==='HUMAN_REVIEW_CRITERION'?rule.variants.map(v=>v.source_text):[])]);
+  const exact_in_expected_field=Array.isArray(value)&&value.some(v=>expectedTexts.has(v));
+  const cited_by=Object.entries(fields).filter(([,field])=>field.refs.some(ref=>rule.evidence.some(e=>
+   ref.id===e.id&&ref.path===e.path&&ref.quote.includes(e.quote)))).map(([id])=>id);
+  return {rule_id:rule.rule_id,expected_field,cited_by,exact_in_expected_field};
+ });
+}
 export async function reviewPersonalExtractionBundle(bundle){
  need(exact(bundle,['status','source','request_sha256','task_ref','accepted_digest','proposal','export_allowed','iwxa_package'])&&
   bundle.status===BUNDLE&&bundle.export_allowed===false&&bundle.iwxa_package===null&&
@@ -171,8 +190,10 @@ export async function reviewPersonalExtractionBundle(bundle){
  // Same existing product builder. Its local preview still requires
  // disclosure and domain/owner review. Private evidence never enters Object.
  const product=missing.length===0?await preparePersonalTechnologyProduct(request.source_rows,request.variant_id,proposal):null;
+ const practical_experience=await summarizePersonalPracticalExperience(request);
+ const practical_coverage=reviewPracticalCoverage(practical_experience,fields);
  return {status:'LOCAL_PERSONAL_EXTRACTION_REVIEW',request_sha256:request.request_sha256,
   source_sha256:request.source_sha256,variant_id:request.variant_id,fields,missing_fields:missing,proposed_fields:proposed,
-  proposal,product,source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED',
+  proposal,product,practical_experience,practical_coverage,source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED',
   evidence_semantics:'EXACT_QUOTATIONS_NOT_SEMANTIC_PROOF',export_allowed:false,iwxa_package:null};
 }

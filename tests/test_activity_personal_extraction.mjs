@@ -87,6 +87,7 @@ test('Activity alone extracts recurring explicit review criteria and context lim
  assert.ok(view.rules.some(r=>r.source_text==='Не считать оплату выполненной без подтверждения'));
  assert.ok(!view.rules.some(r=>r.source_text==='Good result'||r.source_text==='Overdue work needs a reason'||r.source_text==='Не подтверждено наличие договора'));
  assert.equal(view.export_allowed,false);
+ assert.ok(view.single_candidates.every(r=>r.occurrence_count===1));
  const reversed=await reviewPersonalPracticalExperience({...data,rows:[...data.rows].reverse(),accepted_results:[...data.accepted_results].reverse()});
  assert.deepEqual(reversed,view);
  // The local extractor does not inherit the model input size limit.
@@ -121,6 +122,35 @@ test('nonidentical owner instructions become review candidates, not automaticall
  assert.ok(r.related_candidates[0].shared_terms.includes('договора'));
  assert.equal(r.related_candidates[0].left.evidence.length,1);
  assert.equal(r.related_candidates[0].right.evidence.length,1);
+ assert.equal(r.single_candidates.filter(x=>x.kind==='HUMAN_REVIEW_CRITERION').length,4);
  data.accepted_results[1].review_notes=data.accepted_results[1].review_notes.replace('до оплаты','после оплаты');
  assert.equal((await reviewPersonalPracticalExperience(data)).related_candidates.length,0);
+});
+
+test('model review keeps one-off conditions and reports direct coverage without treating quotations as meaning',async()=>{
+ const data=source();
+ data.accepted_results[0].review_notes='Проверить наличие договора до оплаты.\nНе отправлять документы без согласия владельца.';
+ data.accepted_results[1].review_notes='Проверить наличие договора до оплаты.';
+ data.accepted_results[1].uncertainties.push('Нет подтверждения доступности банковской выписки');
+ const b=await bundle(data),fields=b.proposal.fields;
+ const original='Проверить наличие договора до оплаты.';
+ fields.result_requirements={value:[original],basis:'SOURCE_SUPPORTED',
+  refs:[{id:'evidence_001',path:'review_notes',quote:original}],note:''};
+ const result=await reviewPersonalExtractionBundle(b);
+ const recurring=result.practical_experience.rules.find(r=>r.source_text===original);
+ assert.ok(recurring);assert.equal(recurring.occurrence_count,2);
+ const direct=result.practical_coverage.find(c=>c.rule_id===recurring.rule_id);
+ assert.equal(direct.exact_in_expected_field,true);
+ assert.deepEqual(direct.cited_by,['result_requirements']);
+ const single=result.practical_experience.single_candidates.find(r=>r.source_text.includes('Не отправлять документы'));
+ assert.ok(single);assert.equal(single.occurrence_count,1);
+ assert.ok(result.practical_experience.single_candidates.some(r=>r.kind==='REPORTED_CONTEXT_LIMITATION'));
+ assert.deepEqual(result.practical_coverage.find(c=>c.rule_id===single.rule_id).cited_by,[]);
+ fields.result_requirements.refs[0].quote='наличие договора';
+ fields.result_requirements.value=['Сопоставить обязательства'];
+ const changed=await reviewPersonalExtractionBundle(b);
+ assert.deepEqual(changed.practical_coverage.find(c=>c.rule_id===recurring.rule_id).cited_by,[]);
+ assert.equal(changed.practical_coverage.find(c=>c.rule_id===recurring.rule_id).exact_in_expected_field,false);
+ assert.equal(changed.request_sha256,result.request_sha256);
+ assert.equal(changed.product.export_allowed,false);
 });
