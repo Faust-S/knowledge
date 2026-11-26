@@ -7,6 +7,11 @@ import {
   recordProjectProcessMigrationRecovery,
 } from './project-process-migration.mjs';
 import { qualifyProjectProcessSameWorkspaceHistory } from './project-process-history.mjs';
+import { canonicalStringify } from '../../../persistence/canonical-codec.mjs';
+import { createWorkspaceMethodThroughSourceOwner,readWorkspaceMethodCreationIntent,
+  resumeWorkspaceMethodThroughSourceOwner,inspectWorkspaceMethodCreation } from './project-process-method-materialization.mjs';
+import { readWorkspaceMethodFromSourceOwner } from './project-process-method-readback.mjs';
+import { previewWorkspaceMethodRevision } from './project-process-method-revision.mjs';
 import {
   createProjectProcessSourceOwnerQualificationHarness,
   createProjectProcessSourceOwnerPostBindingQualificationHarness,
@@ -30,6 +35,100 @@ async function rejectsWithCode(action,code) {
   } catch (error) {
     return error?.code===code;
   }
+}
+
+// Extend the original C3 harness, not a separate owner or a product runtime.
+// A second Workspace keeps the original eight-family lifecycle counts intact.
+async function qualifyWorkspaceMethodWithOriginalOwner(owner){
+  const workspaceId='ws-c3-method-qualification';
+  const projectId='method-project';
+  const knowledgeAt='2026-11-26T18:00:00Z';
+  const objects=[
+    {workspace_id:workspaceId,object_id:'measurement',revision:2,schema_id:'note'},
+    {workspace_id:workspaceId,object_id:'model',revision:5,schema_id:'note'},
+  ];
+  const draft={templateId:'engineering-method',templateRevision:'1',projectId,
+    name:'Compare model and measurements',objective:'Check the model against original measurement revisions',
+    domainApplicability:['shared'],materials:objects.map(({object_id,revision})=>({object_id,revision})),
+    steps:[
+      {id:'prepare',name:'Prepare measurements',actor:'human',instruction:'Check units and data',dependsOn:[],materialIds:['measurement']},
+      {id:'analyse',name:'Analyse observations',actor:'agent',instruction:'Determine admissible assumptions',dependsOn:['prepare'],materialIds:['measurement']},
+      {id:'compute',name:'Compute model',actor:'program',instruction:'Run the original program after approval',dependsOn:['prepare'],materialIds:['model']},
+      {id:'compare',name:'Compare results',actor:'human',instruction:'Check agreement and uncertainty',dependsOn:['analyse','compute'],materialIds:[]},
+    ],
+  };
+  const recordIds={project:'c3-method:project@1',works:Object.fromEntries(draft.steps.map(step=>
+    [projectId+'.'+step.id,'c3-method:'+step.id+'@1']))};
+  let acknowledgedLost=false;
+  const port={load:owner.load.bind(owner),history:owner.history.bind(owner),create:async(kind,input)=>{
+    if(kind==='work'&&input.workId===projectId+'.compute'){
+      throw Object.assign(new Error('qualification interrupted before write'),{code:'C3_METHOD_BEFORE_WRITE'});
+    }
+    const row=await owner.create(kind,input);
+    if(kind==='work'&&input.workId===projectId+'.analyse'){
+      acknowledgedLost=true;
+      throw Object.assign(new Error('qualification lost write acknowledgement'),{code:'C3_METHOD_ACK_LOST'});
+    }
+    return row;
+  }};
+  const initialAudit=(await owner.audit()).length;
+  const interrupted=await rejectsWithCode(()=>createWorkspaceMethodThroughSourceOwner({
+    owner:port,workspaceId,objects,draft,recordIds,knowledgeAt,
+  }),'C3_METHOD_BEFORE_WRITE');
+  const partial=await inspectWorkspaceMethodCreation({owner,workspaceId,projectId,objects});
+  const intent=await readWorkspaceMethodCreationIntent({owner,workspaceId,projectId});
+  const originalIntent=canonicalStringify(intent.draft)===canonicalStringify(draft)
+    && canonicalStringify(intent.recordIds)===canonicalStringify(recordIds);
+  const stale=await inspectWorkspaceMethodCreation({owner,workspaceId,projectId,objects:[
+    {...objects[0],revision:3},objects[1],
+  ]});
+  const partialReadback=(await owner.audit()).length===initialAudit+3
+    && partial.state==='PARTIAL'&&partial.confirmedCount===3&&partial.missingCount===2
+    && partial.resumeCandidate===true&&!stale.resumeCandidate&&stale.materialReviewRequired;
+  const completed=await resumeWorkspaceMethodThroughSourceOwner({owner,workspaceId,projectId,objects});
+  const repeated=await resumeWorkspaceMethodThroughSourceOwner({owner,workspaceId,projectId,objects});
+  const exactRecovery=completed.alreadyPresentCount===3&&completed.createdCount===2
+    && repeated.createdCount===0&&repeated.alreadyPresentCount===5
+    && (await owner.audit()).length===initialAudit+5
+    && canonicalStringify(completed.method.draft)===canonicalStringify(draft);
+  const base=completed.method;
+  const changed={...draft,steps:draft.steps.map(step=>step.id==='analyse'
+    ?{...step,instruction:'Determine assumptions with a second method'}:step)};
+  const preview=await previewWorkspaceMethodRevision({owner,workspaceId,projectId,expected:base,draft:changed,objects});
+  const selectivePlan=preview.projectOperation.operation==='KEEP'
+    &&preview.counts.revise===2&&preview.counts.keep===2
+    &&preview.workOperations.filter(item=>item.operation==='REVISE').map(item=>item.workId).join(',')
+      ===projectId+'.analyse,'+projectId+'.compare'
+    &&preview.resultReuseProven===false&&preview.writeAuthorized===false;
+  // Exercise the exact plan against original revise commands in the isolated
+  // qualification only. This is NOT a product batch executor or durable
+  // revision command. Each write is explicitly supplied its original base.
+  for(const op of preview.workOperations.filter(item=>item.operation==='REVISE')){
+    await owner.revise('work',{...op.input,recordId:op.baseRef.recordId+'-r2',
+      baseRevisionId:op.baseRef.recordId,knowledgeAt:'2026-11-26T18:05:00Z'});
+  }
+  const actual=await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId});
+  const expectedRefs=new Map(preview.workOperations.map(op=>[op.baseRef.objectId,
+    op.operation==='REVISE'?op.baseRef.recordId+'-r2':op.baseRef.recordId]));
+  const selectiveReadback=actual.projectRef.recordId===base.projectRef.recordId
+    &&actual.workRefs.every(row=>row.recordId===expectedRefs.get(row.objectId))
+    &&canonicalStringify(actual.draft)===canonicalStringify(changed)
+    &&(await owner.audit()).length===initialAudit+7;
+  const staleBaseRejected=await rejectsWithCode(()=>previewWorkspaceMethodRevision({
+    owner,workspaceId,projectId,expected:base,draft:changed,objects,
+  }),'METHOD_REVISION_BASE_CHANGED');
+  const history=[...(await owner.history('project',workspaceId,projectId))];
+  for(const step of draft.steps)history.push(...await owner.history('work',workspaceId,projectId+'.'+step.id));
+  const verifiedHistory=qualifyProjectProcessSameWorkspaceHistory({workspaceId,records:history});
+  const historicalPlan=history.find(row=>row.recordId===recordIds.project)?.payload?.methodology?.creation;
+  const originalPlanRetained=historicalPlan?.steps.find(step=>step.workId===projectId+'.analyse')?.instruction===draft.steps[1].instruction;
+  const checks=Object.freeze({interrupted,lostAckObserved:acknowledgedLost,partialReadback,originalIntent,
+    exactRecovery,selectivePlan,selectiveReadback,staleBaseRejected,originalPlanRetained,
+    sameWorkspaceHistory:verifiedHistory.status==='PASS'&&verifiedHistory.recordCount===7});
+  return Object.freeze({status:Object.values(checks).every(Boolean)?'PASS':'FAIL',
+    workspaceId,checks,recordCount:verifiedHistory.recordCount,objectCount:verifiedHistory.objectCount,
+    auditDelta:(await owner.audit()).length-initialAudit,qualificationOnly:true,
+    persistentHostQualified:false,executionAuthority:false,resultReuseProven:false});
 }
 
 async function qualifyProjectProcessSourceOwnerWithHarness(harness) {
@@ -225,7 +324,8 @@ async function qualifyProjectProcessSourceOwnerWithHarness(harness) {
     decisionToCase:decision2.refs.canonicalHeads.case.recordId===case2.recordId,
   });
 
-  const pass=history.families.length===8
+  const methodQualification=await qualifyWorkspaceMethodWithOriginalOwner(owner);
+  const pass=methodQualification.status==='PASS' && history.families.length===8
     && Object.values(relationChecks).every(Boolean)
     && Object.values(loadQualified).every(Boolean)
     && Object.values(loadAfterReleaseQualified).every(Boolean)
@@ -259,6 +359,9 @@ async function qualifyProjectProcessSourceOwnerWithHarness(harness) {
     auditCount:audit.length,
     releaseQualified:releases.every((record)=>record.operation==='tombstone'&&record.payload===null),
     migrationRecoveryProven:recoveryReceipt.recoveryProven,
+    migrationQualificationKind:'SPEC_RECEIPT_SIMULATION',
+    physicalMigrationRecoveryQualified:false,
+    methodQualification,
     predecessorArchiveAllowedAfterRecovery:recoveryReceipt.predecessorArchiveAllowed,
     rollbackPolicy:recoveryReceipt.rollbackPolicy,
     d4ExactRelease:'PENDING',
