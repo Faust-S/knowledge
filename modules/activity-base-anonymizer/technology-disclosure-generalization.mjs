@@ -532,3 +532,58 @@ export async function reviewContextualGeneralizationPlan(preview,reports,languag
   coverage_complete:fields.length===plan.editable_field_count,requires_owner_review:true,semantic_equivalence:'NOT_ESTABLISHED',
   anonymity:'NOT_ESTABLISHED',export_allowed:false,iwxa_package:null};
 }
+
+
+// A local handoff is only a collection of the already existing exact
+// requests. The original Agent owns each Task/Result. No new .iwxa schema,
+// authority, model runner or persistence is introduced.
+export const CONTEXTUAL_HANDOFF='IWXA_ACTIVITY_CONTEXTUAL_GENERALIZATION_HANDOFF_V1';
+export const CONTEXTUAL_RESULTS='IWXA_ACTIVITY_CONTEXTUAL_GENERALIZATION_RESULTS_V1';
+const HANDOFF_MAX_GROUPS=64,HANDOFF_MAX_BYTES=4*1024*1024-1;
+export async function prepareContextualGeneralizationHandoff(preview,reports,language,references,plan_sha256,first_batch=0){
+ const source=await readContextualSource(preview,reports,language,references),plan=await buildContextualPlan(source);
+ need(plan_sha256===plan.plan_sha256,'TECHNOLOGY_CONTEXTUAL_PLAN_CHANGED');
+ need(Number.isInteger(first_batch)&&first_batch>=0&&first_batch<plan.batches.length,'TECHNOLOGY_CONTEXTUAL_HANDOFF_RANGE');
+ const value={profile:CONTEXTUAL_HANDOFF,plan_sha256,base_product_sha256:plan.base_product_sha256,target:source.product.target,
+  first_batch,total_batches:plan.batches.length,requests:[],export_allowed:false,iwxa_package:null};
+ const enc=new TextEncoder();
+ let bytes=enc.encode(JSON.stringify(value)).byteLength;
+ for(const batch of plan.batches.slice(first_batch,first_batch+HANDOFF_MAX_GROUPS)){
+  const request=await contextualRequest(source,measureDocument(source,batch.paths));
+  need(request.request_sha256===batch.request_sha256,'TECHNOLOGY_CONTEXTUAL_PLAN_CHANGED');
+  const size=enc.encode(JSON.stringify(request)).byteLength+(value.requests.length?1:0);
+  if(bytes+size>HANDOFF_MAX_BYTES)break;
+  value.requests.push(request);bytes+=size;
+ }
+ need(value.requests.length>0,'TECHNOLOGY_CONTEXTUAL_HANDOFF_LIMIT');
+ return value;
+}
+// Load a partial or complete return from Agent alongside legacy single
+// proposals. A repeated identical accepted reply is a no-op, a changed
+// reply for the same request is never silently substituted.
+export function collectContextualPlanProposals(plan,inputs,existing=[]){
+ need(Array.isArray(inputs)&&Array.isArray(existing)&&Array.isArray(plan?.batches),'TECHNOLOGY_CONTEXTUAL_HANDOFF_PROFILE');
+ const allowed=new Set(plan.batches.map(b=>b.request_sha256)),seen=new Map(),added=[];
+ function add(raw,isExisting){
+  need(exact(raw,['profile','request_sha256','fields'])&&raw.profile===CONTEXTUAL_PROPOSAL&&allowed.has(raw.request_sha256),
+   'TECHNOLOGY_CONTEXTUAL_PLAN_RESPONSE');
+  const prior=seen.get(raw.request_sha256);
+  if(prior){
+   need(serial(prior)===serial(raw),'TECHNOLOGY_CONTEXTUAL_HANDOFF_CONFLICT');return;
+  }
+  seen.set(raw.request_sha256,raw);if(!isExisting)added.push(raw);
+ }
+ for(const raw of existing)add(raw,true);
+ for(const value of inputs){
+  if(value?.profile===CONTEXTUAL_RESULTS){
+   need(exact(value,['profile','plan_sha256','base_product_sha256','proposals','export_allowed','iwxa_package'])&&
+    value.plan_sha256===plan.plan_sha256&&value.base_product_sha256===plan.base_product_sha256&&
+    value.export_allowed===false&&value.iwxa_package===null&&Array.isArray(value.proposals)&&value.proposals.length>=1&&
+    value.proposals.length<=HANDOFF_MAX_GROUPS,'TECHNOLOGY_CONTEXTUAL_HANDOFF_PROFILE');
+   for(const proposal of value.proposals)add(proposal,false);
+  }else add(value,false);
+ }
+ // The caller MUST run reviewContextualGeneralizationPlan over these raw
+ // proposals with the original preview, reports and references.
+ return added;
+}

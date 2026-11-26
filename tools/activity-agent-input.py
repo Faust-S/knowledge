@@ -24,6 +24,7 @@ OPERATIONS = {
     "contextual_generalization_review": ("node", "activity-technology-product.mjs", ("--contextual-generalization-review",)),
     "contextual_generalization_plan": ("node", "activity-technology-product.mjs", ("--contextual-generalization-plan",)),
     "contextual_generalization_plan_review": ("node", "activity-technology-product.mjs", ("--contextual-generalization-plan-review",)),
+    "contextual_generalization_handoff": ("node", "activity-technology-product.mjs", ("--contextual-generalization-handoff",)),
     "personal_extraction_request": ("node", "activity-technology-product.mjs", ("--personal-extraction-request",)),
     "personal_extraction_review": ("node", "activity-technology-product.mjs", ("--personal-extraction-review",)),
     "personal_routine_group": ("node", "activity-technology-product.mjs", ("--personal-group",)),

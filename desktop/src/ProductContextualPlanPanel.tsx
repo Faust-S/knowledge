@@ -1,11 +1,11 @@
 import {useLayoutEffect,useRef,useState,type ChangeEvent} from 'react';
-import {prepareContextualGeneralizationPlan,prepareContextualGeneralizationRequest,reviewContextualGeneralizationPlan,
+import {prepareContextualGeneralizationPlan,prepareContextualGeneralizationRequest,reviewContextualGeneralizationPlan,prepareContextualGeneralizationHandoff,collectContextualPlanProposals,
  type ContextualGeneralizationPlan,type ContextualGeneralizationRequest,type ContextualPlanReview,type ContextualFieldReview,type SourceReference}
  from '../../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 import type {ProductPreview} from '../../modules/activity-base-anonymizer/technology-product.mjs';
 import {ProductRevisionComparison} from './ProductRevisionComparison';
 
-const PAGE=8,FILE_LIMIT=2*1024*1024,LOAD_LIMIT=8*1024*1024;
+const PAGE=8,FILE_LIMIT=8*1024*1024,LOAD_LIMIT=8*1024*1024;
 const names:Record<string,string>={title:'Название',technology:'Технология',terms:'Общие условия',purpose:'Назначение',inputs:'Входы',outputs:'Результат',
  applicability:'Применимость',instructions:'Инструкция',result_requirements:'Критерии результата',context_requirements:'Контекст получателя',
  operations:'Операции',quality_checks:'Контроль',label:'Название',role:'Роль',equipment_requirement:'Оборудование',material_requirement:'Материал',
@@ -26,8 +26,9 @@ export function ProductContextualPlanPanel({product,reports,references,language,
  const [active,setActive]=useState(''),[loaded,setLoaded]=useState<Record<string,Loaded>>({}),[accepted,setAccepted]=useState<string[]>([]);
  const [page,setPage]=useState(0),[unplannedPage,setUnplannedPage]=useState(0),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [pending,setPending]=useState<ContextualPlanReview|null>(null);
+ const [handoffNext,setHandoffNext]=useState(0),[handoffNotice,setHandoffNotice]=useState('');
  useLayoutEffect(()=>{
-  generation.current++;setPlan(null);setRequest(null);setActive('');setLoaded({});setAccepted([]);setPage(0);setUnplannedPage(0);setPending(null);setBusy(false);setError('');
+  generation.current++;setPlan(null);setRequest(null);setActive('');setLoaded({});setAccepted([]);setPage(0);setUnplannedPage(0);setPending(null);setBusy(false);setError('');setHandoffNext(0);setHandoffNotice('');
   return()=>{generation.current++;};
  },[product,reports,references,language]);
  const blocked=disabled||busy;
@@ -71,6 +72,20 @@ export function ProductContextualPlanPanel({product,reports,references,language,
   a.href=url;a.download='activity-local-contextual-'+(batch?.batch_id??'request')+'.json';
   try{a.click();}finally{setTimeout(()=>URL.revokeObjectURL(url),1000);}
  }
+ async function saveHandoff(){
+  if(!plan||blocked||running.current||!plan.batches.length)return;
+  const token=++generation.current;running.current=true;setBusy(true);setError('');setHandoffNotice('');
+  try{
+   const first=handoffNext<plan.batches.length?handoffNext:0;
+   const value=await prepareContextualGeneralizationHandoff(product,Object.values(reports),language,references,plan.plan_sha256,first);
+   if(token!==generation.current)return;
+   const last=first+value.requests.length,url=URL.createObjectURL(new Blob([JSON.stringify(value)],{type:'application/json'}));
+   const a=document.createElement('a');a.href=url;a.download='activity-local-plan-'+plan.plan_sha256.slice(0,12)+'-'+(first+1)+'-'+last+'.json';
+   try{a.click();}finally{setTimeout(()=>URL.revokeObjectURL(url),1000);}
+   setHandoffNext(last);setHandoffNotice('Подготовлены задания '+(first+1)+'–'+last+' из '+plan.batches.length+'. Откройте файл в Agent.');
+  }catch{if(token===generation.current)setError('Не удалось подготовить комплект точных заданий текущей технологии.');}
+  finally{running.current=false;if(token===generation.current)setBusy(false);}
+ }
  async function load(e:ChangeEvent<HTMLInputElement>){
   const files=Array.from(e.target.files??[]);e.target.value='';
   if(!plan||!files.length||blocked||running.current)return;
@@ -78,15 +93,15 @@ export function ProductContextualPlanPanel({product,reports,references,language,
   try{
    if(files.some(f=>!f.size||f.size>FILE_LIMIT)||files.reduce((sum,f)=>sum+f.size,0)>LOAD_LIMIT)throw Error('size');
    const raw=await Promise.all(files.map(async f=>JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await f.arrayBuffer()))));
-   const existing=new Set(Object.keys(loaded));
-   if(raw.some(v=>existing.has(v?.request_sha256)))throw Error('duplicate');
-   const read=await reviewContextualGeneralizationPlan(product,Object.values(reports),language,references,plan.plan_sha256,raw,[]);
+   const proposals=collectContextualPlanProposals(plan,raw,Object.values(loaded).map(v=>v.raw));
+   if(!proposals.length)return;
+   const read=await reviewContextualGeneralizationPlan(product,Object.values(reports),language,references,plan.plan_sha256,proposals,[]);
    if(token!==generation.current)return;
-   const byDigest=new Map(raw.map(v=>[v.request_sha256,v]));
+   const byDigest=new Map(proposals.map(v=>[(v as {request_sha256:string}).request_sha256,v]));
    const additions=Object.fromEntries(read.answered_batches.map(b=>[b.request_sha256,{raw:byDigest.get(b.request_sha256),fields:b.fields}]));
    setLoaded(old=>({...old,...additions}));setAccepted(old=>[...new Set([...old,...defaultSelection(read.answered_batches.flatMap(b=>b.fields))])]);
    const first=read.answered_batches[0];if(first){setActive(first.request_sha256);setPage(0);setRequest(null);}
-  }catch(e){if(token===generation.current)setError(e instanceof Error&&e.message==='duplicate'?
+  }catch(e){if(token===generation.current)setError(e&&typeof e==='object'&&'code' in e&&e.code==='TECHNOLOGY_CONTEXTUAL_HANDOFF_CONFLICT'?
    'Ответ этой группы уже открыт. Для замены сначала удалите предыдущий ответ группы.':
    'Ответы не соответствуют плану или допустимому объёму. Ни один из выбранных файлов не добавлен.');}
   finally{running.current=false;if(token===generation.current)setBusy(false);}
@@ -117,7 +132,10 @@ export function ProductContextualPlanPanel({product,reports,references,language,
     <div><strong>{accepted.length}</strong><span>Выбрано исправлений</span></div>
    </div>
    <p>Без ответа: {plan.planned_field_count-fields.length}. Не помещаются в задание: {plan.unplanned.length}. Полей с вопросами, отклонёнными заменами или известными совпадениями: {unresolved}.</p>
-   <p>Сохраните задания и выполните их только в разрешённой локальной модели. Можно открыть несколько сохранённых ответов сразу. Эти файлы могут содержать частные сведения.</p>
+   <p>Подготовьте комплект заданий для Personal Agent. После работы локальной модели и проверки Task сохраните комплект ответов в Agent и откройте здесь. Файлы содержат частные сведения.</p>
+   {plan.batches.length?<div className="activity-v7-actions"><button className="activity-v7-primary" disabled={blocked} onClick={()=>void saveHandoff()}>
+    {handoffNext===0?'Сохранить комплект заданий для Agent':handoffNext<plan.batches.length?'Сохранить следующую часть заданий':'Сохранить комплект повторно'}</button></div>:null}
+   {handoffNotice?<p role="status">{handoffNotice}</p>:null}
    {plan.unplanned.length?<details><summary>Поля для отдельного уточнения ({plan.unplanned.length})</summary>
     <p>Связанный контекст превышает допустимый объём. Он не обрезан. Уточните эти поля в редакторе содержания.</p>
     {plan.unplanned.slice(unplannedPage*PAGE,(unplannedPage+1)*PAGE).map(f=><p key={f.path}>{label(f.path)}</p>)}
@@ -131,7 +149,7 @@ export function ProductContextualPlanPanel({product,reports,references,language,
     <div className="activity-v7-actions">
      {request?.request_sha256===active?<button disabled={blocked} onClick={save}>Сохранить задание группы</button>:!current?<button disabled={blocked||!batch} onClick={()=>void openBatch(active)}>Подготовить задание группы</button>:null}
      <input ref={file} type="file" multiple accept=".json,application/json" className="visually-hidden" aria-label="Открыть ответы групп локальной модели" onChange={load}/>
-     <button disabled={blocked} onClick={()=>file.current?.click()}>Открыть ответы</button>
+     <button disabled={blocked} onClick={()=>file.current?.click()}>Открыть ответы Agent</button>
      {next?<button disabled={blocked||next.request_sha256===active&&!current} onClick={()=>void openBatch(next.request_sha256)}>Следующая группа без ответа</button>:null}
     </div>
     {current?<div className="activity-domain-group">

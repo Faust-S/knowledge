@@ -55,7 +55,7 @@ test('D05 suggestions populate all existing decisions, preserve a selected profi
 
 import {sha256Canonical} from '../modules/activity-base-anonymizer/engine.mjs';
 import {productTextInventory} from '../modules/activity-base-anonymizer/presidio-text-review.mjs';
-import {prepareProductGeneralization,applyProductGeneralization,prepareContextualGeneralizationRequest,reviewContextualGeneralizationProposal,prepareContextualGeneralizationPlan,reviewContextualGeneralizationPlan,CONTEXTUAL_PROPOSAL} from '../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
+import {prepareProductGeneralization,applyProductGeneralization,prepareContextualGeneralizationRequest,reviewContextualGeneralizationProposal,prepareContextualGeneralizationPlan,reviewContextualGeneralizationPlan,prepareContextualGeneralizationHandoff,collectContextualPlanProposals,CONTEXTUAL_RESULTS,CONTEXTUAL_PROPOSAL} from '../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 async function scan(p,language,find){
  const inventory=productTextInventory(p.object_data);
  const fields=inventory.map(r=>({path:r.path,text_length:Array.from(r.text).length,findings:find(r).map(f=>{
@@ -410,4 +410,27 @@ test('whole D05 plan retains oversized fields as unresolved and merges compatibl
  const exchanged=await reviewContextualGeneralizationProposal(source,[],'ru',[],[scope],contextualReply(scopedRequest,{
   [scope]:{decision:'REWRITE',value:'Операция '+b+': Проверить зазор 2 мм.\nОперация '+a+': Проверить зазор 5 мм.',reason:'Exchange scope without changing global marker order'}}));
  assert.equal(exchanged.fields[0].block,'PRACTICAL_SCOPE_CHANGED');
+});
+
+test('one Agent handoff carries exact groups and accepted replies can be reopened without replacing earlier selections',async()=>{
+ const p=await preparePersonalTechnologyProduct(personalRows(),'routine_001',{...personalProposal(),title:'Local review',
+  result_requirements:Array.from({length:24},(_,i)=>'Review commitment '+(i+1)),context_requirements:Array.from({length:12},(_,i)=>'Local source '+(i+1))});
+ const plan=await prepareContextualGeneralizationPlan(p,[],'en',[]);
+ const handoff=await prepareContextualGeneralizationHandoff(p,[],'en',[],plan.plan_sha256,0);
+ assert.equal(handoff.requests.length,plan.batches.length);assert.ok(handoff.requests.length>1);
+ assert.deepEqual(handoff.requests.map(x=>x.request_sha256),plan.batches.map(x=>x.request_sha256));
+ assert.equal(handoff.first_batch,0);assert.equal(handoff.export_allowed,false);
+ const tail=await prepareContextualGeneralizationHandoff(p,[],'en',[],plan.plan_sha256,1);
+ assert.deepEqual(tail.requests,handoff.requests.slice(1));
+ const proposals=handoff.requests.map(x=>contextualReply(x,{}));
+ const envelope={profile:CONTEXTUAL_RESULTS,plan_sha256:plan.plan_sha256,base_product_sha256:p.product_sha256,
+  proposals,export_allowed:false,iwxa_package:null};
+ assert.deepEqual(collectContextualPlanProposals(plan,[envelope],[proposals[0]]),proposals.slice(1));
+ assert.deepEqual(collectContextualPlanProposals(plan,[envelope],proposals),[]);
+ const changed=structuredClone(proposals[0]);changed.fields[Object.keys(changed.fields)[0]].reason='Other reason';
+ assert.throws(()=>collectContextualPlanProposals(plan,[changed],[proposals[0]]),{code:'TECHNOLOGY_CONTEXTUAL_HANDOFF_CONFLICT'});
+ assert.throws(()=>collectContextualPlanProposals(plan,[{...envelope,plan_sha256:'0'.repeat(64)}]),{code:'TECHNOLOGY_CONTEXTUAL_HANDOFF_PROFILE'});
+ await assert.rejects(()=>prepareContextualGeneralizationHandoff(p,[],'en',[],'0'.repeat(64),0),{code:'TECHNOLOGY_CONTEXTUAL_PLAN_CHANGED'});
+ const merged=await reviewContextualGeneralizationPlan(p,[],'en',[],plan.plan_sha256,collectContextualPlanProposals(plan,[envelope]),[]);
+ assert.equal(merged.coverage_complete,true);assert.equal(merged.revision,null);
 });

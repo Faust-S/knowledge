@@ -30,3 +30,9 @@ export type ContextualPlanReview={status:'LOCAL_CONTEXTUAL_GENERALIZATION_PLAN_R
  coverage_complete:boolean;requires_owner_review:true;semantic_equivalence:'NOT_ESTABLISHED';anonymity:'NOT_ESTABLISHED';export_allowed:false;iwxa_package:null};
 export function prepareContextualGeneralizationPlan(preview:unknown,reports:unknown,language:'ru'|'en',references:SourceReference[]):Promise<ContextualGeneralizationPlan>;
 export function reviewContextualGeneralizationPlan(preview:unknown,reports:unknown,language:'ru'|'en',references:SourceReference[],plan_sha256:string,proposals:unknown[],selected_paths:string[]):Promise<ContextualPlanReview>;
+
+export const CONTEXTUAL_HANDOFF:'IWXA_ACTIVITY_CONTEXTUAL_GENERALIZATION_HANDOFF_V1';
+export const CONTEXTUAL_RESULTS:'IWXA_ACTIVITY_CONTEXTUAL_GENERALIZATION_RESULTS_V1';
+export type ContextualGeneralizationHandoff={profile:typeof CONTEXTUAL_HANDOFF;plan_sha256:string;base_product_sha256:string;target:string;first_batch:number;total_batches:number;requests:ContextualGeneralizationRequest[];export_allowed:false;iwxa_package:null};
+export function prepareContextualGeneralizationHandoff(preview:unknown,reports:unknown,language:'ru'|'en',references:SourceReference[],plan_sha256:string,first_batch?:number):Promise<ContextualGeneralizationHandoff>;
+export function collectContextualPlanProposals(plan:ContextualGeneralizationPlan,inputs:unknown[],existing?:unknown[]):unknown[];
