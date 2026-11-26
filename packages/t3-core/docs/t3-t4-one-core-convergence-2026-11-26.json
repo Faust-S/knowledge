@@ -1,0 +1,34 @@
+{
+  "schema": "IWXA_T3_T4_ONE_CORE_CONVERGENCE_STAGE/1",
+  "state": "UNQUALIFIED_STAGING",
+  "mergeBase": "fd927a1efb083219442d9504285f75fa738dbdda",
+  "corporateT3": "8db847058cab231d2d39c34df46024b60564d2ad",
+  "networkT4": "896515f361611e311b0df22dbcfebfefa8e58fa0",
+  "corporateChanges": 55,
+  "overlappingFiles": 9,
+  "resolvedBlobs": {
+    "packages/t3-core/src/t3/access/original-kernel-registry-state.mjs": "305b858da66ff516e8c0ade09d0f2a71a47f9e5d",
+    "packages/t3-core/src/main-trusted-kernel-realm.ts": "e99c99a2c6da124daf51cbb6ba33be8b6bc164cb",
+    "packages/t3-core/src/t3/index.d.mts": "fedcde6696f00f57c52d73dc4f3cf2fe4136a6de",
+    "packages/t3-core/src/t3/original-kernel-native-relay.mjs": "81bbc9de8066ad6f1740ccf47e1786e3e06ab1dc",
+    "packages/t3-core/src/t3/subject-access-binding.mjs": "88f44e9645c82a92b3792c341dbbe5c83c64537a",
+    "packages/t3-core/src/workspace-host/context/create-kernel-facade.ts": "302faf170162c3025c660db5ba30a26110ea665d",
+    "packages/t3-core/tests/module-kernel-facade.test.ts": "4989c0a2c0aa173140399a0fa92f9dd4f134adc9",
+    "packages/t3-core/tests/t3-d1-original-control-http.test.mjs": "dfb2cdfd9743893c90a360a7e560f4b29064326c",
+    "packages/t3-core/tests/t3-subject-kernel-scope.test.mjs": "3b7347668f7693e6d26ec635678caf594a03b816",
+    "packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs": "e4ac8cc810a841a839363071baa3c6f7472f9cec"
+  },
+  "networkWireUnchanged": true,
+  "accepted": false,
+  "blocking": [
+    "Execute combined source and full TypeScript build",
+    "Validate corporate authority, registry storage and network key transitions together",
+    "Confirm installed owner reuses original registry and physical placement",
+    "Qualify original DB9 and real two-node pilot"
+  ],
+  "notes": [
+    "No automatic Registry migration, issuance or fallback.",
+    "The source branch heads remain untouched. Corporate Registry placement must be resolved before provenance check; a scoped network Relay cannot bootstrap corporate placement.",
+    "Source staging only; no private or installed qualification."
+  ]
+}

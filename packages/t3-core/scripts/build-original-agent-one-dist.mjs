@@ -9,8 +9,10 @@ import {tmpdir} from 'node:os';
 import {dirname,resolve,relative,isAbsolute,join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {assembleSignedControlDist} from './assemble-signed-control-dist.mjs';
-import {assertQualifiedKernelArtifact}
-  from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
+import {assertInstalledOriginalKernelArtifact,takeQualificationKernelCandidate}
+  from './installed-kernel-selection.mjs';
+import {BASE_KERNEL_ARTIFACT,qualificationKernelCandidateFields}
+  from './installed-kernel-candidate.mjs';
 import {stageVerifiedKernelFiles} from './stage-verified-kernel.mjs';
 
 const PRODUCT='iwxa.personal-agent';
@@ -84,7 +86,7 @@ function originalAgentProfile(path){
  * domain identity, test data, mock access, or fake receipt survives staging.
  */
 export async function materializeOriginalAgentT2Product({
-  qualifiedKernelDist,agentProfile,outputRoot,
+  qualifiedKernelDist,agentProfile,outputRoot,qualificationKernelCandidate,
 }={}){
   if(![qualifiedKernelDist,agentProfile,outputRoot].every(
       x=>typeof x==='string'&&x.trim()))fail('PRODUCT_STAGE_INPUTS_REQUIRED');
@@ -95,9 +97,7 @@ export async function materializeOriginalAgentT2Product({
   if(existsSync(stage)||[original,resolve(agentProfile),shared,root]
     .some(p=>inside(p,stage)||inside(stage,p)))
     fail('PRODUCT_STAGE_MUST_BE_FRESH_AND_OUTSIDE_SOURCE');
-  const verified=assertQualifiedKernelArtifact(original,{
-    kernel:profile.kernelVersion,contract:profile.runtimeContract,
-    artifactId:profile.qualifiedArtifactId});
+  const verified=assertInstalledOriginalKernelArtifact(original,qualificationKernelCandidate);
   const templates=resolve(shared,'fixtures/host-configs/generic');
   const domain=readJson(resolve(templates,'domain.json'));
   const shell=readJson(resolve(templates,'domain-shell.json'));
@@ -198,11 +198,12 @@ export async function materializeOriginalAgentT2Product({
     const result=validator.validateDomainConfig(domain,{
       current_origin:profile.origin});
     if(result?.ok!==true)fail('ORIGINAL_T2_DOMAIN_VALIDATION_FAILED');
-    assertQualifiedKernelArtifact(stage,{kernel:'0.3.6',contract:'1.3.0',
-      artifactId:profile.qualifiedArtifactId});
+    const final=assertInstalledOriginalKernelArtifact(stage,qualificationKernelCandidate);
+    if(final.artifactSha256!==verified.artifactSha256)fail('INHERITED_KERNEL_BYTES_CHANGED');
     return Object.freeze({productId:PRODUCT,serviceId:profile.serviceId,
       origin:profile.origin,verifiedKernel:true,
-      originalQualifiedArtifactId:verified.artifactId,
+      originalQualifiedArtifactId:verified.releaseAccepted===false?null:verified.artifactId,
+      ...qualificationKernelCandidateFields(verified),
       outputRoot:stage});
   }catch(error){rmSync(stage,{recursive:true,force:true});throw error;}
 }
@@ -212,16 +213,16 @@ export async function materializeOriginalAgentT2Product({
  */
 export async function buildOriginalAgentOneDistFromQualifiedKernel({
   qualifiedKernelDist,agentProfile,t3Build,outputDir,receiptPath,
-  desktopAgentControlOnly=false,
+  desktopAgentControlOnly=false,qualificationKernelCandidate,
 }={}){
   const staged=mkdtempSync(join(tmpdir(),'iwxa-agent-original-t2-'));
   try{
     const source=resolve(staged,'agent-original-dist');
     const product=await materializeOriginalAgentT2Product({
-      qualifiedKernelDist,agentProfile,outputRoot:source});
+      qualifiedKernelDist,agentProfile,outputRoot:source,qualificationKernelCandidate});
     const built=buildOriginalAgentOneDist({
       t2Dist:source,t3Build,outputDir,receiptPath,
-      desktopAgentControlOnly});
+      desktopAgentControlOnly,qualificationKernelCandidate});
     return Object.freeze({...built,origin:product.origin,
       originalProductId:product.productId,verifiedOriginalT2:true});
   }finally{rmSync(staged,{recursive:true,force:true});}
@@ -231,7 +232,7 @@ export async function buildOriginalAgentOneDistFromQualifiedKernel({
  * A new recipient never gets implied rights from these build-time bytes.
  */
 export function buildOriginalAgentOneDist({
-  t2Dist,t3Build,outputDir,receiptPath,desktopAgentControlOnly=false,
+  t2Dist,t3Build,outputDir,receiptPath,desktopAgentControlOnly=false,qualificationKernelCandidate,
 }={}){
   if(typeof desktopAgentControlOnly!=="boolean")
     fail("DESKTOP_AGENT_CONTROL_FLAG_INVALID");
@@ -245,18 +246,23 @@ export function buildOriginalAgentOneDist({
      output===receipt||existsSync(output)||existsSync(receipt))
     fail('IMMUTABLE_OUTPUT_OUTSIDE_SOURCE_REQUIRED');
   requireOriginalAgentT2Product(source);
+  const selected=assertInstalledOriginalKernelArtifact(source,qualificationKernelCandidate);
+  const candidate=selected.releaseAccepted===false;
   // No testOnlyUnqualifiedFixture. The exact original 0.3.6 Runtime 1.3.0
   // qualified digest, service passport and compiled source are checked by
   // the existing assembler, and the original Agent D6 schema is registered.
   const original=assembleSignedControlDist({t2Dist:source,t3Build:compiled,
     outputDir:output,installedOriginalAgentD6:true,
-    desktopAgentControlOnly});
+    desktopAgentControlOnly,qualificationKernelCandidate});
   if(original.original_runtime_unchanged!==true||
      original.original_agent_d6_schema_registered!==true||
      original.workspace_service_id!==
        readJson(resolve(output,'workspace/workspace.config.json')).workspace_service_id||
-     original.original_qualified_artifact!==
-       'iwxa-kernel-k036-same-store-history-20261019-qualified.1'){
+     (candidate?(original.original_qualified_artifact!==null||
+       original.original_kernel_candidate_artifact!==selected.artifactId||
+       original.original_kernel_candidate_archive_sha256!==selected.archiveSha256||
+       original.original_kernel_release_accepted!==false):
+       original.original_qualified_artifact!==BASE_KERNEL_ARTIFACT)){
     rmSync(output,{recursive:true,force:true});
     fail('ORIGINAL_QUALIFIED_ASSEMBLY_REQUIRED');
   }
@@ -270,12 +276,14 @@ export function buildOriginalAgentOneDist({
   }
   return Object.freeze({schema:original.schema,productId:PRODUCT,
     original_qualified_artifact:original.original_qualified_artifact,
+    ...qualificationKernelCandidateFields(selected),
     original_agent_d6_schema_registered:true,original_runtime_unchanged:true,
     output,receipt});
 }
 
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const args=process.argv.slice(2);
+  const qualificationKernelCandidate=takeQualificationKernelCandidate(args);
   const desktopAgentControlOnly=args.at(-1)==='--desktop-agent-control';
   if(desktopAgentControlOnly)args.pop();
   const valid=['--t2-dist','--t3-build','--output','--receipt',
@@ -294,7 +302,7 @@ if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
     fail('PRODUCT_INPUT_MODE_INVALID');
   const argsCommon={t3Build:opts['--t3-build'],
     outputDir:opts['--output'],receiptPath:opts['--receipt'],
-    desktopAgentControlOnly};
+    desktopAgentControlOnly,qualificationKernelCandidate};
   const result=qualified
     ?await buildOriginalAgentOneDistFromQualifiedKernel({
       ...argsCommon,qualifiedKernelDist:opts['--qualified-kernel-dist'],

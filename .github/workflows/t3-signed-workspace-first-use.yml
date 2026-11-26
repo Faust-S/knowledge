@@ -1,0 +1,37 @@
+name: Original signed Workspace first use
+on:
+  push:
+    branches: ['work/2026-11-24-signed-workspace-first-use']
+    paths:
+      - 'packages/t3-core/src/**'
+      - 'packages/t3-core/tests/**'
+      - '.github/workflows/t3-signed-workspace-first-use.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: signed-workspace-first-use-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: packages/t3-core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: npm ci --no-audit --no-fund
+      - name: Original Workspace gate, facade and transport regressions
+        run: |
+          npx vitest run tests/t3-d1-signed-selected-workspace.dom.test.tsx tests/t3-d1-mounted-signed-workspace.dom.test.tsx tests/module-kernel-facade.test.ts
+          node --test tests/t3-d1-origin-isolated-kernel.test.mjs tests/t3-control-loopback-owner.test.mjs
+      - name: Original employee Workspace rights, signed refresh and seat lifecycle
+        run: node --test tests/t3-d3-independent-employee-original-enrollment.test.mjs tests/t3-corporate-product-license.test.mjs
+      - name: Build original One Core
+        run: npm run build

@@ -13,6 +13,7 @@ import {ORIGINAL_NETWORK_RELAY_METHODS as NETWORK_METHODS,
   from "./original-kernel-native-relay-codec.mjs";
 const METHODS=Object.freeze({
   getWorkspace:"t1.getWorkspace",
+  createWorkspace:"t1.createWorkspace",
   commitObjectGraph:"t1.commitObjectGraph",
   getObject:"t1.getObject",
   listEventsSince:"t1.listEventsSince",
@@ -178,7 +179,7 @@ export function createOriginalKernelNativeRelay({
       if(!live||closed)return;
       // After original graph dispatch a write may have committed, even if
       // the browser vanished before returning the original receipt.
-      detach(pending?.issued&&(["commitObjectGraph","putObject","deleteObject","putAsset","deleteAsset","putRelation","deleteRelation"].includes(pending.method))
+      detach(pending?.issued&&(["commitObjectGraph","createWorkspace","putObject","deleteObject","putAsset","deleteAsset","putRelation","deleteRelation"].includes(pending.method))
         ?"T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN"
         :"T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
     },idleLeaseMs);
@@ -197,6 +198,7 @@ export function createOriginalKernelNativeRelay({
       grants.granted_operations.includes(id),
     commitObjectGraph:input=>dispatch("commitObjectGraph",[input],epoch,sessionId),
     getWorkspace:ws=>dispatch("getWorkspace",[ws],epoch,sessionId),
+    createWorkspace:input=>dispatch("createWorkspace",[input],epoch,sessionId),
     getObject:(ws,obj)=>dispatch("getObject",[ws,obj],epoch,sessionId),
     listEventsSince:(ws,since)=>dispatch("listEventsSince",[ws,since],epoch,sessionId),
   });
@@ -208,6 +210,9 @@ export function createOriginalKernelNativeRelay({
     // an explicit local-capture owner is installed. Ordinary D3 outside this
     // one source workspace remains the inherited T3 route.
     const captureWorkspace=activation?.role==='SOURCE'?activation.sourceWorkspaceId:live.network?.localSource?.workspaceId;
+    // Optional original T3 workspace creation remains available only outside the pinned network scopes.
+    check(!(method==="createWorkspace"&&[captureWorkspace,registryScope?.workspaceId,activation?.sourceWorkspaceId,activation?.technicalWorkspaceId].filter(Boolean).includes(args[0]?.workspace_id)),
+      "T3_ORIGINAL_NETWORK_WORKSPACE_CREATION_DENIED");
     check(!(method==="commitObjectGraph"&&captureWorkspace&&args[0]?.workspace_id===captureWorkspace),
       "T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED");
     check(!(method==="commitObjectGraph"&&registryScope&&args[0]?.workspace_id===registryScope.workspaceId),

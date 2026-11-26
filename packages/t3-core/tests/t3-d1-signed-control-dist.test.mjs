@@ -287,3 +287,60 @@ test('Agent D6 profile fails closed on missing or conflicting original authority
       'original service passport must stay intact on failed assembly');
   }finally{rmSync(f.dir,{recursive:true,force:true});}
 });
+
+test('installed corporate services retain narrow product passports and stage a private original Workspace exchange passport',()=>{
+  const declarations=[];
+  for(const [service,profile] of [
+    ['iwxa.admin-center.workspace',{installedOriginalAdminD3:true}],
+    ['iwxa.personal-agent.workspace',{installedOriginalAgentD6:true}],
+  ]){
+    const f=fixture();
+    try{
+      const path='_iwxa/services/'+service+'.json';
+      const passport={service_id:service,service_version:'1.0.0',base_path:'/workspace/',supported_levels:['T0','T1','T2'],
+        permissions:{workspace:{read:true,create:true,restore:false,purge:false,
+          soft_delete:false},objects:{read:[],write:[],delete:[]},
+          events:{read_scope:'workspace'},packages:{export:false,import:false,
+            export_scope:'readable_objects',import_scope:'writable_objects'}},
+        input_object_types:[],output_object_types:[],schemas:{}};
+      const source=JSON.stringify(passport);
+      f.put(f.t2,path,source);
+      f.put(f.t2,'_iwxa/service-catalog.json',JSON.stringify({count:1,entries:[
+        {service_id:service,file:path,sha256:createHash('sha256').update(source).digest('hex')}]}));
+      f.put(f.t2,'_iwxa/domain.json',JSON.stringify({origin:'http://127.0.0.1:18883',
+        modules:[{service_id:service,base_path:'/workspace/'}],security:{allowed_object_classes:[]}}));
+      f.put(f.t2,'_iwxa/security/capability-control-plane.json',JSON.stringify({services:[{service_id:service,capability_control:'NONE'}]}));
+      f.put(f.t2,'workspace/workspace.config.json',JSON.stringify({
+        base_path:'/workspace/',workspace_service_id:service}));
+      assembleSignedControlDist({t2Dist:f.t2,t3Build:f.t3,outputDir:f.out,
+        testOnlyUnqualifiedFixture:true,...profile});
+      const result=JSON.parse(readFileSync(join(f.out,path),'utf8'));
+      assert.deepEqual(result.permissions.packages,{export:true,import:true,
+        export_scope:'readable_objects',import_scope:'writable_objects'});
+      assert.deepEqual(result.permissions.objects.delete,[]);
+      assert.equal(result.permissions.workspace.purge,false);
+      assert.equal(result.permissions.workspace.restore,false);
+      assert.ok(!result.permissions.objects.read.includes('*'));
+      assert.ok(!result.permissions.objects.write.includes('*'));
+      const exchangeId=service.replace(/\.workspace$/,'.exchange.workspace');
+      const exchange=JSON.parse(readFileSync(join(f.out,'_iwxa/services/'+exchangeId+'.json'),'utf8'));
+      assert.deepEqual(exchange.permissions.packages,{export:true,import:true,export_scope:'workspace',import_scope:'workspace'});
+      assert.deepEqual(exchange.permissions.objects,{read:['*'],write:['*'],delete:['*']});
+      assert.equal(exchange.permissions.workspace.create,false);
+      assert.equal(exchange.permissions.workspace.purge,true);
+      assert.equal(exchange.permissions.workspace.restore,true);
+      assert.deepEqual(exchange.schemas,{});
+      const catalog=JSON.parse(readFileSync(join(f.out,'_iwxa/service-catalog.json'),'utf8'));
+      assert.equal(catalog.count,2);
+      assert.equal(catalog.entries[1].service_id,exchangeId);
+      assert.equal(catalog.entries[1].sha256,createHash('sha256').update(readFileSync(join(f.out,catalog.entries[1].file))).digest('hex'));
+      declarations.push(['iwxa.t3.company-work-record','iwxa.agent.accepted-result']
+        .map(schema=>result.schemas[schema]));
+      assert.equal(readFileSync(join(f.t2,path),'utf8'),source);
+      assert.equal(readFileSync(join(f.out,'_iwxa/runtime/0.3.6/runtime.js'),'utf8'),
+        'original Kernel 0.3.6');
+    }finally{rmSync(f.dir,{recursive:true,force:true});}
+  }
+  assert.deepEqual(declarations[0],declarations[1]);
+  assert.ok(declarations[0].every(row=>row?.schema_version==='1.0.0'));
+});

@@ -170,8 +170,14 @@ describe("T3 D1 original ModuleContext Kernel with signed corporate subject",()=
       expect(f.calls.length).toBe(before);
     }finally{await host.dispose();}
   });
-  it("retains the original T2 .iwxa import preview/commit and rejects foreign target plans",async()=>{
-    const f=fixture(),host=await open(f);
+  it("retains original T2 preview across fresh Control access ports and rejects foreign target plans",async()=>{
+    const f=fixture();
+    let selectedPorts=0;
+    const host=await createWorkspaceHostRuntime({
+      session:f.session,workspaceConfig:{modules:[]},bindLegacyHashDriver:false,
+      termResolver:(_key,fallback)=>fallback??"",
+      signedKernelAccess:()=>{selectedPorts++;return {...f.access};},
+    });
     try{
       const kernel=host.contextProvider.createContext("d06").kernel;
       const preview=await kernel.importPreview(Uint8Array.from([1,2,3]));
@@ -188,6 +194,12 @@ describe("T3 D1 original ModuleContext Kernel with signed corporate subject",()=
         plan:{mode:"merge",workspace_id_map:{"ws:alpha":"ws:beta"}}}))
         .rejects.toMatchObject({code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
       expect(f.calls.filter(x=>x.method==="importCommit")).toHaveLength(1);
+      const cancelled=await kernel.importPreview(Uint8Array.from([1,2,3]));
+      expect(await kernel.importCancel(cancelled.preview_token)).toBe(true);
+      await expect(kernel.importCommit({preview_token:cancelled.preview_token,
+        package_digest:cancelled.package_digest,plan:{mode:"merge"}}))
+        .rejects.toMatchObject({code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
+      expect(selectedPorts).toBeGreaterThan(5);
     }finally{await host.dispose();}
   });
   it("rejects retained ModuleContext Kernel after Host disposal, before original T2 writes",async()=>{

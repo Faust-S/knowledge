@@ -34,6 +34,133 @@ const OPERATIONS = Object.freeze({
 export const SUBJECT_SCOPED_OPERATION_IDS = Object.freeze(Object.values(OPERATIONS));
 const REF = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX = /^[a-f0-9]{64}$/;
+// The original Host may select a NEW method-specific Access port on every
+// call. A Kernel preview belongs to the same live Host and signed context,
+// not to that short-lived port object. The opaque key never reaches a module.
+const previewSessions = new WeakMap();
+// These are existing original product schemas, not a second Exchange.
+// The installed signed corporate Host transfers WORK data only. A native
+// D3 applied receipt and the authority registry are not user-importable.
+const BUSINESS_SCHEMAS=new Set(["iwxa.t3.company-work-record","iwxa.agent.accepted-result"]);
+const ARCHIVE_COUNTS=["workspaces","objects","events","relations","assets","schemas"];
+const COMPLETE_OPTIONS=["include_history","include_assets","include_relations","include_schemas"];
+const EXCHANGE_METHODS=new Set(["exportPreview","exportPackage","confirmExport",
+  "importPreview","importCommit","importCancel"]);
+const managementWorkspace=id=>typeof id==="string"&&id.startsWith("workspace:registry:");
+const managementObject=id=>id==="t3.access.signed-registry"||
+  typeof id==="string"&&id.startsWith("result:applied:");
+const managementEvent=event=>event?.event_type==="t3.access.signed_registry.persisted"||
+  event?.event_type==="iwxa.admin.result.applied"||
+  managementObject(event?.object_id)||managementObject(event?.payload?.object_id);
+function requireBusinessWorkspace(context){
+  if(context.kind!=="CORP"||managementWorkspace(context.workspace_id))
+    refused("T3_CORPORATE_EXCHANGE_WORKSPACE_REQUIRED");
+}
+function businessRecord(row,workspace){
+  return row?.workspace_id===workspace&&id(row.object_id)&&
+    !managementObject(row.object_id)&&BUSINESS_SCHEMAS.has(row.schema_id)&&
+    row.schema_version==="1.0.0";
+}
+function completeCounts(total,included,excluded){
+  return ARCHIVE_COUNTS.every(k=>Number.isSafeInteger(total?.[k])&&
+    total[k]>=0&&included?.[k]===total[k]&&excluded?.[k]===0);
+}
+function requireCompleteBusinessArchive(handle,workspace){
+  const p=handle?.preview,m=p?.manifest;
+  // Same signed corporate Workspace ID on both products. No foreign-source
+  // remap, personal backup or cross-organization import in this profile.
+  // The immutable K036 exporter always includes its own validation report.
+  // That report is not a capability carrier. All other technical entries,
+  // including the 1.1 capability paths, remain outside business Exchange.
+  if(m?.format!=="iwxa.package"||m.format_version!=="1.0"||
+     m.encryption!=="none"||m.workspaces?.length!==1||
+     m.workspaces[0]!==workspace||m.workspace_states?.length!==1||
+     m.workspace_states[0]?.workspace_id!==workspace||
+     !COMPLETE_OPTIONS.every(k=>m.options?.[k]===true)||
+     m.counts?.workspaces!==1||p.scope_mode!=="workspace"||
+     !Array.isArray(m.files)||m.files.some(f=>
+       typeof f?.path!=="string"||
+       (f.path.startsWith("technical/")&&f.path!=="technical/validation-report.json"))||
+     !completeCounts(p.totals,p.included,p.excluded_by_permission)||
+     !ARCHIVE_COUNTS.every(k=>m.counts?.[k]===p.totals[k])||
+     !Array.isArray(p.objects)||p.objects.length!==p.totals.objects||
+     new Set(p.objects.map(row=>row.object_id)).size!==p.objects.length||
+     !p.objects.every(row=>businessRecord(row,workspace))||
+     !Array.isArray(p.schemas)||p.schemas.some(row=>
+       !BUSINESS_SCHEMAS.has(row?.schema_id)||
+       row.schema_version!=="1.0.0"||
+       !["known_domain","known_persisted","embedded_equal"].includes(row.status))||
+     !Array.isArray(p.unsupported)||p.unsupported.some(row=>row.kind!=="extension_field")||
+     !p.invalid||!["envelopes","dependencies","schema_validation","schema_conflicts"]
+       .every(k=>p.invalid[k]===0))
+    refused("T3_CORPORATE_EXCHANGE_BUSINESS_ARCHIVE_REQUIRED");
+}
+async function requireWorkingInventory(kernel,workspace,{forExport=false}={}){
+  for(const [method,op] of [["getObject","t1.getObject"],["listEventsSince","t1.listEventsSince"]])
+    if(!kernel.hasOperation(op)||typeof kernel[method]!=="function")
+      refused("T3_CORPORATE_EXCHANGE_INVENTORY_UNAVAILABLE");
+  // An empty business Workspace has no administrative registry Object.
+  // The original Kernel adapters may express that absence either as null
+  // or as OBJECT_NOT_FOUND. Never swallow scope, Workspace or transport
+  // failures; the complete original Event inventory is still mandatory.
+  let old;
+  try{old=await kernel.getObject(workspace,"t3.access.signed-registry");}
+  catch(error){
+    if(error?.code!=="OBJECT_NOT_FOUND")throw error;
+    old=null;
+  }
+  if(old!=null)refused("T3_CORPORATE_EXCHANGE_LEGACY_REGISTRY_PRESENT");
+  const events=await kernel.listEventsSince(workspace);
+  if(!Array.isArray(events)||events.some(e=>e?.workspace_id!==workspace))
+    refused("T3_CORPORATE_EXCHANGE_INVENTORY_UNAVAILABLE");
+  if(events.some(e=>e.event_type==="t3.access.signed_registry.persisted"||
+      e.object_id==="t3.access.signed-registry"||e.payload?.object_id==="t3.access.signed-registry"))
+    refused("T3_CORPORATE_EXCHANGE_LEGACY_REGISTRY_PRESENT");
+  if(forExport){
+    if(!kernel.hasOperation("t1.listObjects")||typeof kernel.listObjects!=="function")
+      refused("T3_CORPORATE_EXCHANGE_INVENTORY_UNAVAILABLE");
+    const rows=await kernel.listObjects({workspace_id:workspace,include_deleted:true});
+    if(!Array.isArray(rows)||!rows.every(row=>businessRecord(row,workspace))||
+       events.some(managementEvent))
+      refused("T3_CORPORATE_EXCHANGE_PROTECTED_OR_UNSUPPORTED_CONTENT");
+  }
+}
+async function inspectBusinessExport(kernel,artifact,workspace){
+  const manifest=artifact?.manifest;
+  if(!(artifact?.bytes instanceof Uint8Array)||artifact.bytes.byteLength<1||
+     artifact.size!==artifact.bytes.byteLength||artifact.validation?.ok!==true||
+     !HEX.test(artifact.package_digest??"")||
+     manifest?.package_digest!==artifact.package_digest||
+     artifact.summary?.scope_mode!=="workspace"||
+     !completeCounts(manifest?.counts,artifact.summary?.included,artifact.summary?.excluded_by_permission))
+    refused("T3_CORPORATE_EXCHANGE_EXPORT_INCOMPLETE");
+  // Inspect the exact generated archive with the ORIGINAL T2 parser.
+  // No second package format or parser; this private validation creates
+  // only a transient token, never dispatches importCommit, and cancels it.
+  if(!kernel.hasOperation("t2.importPreview")||!kernel.hasOperation("t2.importCancel")||
+     typeof kernel.importPreview!=="function"||typeof kernel.importCancel!=="function")
+    refused("T3_CORPORATE_EXCHANGE_ORIGINAL_PARSER_REQUIRED");
+  const inspected=await kernel.importPreview(new Uint8Array(artifact.bytes));
+  try{
+    if(!id(inspected?.preview_token)||inspected.package_digest!==artifact.package_digest||
+       inspected.semantic_digest!==artifact.semantic_digest)
+      refused("T3_CORPORATE_EXCHANGE_EXPORT_INCOMPLETE");
+    requireCompleteBusinessArchive(inspected,workspace);
+  }finally{
+    if(id(inspected?.preview_token)&&
+       await kernel.importCancel(inspected.preview_token)!==true)
+      refused("T3_CORPORATE_EXCHANGE_INSPECTION_CANCEL_UNCONFIRMED");
+  }
+}
+function previewStateFor(key){
+  const fresh=()=>({pendingImport:null,pendingPurge:null,pendingExport:null,
+    importGeneration:0,purgeGeneration:0,exportGeneration:0});
+  if(key===null)return fresh();
+  if(typeof key!=="object")refused("T3_SUBJECT_PREVIEW_SESSION_INVALID");
+  let state=previewSessions.get(key);
+  if(!state){state=fresh();previewSessions.set(key,state);}
+  return state;
+}
 
 function refused(code) {
   const error = new Error(code);
@@ -123,6 +250,8 @@ function authorizedDecision(decision,context,now) {
 export function createSubjectKernelBinding({
   kernel, access, clock = Date.now, commitObjectGraphPrecondition = null,
   isHostActive = () => true, onCommitObjectGraphDispatch = null,
+  previewSession = null,corporateBusinessExchange = false,
+  applicationReceiptScope = null,
 } = {}) {
   if (!kernel || typeof kernel.hasOperation !== "function" ||
       !kernel.sessionInfo || kernel.sessionInfo.contract_version !== "1.3.0" ||
@@ -146,13 +275,27 @@ export function createSubjectKernelBinding({
   // One short-lived Host-side preview binding, NOT a new Store or journal.
   // T2 Kernel remains sole authority for purge tokens and irreversible commit.
   // A new process must create a fresh preview; no cross-process token reuse.
-  let pendingPurge = null;
-  let pendingImport = null;
+  if(typeof corporateBusinessExchange!=="boolean")
+    refused("T3_CORPORATE_EXCHANGE_PROFILE_INVALID");
+  // Native recipient APPLY only. Its signed operation still names the business
+  // Workspace; the exact sealed effect is physically placed in the existing
+  // administrative Workspace of the SAME original Kernel. This option is
+  // never supplied by the HTTP/UI binding, nor a general Workspace alias.
+  const receiptScope=applicationReceiptScope===null?null:
+    Object.freeze({...applicationReceiptScope});
+  if(receiptScope!==null&&(
+      corporateBusinessExchange||previewSession!==null||
+      kernel.sessionInfo.service_id!=="iwxa.admin-center.workspace"||
+      !/^workspace:registry:[a-f0-9]{64}$/.test(receiptScope.workspaceId??"")||
+      !HEX.test(receiptScope.effectKey??"")||
+      Object.keys(receiptScope).sort().join(",")!=="effectKey,workspaceId"))
+    refused("T3_D3_APPLICATION_RECEIPT_SCOPE_INVALID");
+  const previews = previewStateFor(previewSession);
   function snapshotCommand(input) {
     try { return structuredClone(input); }
     catch { refused("T3_KERNEL_INPUT_NOT_CLONEABLE"); }
   }
-  async function invoke(method, input, workspace_id, boundPurge = null, boundImport = null) {
+  async function invoke(method, input, workspace_id, boundPurge = null, boundImport = null, previewGeneration = null) {
     requireActive();
     requiredId(workspace_id,"WORKSPACE_ID");
     // Freeze the caller's command BEFORE any asynchronous native-owner call.
@@ -170,6 +313,50 @@ export function createSubjectKernelBinding({
     const context = await selected(access);
     // The caller cannot override a Host-selected PERSONAL/CORP context.
     if (context.workspace_id !== workspace_id) refused("T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE");
+    const physicalWorkspace=receiptScope?.workspaceId??workspace_id;
+    if(receiptScope!==null){
+      const effect=receiptScope.effectKey,objectId="result:applied:"+effect;
+      if(context.kind!=="CORP"||context.purpose!=="application"||
+         managementWorkspace(workspace_id)||physicalWorkspace===workspace_id||
+         !["getWorkspace","getObject","listEventsSince","commitObjectGraph"].includes(method)||
+         (method==="getObject"&&command.object_id!==objectId))
+        refused("T3_D3_APPLICATION_RECEIPT_SCOPE_INVALID");
+      if(method==="commitObjectGraph"){
+        const o=command.object,records=o?.data?.records;
+        if(command.idempotency_key!==effect||o?.object_id!==objectId||
+           o.schema_id!=="iwxa.admin.applied-results"||o.schema_version!=="1.0.0"||
+           o.base_revision!==0||o.data?.schema!=="IWXA_T3_ADMIN_APPLIED_RESULTS/1"||
+           !Array.isArray(records)||!records.length||
+           records.some(r=>r?.workspaceId!==workspace_id||
+             r.organizationId!==context.organization_id)||
+           command.event?.event_type!=="iwxa.admin.result.applied"||
+           (command.relation_puts?.length??0)!==0||(command.relation_deletes?.length??0)!==0)
+          refused("T3_D3_APPLICATION_RECEIPT_SCOPE_INVALID");
+      }
+    }
+    const business=corporateBusinessExchange&&EXCHANGE_METHODS.has(method);
+    if(corporateBusinessExchange&&managementWorkspace(workspace_id))
+      refused("T3_CORPORATE_EXCHANGE_WORKSPACE_REQUIRED");
+    if(business)requireBusinessWorkspace(context);
+    if(business&&["exportPreview","exportPackage"].includes(method)&&
+       (!COMPLETE_OPTIONS.every(k=>command?.[k]===true)||
+        command.scope!=null))
+      refused("T3_CORPORATE_EXCHANGE_COMPLETE_WORKSPACE_REQUIRED");
+    if(business&&method==="confirmExport"){
+      const prepared=previews.pendingExport;
+      if(!prepared||prepared.contextIdentity!==identity(context)||
+         prepared.workspaceId!==workspace_id||
+         prepared.packageDigest!==command?.package_digest)
+        refused("T3_CORPORATE_EXCHANGE_VERIFIED_EXPORT_REQUIRED");
+      previews.pendingExport=null;
+    }
+    if(corporateBusinessExchange&&["putObject","deleteObject","commitObjectGraph"].includes(method)){
+      const record=method==="commitObjectGraph"?command.object:command;
+      if(managementObject(record?.object_id)||
+         record?.schema_id==="iwxa.t3.access.signed-registry"||
+         record?.schema_id==="iwxa.admin.applied-results"||managementEvent(command.event))
+        refused("T3_CORPORATE_EXCHANGE_PROTECTED_OR_UNSUPPORTED_CONTENT");
+    }
     // T2 Exchange addresses workspaces through an array rather than a
     // workspace_id property. Require exactly the selected subject's workspace.
     // Confirming an export without explicit workspace_ids would confirm all
@@ -207,6 +394,20 @@ export function createSubjectKernelBinding({
         const source = boundImport.sourceWorkspaceId;
         const foreign = source !== workspace_id;
         const map = plan?.workspace_id_map;
+        // Keep the original explicit recipient-scope refusal distinguishable
+        // from an incomplete, but correctly addressed, company merge.
+        if (plan?.target_workspace != null && plan.target_workspace !== workspace_id)
+          refused("T3_SUBJECT_IMPORT_PLAN_OUT_OF_SCOPE");
+        if(business&&(foreign||boundImport.business!==true||
+           plan?.mode!=="merge"||plan.target_workspace!==workspace_id||
+           (plan?.conflict??"fail")!=="fail"||
+           boundImport.immutableMergeReady!==true||
+           Object.keys(plan??{}).some(k=>!["mode","target_workspace","conflict","include_workspaces","include_objects","include_history","include_assets","include_relations"].includes(k))||
+           !Array.isArray(plan.include_workspaces)||plan.include_workspaces.length!==1||
+           plan.include_workspaces[0]!==workspace_id||
+           (plan.include_objects?.length??0)!==0||
+           !["include_history","include_assets","include_relations"].every(k=>plan[k]===true)))
+          refused("T3_CORPORATE_EXCHANGE_COMPLETE_WORKSPACE_REQUIRED");
         if (!plan || typeof plan !== "object" || Array.isArray(plan) ||
             !["full","selective","merge","new-workspace"].includes(plan.mode) ||
             (boundImport.allowedModes &&
@@ -287,6 +488,9 @@ export function createSubjectKernelBinding({
         archive_sha256:[...rawDigest].map(x=>x.toString(16).padStart(2,"0")).join(""),
       };
     }
+    if(receiptScope!==null)signedInput={...signedInput,
+      original_application_receipt_workspace_id:physicalWorkspace,
+      original_application_effect_key:receiptScope.effectKey};
     const operationDigest = await access.operationDigest({
       operation,input:signedInput,context,
     });
@@ -331,17 +535,25 @@ export function createSubjectKernelBinding({
       if (!current) refused("T3_D3_ORIGINAL_APPLICATION_PRECONDITION_DENIED");
     }
     requireActive();
+    if(business&&["exportPreview","exportPackage","importPreview","importCommit"].includes(method)){
+      await requireWorkingInventory(kernel,workspace_id,{
+        forExport:method==="exportPreview"||method==="exportPackage"});
+      if(identity(context)!==identity(await selected(access)))
+        refused("T3_SUBJECT_CONTEXT_CHANGED");
+      requireActive();
+      authorizedDecision(decision,context,Number(clock()));
+    }
     // This is the exact boundary where the original Kernel operation starts.
     // Observers may record uncertainty, but cannot issue a second operation.
     if (method === "commitObjectGraph") onCommitObjectGraphDispatch?.();
     const result = method === "getObject"
-      ? await kernel.getObject(workspace_id,command.object_id)
+      ? await kernel.getObject(physicalWorkspace,command.object_id)
       : method === "getWorkspace"
-        ? await kernel.getWorkspace(workspace_id)
+        ? await kernel.getWorkspace(physicalWorkspace)
         : method === "getAsset"
           ? await kernel.getAsset(workspace_id,command.asset_id)
           : method === "listEventsSince"
-            ? await kernel.listEventsSince(workspace_id,command.since)
+            ? await kernel.listEventsSince(physicalWorkspace,command.since)
             : method === "listEventCommitWindow"
               ? await kernel.listEventCommitWindow(workspace_id,command.after_event_id,command.limit)
               : method === "listEventObjectCommitWindow"
@@ -356,10 +568,11 @@ export function createSubjectKernelBinding({
                     ? await kernel.importCancel(command.preview_token)
                     : method === "importCommit"
                       ? await kernel.importCommit(command)
-                      : await kernel[method](command);
+                      : await kernel[method](receiptScope===null?command:
+                        {...command,workspace_id:physicalWorkspace});
     const scoped = (record,code) => {
       if (!record || typeof record !== "object" ||
-          record.workspace_id !== workspace_id) refused(code);
+          record.workspace_id !== physicalWorkspace) refused(code);
     };
     const checkEvent = event => scoped(event,"T3_KERNEL_EVENT_SCOPE_MISMATCH");
     const checkRelations = rows => {
@@ -448,7 +661,7 @@ export function createSubjectKernelBinding({
       checkEvent(result.event);
     }
     if (method === "commitObjectGraph") {
-      if (result.workspace_id !== workspace_id)
+      if (result.workspace_id !== physicalWorkspace)
         refused("T3_KERNEL_SCOPE_RECEIPT_MISMATCH");
       checkRelations(result.relations_put);
     }
@@ -478,6 +691,7 @@ export function createSubjectKernelBinding({
     // Validate the original T2 Exchange owner receipts without modifying the
     // archive bytes or creating a parallel packager/manifest parser.
     if (method === "importPreview") {
+      try {
       const imported = result?.preview;
       const ids = imported?.manifest?.workspaces;
       const source = Array.isArray(ids) && ids.length === 1 ? ids[0] : null;
@@ -502,6 +716,12 @@ export function createSubjectKernelBinding({
           Date.parse(result.expires_at)<=Number(clock())) {
         refused("T3_KERNEL_IMPORT_SCOPE_MISMATCH");
       }
+      if(business)requireCompleteBusinessArchive(result,workspace_id);
+      } catch(error){
+        if(business&&id(result?.preview_token)&&kernel.hasOperation("t2.importCancel"))
+          try{await kernel.importCancel(result.preview_token);}catch{}
+        throw error;
+      }
     }
     if (method === "importCommit") {
       const source = boundImport.sourceWorkspaceId;
@@ -521,6 +741,7 @@ export function createSubjectKernelBinding({
             mapping[source]===workspace_id));
       if (result?.package_digest!==command.package_digest ||
           result?.mode!==command.plan.mode || !validMapping ||
+          (business&&result?.skipped_conflicts?.length!==0) ||
           !Array.isArray(result?.skipped_conflicts) ||
           result.skipped_conflicts.some(key =>
             typeof key!=="string" ||
@@ -571,6 +792,14 @@ export function createSubjectKernelBinding({
         refused("T3_KERNEL_EXCHANGE_SCOPE_MISMATCH");
       }
     }
+    if(business&&method==="exportPreview"&&
+       (result.summary?.scope_mode!=="workspace"||
+        !completeCounts(result.counts,result.summary?.included,result.summary?.excluded_by_permission)))
+      refused("T3_CORPORATE_EXCHANGE_EXPORT_INCOMPLETE");
+    if(business&&method==="exportPackage"){
+      await inspectBusinessExport(kernel,result,workspace_id);
+      await requireWorkingInventory(kernel,workspace_id,{forExport:true});
+    }
     // Kernel/Host methods are asynchronous. Selection can change while the
     // original Kernel is executing, even when Access JIT authorization passed.
     // Never return the prior subject's read or receipt to the new context.
@@ -579,10 +808,23 @@ export function createSubjectKernelBinding({
       refused("T3_SUBJECT_RESULT_STALE_AFTER_KERNEL");
     }
     requireActive();
+    if(business&&method==="exportPackage"){
+      if(previewGeneration!==previews.exportGeneration)
+        refused("T3_CORPORATE_EXCHANGE_EXPORT_SUPERSEDED");
+      previews.pendingExport=Object.freeze({contextIdentity:identity(context),
+        workspaceId:workspace_id,packageDigest:result.package_digest});
+    }
     if (method === "importPreview") {
-      pendingImport = Object.freeze({
+      if(previewGeneration!==previews.importGeneration)
+        refused("T3_SUBJECT_IMPORT_PREVIEW_SUPERSEDED");
+      previews.pendingImport = Object.freeze({
         workspace_id,contextIdentity:identity(context),
         sourceWorkspaceId:result.preview.manifest.workspaces[0],
+        business,
+        immutableMergeReady:!business||result.preview.objects.every(row=>
+          Number.isSafeInteger(row.incoming_revision)&&row.incoming_revision>=1&&
+          row.conflict===false&&(row.local_revision===null||
+            row.data_equal===true&&row.local_revision===row.incoming_revision)),
         allowedModes:Array.isArray(result.allowed_modes)
           ?Object.freeze([...result.allowed_modes]):null,
         preview_token:result.preview_token,
@@ -591,7 +833,9 @@ export function createSubjectKernelBinding({
       });
     }
     if (method === "purgePreview") {
-      pendingPurge = Object.freeze({
+      if(previewGeneration!==previews.purgeGeneration)
+        refused("T3_SUBJECT_PURGE_PREVIEW_SUPERSEDED");
+      previews.pendingPurge = Object.freeze({
         workspace_id,contextIdentity:identity(context),
         purge_token:result.purge_token,challenge:result.challenge,
         expiresAt:Date.parse(result.expires_at),
@@ -599,14 +843,20 @@ export function createSubjectKernelBinding({
           result.acknowledge_no_backup !== true,
       });
     }
+    // The private APPLY reader needs evidence of this effect only, not the
+    // authority registry's Event payloads. Keep the original matching Event
+    // records unchanged, including malformed same-effect evidence.
+    if(receiptScope!==null&&method==="listEventsSince")
+      return result.filter(e=>e.idempotency_key===receiptScope.effectKey||
+        e.object_id==="result:applied:"+receiptScope.effectKey);
     return result; // Original T2 Kernel receipt; no duplicate source-of-truth.
   }
   async function consumeImport(token) {
-    const plan = pendingImport;
+    const plan = previews.pendingImport;
     if (!plan || plan.preview_token !== token) {
       refused("T3_SUBJECT_IMPORT_PREVIEW_REQUIRED");
     }
-    pendingImport = null; // Valid token consumed BEFORE awaiting native owner.
+    previews.pendingImport = null; // Valid token consumed BEFORE awaiting native owner.
     if (plan.contextIdentity !== identity(await selected(access))) {
       refused("T3_SUBJECT_IMPORT_PREVIEW_REQUIRED");
     }
@@ -614,12 +864,12 @@ export function createSubjectKernelBinding({
     return plan;
   }
   async function consumePurge(token,confirmation,commit) {
-    const plan = pendingPurge;
+    const plan = previews.pendingPurge;
     if (!plan || plan.purge_token !== token) {
       refused("T3_SUBJECT_PURGE_PREVIEW_REQUIRED");
     }
     if (Number(clock()) >= plan.expiresAt) {
-      pendingPurge = null;
+      previews.pendingPurge = null;
       refused("T3_SUBJECT_PURGE_PREVIEW_EXPIRED");
     }
     // A mistaken confirmation is corrected within the SAME original preview.
@@ -629,7 +879,7 @@ export function createSubjectKernelBinding({
     if (commit && (typeof confirmation !== "string" ||
         confirmation !== plan.challenge))
       refused("T3_SUBJECT_PURGE_CHALLENGE_MISMATCH");
-    pendingPurge = null;
+    previews.pendingPurge = null;
     if (plan.contextIdentity !== identity(await selected(access))) {
       refused("T3_SUBJECT_PURGE_PREVIEW_REQUIRED");
     }
@@ -682,16 +932,20 @@ export function createSubjectKernelBinding({
       invoke("restoreWorkspace",{workspace_id},workspace_id),
     exportPreview: async options =>
       invoke("exportPreview",options,oneWorkspace(options?.workspaces)),
-    exportPackage: async options =>
-      invoke("exportPackage",options,oneWorkspace(options?.workspaces)),
+    exportPackage: async options => {
+      const generation=++previews.exportGeneration;
+      previews.pendingExport=null;
+      return invoke("exportPackage",options,oneWorkspace(options?.workspaces),null,null,generation);
+    },
     confirmExport: async input =>
       invoke("confirmExport",input,oneWorkspace(input?.workspace_ids)),
     importPreview: async bytes => {
-      pendingImport = null;
+      const generation=++previews.importGeneration;
+      previews.pendingImport = null;
       const commandBytes = snapshotCommand(bytes);
       const context = await selected(access);
       return invoke("importPreview",{workspace_id:context.workspace_id,bytes:commandBytes},
-        context.workspace_id);
+        context.workspace_id,null,null,generation);
     },
     importCommit: async input => {
       const command = snapshotCommand(input);
@@ -703,8 +957,9 @@ export function createSubjectKernelBinding({
       return invoke("importCancel",{preview_token:token},plan.workspace_id,null,plan);
     },
     purgePreview: async input => {
-      pendingPurge = null;
-      return invoke("purgePreview",input,input?.workspace_id);
+      const generation=++previews.purgeGeneration;
+      previews.pendingPurge = null;
+      return invoke("purgePreview",input,input?.workspace_id,null,null,generation);
     },
     purgeCommit: async input => {
       const command = snapshotCommand(input);

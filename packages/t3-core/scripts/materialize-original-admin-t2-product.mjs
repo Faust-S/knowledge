@@ -8,8 +8,9 @@ import {existsSync,lstatSync,mkdirSync,readFileSync,rmSync,writeFileSync}
   from 'node:fs';
 import {dirname,resolve,relative,isAbsolute} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {assertQualifiedKernelArtifact}
-  from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
+import {assertInstalledOriginalKernelArtifact,takeQualificationKernelCandidate}
+  from './installed-kernel-selection.mjs';
+import {qualificationKernelCandidateFields} from './installed-kernel-candidate.mjs';
 import {stageVerifiedKernelFiles} from './stage-verified-kernel.mjs';
 
 const PRODUCT='iwxa.admin-center';
@@ -46,7 +47,7 @@ function requireAdminProfile(file){
   return p;
 }
 export async function materializeOriginalAdminT2Product({
-  qualifiedKernelDist,centerProfile,outputRoot,
+  qualifiedKernelDist,centerProfile,outputRoot,qualificationKernelCandidate,
 }={}){
   if(![qualifiedKernelDist,centerProfile,outputRoot].every(
     value=>typeof value==='string'&&value.trim()))
@@ -60,8 +61,7 @@ export async function materializeOriginalAdminT2Product({
       source=>inside(source,target)||inside(target,source)))
     fail('FRESH_TARGET_OUTSIDE_SOURCES_REQUIRED');
   const profile=requireAdminProfile(profilePath);
-  const verified=assertQualifiedKernelArtifact(original,{
-    kernel:'0.3.6',contract:'1.3.0',artifactId:ARTIFACT});
+  const verified=assertInstalledOriginalKernelArtifact(original,qualificationKernelCandidate);
   const templates=resolve(shared,'fixtures/host-configs/generic');
   const domain=json(resolve(templates,'domain.json'));
   const shell=json(resolve(templates,'domain-shell.json'));
@@ -161,23 +161,25 @@ export async function materializeOriginalAdminT2Product({
     const check=validator.validateDomainConfig(domain,{
       current_origin:profile.origin});
     if(check?.ok!==true)fail('INHERITED_DOMAIN_VALIDATION_FAILED');
-    const final=assertQualifiedKernelArtifact(target,{
-      kernel:'0.3.6',contract:'1.3.0',artifactId:ARTIFACT});
+    const final=assertInstalledOriginalKernelArtifact(target,qualificationKernelCandidate);
     if(final.artifactSha256!==verified.artifactSha256)
       fail('INHERITED_KERNEL_BYTES_CHANGED');
     return Object.freeze({
       productId:PRODUCT,serviceId:SERVICE,origin:profile.origin,
-      originalQualifiedArtifactId:verified.artifactId,
+      originalQualifiedArtifactId:verified.releaseAccepted===false?null:verified.artifactId,
+      ...qualificationKernelCandidateFields(verified),
       originalKernelBytesUnchanged:true,installedAdminT3Mode:'EXPLICIT_OPT_IN',
       outputRoot:target,
     });
   }catch(error){rmSync(target,{recursive:true,force:true});throw error;}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  if(process.argv.length!==5)fail('USAGE_KERNEL_CENTER_PROFILE_OUTPUT');
+  const args=process.argv.slice(2);
+  const qualificationKernelCandidate=takeQualificationKernelCandidate(args);
+  if(args.length!==3)fail('USAGE_KERNEL_CENTER_PROFILE_OUTPUT');
   materializeOriginalAdminT2Product({
-    qualifiedKernelDist:process.argv[2],centerProfile:process.argv[3],
-    outputRoot:process.argv[4],
+    qualifiedKernelDist:args[0],centerProfile:args[1],
+    outputRoot:args[2],qualificationKernelCandidate,
   }).then(result=>console.log(JSON.stringify(result)),
     error=>{const msg=String(error?.message??'');
       console.error(/^T3_ADMIN_ORIGINAL_T2_[A-Z0-9_]+$/.test(msg)

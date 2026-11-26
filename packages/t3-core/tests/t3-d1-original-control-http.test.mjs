@@ -1507,6 +1507,33 @@ test("original nested Kernel allows only exact installed Agent grandparent",asyn
   }
 });
 
+test("native relay negotiates original Workspace creation as an optional operation",async()=>{
+  const operations=["t1.commitObjectGraph","t1.getWorkspace","t1.getObject","t1.listEventsSince"];
+  for(const enabled of [false,true]){
+    const relay=createOriginalKernelNativeRelay({currentEpoch:()=>7,onAttach:()=>true});
+    try{
+      const {sessionId}=await relay.exchange({verb:"attach",payload:{sessionInfo:{
+        contract_version:"1.3.0",runtime_version:"0.3.6",
+        service_id:"iwxa.workspace.relay",mode:"ready",
+        granted_operations:enabled?[...operations,"t1.createWorkspace"]:operations
+      }}},7);
+      const input={workspace_id:"workspace:registry:qualification",profile:"generic"};
+      assert.equal(relay.nativeKernel.hasOperation("t1.createWorkspace"),enabled);
+      if(!enabled){
+        assert.throws(()=>relay.nativeKernel.createWorkspace(input),{code:"T3_D3_ORIGINAL_KERNEL_NOT_CONNECTED"});
+        continue;
+      }
+      const created=relay.nativeKernel.createWorkspace(input);
+      const command=await relay.exchange({verb:"next",payload:{sessionId}},7);
+      assert.equal(command.method,"createWorkspace");
+      assert.deepEqual(command.args,[input]);
+      await relay.exchange({verb:"result",payload:{sessionId,id:command.id,ok:true,result:input}},7);
+      assert.deepEqual(await created,input);
+    }finally{relay.close();}
+  }
+});
+
+
 test("T4 opt-in native owner uses original signed Control HTTP and exact binary Asset relay",{
   timeout:12000,
 },async()=>{

@@ -18,6 +18,7 @@ import { adapter } from "@/kernel-client/adapter";
 import { createSubjectKernelBinding } from "@/t3/index.mjs";
 import type { T3SignedActivityAccess } from "@/t3/index.mjs";
 import type { Level } from "@/kernel-client/contracts/runtime-1.3.0";
+import {companyExchangeServiceId,COMPANY_PACKAGE_OPERATIONS} from "@/t3/company-exchange-profile.mjs";
 import type { OriginalMutationRoute } from "@/t3/original-local-source-mutation-route.mjs";
 
 import { negotiateAtomicGraph } from "@/kernel-client/contracts/runtime-1.3.0/atomic-graph-negotiation";
@@ -29,12 +30,25 @@ export interface KernelFacadeInput {
     ((operation: string) => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
   /** The original Host lifecycle, not a second authorization registry. */
   isHostActive?: () => boolean;
+  /** Private original Workspace-scope session in the trusted realm only.
+   * Never passed across MessagePort or used for native T1 graph operations. */
+  trustedCompanyExchangeSession?: KernelSession;
   /** Optional original Host-only source capture, AFTER the signed D1 JIT. */
   routeOriginalMutation?: OriginalMutationRoute;
 }
 
 export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
   const { session } = input;
+  const exchangeServiceId=companyExchangeServiceId(session.service?.service_id);
+  const corporateBusinessExchange=exchangeServiceId!==null&&!!input.signedKernelAccess;
+  const privateExchange=input.trustedCompanyExchangeSession;
+  if(privateExchange&&(!corporateBusinessExchange||
+      privateExchange.service?.service_id!==exchangeServiceId||
+      privateExchange.contract_version!==session.contract_version||
+      privateExchange.runtime_version!==session.runtime_version||
+      !COMPANY_PACKAGE_OPERATIONS.every(op=>privateExchange.granted_operations?.includes(op as OperationId))))
+    throw Object.assign(new Error("T3_COMPANY_EXCHANGE_PRIVATE_SESSION_INVALID"),{code:"T3_COMPANY_EXCHANGE_PRIVATE_SESSION_INVALID"});
+  const exchangeSession=privateExchange??session;
   const atomicAvailable = negotiateAtomicGraph(session).available;
   const commitWindowAvailable = session.contract_version === "1.3.0" &&
     session.granted_operations?.includes("t1.listEventsSince") === true &&
@@ -55,7 +69,8 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
       (op !== "t1.commitObjectGraph" || atomicAvailable) &&
       (op !== "t1.listEventCommitWindow" || commitWindowAvailable) &&
       (op !== "t1.listEventObjectCommitWindow" || objectCommitWindowAvailable) &&
-      (op !== "t1.listObjectWindow" || objectWindowAvailable)),
+      (op !== "t1.listObjectWindow" || objectWindowAvailable) &&
+      (!corporateBusinessExchange||!COMPANY_PACKAGE_OPERATIONS.includes(op)||!!privateExchange)),
   ) as readonly OperationId[];
   const grantedLevels = Object.freeze(
     [...(session.granted_levels ?? [])],
@@ -117,12 +132,12 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     purgeCancel: async (token) => adapter.purgeCancel(session, token),
 
     // Exchange
-    exportPreview: async (options) => adapter.exportPreview(session, options),
-    exportPackage: async (options) => adapter.exportPackage(session, options),
-    confirmExport: async (input) => adapter.confirmExport(session, input),
-    importPreview: async (bytes) => adapter.importPreview(session, bytes),
-    importCommit: async (input) => adapter.importCommit(session, input),
-    importCancel: async (token) => adapter.importCancel(session, token),
+    exportPreview: async (options) => adapter.exportPreview(exchangeSession, options),
+    exportPackage: async (options) => adapter.exportPackage(exchangeSession, options),
+    confirmExport: async (input) => adapter.confirmExport(exchangeSession, input),
+    importPreview: async (bytes) => adapter.importPreview(exchangeSession, bytes),
+    importCommit: async (input) => adapter.importCommit(exchangeSession, input),
+    importCancel: async (token) => adapter.importCancel(exchangeSession, token),
   };
   if (!input.signedKernelAccess) {
     if (input.routeOriginalMutation) throw Object.assign(new Error("T3_D1_ACCESS_OWNER_REQUIRED"), {code:"T3_D1_ACCESS_OWNER_REQUIRED"});
@@ -142,6 +157,13 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
   const original = Object.freeze({ ...facade }) as Record<string, unknown>;
   const inherited = { ...facade } as Record<string, unknown>;
   const instances = new WeakMap<object, ReturnType<typeof createSubjectKernelBinding>>();
+  // Control returns fresh method-specific signed ports. Original preview
+  // handles survive across them only within this live KernelFacade.
+  const previewSession=Object.freeze({});
+  // Exact installed service identity from the original negotiated T2
+  // session, never a UI-provided operation or imported manifest.
+  // Private Workspace passport grants never appear in the product facade.
+  // Without the trusted connection, corporate T2 operations are unavailable.
   const deny = (code: string): never => {
     throw Object.assign(new Error(code), { code });
   };
@@ -160,7 +182,9 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     let bound = instances.get(access);
     if (!bound) {
       bound = createSubjectKernelBinding({
-        kernel: inherited as unknown as KernelFacade, access,
+        kernel: inherited as unknown as KernelFacade, access,previewSession,
+        corporateBusinessExchange,
+        isHostActive:()=>input.isHostActive?.()!==false,
       });
       instances.set(access, bound);
     }

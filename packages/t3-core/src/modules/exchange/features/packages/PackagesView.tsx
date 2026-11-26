@@ -8,6 +8,8 @@ import { ImportView, type InstalledPwaFileHandle } from "./ImportView";
 import type { PackagesTab } from "../../types";
 import type { createTrustedAgeExchange, createTrustedPublisherHandoff } from "../../../../t3/index.mjs";
 import { PublisherLicensePanel } from "./PublisherLicensePanel";
+import { CompanyWorkspaceReadback } from "./CompanyWorkspaceReadback";
+import { isInstalledCompanyExchange } from "../../../../t3/company-workspace-readback.mjs";
 
 export interface PackagesViewProps {
   kernel: KernelFacade;
@@ -163,6 +165,7 @@ export function PackagesView({
             protectedExchange={protectedExchange} />
         )}
       </div>
+      {isInstalledCompanyExchange(kernel,signedWorkspaceScope)&&<CompanyWorkspaceReadback key={exportScopeId??"none"} kernel={kernel} workspaceId={exportScopeId} />}
       {publisherHandoff && <PublisherLicensePanel handoff={publisherHandoff} />}
     </div>
   );
