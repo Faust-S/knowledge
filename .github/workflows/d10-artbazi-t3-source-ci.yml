@@ -144,15 +144,9 @@ jobs:
         shell: bash
         run: |
           if node scripts/tests/d10-t3-original-browser.mjs > "$RUNNER_TEMP/d10-t3-browser.log" 2>&1; then
-            grep -E '^D10_T3_(BROWSER_[A-Z_]+|REAL_MODEL_INFERENCE)=(PASS|NOT_RUN)        if: always()
-        shell: bash
-        run: rm -f "$RUNNER_TEMP"/d10-t3-*.log
- "$RUNNER_TEMP/d10-t3-browser.log" || true
+            grep -E '^D10_T3_(BROWSER_[A-Z_]+|REAL_MODEL_INFERENCE)=(PASS|NOT_RUN)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
           else
-            grep -E '^D10_T3_BROWSER_[A-Z_]+=(PASS|[A-Z_]+|[A-Za-z]+Error)        if: always()
-        shell: bash
-        run: rm -f "$RUNNER_TEMP"/d10-t3-*.log
- "$RUNNER_TEMP/d10-t3-browser.log" || true
+            grep -E '^D10_T3_BROWSER_[A-Z_]+=(PASS|[A-Z_]+|[A-Za-z]+Error)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
             echo "::error::D10_T3_BROWSER_REGRESSION=FAIL"; exit 1
           fi
       - name: Delete private build logs
