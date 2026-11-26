@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FUNCTIONALLY_QUALIFIED_EXACT_PUBLICATION_RECOVERY_PREPARED",
+  "status": "FUNCTIONALLY_QUALIFIED_PUBLICATION_RECOVERY_REQUESTED",
   "scope": "1.6.0",
   "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -535,7 +535,7 @@
     "sourceRepository": "Faust-S/cehovod.ru",
     "retainedBranch": "work/2026-11-25-d05-t3-retained-inputs",
     "expectedParent": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
-    "qualificationRun": null,
+    "qualificationRun": 45783259434,
     "retainedCommit": null,
     "retainedTree": null,
     "nodeVersion": "22.16.0",
@@ -650,5 +650,17 @@
       "automaticCredentialFallback": false,
       "repeatedProductTests": false
     }
+  },
+  "oneTimeRequest": {
+    "runId": 45783259434,
+    "preparedCommit": "ff7ec47bca611dfb088a275bb80526f795a16c18",
+    "requestCommit": "2c415939da47bd6575bc2c950ab856010300e1c5",
+    "requestBranch": "ci/once/d05-t3-release/ff7ec47bca611dfb088a275bb80526f795a16c18",
+    "requestFile": ".github/ci-requests/d05-t3-release.json",
+    "runStatusAtRecording": "queued",
+    "conclusionAtRecording": null,
+    "matchingRuns": 1,
+    "immutable": true,
+    "priorEvidenceRun": 45780282826
   }
 }
