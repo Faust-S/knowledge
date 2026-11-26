@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 6d3fb34e9f6ae99f79ae1df191ff6d8dccff785f
+          ref: 73557551c0f4197acee05d99c426f41ee2de92bb
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -60,6 +60,7 @@ jobs:
           if [ "$result" -eq 0 ]; then echo "D10_DOMAIN_CASES=PASS"; else echo "::error::D10_DOMAIN_CASES=FAIL exit=$result"; grep -E "^(not ok |# (tests|pass|fail|cancelled))" "$RUNNER_TEMP/d10-domain.log" | head -n 30 || true; fi
           exit "$result"
       - name: Frozen site dependencies
+        id: d10_site_dependencies
         shell: bash
         run: |
           set +e
@@ -95,6 +96,7 @@ jobs:
             console.log("D10_SALES_SOURCE_ERRORS="+errors.length);
             for(const e of errors.slice(0,10)){
               console.log("D10_SALES_SOURCE_FILE="+String(e.file??"unknown").replace(/[^a-zA-Z0-9_.\\/-]/g,"_"));
+              if(Number.isSafeInteger(e.line)&&e.line>0)console.log("D10_SALES_SOURCE_LINE="+e.line);
               console.log("D10_SALES_SOURCE_CLASS="+(String(e.message).startsWith("Missing export")?"MISSING_EXPORT":
                 String(e.message).startsWith("Missing local module")?"MISSING_MODULE":"SYNTAX_OR_OTHER"));
             }
@@ -108,10 +110,12 @@ jobs:
           done
           echo "D10_SALES_FUNCTIONAL_REGRESSION=PASS"
       - name: Site source, Group E, Host, types
+        if: ${{ !cancelled() && steps.d10_site_dependencies.outcome == 'success' }}
         shell: bash
         run: |
-          set -e
-          cd site
+          set +e
+          cd site || exit 1
+          failed=0
           for gate in check:commercial check:crm check:t2-host-route check:group-e check:types; do
             label="${gate//:/_}"
             if npm run "$gate" > "$RUNNER_TEMP/d10-$label.log" 2>&1; then
@@ -122,9 +126,10 @@ jobs:
               grep -E '^(not ok |# (tests|pass|fail|cancelled))' "$RUNNER_TEMP/d10-$label.log" | head -n 35 || true
               grep -E 'error TS[0-9]+:' "$RUNNER_TEMP/d10-$label.log" | sed -E 's/: error TS([0-9]+):.*/: TS\1/' | head -n 12 || true
               grep -Eo 'TS[0-9]+' "$RUNNER_TEMP/d10-$label.log" | sort -u | head -n 15 | sed 's/^/D10_TYPESCRIPT_CODE=/' || true
-              exit 1
+              failed=1
             fi
           done
+          exit "$failed"
       - name: Reproduce integrated T2 site in one dist
         shell: bash
         env:
