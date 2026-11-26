@@ -106,3 +106,11 @@ test('a 256-material canvas keeps all refs and preserves layout in one serializa
   assert.deepEqual(restore({objects:many,presentation:captured}).selectedObjectIds,ids);
   assert.deepEqual(projectWorkspaceCanvasMaterials({workspaceId,objects:many,selectedObjectIds:ids}).items.map(o=>o.object_id),ids);
 });
+
+test('a composed view cannot be replaced by a filter-only save with the same name',()=>{
+  const request={workspaceId,profileId,name:'Study',logicalAreaId:null,query:'',objects:[saved()]};
+  assert.throws(()=>prepareWorkspacePersistedViewSave(request),e=>e.code==='VIEW_STATE_EDIT_REQUIRED');
+  assert.equal(prepareWorkspacePersistedViewSave({...request,presentation}).action,'ALREADY_SAVED');
+  assert.throws(()=>prepareWorkspacePersistedViewSave({...request,presentation:capture({canvasLayout:{columns:1,detailed:[],wide:[]}})}),e=>e.code==='VIEW_STATE_EDIT_REQUIRED');
+  assert.equal(prepareWorkspacePersistedViewSave({...request,edit:{viewId,baseRevision:2}}).action,'UPDATE');
+});

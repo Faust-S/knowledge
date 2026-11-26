@@ -125,6 +125,13 @@ export function prepareWorkspacePersistedViewSave({
   }
   if (matches.length === 1) {
     const view = exact(matches[0].viewId);
+    if (view.presentation) {
+      if (view.name === title && view.logicalAreaId === logicalAreaId && view.query === query
+          && workspaceViewPresentationMatches(view.presentation, presentation)) {
+        return target(view.viewId, view.baseRevision, 'ALREADY_SAVED');
+      }
+      throw saveError('VIEW_STATE_EDIT_REQUIRED', 'Open the existing composed view for explicit editing.');
+    }
     return target(view.viewId, view.baseRevision, 'UPDATE');
   }
   const viewId = allocateId();
