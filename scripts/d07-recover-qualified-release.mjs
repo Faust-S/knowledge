@@ -1,4 +1,4 @@
-// D07 one-shot recovery of run 45663645049, not a new product build system.
+// D07 one-shot recovery of the qualified 45777863688 release, not a new product build system.
 // Run outside the source checkout, on the authorized Linux x64 build machine.
 // No clone, credential changes, Actions, push, deploy or product acceptance.
 import { createHash } from 'node:crypto';
@@ -9,13 +9,21 @@ import { join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const pins = Object.freeze({
-  site: '482fc878b4ac365241877fc03a9eeee84ae012a0',
+  site: '20ca06ee2f07b430dbd6b59f72822b45f0527bd4',
   subject: '11ec43898d025107174df0b2cde6024c340c1cc0',
   t2: 'e70de29b72b83e2546f7ab74b17572685a728c17',
   core: '326f725c44d69ac99f6b912241e9e8a6c3d716a5',
   assistant: '5e3083788aa541921559de29d3457d4a52bbba00',
   archive: 'b778474d011b34a77cd60b945f02295fb24654c833f3ab12ff36bd3c0bdd8863',
-  tree: '52e2f74b66883bd2598ecdf1d4eda07ff0dd6862233cd9e778dd21d36659b84d',
+  tree: 'd614243c9dbfc596f7c0c2a8d5ef516ab3703aa5b61b6ec4c9a2538d49749d69',
+  qualificationRun: 45777863688,
+  qualificationHead: '792a42cd2f81ce2d18969e3b94360754b23f98af',
+  recoveryRun: 45780650395,
+  platformRun: 45395047723,
+  platformArtifact: 14920233669,
+  distFiles: 826,
+  retainedFiles: 98,
+  retainedBytes: 58575873,
 });
 export const branch = 'work/2026-11-24-d07-t3';
 const remoteRef = 'refs/heads/' + branch;
@@ -27,19 +35,27 @@ const separated = (a, b) => a !== b && !a.startsWith(b + sep) && !b.startsWith(a
 const git = (root, ...args) => execFileSync('git', ['-C', root, ...args], {
   encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 8 * 1024 * 1024,
 }).trim();
-const allowedInput = p => p === groups[2] || p.startsWith(groups[0] + '/') || p.startsWith(groups[1] + '/');
+const allowedInput = p => typeof p === 'string' && /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(p) &&
+  !p.split('/').some(s => s === '.' || s === '..' || s === '.git' || s === 'node_modules' || s.startsWith('.env')) &&
+  !/\.(?:map|log|gguf|safetensors|onnx|pem|key)$/i.test(p) &&
+  (p === groups[2] || p.startsWith(groups[0] + '/') || p.startsWith(groups[1] + '/'));
 
 export function requireQualifiedTree(identity) {
-  if (identity?.sha256 !== pins.tree || identity.files !== 825) fail('QUALIFIED_TREE_MISMATCH');
+  if (identity?.sha256 !== pins.tree || identity.files !== pins.distFiles) fail('QUALIFIED_TREE_MISMATCH');
   return identity;
 }
 export function requireRetentionPaths(paths) {
-  if (paths.length !== 98 || new Set(paths).size !== 98 || paths.some(p => !allowedInput(p)) ||
+  if (paths.length !== pins.retainedFiles || new Set(paths).size !== pins.retainedFiles || paths.some(p => !allowedInput(p)) ||
       !groups.every(g => paths.some(p => p === g || p.startsWith(g + '/')))) fail('RETENTION_SCOPE');
   return paths;
 }
+export function requireRetentionBytes(bytes) {
+  if (bytes !== pins.retainedBytes) fail('RETENTION_BYTES_MISMATCH');
+  return bytes;
+}
 export function requireArchive(path) {
-  if (!lstatSync(path).isFile() || hash(readFileSync(path)) !== pins.archive) fail('ARCHIVE_MISMATCH');
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.isSymbolicLink() || hash(readFileSync(path)) !== pins.archive) fail('ARCHIVE_MISMATCH');
   return path;
 }
 export function requireRemoteHead(raw) {
@@ -53,7 +69,7 @@ export function requireSiteRemote(raw) {
     let url;
     try { url = new URL(raw); } catch { fail('REMOTE_URL'); }
     if (url.hostname !== 'github.com' || !['https:', 'ssh:'].includes(url.protocol) || url.password ||
-        (url.protocol === 'https:' && url.username) || url.search || url.hash) fail('REMOTE_URL');
+        (url.protocol === 'https:' && url.username) || url.search || url.hash || url.port) fail('REMOTE_URL');
     name = url.pathname.replace(/^\//, '');
   }
   if (name.replace(/\.git$/, '').toLowerCase() !== 'faust-s/uslugovod.ru') fail('WRONG_REMOTE_REPOSITORY');
@@ -88,6 +104,7 @@ async function main(args) {
   console.log('D07_RECOVERY_PREFLIGHT=PASS');
   const cleanEnv = { ...process.env };
   delete cleanEnv.IWXA_T2_SOURCE_DIR;
+  delete cleanEnv.VITE_D07_T3;
   const run = (file, argv, env = {}) => execFileSync(file, argv, {
     cwd: site, stdio: 'inherit', env: { ...cleanEnv, ...env },
   });
@@ -104,21 +121,23 @@ async function main(args) {
     run(process.execPath, [npm, 'run', 't3:prepare-host', '--', join(core, 'packages/t3-core'), host, archive, assistant]);
     node('prepare-d07-local-kernel-input.mjs', [dist, t2, support]);
     node('retain-d07-t3-inputs.mjs', [host, support, archive]);
-    const identity = withQualifiedReleaseManifest(join(site, 'package.json'), () => {
+    const identity = withQualifiedReleaseManifest(join(site, 'package.json'), qualified => {
       runQualifiedNpmBuild(site, { env: cleanEnv });
-      return requireQualifiedTree(releaseTreeIdentity(snapshotReleaseTree(dist)));
+      return { ...requireQualifiedTree(releaseTreeIdentity(snapshotReleaseTree(dist))), qualifiedManifestSha256: hash(qualified) };
     });
     if (git(site, 'rev-parse', 'HEAD') !== pins.site || git(site, 'status', '--porcelain', '--untracked-files=no')) fail('TRACKED_SOURCE_CHANGED');
-    if (verifyRetentionSize(site) !== 98) fail('RETENTION_COUNT');
+    if (verifyRetentionSize(site) !== pins.retainedFiles) fail('RETENTION_COUNT');
     const untracked = git(site, 'ls-files', '--others', '--exclude-standard', '-z').split('\0').filter(Boolean);
     if (untracked.some(p => !allowedInput(p))) fail('UNEXPECTED_UNTRACKED_FILE');
     requireRemoteHead(git(site, 'ls-remote', '--exit-code', 'origin', remoteRef));
     git(site, 'add', '-f', '--', ...groups);
-    requireRetentionPaths(git(site, 'diff', '--cached', '--name-only', '-z', '--no-renames').split('\0').filter(Boolean));
+    const staged = requireRetentionPaths(git(site, 'diff', '--cached', '--name-only', '-z', '--no-renames').split('\0').filter(Boolean));
+    const retainedBytes = requireRetentionBytes(staged.reduce((total, path) => total + lstatSync(join(site, path)).size, 0));
     node('verify-d07-retained-index.mjs');
     complete = true;
     console.log('D07_RECOVERY_READY_TO_COMMIT=' + JSON.stringify({
-      source: pins.site, qualificationRun: 45663645049, ...identity, retainedFiles: 98,
+      source: pins.site, qualificationRun: pins.qualificationRun, qualificationHead: pins.qualificationHead,
+      recoveryRun: pins.recoveryRun, ...identity, retainedFiles: staged.length, retainedBytes,
       reusedQualification: true, stagedInputsOnly: true, remoteWrite: false, browserStatus: 'NOT_RUN', productAccepted: false,
     }));
   } finally {
