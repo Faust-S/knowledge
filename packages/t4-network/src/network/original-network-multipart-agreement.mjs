@@ -172,3 +172,53 @@ export function createT4OriginalNativeMultipartAgreementReader({
     return observed;
   };
 }
+
+// Bind the live reader to one publication selected by the original native
+// wake. Only the owner supplies that publication. Neither wire requests nor
+// Vault inputs can select a different session. This is an ephemeral reference,
+// not cached agreement evidence; every read still reconstructs both proofs.
+export function createT4OriginalNativeMultipartAgreementBinding({
+  localRole,requiredCryptoSuite,originalHostSessionRef,technicalWorkspaceId,
+  isOriginalWakeActive,assertOriginalOwnerBinding,discoverUniqueSignedFrame,
+}={}){
+  if(!['SOURCE','RECIPIENT'].includes(localRole)||
+    ![requiredCryptoSuite,originalHostSessionRef,technicalWorkspaceId].every(ID)||
+    ![isOriginalWakeActive,assertOriginalOwnerBinding,discoverUniqueSignedFrame].every(f=>typeof f==='function'))
+    fail('MULTIPART_AGREEMENT_BINDING_ORIGINAL_PORTS_REQUIRED');
+  let selected=null;
+  const active=()=>isOriginalWakeActive()===true;
+  const requireSelected=selection=>{
+    if(!active()||selected!==selection||selection===null)
+      fail('MULTIPART_AGREEMENT_BINDING_WAKE_ENDED');
+  };
+  function bindOriginalPublication({session,publication,expectedHeadSha256=null}={}){
+    if(!active())fail('MULTIPART_AGREEMENT_BINDING_WAKE_ENDED');
+    checkIdentity(session);
+    if(publication?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
+      publication.originalT3OnlyStore!==true||!ID(publication.checkpointRef)||
+      !same(publication.session,session)||typeof publication.readOriginalPublishedFrame!=='function')
+      fail('MULTIPART_AGREEMENT_BINDING_PUBLICATION_REQUIRED');
+    const selection={read:null};
+    selection.read=createT4OriginalNativeMultipartAgreementReader({
+      session,localRole,requiredCryptoSuite,originalHostSessionRef,technicalWorkspaceId,expectedHeadSha256,
+      assertOriginalOwnerBinding:async()=>{
+        requireSelected(selection);
+        const result=await assertOriginalOwnerBinding();
+        requireSelected(selection);
+        return result===true;
+      },
+      readOriginalPublishedFrame:request=>publication.readOriginalPublishedFrame(request),
+      discoverUniqueSignedFrame,
+    });
+    selected=selection;
+  }
+  async function readOriginalMultipartAgreement(request){
+    const selection=selected;
+    requireSelected(selection);
+    const result=await selection.read(request);
+    requireSelected(selection);
+    return result;
+  }
+  return Object.freeze({bindOriginalPublication,readOriginalMultipartAgreement,
+    clearOriginalPublication:()=>{selected=null;}});
+}

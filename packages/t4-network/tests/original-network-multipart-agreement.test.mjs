@@ -22,7 +22,7 @@ import {createT4OriginalSourceSessionHead,readT4OriginalSourceSessionHead,create
   createT4OriginalPublicationIndexMigrationStepper}
   from '../src/network/original-network-publication.mjs';
 import {readT4OriginalNativeMultipartAgreement as agreement,validateT4OriginalNativeMultipartAgreement as validate,
-  createT4OriginalNativeMultipartAgreementReader}
+  createT4OriginalNativeMultipartAgreementReader,createT4OriginalNativeMultipartAgreementBinding}
   from '../src/network/original-network-multipart-agreement.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID} from '../src/network/original-network-technical-schema.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
@@ -664,4 +664,42 @@ test('K154 live agreement reader does not accept a missing or revoked exact sign
   f.indexes.set(address,hex(diffBytes));f.allow(false);
   await assert.rejects(read(request),error=>typeof error?.code==='string'&&error.code.includes('AUTHORIZATION_DENIED')||
     error?.code==='PUBLICATION_ORIGINAL_AUTHORITY_DENIED');
+});
+
+test('K155 original wake binding reads both exact published proofs without a witness cache and clears on wake completion',async()=>{
+  const f=fixture(),{sp,rp,sa,ra}=await f.negotiate();f.selected.clear();
+  let wake=true;
+  const request={session,originalSubjectAuthorityGranted:false,originalMultipartAgreementDigest:sa.agreementDigest};
+  for(const [node,port,expected] of [[source,sp,sa],[recipient,rp,ra]]){
+    const binding=createT4OriginalNativeMultipartAgreementBinding({
+      localRole:node===source?'SOURCE':'RECIPIENT',requiredCryptoSuite:suite,
+      originalHostSessionRef:f.host,technicalWorkspaceId:'workspace:technical:'+node,
+      isOriginalWakeActive:()=>wake,assertOriginalOwnerBinding:async()=>true,
+      discoverUniqueSignedFrame:p=>f.transport(node).discoverUniqueSignedFrame(p)});
+    await assert.rejects(binding.readOriginalMultipartAgreement(request),code('MULTIPART_AGREEMENT_BINDING_WAKE_ENDED'));
+    assert.throws(()=>binding.bindOriginalPublication({session:{...session,capturedSha256:hex('other')},publication:port}),
+      code('MULTIPART_AGREEMENT_BINDING_PUBLICATION_REQUIRED'));
+    binding.bindOriginalPublication({session,publication:port,expectedHeadSha256:expected.headSha256});
+    assert.deepEqual(await binding.readOriginalMultipartAgreement(request),expected);
+    binding.clearOriginalPublication();
+    await assert.rejects(binding.readOriginalMultipartAgreement(request),code('MULTIPART_AGREEMENT_BINDING_WAKE_ENDED'));
+    binding.bindOriginalPublication({session,publication:port});
+    wake=false;
+    await assert.rejects(binding.readOriginalMultipartAgreement(request),code('MULTIPART_AGREEMENT_BINDING_WAKE_ENDED'));
+    wake=true;binding.clearOriginalPublication();
+  }
+});
+test('K155 clearing the original wake selection during an asynchronous binding check invalidates the in-flight proof',async()=>{
+  const f=fixture(),{sp}=await f.negotiate();f.selected.clear();
+  let entered,release;
+  const pending=new Promise(resolve=>{entered=resolve;}),wait=new Promise(resolve=>{release=resolve;});
+  const binding=createT4OriginalNativeMultipartAgreementBinding({
+    localRole:'SOURCE',requiredCryptoSuite:suite,originalHostSessionRef:f.host,
+    technicalWorkspaceId:'workspace:technical:'+source,isOriginalWakeActive:()=>true,
+    assertOriginalOwnerBinding:async()=>{entered();await wait;return true;},
+    discoverUniqueSignedFrame:p=>f.transport(source).discoverUniqueSignedFrame(p)});
+  binding.bindOriginalPublication({session,publication:sp});
+  const work=binding.readOriginalMultipartAgreement({session,originalSubjectAuthorityGranted:false});
+  const denied=assert.rejects(work,code('MULTIPART_AGREEMENT_BINDING_WAKE_ENDED'));
+  await pending;binding.clearOriginalPublication();release();await denied;
 });

@@ -156,9 +156,11 @@ export function createT4OriginalVaultSealedContentPort({
   requiredCryptoSuite,recipientKeyRef,registry,access,originalEvaluator,expectedContext,
   readEncryptedVault=null,unlockPassphrase=null,getMode,clock=Date.now,
   readOriginalReplacementDiffAcceptance=null,readOriginalReplacementRecipientContentEvidence=null,enableOriginalReplacementBinding=false,
-  readOriginalMultipartAgreement=null,
+  readOriginalMultipartAgreement=null,enableOriginalMultipartBinding=false,
 }={}){
   if(typeof enableOriginalReplacementBinding!=='boolean'||(enableOriginalReplacementBinding&&(readOriginalReplacementDiffAcceptance!==null||readOriginalReplacementRecipientContentEvidence!==null))||
+    typeof enableOriginalMultipartBinding!=='boolean'||
+    (enableOriginalMultipartBinding&&readOriginalMultipartAgreement!==null)||
     (readOriginalMultipartAgreement!==null&&typeof readOriginalMultipartAgreement!=='function')||
     !['SOURCE','RECIPIENT'].includes(role)||
     ![workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,recipientKeyRef].every(ID)||
@@ -367,10 +369,19 @@ export function createT4OriginalVaultSealedContentPort({
           readEncryptedVault,unlockPassphrase,getMode,clock,readOriginalReplacementRecipientContentEvidence:read,readOriginalMultipartAgreement});
       }})}:{}),
     ...(readOriginalReplacementRecipientContentEvidence!==null?{originalReplacementRecipientContentAdmission:true}:{}),
+    ...(enableOriginalMultipartBinding?{originalMultipartBindingEnabled:true}:{}),
     ...(readOriginalMultipartAgreement!==null?{originalMultipartAgreementBound:true}:{}),
     ...(role==='SOURCE'?{readOriginalSealedContent,authorizeOriginalSealedPublication}:{openOriginalSealedContent}),
-    forOriginalHostLifetime:isHostActive=>createT4OriginalVaultSealedContentPort({...identity,registry,access,originalEvaluator,
-      expectedContext:signed.subject,readEncryptedVault,unlockPassphrase,getMode:originalHostLifetimeMode(getMode,isHostActive),clock,
-      readOriginalReplacementDiffAcceptance,readOriginalReplacementRecipientContentEvidence,enableOriginalReplacementBinding,readOriginalMultipartAgreement})});
+    // The unbound profile may be composed only at the original Host
+    // lifetime. The callback is never supplied by a content request.
+    forOriginalHostLifetime:(isHostActive,binding=null)=>{
+      if(enableOriginalMultipartBinding?
+        (!binding||Object.keys(binding).length!==1||typeof binding.readOriginalMultipartAgreement!=='function'):
+        binding!==null)fail('SEALED_CONTENT_MULTIPART_HOST_BINDING_REQUIRED');
+      return createT4OriginalVaultSealedContentPort({...identity,registry,access,originalEvaluator,
+        expectedContext:signed.subject,readEncryptedVault,unlockPassphrase,getMode:originalHostLifetimeMode(getMode,isHostActive),clock,
+        readOriginalReplacementDiffAcceptance,readOriginalReplacementRecipientContentEvidence,enableOriginalReplacementBinding,
+        readOriginalMultipartAgreement:enableOriginalMultipartBinding?binding.readOriginalMultipartAgreement:readOriginalMultipartAgreement});
+    }});
   assembled.add(port);return port;
 }
