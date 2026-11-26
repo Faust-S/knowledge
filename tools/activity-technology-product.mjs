@@ -3,7 +3,7 @@ import {groupPersonalRoutineEvidence,preparePersonalTechnologyProduct,prepareD05
  preparePersonalRecipientActivation,prepareD05RecipientInputs} from '../modules/activity-base-anonymizer/technology-product.mjs';
 import {preparePersonalExtractionRequest,reviewPersonalExtractionBundle} from '../modules/activity-base-anonymizer/personal-technology-extraction.mjs';
 import {prepareD05ExtractionRequest,reviewD05ExtractionProposal} from '../modules/activity-base-anonymizer/d05-technology-extraction.mjs';
-import {prepareProductGeneralization,applyProductGeneralization,prepareContextualGeneralizationRequest,reviewContextualGeneralizationProposal} from '../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
+import {prepareProductGeneralization,applyProductGeneralization,prepareContextualGeneralizationRequest,reviewContextualGeneralizationProposal,prepareContextualGeneralizationPlan,reviewContextualGeneralizationPlan} from '../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 const fail=code=>{throw Object.assign(new Error(code),{code});};
 const exact=(v,keys)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
 const operations={
@@ -11,6 +11,8 @@ const operations={
  '--generalization-apply':{keys:['preview','reports','choices'],run:v=>applyProductGeneralization(v.preview,v.reports,v.choices)},
  '--contextual-generalization-request':{keys:['preview','reports','language','references','paths'],run:v=>prepareContextualGeneralizationRequest(v.preview,v.reports,v.language,v.references,v.paths)},
  '--contextual-generalization-review':{keys:['preview','reports','language','references','paths','proposal'],run:v=>reviewContextualGeneralizationProposal(v.preview,v.reports,v.language,v.references,v.paths,v.proposal)},
+ '--contextual-generalization-plan':{keys:['preview','reports','language','references'],run:v=>prepareContextualGeneralizationPlan(v.preview,v.reports,v.language,v.references)},
+ '--contextual-generalization-plan-review':{keys:['preview','reports','language','references','plan_sha256','proposals','selected_paths'],run:v=>reviewContextualGeneralizationPlan(v.preview,v.reports,v.language,v.references,v.plan_sha256,v.proposals,v.selected_paths)},
  '--d05-recurring-review':{keys:['review','group_id'],run:async v=>(await import('../modules/activity-base-anonymizer/d05-recurring-technology.mjs')).reviewD05RecurringTechnologies(v.review,v.group_id)},
  '--d05-recurring-extraction-request':{keys:['review','group_id','model_number'],run:v=>prepareD05ExtractionRequest(v.review,v.group_id,v.model_number,{includeCompatibleDeclarations:true})},
  '--d05-recurring-extraction-review':{keys:['review','group_id','model_number','proposal'],run:v=>reviewD05ExtractionProposal(v.review,v.group_id,v.model_number,v.proposal,{includeCompatibleDeclarations:true})},

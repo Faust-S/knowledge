@@ -55,7 +55,7 @@ test('D05 suggestions populate all existing decisions, preserve a selected profi
 
 import {sha256Canonical} from '../modules/activity-base-anonymizer/engine.mjs';
 import {productTextInventory} from '../modules/activity-base-anonymizer/presidio-text-review.mjs';
-import {prepareProductGeneralization,applyProductGeneralization,prepareContextualGeneralizationRequest,reviewContextualGeneralizationProposal,CONTEXTUAL_PROPOSAL} from '../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
+import {prepareProductGeneralization,applyProductGeneralization,prepareContextualGeneralizationRequest,reviewContextualGeneralizationProposal,prepareContextualGeneralizationPlan,reviewContextualGeneralizationPlan,CONTEXTUAL_PROPOSAL} from '../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 async function scan(p,language,find){
  const inventory=productTextInventory(p.object_data);
  const fields=inventory.map(r=>({path:r.path,text_length:Array.from(r.text).length,findings:find(r).map(f=>{
@@ -333,4 +333,74 @@ test('contextual D05 proposal cannot erase technical measurements or move a prac
   [paths[2]]:{decision:'REWRITE',value:'Изготовление детали 10 мм',reason:'Invented condition'}}));
  assert.equal(invented.changed_field_count,0);assert.equal(invented.fields.find(f=>f.path===paths[2]).block,'TECHNICAL_MARKERS_CHANGED');
  assert.deepEqual(safe.revision.preview.object_data.technology.quality_checks,p.object_data.technology.quality_checks);
+});
+
+test('whole personal technology is partitioned exactly once and model replies merge against a single original revision',async()=>{
+ const proposal={...personalProposal(),title:'Alpha review',instructions:'Review the Alpha report.',result_requirements:Array.from({length:24},(_,i)=>'Check item '+(i+1)+' in Alpha.'),
+  context_requirements:Array.from({length:12},(_,i)=>'Obtain source '+(i+1)+' from Alpha.')};
+ const p=await preparePersonalTechnologyProduct(personalRows(),'routine_001',proposal);
+ const refs=[{value:'Alpha',replacement:'recipient context',kind:'LOCAL_REFERENCE'}];
+ const plan=await prepareContextualGeneralizationPlan(p,[],'en',refs);
+ const editable=editableProductTexts(p.object_data).filter(r=>r.edit_kind!=='FIXED').map(r=>r.path).sort();
+ assert.ok(plan.batches.length>=3);assert.equal(plan.unplanned.length,0);
+ assert.deepEqual(plan.batches.flatMap(b=>b.paths).sort(),editable);
+ assert.equal(new Set(plan.batches.flatMap(b=>b.paths)).size,editable.length);
+ assert.ok(plan.batches.every(b=>b.paths.length<=16&&b.document_bytes<=42000));
+ const replies=[];
+ for(const batch of plan.batches){
+  const request=await prepareContextualGeneralizationRequest(p,[],'en',refs,batch.paths);
+  assert.equal(request.request_sha256,batch.request_sha256);
+  replies.push(contextualReply(request,Object.fromEntries(request.document.fields.filter(f=>f.text.includes('Alpha'))
+   .map(f=>[f.path,{decision:'REWRITE',value:f.text.replaceAll('Alpha','recipient context'),reason:'Replace local name'}]))));
+ }
+ const chosen=replies.flatMap(v=>Object.entries(v.fields).filter(([,v])=>v.decision==='REWRITE').map(([path])=>path));
+ const first=await reviewContextualGeneralizationPlan(p,[],'en',refs,plan.plan_sha256,[replies[0]],[]);
+ assert.equal(first.answered_field_count,plan.batches[0].paths.length);assert.equal(first.coverage_complete,false);assert.equal(first.revision,null);
+ const result=await reviewContextualGeneralizationPlan(p,[],'en',refs,plan.plan_sha256,[...replies].reverse(),chosen);
+ assert.equal(result.coverage_complete,true);assert.equal(result.answered_field_count,editable.length);
+ assert.equal(result.revision.local_review.base_product_sha256,p.product_sha256);
+ assert.equal(result.revision.local_review.edits.length,chosen.length);
+ assert.ok(!JSON.stringify(result.revision.preview.object_data).includes('Alpha'));
+ assert.equal(result.revision.preview.export_allowed,false);assert.equal(result.anonymity,'NOT_ESTABLISHED');
+ assert.match(p.object_data.title,/Alpha/);
+ await assert.rejects(()=>reviewContextualGeneralizationPlan(p,[],'en',refs,plan.plan_sha256,[replies[0],replies[0]],[]),{code:'TECHNOLOGY_CONTEXTUAL_PLAN_RESPONSE'});
+ await assert.rejects(()=>reviewContextualGeneralizationPlan(p,[],'en',refs,plan.plan_sha256,[],chosen),{code:'TECHNOLOGY_CONTEXTUAL_PLAN_SELECTION'});
+ await assert.rejects(()=>reviewContextualGeneralizationPlan(p,[],'en',[],plan.plan_sha256,replies,chosen),{code:'TECHNOLOGY_CONTEXTUAL_PLAN_CHANGED'});
+ const altered=structuredClone(replies[0]);delete altered.fields[plan.batches[0].paths[0]];
+ await assert.rejects(()=>reviewContextualGeneralizationPlan(p,[],'en',refs,plan.plan_sha256,[altered],[]),{code:'TECHNOLOGY_CONTEXTUAL_GENERALIZATION_REQUEST_CHANGED'});
+});
+test('whole D05 plan retains oversized fields as unresolved and merges compatible scoped changes only',async()=>{
+ const c=d05Candidate();
+ const op=c.technology.operations[0],check=c.technology.quality_checks[0],other=c.technology.operations[1];
+ op.equipment_requirement='LT-02 для листа 2 мм';
+ c.technology.terms.local_context_guidance='Операция '+op.operation_id+': Проверить упор LT-02 перед запуском.';
+ const p=await prepareD05TechnologyProduct(c,'LT-02');
+ const refs=[{value:'LT-02',replacement:'оборудование получателя',kind:'FUNCTIONAL_MAPPING'}];
+ const plan=await prepareContextualGeneralizationPlan(p,[],'ru',refs);
+ const paths=plan.batches.flatMap(b=>b.paths),all=editableProductTexts(p.object_data).filter(r=>r.edit_kind!=='FIXED');
+ assert.equal(paths.length+plan.unplanned.length,all.length);assert.equal(new Set(paths).size,paths.length);
+ assert.ok(plan.batches[0].priority_field_count>0);
+ const scope='object_data.technology.terms.local_context_guidance',equipment='object_data.technology.operations.0.equipment_requirement';
+ const replies=[];
+ for(const batch of plan.batches){
+  const request=await prepareContextualGeneralizationRequest(p,[],'ru',refs,batch.paths);
+  replies.push(contextualReply(request,{
+   [scope]:{decision:'REWRITE',value:'Операция '+other.operation_id+': Проверить упор оборудования перед запуском.',reason:'Wrong scope'},
+   [equipment]:{decision:'REWRITE',value:'Оборудование для листа 2 мм',reason:'Preserve technical condition'},
+   'object_data.title':{decision:'REWRITE',value:'Изготовление детали',reason:'Remove local name'}}));
+ }
+ const result=await reviewContextualGeneralizationPlan(p,[],'ru',refs,plan.plan_sha256,replies,[equipment,'object_data.title']);
+ assert.equal(result.coverage_complete,true);assert.equal(result.blocked_field_count,1);
+ assert.deepEqual(result.revision.preview.object_data.technology.quality_checks,p.object_data.technology.quality_checks);
+ assert.equal(result.revision.preview.object_data.technology.terms.local_context_guidance,p.object_data.technology.terms.local_context_guidance);
+ await assert.rejects(()=>reviewContextualGeneralizationPlan(p,[],'ru',refs,plan.plan_sha256,replies,[scope]),{code:'TECHNOLOGY_CONTEXTUAL_PLAN_SELECTION'});
+ // A legal input can exceed the local model budget after required linked
+ // context is included. Report that field, do not silently omit context.
+ const large=await preparePersonalTechnologyProduct(personalRows(),'routine_001',{...personalProposal(),instructions:'я'.repeat(16000),
+  purpose:'я'.repeat(4096),inputs:'я'.repeat(4096),outputs:'я'.repeat(4096),applicability:'я'.repeat(4096)});
+ const oversized=await prepareContextualGeneralizationPlan(large,[],'ru',[]);
+ assert.ok(oversized.unplanned.some(f=>f.path.endsWith('.instructions')&&f.document_bytes>42000));
+ assert.equal(oversized.planned_field_count+oversized.unplanned.length,oversized.editable_field_count);
+ const incomplete=await reviewContextualGeneralizationPlan(large,[],'ru',[],oversized.plan_sha256,[],[]);
+ assert.equal(incomplete.coverage_complete,false);assert.ok(incomplete.unplanned_field_count>0);
 });
