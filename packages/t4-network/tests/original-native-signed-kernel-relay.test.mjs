@@ -242,3 +242,24 @@ test('K130 original catalog relay requires signed owner and original listObjects
      {code:'T3_ORIGINAL_NETWORK_RELAY_OBJECT_WINDOW_OWNER_REQUIRED'});
  }
 });
+
+test('K150 original signed native relay binds and roundtrips a six-million-byte Asset without widening its existing codec', {timeout:60000},async()=>{
+  const f=fixture();
+  try{
+    const s=await f.attach(),k=f.ctx.kernel,bytes=new Uint8Array(6000000).fill(211);
+    const expected=createHash('sha256').update(bytes).digest('hex');
+    const input={workspace_id:WS,object_id:'o:1',asset_id:'a:large',mime:'application/octet-stream',base_revision:0,bytes};
+    const pending=k.putAsset(input);const command=await f.exchange(s.sessionId,'next');
+    assert.equal(command.method,'putAsset');
+    const decoded=decodeOriginalNetworkRelayArgs(command.method,command.args)[0].bytes;
+    assert.equal(createHash('sha256').update(decoded).digest('hex'),expected);
+    assert.deepEqual(f.digests[0].input.bytes,{byte_length:bytes.length,sha256:expected});
+    await f.exchange(s.sessionId,'result',{id:command.id,ok:true,result:{asset:{workspace_id:WS,asset_id:'a:large',revision:1},
+      event:{workspace_id:WS,event_id:'event:large'}}});await pending;
+    const pendingRead=k.getAsset(WS,'a:large'),read=await f.exchange(s.sessionId,'next');
+    await f.exchange(s.sessionId,'result',{id:read.id,ok:true,result:encodeOriginalNetworkRelayResult(read.method,{
+      asset:{workspace_id:WS,asset_id:'a:large',revision:1},bytes:decoded})});
+    assert.equal(createHash('sha256').update((await pendingRead).bytes).digest('hex'),expected);
+    assert.equal(f.local.proofCount,2);
+  }finally{f.relay.close();}
+});

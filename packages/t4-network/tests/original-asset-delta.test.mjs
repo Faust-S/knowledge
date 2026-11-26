@@ -239,7 +239,8 @@ test('K150 exact future Event reservation bounds raw Asset after canonical base6
     operation:{...op,bytesBase64:Buffer.alloc(raw,1).toString('base64')},enableMultipart:true});
   const small=reserve(0);
   // Use the maximum whole base64 group that fits the exact reserved canonical metadata.
-  const groups=Math.floor((T4_NATIVE_MULTIPART_MAX_CAPTURE_PLAINTEXT_BYTES-small)/4),n=groups*3;
+  // The assetSize field gains six decimal digits at this scale.
+  const groups=Math.floor((T4_NATIVE_MULTIPART_MAX_CAPTURE_PLAINTEXT_BYTES-small-6)/4),n=groups*3;
   assert.ok(n<T4_NATIVE_MULTIPART_MAX_RAW_ASSET_BYTES);
   assert.ok(reserve(n)<=T4_NATIVE_MULTIPART_MAX_CAPTURE_PLAINTEXT_BYTES);
   assert.throws(()=>reserve(n+1),e=>e.code==='ASSET_DELTA_WIRE_TOO_LARGE'||e.code==='T4_NATIVE_MULTIPART_CONTENT_LIMIT_EXCEEDED');
