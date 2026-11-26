@@ -1,0 +1,115 @@
+name: D11 network activity source and integrated build
+on:
+  workflow_dispatch:
+  push:
+    branches: ['ci/once/d11-network-activity/**']
+    paths: ['.github/ci-requests/d11-network-activity.json']
+permissions:
+  contents: read
+concurrency:
+  group: d11-network-activity
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit one exact request
+        run: |
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-network-activity --profile source-build --revision domain=56892f9939981e560fac42d7229848f034ad1d1a --revision site=1e6821fde9e65d6e313ec84529a5ba9569ba2f21 --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17
+      - name: Verify existing approved read scope
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        shell: bash
+        run: |
+          test -n "$GH_TOKEN" || { echo D11_DOMEN_UNAVAILABLE; exit 1; }
+          for repository in Faust-S/advice-logistics Faust-S/advice-logistics.ru Faust-S/T2; do
+            gh api "repos/$repository" --jq '.id' >/dev/null 2>&1 || { echo D11_READ_SCOPE_UNAVAILABLE; exit 1; }
+          done
+          echo D11_READ_SCOPE=PASS
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/advice-logistics
+          ref: 56892f9939981e560fac42d7229848f034ad1d1a
+          token: ${{ secrets.DOMEN }}
+          path: domain
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/advice-logistics.ru
+          ref: 1e6821fde9e65d6e313ec84529a5ba9569ba2f21
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          path: t2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact source pins and canonical mirrors
+        run: |
+          test "$(git -C domain rev-parse HEAD)" = "56892f9939981e560fac42d7229848f034ad1d1a"
+          test "$(git -C site rev-parse HEAD)" = "1e6821fde9e65d6e313ec84529a5ba9569ba2f21"
+          test "$(git -C t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const m=JSON.parse(fs.readFileSync('site/runtime/d11-module/operations/source.json','utf8'));
+          if(m.sourceCommit!=='56892f9939981e560fac42d7229848f034ad1d1a' || m.files.length!==26) throw Error('D11_SOURCE_MANIFEST_INVALID');
+          for(const f of m.files){
+            const blob=(repo,path)=>execFileSync('git',['-C',repo,'rev-parse','HEAD:'+path],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();
+            if(blob('domain',f.sourcePath)!==f.blob||blob('site',f.localPath)!==f.blob) throw Error('D11_SOURCE_MIRROR_DIFF');
+          }
+          console.log('D11_OPERATIONAL_MIRRORS=26/26 PASS');
+          NODE
+      - name: Original canonical regression
+        working-directory: domain
+        run: |
+          log="$RUNNER_TEMP/d11-domain-tests.log"
+          status=0
+          node --experimental-strip-types --test --test-reporter=tap tests/*.test.mjs >"$log" 2>&1 || status=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$log" || true
+          test "$status" -eq 0 || { echo D11_DOMAIN_TESTS_FAILED; exit 1; }
+          echo D11_DOMAIN_TESTS=PASS
+      - name: Install and build original T2 with site
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          npm ci --no-audit --no-fund >"$RUNNER_TEMP/d11-install.log" 2>&1 || { echo D11_NPM_INSTALL_FAILED; exit 1; }
+          npm run build:t2:site >"$RUNNER_TEMP/d11-build.log" 2>&1 || { echo D11_T2_BUILD_FAILED; exit 1; }
+          test -f dist/workspace/index.html
+          echo D11_ONE_DIST=PASS
+      - name: TypeScript and source contract regression
+        working-directory: site
+        run: |
+          log="$RUNNER_TEMP/d11-types.log"
+          npx --no-install tsc --noEmit --pretty false >"$log" 2>&1 || {
+            grep -oE 'error TS[0-9]+' "$log" | sort | uniq -c | head -20 || true
+            echo D11_TYPES_FAILED
+            exit 1
+          }
+          echo D11_TYPES=PASS
+          status=0
+          node --experimental-strip-types --test --test-reporter=tap tests/*.test.mjs >"$RUNNER_TEMP/d11-site-tests.log" 2>&1 || status=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d11-site-tests.log" || true
+          test "$status" -eq 0 || { echo D11_SITE_TESTS_FAILED; exit 1; }
+          echo D11_SITE_TESTS=PASS
+      - name: Static product integrity
+        working-directory: site
+        run: |
+          for check in readability no-localhost assets external-assets links seo htaccess; do
+            npm run "check:$check" >"$RUNNER_TEMP/d11-$check.log" 2>&1 || { echo "D11_STATIC_FAILED=$check"; exit 1; }
+          done
+          echo D11_STATIC_CHECKS=7/7 PASS
+      # No private code, raw logs, test data, build output or artifacts are uploaded.
+      # This source/build check is not browser product acceptance or a deployment.
