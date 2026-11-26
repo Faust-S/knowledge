@@ -178,7 +178,7 @@ test('K143 existing root CAS selects only fully persisted immutable Object/Event
   assert.deepEqual(r.wireBytes,small.wireBytes);assert.equal(r.originalPublicationPrepared,false);
   assert.equal(r.originalObjectEventReadbackVerified,true);assert.equal(r.originalSignatureVerified,true);
   assert.equal(f.events.at(-1).payload.action,'MULTIPART_RESERVE');
-  assert.equal(f.events.at(-1).payload.multipartPlanDigest,r.planDigest);
+  assert.equal(f.events.at(-1).payload.multipartReservation.planDigest,r.planDigest);
   assert.equal(f.objects.get(checkpointRef).object.data.entries.length,1);
   assert.ok(Buffer.byteLength(JSON.stringify(f.objects.get(checkpointRef).object.data))<32000);
   assert.equal((await p.inspectOriginalPublication()).multipartBackingReserved,true);
@@ -212,7 +212,7 @@ test('K143 missing segment Event and changed segment bytes never supply original
   const e=f.events.findIndex(x=>x.object_id===id),[saved]=f.events.splice(e,1);
   await assert.rejects(p.readOriginalMultipartBacking(),code('PUBLICATION_MULTIPART_SEGMENT_EVENT_NOT_PROVEN'));
   f.events.splice(e,0,saved);
-  f.objects.get(id).object.data.segment.entries[0].wireText+=' ';
+  f.objects.get(id).object.data.segment.entries[0].sha256=hex('changed');
   await assert.rejects(p.readOriginalMultipartBacking(),code('MULTIPART_BACKING_FRAME_CHANGED'));
 });
 test('K143 root selection cannot be replaced by a different valid signed plan',async()=>{
@@ -227,4 +227,17 @@ test('K143 original authorization revocation blocks preparation and cold readbac
   f.allow(true);await reserve(p);f.allow(false);
   await assert.rejects(f.port().readOriginalMultipartBacking(),code('PUBLICATION_MULTIPART_ORIGINAL_AUTHORITY_DENIED'));
   assert.equal(f.writes,6);
+});
+
+test('K143 selected root binds exact original segment Event identities',async()=>{
+  const f=journal(),p=await f.ready(),r=await reserve(p);
+  f.events.find(x=>x.event_id===r.segmentEvents[0].eventId).event_id='event:journal:substituted';
+  await assert.rejects(p.readOriginalMultipartBacking(),code('PUBLICATION_MULTIPART_SELECTED_EVENT_CHANGED'));
+  assert.equal(f.publishes,1);
+});
+test('K143 every multipart signed frame requires the original frame publication grant',async()=>{
+  const f=journal();await f.ready();
+  const p=f.port(true,{authorizeOriginalFramePublish:async x=>x.frameMessageType!=='CHUNK'});
+  await assert.rejects(reserve(p),code('PUBLICATION_ORIGINAL_AUTHORITY_DENIED'));
+  assert.equal(f.writes,3);assert.equal(f.publishes,1);
 });
