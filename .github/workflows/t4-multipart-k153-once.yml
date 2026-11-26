@@ -1,0 +1,24 @@
+name: T4 K153 exact cold inventory qualification
+on:
+  push:
+    branches: ['ci/once/t4-multipart-k153/5c784c8102ff93bfb582fe3d0452f61b482ea24b']
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: |
+          test "$(git rev-parse HEAD^)" = "5c784c8102ff93bfb582fe3d0452f61b482ea24b"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Cold multipart inventory after fixture schema correction
+        run: node --experimental-strip-types --test --test-name-pattern='K153 original cold migration' packages/t4-network/tests/original-network-multipart-agreement.test.mjs
