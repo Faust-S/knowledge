@@ -480,9 +480,9 @@ test('compatible route experience aligns actual controls across differing plan o
  assert.equal(out.source_report_count,2);
  const request=await prepareD05ExtractionRequest(r,group.id,1,options);
  assert.equal(request.document.comparison.recorded_report_count,2);
- const controls=request.document.evidence.filter(e=>e.field==='recorded_quality_report').map(e=>({scope:e.scope,...JSON.parse(e.text)}));
+ const controls=request.document.evidence.filter(e=>e.field==='recorded_quality_report').map(e=>({...JSON.parse(e.text),evidence_scope:e.scope}));
  assert.equal(new Set(controls.map(c=>c.check_id)).size,1);
- assert.ok(controls.every(c=>c.scope===c.check_id&&c.control_number===a.canonical_control_number));
+ assert.ok(controls.every(c=>c.evidence_scope===c.check_id&&c.control_number===a.canonical_control_number));
  const defects=request.document.evidence.filter(e=>e.field==='recorded_defect_report');
  assert.equal(defects.length,2);assert.ok(defects.every(e=>e.scope===controls[0].check_id));
  assert.ok(request.document.evidence.every(e=>['DECLARED','GAP'].includes(e.kind)));
