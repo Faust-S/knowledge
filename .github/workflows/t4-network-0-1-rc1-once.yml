@@ -1,0 +1,33 @@
+name: T4 Network 0.1 rc1 exact release candidate
+on:
+  push:
+    branches:
+      - 'ci/once/t4-network-0-1-rc1/6814e122fbab'
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact candidate and locked composition
+        run: |
+          test "$(git rev-parse HEAD^)" = "6814e122fbab54cd4a30ace0018b5b559e01158d"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+          npm run check --prefix packages/t4-network
+          node --experimental-strip-types --input-type=module -e 'import {createT4OriginalNativeHostNetworkProfile} from "./packages/t4-network/src/index.mjs"; if(typeof createT4OriginalNativeHostNetworkProfile!=="function")process.exit(1)'
+      - name: Independent original route and transport grant boundaries
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test tests/network-topology.test.mjs tests/operator-connection.test.mjs
+      - name: Complete successor and canonical Asset route without experimental caching
+        if: ${{ !cancelled() }}
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test --test-name-pattern='K167|K180' tests/original-network-session-phases.test.mjs
