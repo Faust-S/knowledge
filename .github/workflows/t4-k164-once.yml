@@ -1,0 +1,41 @@
+name: T4 K164 exact final candidate qualification
+on:
+  push:
+    branches:
+      - 'ci/once/t4-k164/4f96ad4b9e6c'
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact source identity
+        run: |
+          test "$(git rev-parse HEAD^)" = "4f96ad4b9e6c1d67f26f5fc1136f1812b812c1ec"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+      - name: Install and check
+        working-directory: packages/t4-network
+        run: |
+          npm ci
+          npm run check
+      - name: Native and replacement agreement
+        working-directory: packages/t4-network
+        run: |
+          node --experimental-strip-types --test --test-name-pattern='K145|K154|K155|K164' tests/original-network-multipart-agreement.test.mjs
+      - name: Compact successor regression
+        if: ${{ !cancelled() }}
+        working-directory: packages/t4-network
+        run: |
+          node --experimental-strip-types --test --test-name-pattern='K50|K51|K52|K58|K59|K60' tests/original-network-session-phases.test.mjs
+      - name: Wire and backing regression
+        if: ${{ !cancelled() }}
+        working-directory: packages/t4-network
+        run: |
+          node --experimental-strip-types --test tests/standard-network-multipart-wire.test.mjs tests/standard-network-wire-candidate.test.mjs tests/standard-network-wire-independent-vectors.test.mjs tests/original-network-publication-multipart-backing.test.mjs tests/original-network-publication.test.mjs
