@@ -1,0 +1,20 @@
+name: T4 native source multipart
+on:
+  push:
+    branches: ['ci/once/t4-native-source-multipart/d8fc788167cccd40c0ec4262a4ddd6af6b8466b0']
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: test "$(git rev-parse HEAD^)" = "d8fc788167cccd40c0ec4262a4ddd6af6b8466b0"
+      - run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - run: node --experimental-strip-types --test --test-concurrency=3 packages/t4-network/tests/original-network-multipart-agreement.test.mjs packages/t4-network/tests/original-host-dispatch-task-binding.test.mjs packages/t4-network/tests/original-network-publication.test.mjs packages/t4-network/tests/original-native-host-network-owner.test.mjs packages/t4-network/tests/original-host-outbox-dispatcher.test.mjs
