@@ -1,3 +1,4 @@
+import {requireT4OriginalObjectCatalog,visitT4OriginalObjectCatalog} from './original-object-catalog-pages.mjs';
 import {createHash} from 'node:crypto';
 import {readT4OriginalRecipientHistoryEvents} from './original-technical-event-pages.mjs';
 import {packageSha256} from './webdav-package-transfer.mjs';
@@ -126,11 +127,43 @@ function scopeOf(workspaceId,originalWriteOwnerRef,objectId){
 // graph store. A deletion may concern two endpoints other than the object
 // being written; inspect the existing catalog, not just that object's links.
 async function graphState(p,scope,ids,endpointIds=[]){
+  if(p.originalGraphCatalog===undefined||!ids.length)return graphStateInside(p,scope,ids,endpointIds);
+  const catalog=p.originalGraphCatalog;
+  if(!catalog||typeof catalog!=='object'||
+    ![catalog.withOriginalCatalogReadBoundary,catalog.readOriginalObjectPage].every(f=>typeof f==='function'))
+    fail('GRAPH_ORIGINAL_CATALOG_BOUNDARY_REQUIRED');
+  requireT4OriginalObjectCatalog(true,p.originalKernel,catalog.pageSize??16);
+  const guard=readGuard(p,scope);
+  await guard('t1.listObjects');await guard('t1.listObjectWindow');
+  const proof=Object.freeze({...scope,operation:'t1.listObjects',originalGraphCatalogReadRequired:true,
+    originalWorkspaceGraphMutationExclusionRequired:true,networkGrantsNoWriteAuthority:true});
+  let active=true,calls=0,completed;
+  const check=()=>{mode(p);if(!active||calls!==1)fail('GRAPH_ORIGINAL_CATALOG_BOUNDARY_INVALID');};
+  try{
+    const result=await catalog.withOriginalCatalogReadBoundary(proof,async()=>{
+      if(!active||++calls!==1)fail('GRAPH_ORIGINAL_CATALOG_BOUNDARY_INVALID');
+      const bound=Object.freeze({...catalog,assertActive:check,readOriginalObjectPage:async query=>{
+        check();const page=await catalog.readOriginalObjectPage(query);check();return page;
+      }});
+      const state=await graphStateInside({...p,originalGraphCatalog:bound},scope,ids,endpointIds);
+      check();await guard('t1.listObjectWindow');await guard('t1.listObjects');check();
+      completed=state;return state;
+    });
+    if(calls!==1||completed===undefined||result!==completed)fail('GRAPH_ORIGINAL_CATALOG_BOUNDARY_INVALID');
+    active=false;await guard('t1.listObjectWindow');await guard('t1.listObjects');return result;
+  }finally{active=false;}
+}
+async function graphStateInside(p,scope,ids,endpointIds=[]){
   requireReadPorts(p);const guard=readGuard(p,scope),{workspaceId,objectId}=scope;
   const get=async id=>{
-    await guard('t1.getObject',{objectId:id});
+    const assertRead=()=>{
+      p.originalGraphCatalog?.assertActive?.();
+      if(p.originalGraphCatalog!==undefined&&p.originalKernel.hasOperation('t1.getObject')!==true)
+        fail('GRAPH_ORIGINAL_READ_DENIED');
+    };
+    assertRead();await guard('t1.getObject',{objectId:id});assertRead();
     const r=structuredClone(await p.originalKernel.getObject(workspaceId,id));
-    await guard('t1.getObject',{objectId:id});return r;
+    assertRead();await guard('t1.getObject',{objectId:id});assertRead();return r;
   };
   const before=objectState(await get(objectId),workspaceId,objectId);
   const rows=new Map(),incoming=new Map(),wanted=new Set(ids),endpoints=new Set(endpointIds),readable=new Set();
@@ -138,18 +171,12 @@ async function graphState(p,scope,ids,endpointIds=[]){
   // With no relation mutations the native operation still retains its own
   // GRAPH_COMMIT identity; no unrelated catalog enumeration is necessary.
   if(wanted.size){
-    await guard('t1.listObjects');
-    const catalog=structuredClone(await p.originalKernel.listObjects({
-      workspace_id:workspaceId,include_deleted:false}));
-    await guard('t1.listObjects');
-    if(!Array.isArray(catalog)||catalog.length>MAX_RELATIONS||
-      catalog.some(r=>r?.workspace_id!==workspaceId||!ID(r.object_id)||r.deleted===true)||
-      new Set(catalog.map(r=>r.object_id)).size!==catalog.length)
-      fail('GRAPH_ORIGINAL_CATALOG_INVALID');
-    for(const item of catalog){
+    const visit=async item=>{
       const r=await get(item.object_id),o=objectState(r,workspaceId,item.object_id);
       if(!o||o.deleted||!Array.isArray(r.relations?.outgoing)||!Array.isArray(r.relations?.incoming))
         fail('GRAPH_ORIGINAL_CATALOG_CHANGED');
+      if(p.originalGraphCatalog!==undefined&&(!same(o,objectState({object:item},workspaceId,item.object_id))||
+        (item.object_id===objectId&&!same(o,before))))fail('GRAPH_ORIGINAL_CATALOG_CHANGED');
       endpoints.delete(item.object_id);readable.add(item.object_id);
       for(const rel of r.relations.outgoing){
         if(!wanted.has(rel?.relation_id))continue;
@@ -165,6 +192,22 @@ async function graphState(p,scope,ids,endpointIds=[]){
           fail('GRAPH_ORIGINAL_RELATION_SCOPE_MISMATCH');
         incoming.set(exact.relation_id,exact);
       }
+    };
+    if(p.originalGraphCatalog!==undefined){
+      await visitT4OriginalObjectCatalog({originalKernel:p.originalKernel,workspaceId,includeDeleted:false,
+        pageSize:p.originalGraphCatalog.pageSize??16,readOriginalObjectPage:p.originalGraphCatalog.readOriginalObjectPage,
+        authorizeOriginalOperation:async(operation,query)=>{await guard(operation,{query});return true;},
+        visitOriginalObject:visit});
+      if(before!==null&&!before.deleted&&!readable.has(objectId))fail('GRAPH_ORIGINAL_CATALOG_CHANGED');
+    }else{
+      await guard('t1.listObjects');
+      const catalog=structuredClone(await p.originalKernel.listObjects({workspace_id:workspaceId,include_deleted:false}));
+      await guard('t1.listObjects');
+      if(!Array.isArray(catalog)||catalog.length>MAX_RELATIONS||
+        catalog.some(r=>r?.workspace_id!==workspaceId||!ID(r.object_id)||r.deleted===true)||
+        new Set(catalog.map(r=>r.object_id)).size!==catalog.length)
+        fail('GRAPH_ORIGINAL_CATALOG_INVALID');
+      for(const item of catalog)await visit(item);
     }
     // A relation is a single original record observed through BOTH endpoints.
     // Never infer its absence from just one direction of a filtered read.

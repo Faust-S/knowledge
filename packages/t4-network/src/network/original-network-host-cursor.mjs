@@ -731,7 +731,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
   authorizeOriginalRecipientRead,authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalSourceWindow=null,
   readOriginalAdmittedBaseline=null,verifyOriginalRecipientBaseline=null,originalBaselinePort=null,
   readOriginalDependencyCoverage,enableOriginalTechnicalObjectHistory=false,
-  readOriginalRecipientCommitPage,withOriginalRecipientHistoryReadBoundary,recipientCommitPageSize=256,
+  readOriginalRecipientCommitPage,withOriginalRecipientHistoryReadBoundary,recipientCommitPageSize=256,originalGraphCatalog,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   requireT4OriginalTechnicalObjectHistory(enableOriginalTechnicalObjectHistory,originalKernel);
@@ -1022,7 +1022,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
       fail('RECIPIENT_CURSOR_ORIGINAL_SOURCE_PREFIX_DIVERGED');
     async function verifiedResult(){
       const actual=await inspectT4OriginalNetworkRecipientResult({
-        received,originalKernel,getMode,allowHistoricalEventProof:false,originalRecipientHistory,
+        received,originalKernel,getMode,allowHistoricalEventProof:false,originalRecipientHistory,originalGraphCatalog,
         authorizeOriginalRead:p=>live(()=>authorizeOriginalRecipientRead(p),'original-subject-result',p.operation,true),
         readOriginalDependencyCoverage:typeof readOriginalDependencyCoverage==='function'?
           p=>live(()=>readOriginalDependencyCoverage(p),'original-dependency-coverage','t1.getObject',true):undefined,
@@ -1161,7 +1161,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
       authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalSourceWindow,readOriginalAdmittedBaseline,
       verifyOriginalRecipientBaseline,readOriginalDependencyCoverage,
       originalBaselinePort:scopeBaselinePort(originalBaselinePort,isHostActive),enableOriginalTechnicalObjectHistory,
-      readOriginalRecipientCommitPage,withOriginalRecipientHistoryReadBoundary,recipientCommitPageSize,
+      readOriginalRecipientCommitPage,withOriginalRecipientHistoryReadBoundary,recipientCommitPageSize,originalGraphCatalog,
     }),
   });
 }

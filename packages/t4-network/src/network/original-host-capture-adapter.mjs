@@ -18,7 +18,7 @@ const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x)
 export function createT4OriginalHostCaptureAdapter({
   originalKernel,originalWriteOwnerRef,getMode,
   authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
-  readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize=256,
+  readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize=256,originalGraphCatalog,
   persistOriginalIntent,readOriginalIntent,
   persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
   listOriginalPendingIntents,authorizeOriginalCaptureRecovery,
@@ -46,7 +46,7 @@ export function createT4OriginalHostCaptureAdapter({
   const hostCapturePorts=()=>({
     originalKernel,originalWriteOwnerRef,getMode:mode,
     authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
-    ...(paged?{readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize}:{}),
+    ...(paged?{readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize}:{}),originalGraphCatalog,
     persistOriginalIntent,readOriginalIntent,
     persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
   });

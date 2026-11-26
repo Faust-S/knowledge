@@ -333,6 +333,54 @@ export function createT4OriginalNativeHostNetworkOwner({
       verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature'),
       ...(scopedVault?.verifyOriginalHistoricalNodeSignature?{verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature')}:{ }),
       ...(role==='SOURCE'&&scopedSealed?{authorizeOriginalSealedPublication:callback('authorizeOriginalSealedPublication')}:{})});
+    // This is a short-lived proof of one exact catalog command inside the
+    // already-held original Host history/mutation boundary. It is not an
+    // authority grant, transaction, persistent index or independent lock.
+    const createGraphCatalog=boundary=>{
+      if(!enableOriginalObjectCatalogWindow||boundary===null)return undefined;
+      const eligible=()=>role==='SOURCE'?
+        (state.waking||state.localMutation?.method==='commitObjectGraph'):
+        (state.waking||state.historyReading);
+      const readProof=Object.freeze({workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
+        operation:'t1.listEventsSince',commitOperation:'t1.listEventCommitWindow',
+        originalCommitOrderReadRequired:true,originalHistoryExclusionRequired:true,
+        originalGraphCatalogReadRequired:true,networkReadGrantsCreated:false});
+      const assertRead=()=>{
+        if(!eligible())fail('NATIVE_NETWORK_OWNER_GRAPH_CATALOG_SCOPE_INVALID');
+        boundary.assertOriginalHistoryReadScope(readProof);
+      };
+      return Object.freeze({
+        withOriginalCatalogReadBoundary:async(proof,action)=>{
+          if(!eligible()||proof?.workspaceId!==sourceWorkspaceId||proof.originalWriteOwnerRef!==originalWriteOwnerRef||
+            proof.kind!=='GRAPH_COMMIT'||proof.subjectKind!=='GRAPH_COMMIT'||!ID(proof.objectId)||
+            proof.objectId!==proof.subjectId||proof.operation!=='t1.listObjects'||
+            proof.originalGraphCatalogReadRequired!==true||proof.originalWorkspaceGraphMutationExclusionRequired!==true)
+            fail('NATIVE_NETWORK_OWNER_GRAPH_CATALOG_SCOPE_INVALID');
+          await requireBinding(state,'graph-catalog-boundary');
+          return boundary.withOriginalHistoryReadBoundary(readProof,async()=>{
+            assertRead();const value=await action();await requireBinding(state,'graph-catalog-boundary-readback');
+            assertRead();return value;
+          });
+        },
+        readOriginalObjectPage:async query=>{
+          assertRead();
+          if(!query||query.workspace_id!==sourceWorkspaceId||query.include_deleted!==false||
+            Object.keys(query).length!==4||!['workspace_id','include_deleted','after_object_id','limit'].every(k=>Object.hasOwn(query,k))||
+            (query.after_object_id!==null&&!ID(query.after_object_id))||
+            !Number.isSafeInteger(query.limit)||query.limit<1||query.limit>1024||state.graphCatalogQuery!==null)
+            fail('NATIVE_NETWORK_OWNER_GRAPH_CATALOG_SCOPE_INVALID');
+          await requireBinding(state,'graph-catalog-page');assertRead();
+          if(state.graphCatalogQuery!==null)fail('NATIVE_NETWORK_OWNER_GRAPH_CATALOG_SCOPE_INVALID');
+          const witness=Object.freeze({...query});state.graphCatalogQuery=witness;
+          try{
+            const result=await originalKernel.listObjectWindow(witness);
+            await requireBinding(state,'graph-catalog-page-readback');assertRead();
+            if(state.graphCatalogQuery!==witness)fail('NATIVE_NETWORK_OWNER_GRAPH_CATALOG_SCOPE_INVALID');
+            return result;
+          }finally{if(state.graphCatalogQuery===witness)state.graphCatalogQuery=null;}
+        },
+      });
+    };
     const recipientHistoryBoundary=enableOriginalRecipientFrontierCommitOrder?bindT4OriginalHistoryBoundary({
       workspaceId:sourceWorkspaceId,originalWriteOwnerRef,getMode,requireWorkspaceMutationExclusion:true,
       withOriginalSubjectMutation:callback('withOriginalSubjectMutation'),
@@ -352,12 +400,13 @@ export function createT4OriginalNativeHostNetworkOwner({
     const originalRecipientHistory=recipientHistoryBoundary===null?undefined:Object.freeze({
       readOriginalCommitPage:recipientHistoryPorts.readOriginalRecipientCommitPage,
       withOriginalHistoryReadBoundary:recipientHistoryPorts.withOriginalRecipientHistoryReadBoundary});
+    const originalGraphCatalog=createGraphCatalog(recipientHistoryBoundary);
     // A witnessed recipient phase uses the existing exact Kernel readback.
     // Unwitnessed historical reads still require the original owner port.
     const verifyApplied=({session,received})=>enableRecipientResultRead&&role==='SOURCE'&&session.schema==='IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SESSION_V1'?
       createT4OriginalRemoteRecipientAppliedVerifier({session,getMode,readOriginalRecipientResult:readPeerHistory}):
       enableLocalRecipientResultVerification&&received!=null?
-      createT4OriginalRecipientAppliedVerifier({session,received,originalKernel,getMode,originalRecipientHistory,
+      createT4OriginalRecipientAppliedVerifier({session,received,originalKernel,getMode,originalRecipientHistory,originalGraphCatalog,
         authorizeOriginalRead:callback('authorizeOriginalRead'),readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage')}):
       callback('verifyOriginalRecipientApplied');
     const phase=async({session,received})=>createT4OriginalNetworkSessionPhasePort({...tech,
@@ -497,7 +546,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       const resetSourceMigration=()=>resetMigration(enableHistoricalAcknowledgementRecovery?
         {inspectOriginalCommittedSourceAcknowledgements:sourceCursorPort.inspectOriginalCommittedSourceAcknowledgements}:{});
       resetSourceMigration();
-      const capture={...common,...ledger,...historyPorts,readOriginalEvents,networkTargetRef:recipientNodeRef,
+      const capture={...common,...ledger,...historyPorts,readOriginalEvents,originalGraphCatalog:createGraphCatalog(historyBoundary),networkTargetRef:recipientNodeRef,
         authorizeNetworkPublish:callback('authorizeNetworkPublish')};
       // The local original operation and the recovery task share the same
       // ledger, admitted baseline, signed Kernel and Host mutation boundary.
@@ -681,7 +730,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       const {window,nextCursor}=validateT4OriginalSourceEventWindowSnapshot(raw,request);return {window,nextCursor};
     }:null;
     const authorizeOriginalSourceRead=callback('authorizeOriginalSourceRead');
-    const cursor=createT4OriginalNetworkRecipientCursorPort({...tech,...recipientHistoryPorts,originalBaselinePort:baseline,
+    const cursor=createT4OriginalNetworkRecipientCursorPort({...tech,...recipientHistoryPorts,originalGraphCatalog,originalBaselinePort:baseline,
       authorizeOriginalRecipientRead:common.authorizeOriginalRead,authorizeOriginalSourceRead,
       readOriginalSourceEvents,readOriginalSourceWindow,readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage')});
     const resetRecipientMigration=()=>resetMigration({
@@ -690,7 +739,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     const sourceProofPorts=enableSourceCaptureBinding?{readOriginalSourceCaptureSnapshot:readPeerHistory}:{
       readOriginalSourceHostContext:callback('readOriginalSourceHostContext'),readOriginalSourceEvents,readOriginalSourceWindow,
       verifyOriginalSourceSubject:callback('verifyOriginalSourceSubject'),verifyOriginalSourceBinding:callback('verifyOriginalSourceBinding')};
-    const task=createT4OriginalHostRecipientDispatcher({...common,originalRecipientCursorPort:cursor,originalRecipientHistory,
+    const task=createT4OriginalHostRecipientDispatcher({...common,originalRecipientCursorPort:cursor,originalRecipientHistory,originalGraphCatalog,
       authorizeNetworkReceive:callback('authorizeNetworkReceive'),...(enableSourceCaptureBinding?{}:{verifyOriginalSourceEvent:callback('verifyOriginalSourceEvent')}),
       readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage'),
       withOriginalSubjectMutation:recipientHistoryBoundary?.withOriginalSubjectMutation??callback('withOriginalSubjectMutation')});
@@ -933,7 +982,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       const state={kernel:p.kernel,sessionId:p.sessionId,contextEpoch:p.contextEpoch,
         hostSessionRef:hostReference(p.sessionId,p.contextEpoch),
         isHostActive:p.isHostActive,disposed:false,waking:false,task:null,capture:null,
-        localMutation:null,historyReading:false,networkWakeSuspended:null,networkRecovery:null,replacementHistoryWait:null};
+        localMutation:null,graphCatalogQuery:null,historyReading:false,networkWakeSuspended:null,networkRecovery:null,replacementHistoryWait:null};
       live=state;
       try{
         if(await ports.authorizeOriginalBinding(bindingProof(state,'attach'))!==true||
@@ -961,15 +1010,22 @@ export function createT4OriginalNativeHostNetworkOwner({
         (!enableOriginalTechnicalObjectHistory||workspaceId!==technicalWorkspaceId||
           !ID(proof.args?.[1])||!proof.args[1].startsWith('t4:net:')||
           (!state.waking&&!state.localMutation&&!state.historyReading)))return null;
-      let relationCatalogMutation=null;
+      let relationCatalogMutation=null,graphCatalogQuery=null;
       if(proof.operation==='t1.listObjectWindow'){
         if(!enableOriginalObjectCatalogWindow||first.schema_id!==undefined)return null;
         if(workspaceId===technicalWorkspaceId){
           if(first.include_deleted!==true||(!state.waking&&!state.localMutation&&!state.historyReading))return null;
         }else{
-          relationCatalogMutation=state.localMutation;
-          if(role!=='SOURCE'||!enableLocalSourceCapture||relationCatalogMutation?.method!=='deleteRelation'||
-            relationCatalogMutation.invoked||first.include_deleted!==false)return null;
+          if(first.include_deleted!==false)return null;
+          graphCatalogQuery=state.graphCatalogQuery;
+          if(graphCatalogQuery!==null){
+            if(Object.keys(first).length!==Object.keys(graphCatalogQuery).length||
+              !Object.keys(graphCatalogQuery).every(k=>Object.hasOwn(first,k)&&first[k]===graphCatalogQuery[k]))return null;
+          }else{
+            relationCatalogMutation=state.localMutation;
+            if(role!=='SOURCE'||!enableLocalSourceCapture||relationCatalogMutation?.method!=='deleteRelation'||
+              relationCatalogMutation.invoked)return null;
+          }
         }
       }
       const write=!['t1.getObject','t1.listObjects','t1.listObjectWindow','t1.listEventsSince','t1.listEventCommitWindow',
@@ -989,6 +1045,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       await requireBinding(state,'kernel-command');
       const access=await ports.resolveOriginalAccess(proof);
       await requireBinding(state,'kernel-command-readback');
+      if(graphCatalogQuery!==null&&state.graphCatalogQuery!==graphCatalogQuery)return null;
       if(relationCatalogMutation&&(state.localMutation!==relationCatalogMutation||relationCatalogMutation.invoked))return null;
       if(local){
         if(state.localMutation!==local||local.invoked||access==null)return null;

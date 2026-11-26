@@ -909,7 +909,7 @@ async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
 
 export async function inspectT4OriginalNetworkRecipientResult({
   received,originalKernel,authorizeOriginalRead,getMode,
-  allowHistoricalEventProof=false,readOriginalDependencyCoverage,originalRecipientHistory,
+  allowHistoricalEventProof=false,readOriginalDependencyCoverage,originalRecipientHistory,originalGraphCatalog,
 }={}){
   if(typeof allowHistoricalEventProof!=='boolean')
     fail('SUBJECT_HISTORICAL_READ_MODE_INVALID');
@@ -920,7 +920,7 @@ export async function inspectT4OriginalNetworkRecipientResult({
   }
   if(receivedKind(received)==='GRAPH_COMMIT'){
     checkReceived(received);
-    return inspectT4OriginalGraphResult({received,originalKernel,authorizeOriginalRead,getMode,originalRecipientHistory});
+    return inspectT4OriginalGraphResult({received,originalKernel,authorizeOriginalRead,getMode,originalRecipientHistory,originalGraphCatalog});
   }
   if(receivedKind(received)!=='OBJECT_PUT')
     return inspectNonObject({received,originalKernel,authorizeOriginalRead,
@@ -1089,11 +1089,11 @@ export async function applyT4OriginalNetworkSubjectChange(args={}){
 }
 async function applyOriginalNetworkSubjectChange({
   received,originalKernel,authorizeOriginalRead,authorizeOriginalWrite,
-  verifyOriginalSourceEvent,getMode,withOriginalSubjectMutation,readOriginalDependencyCoverage,originalRecipientHistory,
+  verifyOriginalSourceEvent,getMode,withOriginalSubjectMutation,readOriginalDependencyCoverage,originalRecipientHistory,originalGraphCatalog,
 }={}){
   checkReceived(received);
   const kind=receivedKind(received),type=SUBJECTS[kind];
-  const args={received,originalKernel,authorizeOriginalRead,getMode,readOriginalDependencyCoverage,originalRecipientHistory};
+  const args={received,originalKernel,authorizeOriginalRead,getMode,readOriginalDependencyCoverage,originalRecipientHistory,originalGraphCatalog};
   const before=await inspectT4OriginalNetworkRecipientResult(args);
   if(before.originalBusinessApplied)
     return frozen({status:'ALREADY_APPLIED_FROM_ORIGINAL_T3',
@@ -1109,7 +1109,7 @@ async function applyOriginalNetworkSubjectChange({
       received:{delta:received.delta,sha256:received.sha256,key:received.key},
       originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,getMode,
       ...(kind==='OBJECT_PUT'?{}:{nativeNetworkEvidence:true,authorizeOriginalRead}),
-      ...(isT4NativeDeleteKind(kind)||kind==='GRAPH_COMMIT'?{withOriginalSubjectMutation,readOriginalDependencyCoverage,originalRecipientHistory}:{}),
+      ...(isT4NativeDeleteKind(kind)||kind==='GRAPH_COMMIT'?{withOriginalSubjectMutation,readOriginalDependencyCoverage,originalRecipientHistory,originalGraphCatalog}:{}),
     });
   }catch(error){
     fail('SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN',{
@@ -1162,7 +1162,7 @@ function replacementSubject(received){
 // No remote call, grant cache, receipt synthesis or historical fallback.
 // Successor content must pass its existing restricted-subject validation.
 export function createT4OriginalRecipientAppliedVerifier({session,received,originalKernel,getMode,
-  authorizeOriginalRead,readOriginalDependencyCoverage,originalRecipientHistory}={}){
+  authorizeOriginalRead,readOriginalDependencyCoverage,originalRecipientHistory,originalGraphCatalog}={}){
   const replacement=session?.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_SESSION_CANDIDATE_V1';
   const c=replacement?validateT4OriginalReplacementSessionCandidate(session):validateT4OriginalNativeCaptureSession(session);
   const r=structuredClone(received);
@@ -1183,7 +1183,7 @@ export function createT4OriginalRecipientAppliedVerifier({session,received,origi
       proof.signedAppliedAckAloneIsInsufficient!==true||!ID(proof.originalRecipientEventId)||
       !validT4NativeSubjectRevision(kind,proof.originalRecipientRevision)||!DIG(proof.originalRecipientStateDigest))return false;
     const actual=await inspectT4OriginalNetworkRecipientResult({received:ordinary,originalKernel,getMode,
-      authorizeOriginalRead,readOriginalDependencyCoverage,originalRecipientHistory,allowHistoricalEventProof:false});
+      authorizeOriginalRead,readOriginalDependencyCoverage,originalRecipientHistory,originalGraphCatalog,allowHistoricalEventProof:false});
     if(getMode()!=='T4_NETWORK'||actual.state!=='APPLIED_VERIFIED'||
       actual.originalRecipientEventId!==proof.originalRecipientEventId||actual.originalRecipientRevision!==proof.originalRecipientRevision||
       actual.originalRecipientStateDigest!==proof.originalRecipientStateDigest)return false;

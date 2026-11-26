@@ -7,7 +7,8 @@ import {readT4OriginalEventWindow} from '../src/network/original-event-window.mj
 import {readT4OriginalHostCapturedSubject,verifyT4OriginalHostCapturedSubjectSource,publishT4OriginalHostOutbox}
   from '../src/network/original-host-outbox-delivery.mjs';
 import {readT4OriginalNativeCaptureSessionAtCursor} from '../src/network/original-host-outbox-dispatcher.mjs';
-import {decodeT4OriginalGraphDeltaBytes,verifyT4OriginalGraphDelta,applyT4OriginalGraphDelta}
+import {decodeT4OriginalGraphDeltaBytes,verifyT4OriginalGraphDelta,applyT4OriginalGraphDelta,
+  captureT4OriginalGraphMutation,reconcileT4OriginalGraphMutation,inspectT4OriginalGraphResult}
   from '../src/network/original-graph-delta.mjs';
 import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
 import {applyT4OriginalNetworkSubjectWithDurableIntent,applyT4OriginalNetworkSubjectChange,
@@ -398,4 +399,130 @@ test('K120 original graph preflight refuses capture trace reuse before original 
     err('GRAPH_SOURCE_EVENT_NOT_PROVEN'));
   assert.equal(f.graphWrites,0);assert.equal(f.graphInvocations,0);
   assert.equal((await f.ledger.listOriginalPendingIntents({workspaceId:ws,originalWriteOwnerRef:owner})).length,0);
+});
+
+function k138Catalog(f,{extra=0,pageSize=256}={}){
+  const ids=[];
+  for(let i=0;i<extra;i++){
+    const id='o:k21:catalog:'+String(i).padStart(6,'0');
+    f.objects.set(ws+':'+id,{workspace_id:ws,object_id:id,schema_id:'iwxa.demo.note',
+      schema_version:'1.0.0',revision:1,deleted:false,data:{i},extensions:{}});
+    ids.push(id);
+  }
+  let held=false,scans=0;const pages=[],grants=new Set(['t1.getObject','t1.listObjects','t1.listObjectWindow','t1.listEventsSince','t1.commitObjectGraph']);
+  const read=f.kernel.listObjects,get=f.kernel.getObject;
+  f.kernel.hasOperation=op=>grants.has(op);
+  f.kernel.listObjects=async q=>{if(q.workspace_id===ws)assert.fail('legacy whole graph catalog forbidden');return read(q);};
+  f.kernel.getObject=async(w,id)=>{assert.ok(held);return get(w,id);};
+  let catalog=[];
+  f.kernel.listObjectWindow=async q=>{
+    assert.equal(held,true);assert.equal(q.workspace_id,ws);assert.equal(q.include_deleted,false);
+    if(q.after_object_id===null){scans++;catalog=[...f.objects.values()].filter(o=>o.workspace_id===ws&&!o.deleted)
+      .sort((a,b)=>a.object_id<b.object_id?-1:a.object_id>b.object_id?1:0);}
+    const start=q.after_object_id===null?0:catalog.findIndex(o=>o.object_id===q.after_object_id)+1;
+    assert.ok(q.after_object_id===null||start>0);const entries=clone(catalog.slice(start,start+q.limit));pages.push(q);
+    return {entries,next_after_object_id:entries.at(-1)?.object_id??q.after_object_id,
+      has_more:start+entries.length<catalog.length,order:'WORKSPACE_OBJECT_ID_ASC'};
+  };
+  const withBoundary=async(proof,action)=>{const prior=held;held=true;try{return await action();}finally{held=prior;}};
+  const originalGraphCatalog={pageSize,withOriginalCatalogReadBoundary:async(proof,action)=>{
+    assert.equal(proof.operation,'t1.listObjects');assert.equal(proof.workspaceId,ws);assert.equal(proof.originalWriteOwnerRef,owner);
+    assert.equal(proof.kind,'GRAPH_COMMIT');assert.equal(proof.originalWorkspaceGraphMutationExclusionRequired,true);
+    return withBoundary(proof,action);
+  },readOriginalObjectPage:q=>f.kernel.listObjectWindow(q)};
+  return {originalGraphCatalog,withBoundary,pages,grants,ids,scans:()=>scans};
+}
+async function k138Source(extra=0){
+  const f=await seeded('source'),catalog=k138Catalog(f,{extra});
+  const cursor=(await readT4OriginalEventWindow({workspaceId:ws,originalWriteOwnerRef:owner,
+    authorizeOriginalRead:allow,readOriginalEvents:()=>f.kernel.listEventsSince(ws)})).nextCursor;
+  let intent=null,outbox=null;
+  const ports={workspaceId:ws,originalWriteOwnerRef:owner,captureRef:'capture:k138:one',subjectId:target,
+    mutationInput:input(),sourceCursor:cursor,originalKernel:f.kernel,getMode:mode,
+    authorizeOriginalRead:allow,authorizeOriginalWrite:allow,readOriginalEvents:()=>f.kernel.listEventsSince(ws),
+    originalGraphCatalog:catalog.originalGraphCatalog,readOriginalIntent:async()=>clone(intent),readOriginalOutbox:async()=>clone(outbox),
+    persistOriginalIntent:async x=>{intent=clone(x);return true;},persistOriginalOutbox:async x=>{outbox=clone(x);return true;}};
+  const run=(overrides={})=>catalog.withBoundary({},()=>captureT4OriginalGraphMutation({...ports,...overrides}));
+  const reconcile=()=>catalog.withBoundary({},()=>reconcileT4OriginalGraphMutation(ports));
+  return {f,catalog,ports,run,reconcile,intent:()=>intent,outbox:()=>outbox};
+}
+async function k138Recipient(source,extra=0){
+  const f=await seeded('recipient'),catalog=k138Catalog(f,{extra});
+  const received=source.prepared;
+  const ports={received,originalKernel:f.kernel,getMode:mode,authorizeOriginalRead:allow,authorizeOriginalWrite:allow,
+    verifyOriginalSourceEvent:allow,nativeNetworkEvidence:true,originalGraphCatalog:catalog.originalGraphCatalog,
+    withOriginalSubjectMutation:catalog.withBoundary};
+  return {f,catalog,ports,apply:()=>applyT4OriginalGraphDelta(ports),inspect:()=>inspectT4OriginalGraphResult(ports)};
+}
+test('K138 source and recipient atomically create and delete relations with 4100 catalog Objects without legacy listObjects',async()=>{
+  const source=await k138Source(4097),captured=await source.run();
+  assert.equal(source.f.graphWrites,1);assert.equal(source.f.graphInvocations,1);
+  assert.equal(captured.originalT3OutboxVerified,true);
+  assert.deepEqual(captured.prepared.delta.relationDeletes,[rel(old,a,b,'old dependency')]);
+  assert.equal(source.catalog.scans(),3);assert.equal(source.catalog.pages.length,3*17);
+  const recipient=await k138Recipient(captured,4097),applied=await recipient.apply();
+  assert.equal(applied.originalRecipientApplied,true);assert.equal(recipient.f.graphWrites,1);
+  assert.equal(recipient.f.relations.has(old),false);assert.equal(recipient.f.relations.has(fresh),true);
+  assert.equal((await recipient.inspect()).state,'APPLIED_VERIFIED');
+  assert.equal(recipient.catalog.pages.length,3*17);
+});
+test('K138 original lost graph reply reconciles once through paged catalog and original Event',async()=>{
+  const source=await k138Source();source.f.loseAck();
+  await assert.rejects(source.run(),err('GRAPH_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  assert.equal(source.f.graphWrites,1);assert.ok(source.intent());assert.equal(source.outbox(),null);
+  const recovered=await source.reconcile();assert.equal(recovered.originalT3OutboxVerified,true);
+  assert.equal(recovered.originalMutationRetried,false);assert.equal(source.f.graphInvocations,1);
+  const recipient=await k138Recipient(recovered);recipient.f.loseAck();
+  await assert.rejects(recipient.apply(),err('GRAPH_RECIPIENT_WRITE_OUTCOME_UNKNOWN'));
+  assert.equal((await recipient.inspect()).state,'APPLIED_VERIFIED');assert.equal(recipient.f.graphInvocations,1);
+});
+test('K138 paged graph rejects one-sided relation and duplicate relation scope before original Intent',async()=>{
+  for(const variant of ['one-sided','duplicate']){
+    const s=await k138Source(),get=s.f.kernel.getObject;
+    s.f.kernel.getObject=async(w,id)=>{const row=await get(w,id);
+      if(w===ws&&id===b&&variant==='one-sided')row.relations.incoming=[];
+      if(w===ws&&id===a&&variant==='duplicate')row.relations.outgoing.push(clone(row.relations.outgoing[0]));
+      return row;};
+    await assert.rejects(s.run(),err(variant==='one-sided'?'GRAPH_ORIGINAL_RELATION_ENDPOINT_MISMATCH':'GRAPH_ORIGINAL_RELATION_SCOPE_MISMATCH'));
+    assert.equal(s.intent(),null);assert.equal(s.f.graphWrites,0);
+  }
+});
+test('K138 catalog row differs from exact original Object or omits primary Object',async()=>{
+  for(const variant of ['changed','missing']){
+    const s=await k138Source(),read=s.f.kernel.listObjectWindow;
+    s.f.kernel.listObjectWindow=async q=>{
+      const page=await read(q);
+      if(variant==='changed')page.entries.find(r=>r.object_id===target).revision++;
+      else{page.entries=page.entries.filter(r=>r.object_id!==target);page.next_after_object_id=page.entries.at(-1)?.object_id??q.after_object_id;}
+      return page;
+    };
+    await assert.rejects(s.run(),err('GRAPH_ORIGINAL_CATALOG_CHANGED'));
+    assert.equal(s.intent(),null);assert.equal(s.f.graphWrites,0);
+  }
+});
+test('K138 both original catalog grants and exact Object read remain required throughout scan',async()=>{
+  for(const op of ['t1.listObjects','t1.listObjectWindow','t1.getObject']){
+    const s=await k138Source(),read=s.f.kernel.listObjectWindow;
+    s.f.kernel.listObjectWindow=async q=>{const page=await read(q);s.catalog.grants.delete(op);return page;};
+    await assert.rejects(s.run(),err(op==='t1.getObject'?'GRAPH_ORIGINAL_READ_DENIED':'ORIGINAL_OBJECT_CATALOG_READ_DENIED'));
+    assert.equal(s.intent(),null);assert.equal(s.f.graphWrites,0);
+  }
+});
+test('K138 incomplete, substituted or escaped original catalog boundary never authorizes graph write',async()=>{
+  const s=await k138Source(),cat=s.catalog.originalGraphCatalog;
+  await assert.rejects(s.run({originalGraphCatalog:{}}),err('GRAPH_ORIGINAL_CATALOG_BOUNDARY_REQUIRED'));
+  let escaped;
+  await assert.rejects(s.run({originalGraphCatalog:{...cat,withOriginalCatalogReadBoundary:async(p,action)=>{escaped=action;return {};}}}),
+    err('GRAPH_ORIGINAL_CATALOG_BOUNDARY_INVALID'));
+  await assert.rejects(escaped(),err('GRAPH_ORIGINAL_CATALOG_BOUNDARY_INVALID'));
+  await assert.rejects(s.run({originalGraphCatalog:{...cat,withOriginalCatalogReadBoundary:async(p,action)=>({...await cat.withOriginalCatalogReadBoundary(p,action)})}}),
+    err('GRAPH_ORIGINAL_CATALOG_BOUNDARY_INVALID'));
+  assert.equal(s.intent(),null);assert.equal(s.f.graphWrites,0);
+});
+test('K138 recipient will not acknowledge a one-sided readback or stale catalog after original graph apply',async()=>{
+  const s=await k138Source(),c=await s.run(),r=await k138Recipient(c);await r.apply();
+  const get=r.f.kernel.getObject;r.f.kernel.getObject=async(w,id)=>{
+    const row=await get(w,id);if(w===ws&&id===b)row.relations.incoming=[];return row;};
+  await assert.rejects(r.inspect(),err('GRAPH_ORIGINAL_RELATION_ENDPOINT_MISMATCH'));
+  assert.equal(r.f.graphWrites,1);
 });

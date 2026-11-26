@@ -14,10 +14,11 @@ export function requireT4OriginalObjectCatalog(enabled,originalKernel,pageSize=1
 // multi-page snapshot is created here. Callers must retain their original
 // exclusion/readback rules. Only one page's unrelated Object bodies is kept.
 export async function visitT4OriginalObjectCatalog({originalKernel,workspaceId,schemaId,
-  includeDeleted=true,authorizeOriginalOperation,visitOriginalObject,pageSize=16}={}){
+  includeDeleted=true,authorizeOriginalOperation,visitOriginalObject,readOriginalObjectPage,pageSize=16}={}){
   requireT4OriginalObjectCatalog(true,originalKernel,pageSize);
   if(!ID(workspaceId)||(schemaId!==undefined&&!ID(schemaId))||typeof includeDeleted!=='boolean'||
-    typeof authorizeOriginalOperation!=='function'||typeof visitOriginalObject!=='function')
+    typeof authorizeOriginalOperation!=='function'||typeof visitOriginalObject!=='function'||
+    (readOriginalObjectPage!==undefined&&typeof readOriginalObjectPage!=='function'))
     fail('ORIGINAL_OBJECT_CATALOG_PORTS_REQUIRED');
   let after=null,count=0;
   async function authorize(query){
@@ -30,7 +31,8 @@ export async function visitT4OriginalObjectCatalog({originalKernel,workspaceId,s
     const query=Object.freeze({workspace_id:workspaceId,include_deleted:includeDeleted,
       ...(schemaId===undefined?{}:{schema_id:schemaId}),after_object_id:after,limit:pageSize});
     await authorize(query);
-    const page=structuredClone(await originalKernel.listObjectWindow(query));
+    const page=structuredClone(await (readOriginalObjectPage===undefined?
+      originalKernel.listObjectWindow(query):readOriginalObjectPage(query)));
     await authorize(query);
     if(!keys(page,['entries','next_after_object_id','has_more','order'])||page.order!=='WORKSPACE_OBJECT_ID_ASC'||
       typeof page.has_more!=='boolean'||!Array.isArray(page.entries)||page.entries.length>pageSize||
