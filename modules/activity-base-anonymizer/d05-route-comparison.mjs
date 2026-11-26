@@ -121,8 +121,9 @@ function shapeRoute(record,number){
   return {routeId,number,source,sourceRevision:Number.isSafeInteger(record?.revision)?record.revision:null,
     signature,operations,edgeCount,differences,incomplete,ambiguous,aliases,inputs,nodes,ordered};
 }
-export function reviewD05RouteModels(records,{includeTechnologyDraft=false}={}){
-  require(typeof includeTechnologyDraft==='boolean','D05_ROUTE_DRAFT_OPTION_INVALID');
+export function reviewD05RouteModels(records,{includeTechnologyDraft=false,includeLocalContextDetails=false}={}){
+  require(typeof includeTechnologyDraft==='boolean'&&typeof includeLocalContextDetails==='boolean'&&
+   (!includeLocalContextDetails||includeTechnologyDraft),'D05_ROUTE_DRAFT_OPTION_INVALID');
   require(Array.isArray(records)&&records.length>0&&records.length<=MAX_ROUTES,
     'D05_ROUTE_SELECTION_LIMIT');
   const entries=records.map((r,i)=>shapeRoute(r,i+1));
@@ -151,7 +152,8 @@ export function reviewD05RouteModels(records,{includeTechnologyDraft=false}={}){
     epistemic_status:'CALCULATED_OR_DECLARED_NOT_OBSERVED',
     source_authority:'UNVERIFIED_LOCAL_COPY',technology_equivalence:'NOT_ESTABLISHED',
     anonymity:'NOT_ESTABLISHED',export_allowed:false,iwxa_package:null};
-  return includeTechnologyDraft?attachTechnologyDraft(result,records,entries,[]):result;
+  const draft=includeTechnologyDraft?attachTechnologyDraft(result,records,entries,[]):result;
+  return includeLocalContextDetails?attachLocalContextDetails(draft,entries,[]):draft;
 }
 
 // Reproducible example in the existing calculator shape. Not factory evidence.
@@ -302,8 +304,9 @@ function inspectPlan(route,plans,templates,routeIds){
  * provide a consistent selected Workspace snapshot. This pure function
  * neither authenticates the source nor performs a Kernel read.
  */
-export function reviewD05RouteModelsWithQuality(records,planDetails,templateRecords,{includeTechnologyDraft=false,recordedDetails=null}={}){
-  require(typeof includeTechnologyDraft==='boolean','D05_ROUTE_DRAFT_OPTION_INVALID');
+export function reviewD05RouteModelsWithQuality(records,planDetails,templateRecords,{includeTechnologyDraft=false,recordedDetails=null,includeLocalContextDetails=false}={}){
+  require(typeof includeTechnologyDraft==='boolean'&&typeof includeLocalContextDetails==='boolean'&&
+   (!includeLocalContextDetails||includeTechnologyDraft),'D05_ROUTE_DRAFT_OPTION_INVALID');
   const result=reviewD05RouteModels(records);
   const ws=records[0]?.workspace_id;
   require(id(ws)&&records.every(r=>r.workspace_id===ws&&r.schema_id===ROUTE&&
@@ -339,7 +342,8 @@ export function reviewD05RouteModelsWithQuality(records,planDetails,templateReco
     groups,quality_validation:'NOT_PERFORMED_BY_ACTIVITY',
     revision_alignment:'CURRENT_SNAPSHOT_NOT_APPROVED_TECHNOLOGY',
     execution_evidence:'NOT_ESTABLISHED'}};
-  const resultWithDraft=includeTechnologyDraft?attachTechnologyDraft(output,records,entries,reviewed):output;
+  const draft=includeTechnologyDraft?attachTechnologyDraft(output,records,entries,reviewed):output;
+  const resultWithDraft=includeLocalContextDetails?attachLocalContextDetails(draft,entries,reviewed):draft;
   if(recordedDetails!==null){
     require(includeTechnologyDraft,'D05_RECORDED_SELECTION_REQUIRES_TECHNOLOGY');
     return {...resultWithDraft,recorded_execution_review:projectD05RecordedExecution(entries,plans,templates,recordedDetails,ws,new Map(templateRecords.map(row=>[row.object_id,row.revision])),reviewed)};
@@ -494,6 +498,41 @@ function draftProfile(record,entry,quality){
     source_revision:Number.isSafeInteger(record?.revision)&&record.revision>0?record.revision:null,
     conditions,quality_status:quality?.status??'NOT_READ',quality_issues:quality?.issue_codes??[],
     checks,local_context_review:localContext,unresolved:gaps};
+}
+// Optional owner-local context inspection. Keep these exact source values
+// separate from the technology draft, model document and product. No raw
+// source object, additional read permission or new carrier is returned.
+function attachLocalContextDetails(review,entries,quality){
+ const profiles=entries.map((entry,index)=>{
+  const context=[];
+  const add=(scope,field,value)=>{
+   if(value===null||value===undefined||value==='')return;
+   if(typeof value==='string'&&!value.trim())return;
+   const available=typeof value==='boolean'||qualityText(value)&&nonempty(value);
+   context.push({scope,field,value:available?value:null,status:available?'DECLARED_LOCAL_VALUE':'SOURCE_VALUE_UNAVAILABLE'});
+  };
+  for(const field of ['orderName','startDate','dueDate'])add('technology',field,entry.inputs[field]);
+  for(const opId of entry.ordered){
+   const scope=entry.aliases.get(opId),raw=entry.nodes.get(opId).raw;
+   for(const field of ['materialReady','materialReadyDate','comment'])add(scope,field,raw[field]);
+  }
+  const q=quality[index];
+  if(q?.status==='DECLARED_CHECKS_READ'){
+   PLAN_CONTEXT.forEach((field,i)=>add('technology',field,q.draftContext[i]));
+   // Exactly the order used by the existing draft profile, not plan order.
+   [...q.draftChecks].sort((a,b)=>cmp(key(a),key(b))).forEach(([,parts],i)=>{
+    const scope='check_'+String(i+1).padStart(3,'0');
+    QUALITY_FIELDS.forEach(([,fields],j)=>fields.forEach((field,k)=>{
+     if(field==='related_material_id'||field==='comment')add(scope,field,parts[j][k]);
+    }));
+   });
+  }
+  return {model_number:entry.number,entries:context};
+ });
+ const local={status:'LOCAL_D05_CONTEXT_DETAILS',profiles,
+  semantics:'SOURCE_DECLARATIONS_FOR_LOCAL_FUNCTIONAL_REVIEW',export_allowed:false,iwxa_package:null};
+ require(new TextEncoder().encode(key(local)).byteLength<=DRAFT_LIMIT,'D05_ROUTE_DRAFT_OUTPUT_LIMIT');
+ return {...review,local_context_details:local};
 }
 function attachTechnologyDraft(review,records,entries,quality){
   const profiles=entries.map((entry,i)=>draftProfile(records[i],entry,quality[i]));

@@ -41,9 +41,10 @@ function safeFailure(error){
  * is not approved for external disclosure. Do not hand this port to an LLM.
  */
 export async function reviewSelectedD05RouteModels({
- context,signedAccess,createSubjectKernelBinding,subscribeOwnerInvalidation,includeQualityPlans=false,includeTechnologyDraft=false,includeRecordedReports=false,
+ context,signedAccess,createSubjectKernelBinding,subscribeOwnerInvalidation,includeQualityPlans=false,includeTechnologyDraft=false,includeRecordedReports=false,includeLocalContextDetails=false,
 }={}){
   need(typeof includeQualityPlans==='boolean'&&typeof includeTechnologyDraft==='boolean'&&typeof includeRecordedReports==='boolean'&&
+    typeof includeLocalContextDetails==='boolean'&&(!includeLocalContextDetails||includeTechnologyDraft)&&
     (!includeRecordedReports||includeTechnologyDraft)&&
     (!includeTechnologyDraft||includeQualityPlans)&&record(context?.kernel)&&typeof context.kernel.hasOperation==='function'&&
     READS.every(op=>context.kernel.hasOperation(op))&&
@@ -167,7 +168,7 @@ export async function reviewSelectedD05RouteModels({
     need(JSON.stringify(await signedAccess.currentContext())===identity,
       'D05_ROUTE_HOST_CONTEXT_CHANGED');
     checkLive();
-    const result=quality?reviewD05RouteModelsWithQuality(details,quality.plans,quality.templates,{includeTechnologyDraft,recordedDetails:quality.recordedDetails}):
+    const result=quality?reviewD05RouteModelsWithQuality(details,quality.plans,quality.templates,{includeTechnologyDraft,recordedDetails:quality.recordedDetails,includeLocalContextDetails}):
       reviewD05RouteModels(details);
     checkLive();
     return {...result,source_authority:'ORIGINAL_SIGNED_SELECTED_READBACK'};
@@ -187,9 +188,11 @@ export function createTrustedD05RouteReviewPort(config){
     typeof config?.subscribeOwnerInvalidation==='function','D05_ROUTE_HOST_REQUIRED');
   return Object.freeze({
     readSelectedRoutes:(options={})=>{
-      need(record(options)&&Object.keys(options).every(k=>k==='includeRecordedReports')&&
-        (options.includeRecordedReports===undefined||typeof options.includeRecordedReports==='boolean'),'D05_ROUTE_HOST_OPTION_INVALID');
-      return reviewSelectedD05RouteModels({...config,includeRecordedReports:options.includeRecordedReports??config.includeRecordedReports??false});
+      need(record(options)&&Object.keys(options).every(k=>['includeRecordedReports','includeLocalContextDetails'].includes(k))&&
+        (options.includeRecordedReports===undefined||typeof options.includeRecordedReports==='boolean')&&
+        (options.includeLocalContextDetails===undefined||typeof options.includeLocalContextDetails==='boolean'),'D05_ROUTE_HOST_OPTION_INVALID');
+      return reviewSelectedD05RouteModels({...config,includeRecordedReports:options.includeRecordedReports??config.includeRecordedReports??false,
+        includeLocalContextDetails:options.includeLocalContextDetails??config.includeLocalContextDetails??false});
     },
     subscribeInvalidation(listener){
       need(typeof listener==='function','D05_ROUTE_HOST_INVALIDATION_REQUIRED');

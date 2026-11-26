@@ -27,7 +27,8 @@ const ERRORS:Record<string,string>={
  D05_RECORDED_SELECTION_LIMIT:'Слишком много связанных отчётов. Выберите меньшую рабочую область или набор Result.',
  D05_RECORDED_RESULT_PROFILE:'Фактический Result не соответствует исходному предметному контракту.',
  D05_RECORDED_RESULT_RELATIONS:'Не подтверждены связи исходных отчётов.',
- D05_ROUTE_HOST_OPTION_INVALID:'Источник не подключён для чтения фактических отчётов.',
+ D05_ROUTE_HOST_OPTION_INVALID:'Источник не поддерживает выбранные дополнительные сведения.',
+ D05_ROUTE_DRAFT_OUTPUT_LIMIT:'Объём локального просмотра превышен. Выберите меньший набор маршрутов.',
  D05_ROUTE_FILE_INVALID:'Не удалось прочитать JSON-файл.',
  D05_ROUTE_HOST_NO_MODELS:'В выбранной рабочей области нет сохранённых маршрутов CehoVod.',
  D05_ROUTE_HOST_SELECTION_LIMIT:'В области более 24 маршрутов. Пока доступна выборка до 24 моделей.',
@@ -68,6 +69,7 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
  const input=useRef<HTMLInputElement>(null),generation=useRef(0);
  const [result,setResult]=useState<D05RouteReview|D05RouteQualityReview|D05SignedRouteReview|null>(null),[source,setSource]=useState('');
  const [hostConnected,setHostConnected]=useState(false);
+ const [includeLocalContextDetails,setIncludeLocalContextDetails]=useState(false);
  const [problem,setProblem]=useState(''),[busy,setBusy]=useState(false),[groupIndex,setGroupIndex]=useState(0);
  const [page,setPage]=useState(0);
  const reset=()=>{
@@ -90,7 +92,7 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
  },[host]);
  const apply=(records:unknown,label:string,token:number)=>{
   if(token!==generation.current)return;
-  const value=reviewD05ResultSelection(records,{includeTechnologyDraft:true});
+  const value=reviewD05ResultSelection(records,{includeTechnologyDraft:true,includeLocalContextDetails});
   if(token!==generation.current)return;
   setResult(value);setSource(label);setGroupIndex(0);setPage(0);
  };
@@ -108,7 +110,8 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
    if(!host||!hostConnected)return;
    reset();const token=generation.current;setBusy(true);
    try{
-     const value=includeRecordedReports?await host.readSelectedRoutes({includeRecordedReports:true}):await host.readSelectedRoutes();
+     const value=includeLocalContextDetails?await host.readSelectedRoutes({includeRecordedReports,includeLocalContextDetails:true}):
+      includeRecordedReports?await host.readSelectedRoutes({includeRecordedReports:true}):await host.readSelectedRoutes();
      if(token!==generation.current)return;
      if(value.source_authority!=='ORIGINAL_SIGNED_SELECTED_READBACK'||value.export_allowed!==false||value.anonymity!=='NOT_ESTABLISHED')throw {code:'D05_ROUTE_HOST_RECORD_MISMATCH'};
      setResult(value);setSource(includeRecordedReports?'Маршруты и зарегистрированные отчёты выбранной рабочей области':'Сохранённые маршруты выбранной рабочей области');
@@ -143,6 +146,8 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
   <section className="activity-v7-card">
    <h2>Сопоставление технологических маршрутов CehoVod</h2>
    <p>Выберите маршруты, карты качества и накопленные отчёты исполнения CehoVod. Локальная выборка использует исходные Result с отношениями (object, relations), до 256 файлов и до 24 маршрутов. При подключённом Host сохранённые сведения читаются непосредственно из рабочей области.</p>
+   <label className="activity-domain-label"><span><input type="checkbox" checked={includeLocalContextDetails} disabled={busy} onChange={e=>{reset();setIncludeLocalContextDetails(e.target.checked);}}/> Просмотреть исходные примечания, документы и локальные условия</span></label>
+   <p>Эти сведения доступны только в текущем локальном просмотре. В модельное предложение и переносимый продукт автоматически не добавляются.</p>
    <div className="activity-v7-actions">
     {hostConnected?<><button className="activity-v7-primary" disabled={busy} onClick={()=>void loadSelectedRoutes()}>Получить сохранённые маршруты</button>
      <button disabled={busy} onClick={()=>void loadSelectedRoutes(true)}>Получить маршруты и фактические отчёты</button></>:null}
