@@ -5,6 +5,7 @@ import { prepareWorkspaceMethodSourceInputs, reconstructWorkspaceMethodDraft } f
 import { PROJECT_PROCESS_SOURCE_ACTIVATION, ProjectProcessSourceOwner, createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { MemoryCanonicalAdapter, OwnerWriteGateway } from '../src/persistence/canonical-persistence.mjs';
 import { readWorkspaceMethodFromSourceOwner } from '../src/modules/base/owners/project-process-method-readback.mjs';
+import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { qualifyProjectProcessSameWorkspaceHistory } from '../src/modules/base/owners/project-process-history.mjs';
 
 const workspaceId='ws-method';
@@ -196,4 +197,121 @@ test('production owner activation remains closed; qualification never grants per
   assert.equal(PROJECT_PROCESS_SOURCE_ACTIVATION.writesAuthorized,false);
   assert.throws(()=>new ProjectProcessSourceOwner({gateway}),code('PROJECT_PROCESS_SOURCE_WRITE_ACTIVATION_PENDING'));
   assert.equal(gateway.owners.registration('iwxa.project'),null);
+});
+
+const creationIds=()=>({project:'method-create:project@1',
+  works:Object.fromEntries(prepare().writeOrder.map(id=>[id,'method-create:'+id+'@1']))});
+const createMethod=(owner,patch={})=>createWorkspaceMethodThroughSourceOwner({
+  owner,workspaceId,objects,draft:fixture(),recordIds:creationIds(),knowledgeAt,...patch});
+const emptyOwner=async()=>(await createProjectProcessSourceOwnerQualificationHarness()).owner;
+const port=(owner,overrides={})=>({
+  create:owner.create.bind(owner),load:owner.load.bind(owner),history:owner.history.bind(owner),...overrides,
+});
+
+test('complete method creation and exact resume use original owner without duplicate revisions',async()=>{
+  const owner=await emptyOwner();
+  const first=await createMethod(owner);
+  assert.equal(first.createdCount,5);assert.equal(first.alreadyPresentCount,0);assert.equal(first.recoveredAckCount,0);
+  assert.equal(first.atomicBatch,false);assert.equal(first.newAuthorityGranted,false);assert.equal(first.executionAuthority,false);
+  assert.deepEqual(first.method.draft,fixture());
+  assert.equal((await owner.audit()).length,5);
+  const again=await createMethod(owner);
+  assert.equal(again.createdCount,0);assert.equal(again.alreadyPresentCount,5);
+  assert.deepEqual(again.method.projectRef,first.method.projectRef);
+  assert.deepEqual(again.method.workRefs,first.method.workRefs);
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('lost acknowledgement after a real source write is recovered from exact readback',async()=>{
+  const owner=await emptyOwner();
+  let attempts=0;
+  const losing=port(owner,{create:async(kind,input)=>{
+    attempts++;
+    const saved=await owner.create(kind,input);
+    if(kind==='work' && input.workId==='project-a.analyse') throw Object.assign(new Error('transport interrupted'),{code:'TEST_LOST_ACK'});
+    return saved;
+  }});
+  const result=await createMethod(losing);
+  assert.equal(attempts,5);assert.equal(result.createdCount,4);assert.equal(result.recoveredAckCount,1);
+  assert.equal((await owner.audit()).length,5);
+  assert.equal(result.confirmed.find(item=>item.recordId===creationIds().works['project-a.analyse']).state,'ACK_RECOVERED');
+});
+
+test('interrupted creation retains partial records and resumes only missing stages with identical inputs',async()=>{
+  const owner=await emptyOwner();
+  let attempts=0;
+  const failing=port(owner,{create:async(kind,input)=>{
+    attempts++;
+    if(kind==='work' && input.workId==='project-a.compute') throw Object.assign(new Error('before commit'),{code:'TEST_INTERRUPTED'});
+    return owner.create(kind,input);
+  }});
+  await assert.rejects(createMethod(failing),code('TEST_INTERRUPTED'));
+  assert.equal(attempts,4);assert.equal((await owner.audit()).length,3);
+  await assert.rejects(read(owner),code('METHOD_SOURCE_INCOMPLETE'));
+  const resumed=await createMethod(owner);
+  assert.equal(resumed.alreadyPresentCount,3);assert.equal(resumed.createdCount,2);
+  assert.deepEqual(resumed.method.draft,fixture());assert.equal((await owner.audit()).length,5);
+});
+
+test('unavailable post-write readback does not repeat creation or claim success',async()=>{
+  const owner=await emptyOwner();let wrote=false,attempts=0;
+  const failing=port(owner,{
+    create:async(kind,input)=>{attempts++;const saved=await owner.create(kind,input);wrote=true;return saved},
+    load:async(kind,ws,id)=>{
+      if(wrote)throw Object.assign(new Error('read disconnected'),{code:'TEST_READ_UNAVAILABLE'});
+      return owner.load(kind,ws,id);
+    },
+  });
+  await assert.rejects(createMethod(failing),code('METHOD_SOURCE_WRITE_UNCONFIRMED'));
+  assert.equal(attempts,1);assert.equal((await owner.audit()).length,1);
+  const resumed=await createMethod(owner);
+  assert.equal(resumed.alreadyPresentCount,1);assert.equal(resumed.createdCount,4);
+});
+
+test('conflicting partial record is detected before adding missing stages',async()=>{
+  const owner=await emptyOwner(),plan=prepare(),ids=creationIds();
+  await owner.create('project',{...plan.projectInput,recordId:ids.project,knowledgeAt});
+  const root=inputFor(plan,'prepare');
+  await owner.create('work',{...root,recordId:ids.works[root.workId],knowledgeAt});
+  const analyse=inputFor(plan,'analyse');
+  await owner.create('work',{...analyse,name:'Conflicting plan',recordId:ids.works[analyse.workId],knowledgeAt});
+  await assert.rejects(createMethod(owner),code('METHOD_SOURCE_CREATE_CONFLICT'));
+  assert.equal((await owner.audit()).length,3);
+  assert.equal(await owner.load('work',workspaceId,'project-a.compute'),null);
+});
+
+test('new attempt IDs, changed objective, changed timestamp and stale materials cannot replace existing creation',async()=>{
+  const owner=await emptyOwner();await createMethod(owner);
+  const ids=creationIds();
+  for(const patch of [{recordIds:{...ids,project:'different-record'}},
+    {draft:{...fixture(),objective:'Different objective'}},{knowledgeAt:'2026-11-26T18:01:00Z'}]){
+    await assert.rejects(createMethod(owner,patch),code('METHOD_SOURCE_CREATE_CONFLICT'));
+  }
+  await assert.rejects(createMethod(owner,{objects:[{...objects[0],revision:9},...objects.slice(1)]}),code('METHOD_MATERIAL_REVIEW_REQUIRED'));
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('record identity validation occurs before the first original owner write',async()=>{
+  const owner=await emptyOwner(),ids=creationIds();
+  const missing={...ids.works};delete missing['project-a.review'];
+  for(const recordIds of [{...ids,works:missing},{...ids,works:{...ids.works,foreign:'foreign-record'}},
+    {...ids,project:ids.works['project-a.review']},{...ids,project:' '}]){
+    await assert.rejects(createMethod(owner,{recordIds}),code('METHOD_SOURCE_RECORD_ID_INVALID'));
+  }
+  assert.equal((await owner.audit()).length,0);
+});
+
+test('tombstone history is never silently treated as a new method identity',async()=>{
+  const owner=await emptyOwner(),plan=prepare(),ids=creationIds();
+  await owner.create('project',{...plan.projectInput,recordId:ids.project,knowledgeAt});
+  await owner.release('project',{workspaceId,objectId:'project-a',recordId:'project-released',baseRevisionId:ids.project,knowledgeAt});
+  await assert.rejects(createMethod(owner),code('METHOD_SOURCE_CREATE_CONFLICT'));
+  assert.equal((await owner.audit()).length,2);
+});
+
+test('a success acknowledgement without an original record never counts as persisted',async()=>{
+  const owner=await emptyOwner();
+  const uncommitted=port(owner,{create:async()=>({ok:true})});
+  await assert.rejects(createMethod(uncommitted),code('METHOD_SOURCE_WRITE_UNCONFIRMED'));
+  assert.equal((await owner.audit()).length,0);
 });
