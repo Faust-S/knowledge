@@ -233,9 +233,12 @@ export async function buildOriginalAgentOneDistFromQualifiedKernel({
  */
 export function buildOriginalAgentOneDist({
   t2Dist,t3Build,outputDir,receiptPath,desktopAgentControlOnly=false,qualificationKernelCandidate,
+  installedNetworkPilotRole=null,
 }={}){
   if(typeof desktopAgentControlOnly!=="boolean")
     fail("DESKTOP_AGENT_CONTROL_FLAG_INVALID");
+  if(installedNetworkPilotRole!==null&&(installedNetworkPilotRole!=='SOURCE'||!desktopAgentControlOnly))
+    fail('INSTALLED_T4_PILOT_PROFILE_REQUIRED');
   if(![t2Dist,t3Build,outputDir,receiptPath].every(
      x=>typeof x==='string'&&x.trim()))fail('FOUR_PATHS_REQUIRED');
   const source=resolve(t2Dist),compiled=resolve(t3Build);
@@ -253,8 +256,8 @@ export function buildOriginalAgentOneDist({
   // the existing assembler, and the original Agent D6 schema is registered.
   const original=assembleSignedControlDist({t2Dist:source,t3Build:compiled,
     outputDir:output,installedOriginalAgentD6:true,
-    desktopAgentControlOnly,qualificationKernelCandidate});
-  if(original.original_runtime_unchanged!==true||
+    desktopAgentControlOnly,qualificationKernelCandidate,installedNetworkPilotRole});
+  if(original.original_t4_pilot_role!==installedNetworkPilotRole||original.original_runtime_unchanged!==true||
      original.original_agent_d6_schema_registered!==true||
      original.workspace_service_id!==
        readJson(resolve(output,'workspace/workspace.config.json')).workspace_service_id||
@@ -278,6 +281,7 @@ export function buildOriginalAgentOneDist({
     original_qualified_artifact:original.original_qualified_artifact,
     ...qualificationKernelCandidateFields(selected),
     original_agent_d6_schema_registered:true,original_runtime_unchanged:true,
+    original_t4_pilot_role:installedNetworkPilotRole,
     output,receipt});
 }
 

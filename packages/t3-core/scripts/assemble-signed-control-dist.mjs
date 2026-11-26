@@ -14,6 +14,7 @@ import {registerT3LocalInferenceService}
   from './register-t3-local-inference.mjs';
 import {materializeDomainMode} from './materialize-t3-domain-mode.mjs';
 import {companyExchangeServiceId,originalCompanyExchangePassport} from "../src/t3/company-exchange-profile.mjs";
+import {prepareT4OriginalInstalledProductPassport} from "../../t4-network/src/network/original-installed-product-passport.mjs";
 
 // The original D3 recipient writes this exact Object through T2
 // commitObjectGraph. Register only in an installed original Admin D3 dist.
@@ -245,6 +246,7 @@ export function assembleSignedControlDist({
   t2Dist,t3Build,outputDir,testOnlyUnqualifiedFixture=false,
   installedOriginalAdminD3=false,installedOriginalAgentD6=false,
   desktopAgentControlOnly=false,desktopAdminControlOnly=false,qualificationKernelCandidate,
+  installedNetworkPilotRole=null,
 }={}){
   // A signed desktop Agent hosts T3 D1/D6 but owns native model execution
   // independently. An inert optional BLI marker is not permission to ship
@@ -270,6 +272,13 @@ export function assembleSignedControlDist({
     fail("INSTALLED_AGENT_D6_FLAG_INVALID");
   if(installedOriginalAdminD3&&installedOriginalAgentD6)
     fail("INSTALLED_OWNER_PROFILES_MUST_BE_SEPARATE");
+  // Pilot packages are a deliberately selected native development profile.
+  // Neither a domain build nor an unqualified fixture may acquire the T4
+  // service passport. Original signed owner admission remains mandatory.
+  if(installedNetworkPilotRole!==null&&!(
+    !testOnlyUnqualifiedFixture&&((installedNetworkPilotRole==='SOURCE'&&desktopAgentControlOnly)||
+      (installedNetworkPilotRole==='RECIPIENT'&&desktopAdminControlOnly))))
+    fail('INSTALLED_T4_PILOT_PROFILE_REQUIRED');
   const candidate=selectQualificationKernelCandidate(qualificationKernelCandidate);
   if(candidate&&(testOnlyUnqualifiedFixture||!(desktopAgentControlOnly||desktopAdminControlOnly)))
     fail('CANDIDATE_NATIVE_CORPORATE_QUALIFICATION_ONLY');
@@ -374,6 +383,10 @@ export function assembleSignedControlDist({
       registerInstalledAdminAppliedResult({domain,config,passport:servicePassport});
     if(installedOriginalAgentD6)
       registerInstalledAgentAcceptedResult({domain,config,passport:servicePassport});
+    if(installedNetworkPilotRole!==null){
+      const pilot=prepareT4OriginalInstalledProductPassport({domain,passport:servicePassport,role:installedNetworkPilotRole});
+      Object.assign(domain,pilot.domain);servicePassport=pilot.passport;
+    }
   }
   // Keep the original product entry first. Only exact installed product IDs
   // get the second original T2 service connection. Web domains are unchanged.
@@ -492,6 +505,8 @@ export function assembleSignedControlDist({
       local_inference_registered:localInference,
       original_admin_d3_schema_registered:installedOriginalAdminD3,
       original_agent_d6_schema_registered:installedOriginalAgentD6,
+      original_t4_pilot_role:installedNetworkPilotRole,
+      original_t4_technical_schema_registered:installedNetworkPilotRole!==null,
       original_qualified_artifact:candidate?null:(qualified?.artifactId??'TEST_ONLY_UNQUALIFIED'),
       ...qualificationKernelCandidateFields(qualified),
       original_loader_sha256:hash(originalLoader),
@@ -506,15 +521,16 @@ if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   if(args.length!==3&&
       !(args.length===4&&
         ['--installed-admin-d3','--installed-agent-d6',
-         '--installed-admin-d3-control-only'].includes(args[3])))
+         '--installed-admin-d3-control-only','--installed-admin-d3-t4-recipient-control-only'].includes(args[3])))
     fail('USAGE_T2_DIST_T3_BUILD_OUTPUT');
   console.log(JSON.stringify(assembleSignedControlDist({
     t2Dist:args[0],t3Build:args[1],outputDir:args[2],qualificationKernelCandidate,
     installedOriginalAdminD3:
-      ['--installed-admin-d3','--installed-admin-d3-control-only']
+      ['--installed-admin-d3','--installed-admin-d3-control-only','--installed-admin-d3-t4-recipient-control-only']
         .includes(args[3]),
     desktopAdminControlOnly:
-      args[3]==='--installed-admin-d3-control-only',
+      ['--installed-admin-d3-control-only','--installed-admin-d3-t4-recipient-control-only'].includes(args[3]),
+    installedNetworkPilotRole:args[3]==='--installed-admin-d3-t4-recipient-control-only'?'RECIPIENT':null,
     installedOriginalAgentD6:args[3]==='--installed-agent-d6',
   })));
 }

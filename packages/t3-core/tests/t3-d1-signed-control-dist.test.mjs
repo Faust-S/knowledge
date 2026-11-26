@@ -344,3 +344,17 @@ test('installed corporate services retain narrow product passports and stage a p
   assert.deepEqual(declarations[0],declarations[1]);
   assert.ok(declarations[0].every(row=>row?.schema_version==='1.0.0'));
 });
+
+
+test('network pilot passport cannot be selected for ordinary or unqualified distribution',()=>{
+  for(const role of ['SOURCE','RECIPIENT','OTHER']){
+    assert.throws(()=>assembleSignedControlDist({installedNetworkPilotRole:role}),
+      /INSTALLED_T4_PILOT_PROFILE_REQUIRED/);
+    assert.throws(()=>assembleSignedControlDist({installedNetworkPilotRole:role,testOnlyUnqualifiedFixture:true}),
+      /INSTALLED_T4_PILOT_PROFILE_REQUIRED/);
+  }
+  assert.throws(()=>assembleSignedControlDist({installedOriginalAdminD3:true,desktopAdminControlOnly:true,installedNetworkPilotRole:'SOURCE'}),
+    /INSTALLED_T4_PILOT_PROFILE_REQUIRED/);
+  assert.throws(()=>assembleSignedControlDist({installedOriginalAgentD6:true,desktopAgentControlOnly:true,installedNetworkPilotRole:'RECIPIENT'}),
+    /INSTALLED_T4_PILOT_PROFILE_REQUIRED/);
+});
