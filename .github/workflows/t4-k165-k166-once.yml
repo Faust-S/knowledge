@@ -1,0 +1,36 @@
+name: T4 K165 K166 original replacement handshake
+on:
+  push:
+    branches:
+      - 'ci/once/t4-k165-k166/65b0a2c54d78'
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public candidate and source checks
+        run: |
+          test "$(git rev-parse HEAD^)" = "65b0a2c54d780b92d039c07ac5b85f4356d2306b"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+          npm run check --prefix packages/t4-network
+      - name: Original successor and negotiated profile
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test --test-name-pattern='K46|K47|K50|K51|K52|K55|K56|K57|K58|K60|K83|K165|K166' tests/original-network-session-phases.test.mjs
+      - name: Original publication and wire regression
+        if: ${{ !cancelled() }}
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test tests/original-network-publication.test.mjs tests/standard-network-multipart-wire.test.mjs tests/standard-network-wire-candidate.test.mjs
+      - name: Exact native and successor agreement
+        if: ${{ !cancelled() }}
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test --test-name-pattern='K145|K154|K155|K164' tests/original-network-multipart-agreement.test.mjs
