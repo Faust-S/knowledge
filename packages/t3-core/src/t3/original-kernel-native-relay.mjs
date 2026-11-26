@@ -6,6 +6,7 @@
 import {randomBytes} from "node:crypto";
 import {AsyncLocalStorage} from "node:async_hooks";
 import {isDeepStrictEqual} from "node:util";
+import {normalizeOriginalInstalledNetworkScope,sameOriginalInstalledNetworkScope} from "./original-installed-network-scope.mjs";
 import {createSubjectKernelBinding} from "./subject-access-binding.mjs";
 import {ORIGINAL_NETWORK_RELAY_METHODS as NETWORK_METHODS,
   encodeOriginalNetworkRelayArgs,decodeOriginalNetworkRelayArgs,decodeOriginalNetworkRelayResult}
@@ -100,7 +101,13 @@ export function createOriginalKernelNativeRelay({
     "T3_ORIGINAL_NETWORK_ACTIVATION_CONFIGURATION_INVALID");
   const activation=networkActivation===null?null:Object.freeze({role:networkActivation.role,
     sourceWorkspaceId:networkActivation.sourceWorkspaceId,technicalWorkspaceId:networkActivation.technicalWorkspaceId,
-    createProfile:networkActivation.createProfile,bindPeerHistoryReceiver:networkActivation.bindPeerHistoryReceiver});
+    createProfile:networkActivation.createProfile,bindPeerHistoryReceiver:networkActivation.bindPeerHistoryReceiver,
+    installedScope:networkActivation.installedScope===undefined?null:normalizeOriginalInstalledNetworkScope(networkActivation.installedScope)});
+  if(activation?.installedScope)check(activation.installedScope.role===activation.role&&
+    activation.installedScope.sourceWorkspaceId===activation.sourceWorkspaceId&&
+    activation.installedScope.technicalWorkspaceId===activation.technicalWorkspaceId&&
+    activation.installedScope.registryWorkspaceId===originalRegistryScope.workspaceId,
+    "T3_ORIGINAL_INSTALLED_NETWORK_SCOPE_MISMATCH");
   check(originalRegistryScope===null||(ID(originalRegistryScope.workspaceId)&&ID(originalRegistryScope.objectId)&&
     originalRegistryScope.workspaceId!==network?.localSource?.workspaceId),"T3_ORIGINAL_REGISTRY_RELAY_SCOPE_INVALID");
   const registryScope=originalRegistryScope===null?null:Object.freeze({workspaceId:originalRegistryScope.workspaceId,objectId:originalRegistryScope.objectId});
@@ -477,6 +484,10 @@ export function createOriginalKernelNativeRelay({
         fail("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
       }
       if(verb==="attach"){
+        if(activation?.installedScope)check(payload?.networkActivationVersion===1&&payload.networkRelayVersion===1&&
+          sameOriginalInstalledNetworkScope(activation.installedScope,payload.installedNetworkScope)&&
+          (activation.role!=='SOURCE'||(payload.localSourceMutationVersion===1&&payload.localSourceGraphVersion===1)),
+          "T3_ORIGINAL_INSTALLED_NETWORK_SCOPE_MISMATCH");
         // The old onAttach may still be completing after a detach. Do not let
         // a new session race the native owner while its previous binding is
         // being installed or torn down.

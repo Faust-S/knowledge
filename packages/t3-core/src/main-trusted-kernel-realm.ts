@@ -8,6 +8,8 @@ import { connectKernel } from "./kernel-client/connect";
 import { createKernelFacade } from "./workspace-host/context/create-kernel-facade";
 import { createControlLoopbackOwner } from "./t3/control-loopback-owner.mjs";
 import { createOriginalLocalSourceMutationRoute,type OriginalLocalSourceMutationRoute } from "./t3/original-local-source-mutation-route.mjs";
+import { normalizeOriginalInstalledNetworkScope,createOriginalInstalledNetworkMutationRoute,
+  type OriginalInstalledNetworkScope } from "./t3/original-installed-network-scope.mjs";
 import { decodeOriginalNetworkRelayArgs,
   encodeOriginalNetworkRelayResult,readOriginalNativeRelayNegotiation } from "./t3/original-kernel-native-relay-codec.mjs";
 import {
@@ -21,6 +23,7 @@ const TOKEN=/^[A-Za-z0-9_-]{40,128}$/;
 const reject=(code:string)=>Object.assign(new Error(code),{code});
 type RealmConfig={schema:"IWXA_T3_TRUSTED_KERNEL_REALM/1";
   ui_origin:string;service_id:string;
+  installed_network_scope?:OriginalInstalledNetworkScope;
   local_source_capture?:{schema:"IWXA_T4_ORIGINAL_LOCAL_SOURCE_CAPTURE/1";workspace_id:string}};
 
 async function trustedConfig():Promise<RealmConfig>{
@@ -42,6 +45,12 @@ async function trustedConfig():Promise<RealmConfig>{
   if(capture!==undefined&&(!capture||capture.schema!=="IWXA_T4_ORIGINAL_LOCAL_SOURCE_CAPTURE/1"||
       typeof capture.workspace_id!=="string"||capture.workspace_id.length===0||capture.workspace_id.length>256))
     throw reject("T3_LOCAL_SOURCE_CAPTURE_CONFIGURATION_INVALID");
+  if(obj.installed_network_scope!==undefined){
+    const scope=normalizeOriginalInstalledNetworkScope(obj.installed_network_scope);
+    if(scope.role==="SOURCE"?capture?.workspace_id!==scope.sourceWorkspaceId:capture!==undefined)
+      throw reject("T3_ORIGINAL_INSTALLED_NETWORK_SCOPE_MISMATCH");
+    return {...obj,installed_network_scope:scope} as RealmConfig;
+  }
   return obj as RealmConfig;
 }
 const configPromise=trustedConfig();
@@ -61,6 +70,7 @@ async function attachOriginalNativeKernelRelay(
     service?:{service_id?:string};mode?:string;
     granted_operations?:readonly string[]},
   sourceRoute?:OriginalLocalSourceMutationRoute,
+  installedScope?:OriginalInstalledNetworkScope,
 ):Promise<void>{
   const originalMethods=new Set([
     "commitObjectGraph","getWorkspace","getObject","listEventsSince",
@@ -80,6 +90,7 @@ async function attachOriginalNativeKernelRelay(
     localSourceWorkspaceId?:string;localSourceMutationMethods?:string[]}|null=null;
   try{
     connected=await owner.originalKernelRelay("attach",{sessionInfo:info,networkRelayVersion:1,networkActivationVersion:1,
+      ...(installedScope?{installedNetworkScope:installedScope}:{}),
       ...(sourceRoute?{localSourceMutationVersion:1,localSourceGraphVersion:1}:{})});
   }catch(error){
     const code=(error as {code?:string}|null)?.code;
@@ -110,6 +121,7 @@ async function attachOriginalNativeKernelRelay(
   try{
     const negotiation=readOriginalNativeRelayNegotiation({reply:selected,grantedOperations:info.granted_operations});
     activationPending=negotiation.state==="PENDING";
+    if(installedScope&&!activationPending)throw reject("T3_ORIGINAL_INSTALLED_NETWORK_SCOPE_MISMATCH");
     if(!activationPending){
       for(const name of negotiation.networkMethods){originalMethods.add(name);networkMethods.add(name);}
       sourceRoute?.accept(selected);
@@ -263,7 +275,9 @@ async function attach(event:MessageEvent){
       session:originalSession,
       signedKernelAccess:owner.signedKernelAccess,
       isHostActive:()=>live,
-      routeOriginalMutation:sourceRoute?.route,
+      routeOriginalMutation:cfg.installed_network_scope?createOriginalInstalledNetworkMutationRoute({
+        scope:cfg.installed_network_scope,sourceRoute:sourceRoute??null,isHostActive:()=>live,
+      }):sourceRoute?.route,
     });
     // The only execution of signed KernelFacade and original T2 happens
     // in this realm. The UI cannot access window.IWXA, IndexedDB or signer.
@@ -312,7 +326,7 @@ async function attach(event:MessageEvent){
     // original MessagePort above is already ready, and remains the only
     // UI-facing T2 interface even when this independent binding is absent.
     void attachOriginalNativeKernelRelay(
-      owner,createKernelFacade({session:originalSession}),originalSession,sourceRoute,
+      owner,createKernelFacade({session:originalSession}),originalSession,sourceRoute,cfg.installed_network_scope,
     ).catch(()=>{
       // No false APPLY availability: native relay clears an incomplete
       // binding itself and never replays a possibly written graph.

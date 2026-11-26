@@ -7,6 +7,7 @@ import {timingSafeEqual,createHash} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {strictJson} from "./access/strict-json.mjs";
 import {canonical} from "./access/core.mjs";
+import {normalizeOriginalInstalledNetworkScope} from "./original-installed-network-scope.mjs";
 
 const LOCAL=/^https?:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/;
 const TOKEN=/^[A-Za-z0-9_-]{40,128}$/;
@@ -145,7 +146,7 @@ export function createOriginalControlHttpHandler({
   // is eligible; ordinary domain routes always remain parent-less.
   installedParentOrigin=null,
   reconciliationPortFor=null,nativeD7PortFor=null,nativeD6PortFor=null,
-  originalKernelRelayFor=null,
+  originalKernelRelayFor=null,installedNetworkScope=null,
 }={}){
   requireThat(typeof origin==="string"&&LOCAL.test(origin)&&
     new URL(origin).origin===origin,"T3_D1_CONTROL_ORIGIN_REQUIRED");
@@ -157,6 +158,9 @@ export function createOriginalControlHttpHandler({
   // The existing Host owns both loopback origins. Do not serve a signed
   // Workspace launch without a pinned, separately isolated UI origin.
   const splitOrigin=uiOrigin!==null||serviceId!==null;
+  const installedScope=installedNetworkScope===null?null:normalizeOriginalInstalledNetworkScope(installedNetworkScope);
+  requireThat(installedScope===null||(splitOrigin&&typeof originalKernelRelayFor==="function"),
+    "T3_ORIGINAL_INSTALLED_NETWORK_SCOPE_INVALID");
   if(splitOrigin)requireThat(
     typeof uiOrigin==="string"&&/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(uiOrigin)&&
     new URL(uiOrigin).origin===uiOrigin&&uiOrigin!==origin&&
@@ -387,6 +391,9 @@ export function createOriginalControlHttpHandler({
         }:{
           schema:"IWXA_T3_TRUSTED_KERNEL_REALM/1",
           ui_origin:uiOrigin,service_id:serviceId,
+          ...(installedScope===null?{}:{installed_network_scope:installedScope,
+            ...(installedScope.role==="SOURCE"?{local_source_capture:{schema:"IWXA_T4_ORIGINAL_LOCAL_SOURCE_CAPTURE/1",
+              workspace_id:installedScope.sourceWorkspaceId}}:{})}),
         });
         return true;
       }
