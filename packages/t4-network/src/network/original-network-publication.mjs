@@ -497,7 +497,7 @@ export function createT4OriginalPublicationIndexMigrationStepper({
         originalInventoryPorts.localNodeRef!==originalInventoryPorts.recipientNodeRef||
         inspectOriginalCommittedSourceAcknowledgements!==null)))
     fail('PUBLICATION_MIGRATION_ORIGINAL_PORT_REQUIRED');
-  let migrationInventory=null,migrationPosition=0,migratedFrames=0,migrationDone=false,
+  let migrationInventory=null,migrationPosition=0,migrationFrameOffset=0,migratedFrames=0,migrationDone=false,
     completedRecords=null,skippedCompleted=0,retiredRecords=new Map(),skippedRetired=0;
   const readMigrationInventory=()=>readT4OriginalPublicationMigrationInventory(originalInventoryPorts);
   async function readCompletedRecipient(records){
@@ -598,12 +598,15 @@ export function createT4OriginalPublicationIndexMigrationStepper({
       const records=migrationInventory.records;
       if(migrationPosition<records.length){
         const record=records[migrationPosition],port=await createOriginalPublicationPort({session:record.session});
-        const saved=await port.inspectOriginalPublication();
+        const saved=await port.inspectOriginalPublication({metadataOnly:true});
         if(saved.checkpointRef!==record.checkpointRef||saved.revision!==record.revision||
           saved.chainHash!==record.chainHash||saved.originalT3EventChainVerified!==true)
           fail('NATIVE_INDEX_MIGRATION_INVENTORY_CHANGED');
         const sequences=saved.frames.filter(f=>f.state==='PRESENT').map(f=>f.sequence);
+        const multipart=saved.multipartBackingReserved===true;
         const retired=await readRetired(record);
+        if(migrationFrameOffset>0&&(!multipart||retired!==null||completedRecords.has(record.session.changeId)||migrationFrameOffset>=sequences.length))
+          fail('NATIVE_INDEX_MIGRATION_INVENTORY_CHANGED');
         if(retired!==null){
           if(completedRecords.has(record.session.changeId))fail('NATIVE_INDEX_MIGRATION_RETIREMENT_CONFLICT');
           retiredRecords.set(record.checkpointRef,retired);skippedRetired++;
@@ -621,13 +624,17 @@ export function createT4OriginalPublicationIndexMigrationStepper({
           }else if(saved.frames.length<3)fail('NATIVE_INDEX_MIGRATION_COMPLETION_CONFLICT');
           skippedCompleted++;
         }else if(sequences.length){
-          const observed=await port.reconcileOriginalPublishedFrameIndexes({sequences});
+          // Multipart was already created under the indexed profile. Cold startup
+          // may still have to repair a missing address of an exact PRESENT
+          // frame. Bound that work to the same 64-slot wake as publication.
+          const page=multipart?sequences.slice(migrationFrameOffset,migrationFrameOffset+MAX_MULTIPART_PUBLISH_WAKE):sequences;
+          const observed=await port.reconcileOriginalPublishedFrameIndexes({sequences:page});
           if(observed.state!=='ORIGINAL_PRESENT_FRAME_INDEXES_VERIFIED'||
             observed.checkpointRef!==record.checkpointRef||observed.originalPublicationRevision!==record.revision||
             observed.originalPublicationChainHash!==record.chainHash||
             observed.originalPublicationLedgerChanged!==false||observed.originalFramePutInvoked!==false||
             observed.originalSigningInvoked!==false||observed.originalSubjectMutationInvoked!==false||
-            observed.frames.length!==sequences.length)
+            observed.frames.length!==page.length)
             fail('NATIVE_INDEX_MIGRATION_RESULT_INVALID');
           // Verify the returned sequence and immutable byte address as well
           // as the count. A success with the wrong frame is not progress.
@@ -639,9 +646,21 @@ export function createT4OriginalPublicationIndexMigrationStepper({
               frame.signedFrameRewritten!==false)
               fail('NATIVE_INDEX_MIGRATION_RESULT_INVALID');
           }
-          migratedFrames+=sequences.length;
+          migratedFrames+=page.length;
+          if(multipart&&migrationFrameOffset+page.length<sequences.length){
+            migrationFrameOffset+=page.length;
+            return Object.freeze({state:'NETWORK_INDEX_MIGRATION_PROGRESS',
+              migratedPublicationCount:migrationPosition-skippedCompleted-skippedRetired,pendingPublicationCount:records.length-migrationPosition,
+              ...(inspectOriginalRetiredAttempt!==null?{processedPublicationCount:migrationPosition,
+                skippedRetiredPublicationCount:skippedRetired,skippedRetiredIndexesRepaired:false}:{}),
+              ...(inspectOriginalCommittedSourceAcknowledgements!==null?{processedPublicationCount:migrationPosition,
+                skippedCompletedSourcePublicationCount:skippedCompleted,skippedCompletedSourceIndexesRepaired:false}:{}),
+              ...(inspectOriginalCommittedRecipientResults!==null?{processedPublicationCount:migrationPosition,
+                skippedCompletedRecipientPublicationCount:skippedCompleted,skippedCompletedRecipientIndexesRepaired:false}:{}),
+              verifiedMigratedFrameCount:migratedFrames,originalSubjectMutationInvoked:false});
+          }
         }
-        migrationPosition++;
+        migrationFrameOffset=0;migrationPosition++;
       }
       if(migrationPosition===records.length){
         const after=await readMigrationInventory();
@@ -1805,18 +1824,23 @@ export function createT4OriginalNetworkPublicationPort({
       originalBusinessApplied:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false});
   }
 
-  async function inspectOriginalPublication(){
+  async function inspectOriginalPublication({metadataOnly=false}={}){
+    if(typeof metadataOnly!=='boolean')fail('PUBLICATION_ORIGINAL_INSPECTION_OPTIONS_INVALID');
     const ctx=await context(),current=await read(ctx);
-    const witness=current.multipartPlan&&current.entries.length>1?await readSelectedMultipart(ctx,current):null;
+    // For startup inventory only: the original root and Event chain bind
+    // the slot descriptors, without reviving historical remote authority.
+    // Uncommitted multipart bytes must still be reconstructed and verified
+    // at the exact indexed reconciliation boundary below.
+    const witness=!metadataOnly&&current.multipartPlan&&current.entries.length>1?await readSelectedMultipart(ctx,current):null;
     const entries=witness?current.entries.map(e=>e.sequence===1?e:multipartEntry(ctx,current,e.sequence,witness)):current.entries;
     return Object.freeze({schema:SCHEMA,session:identity,checkpointRef,
       revision:current.revision,chainHash:current.chainHash,
       ...(current.multipartPlan?{multipartBackingReserved:true,multipartPlanDigest:current.multipartPlan.planDigest,
-        multipartPublicationPrepared:current.entries.length>1}:{}),
+        multipartPublicationPrepared:current.entries.length>1,...(metadataOnly?{originalMultipartRootMetadataOnly:true}:{})}:{}),
       frames:entries.map(e=>Object.freeze({...descriptor(e),
         state:e.state,attempts:e.attempts,key:e.sha256+'.t4n',
         // Exact original signed bytes; no re-signing/re-sealing on recovery.
-        wireBytes:new Uint8Array(Buffer.from(e.wireText,'utf8'))})),
+        ...(typeof e.wireText==='string'?{wireBytes:new Uint8Array(Buffer.from(e.wireText,'utf8'))}:{})})),
       originalT3EventChainVerified:current.revision>0,
       originalBusinessApplied:false,sourceCursorAdvanced:false,
     });
@@ -1951,36 +1975,49 @@ export function createT4OriginalNetworkPublicationPort({
     const requested=clone(sequences);
     if(frameTransport.nativeFrameIndexVersion!==1)
       fail('PUBLICATION_NATIVE_INDEX_PROFILE_REQUIRED');
-    if(!Array.isArray(requested)||!requested.length||requested.length>MAX_FRAMES||
-      requested.some(n=>!Number.isSafeInteger(n)||n<1||n>MAX_FRAMES)||
+    if(!Array.isArray(requested)||!requested.length||requested.length>MAX_MULTIPART_FRAMES||
+      requested.some(n=>!Number.isSafeInteger(n)||n<1||n>MAX_MULTIPART_FRAMES)||
       new Set(requested).size!==requested.length)
       fail('PUBLICATION_INDEX_MIGRATION_SEQUENCE_INVALID');
     const ctx=await context(),current=await read(ctx);
-    if(current.multipartPlan)fail('PUBLICATION_MULTIPART_INDEX_MIGRATION_PROFILE_REQUIRED');
-    const entries=requested.map(sequence=>current.entries[sequence-1]);
-    if(entries.some(e=>e?.state!=='PRESENT'))fail('PUBLICATION_INDEX_MIGRATION_PRESENT_REQUIRED');
+    const multipart=!!current.multipartPlan;
+    if(multipart&&(!enableOriginalMultipartNegotiation||!multipartBackingEnabled||
+      !current.multipartReservation.agreementDigest||requested.length>MAX_MULTIPART_PUBLISH_WAKE))
+      fail('PUBLICATION_MULTIPART_INDEX_MIGRATION_PROFILE_REQUIRED');
+    if(!multipart&&(requested.length>MAX_FRAMES||requested.some(n=>n>MAX_FRAMES)))
+      fail('PUBLICATION_INDEX_MIGRATION_SEQUENCE_INVALID');
+    if(requested.some(n=>current.entries[n-1]?.state!=='PRESENT'))
+      fail('PUBLICATION_INDEX_MIGRATION_PRESENT_REQUIRED');
+    const witness=multipart&&requested.some(n=>n>1)?await readSelectedMultipart(ctx,current):null;
+    const entries=requested.map(sequence=>multipart&&sequence>1?
+      multipartEntry(ctx,current,sequence,witness):current.entries[sequence-1]);
+    const backed=entry=>multipart&&entry.sequence>1;
+    const checkFor=entry=>backed(entry)?multipartWriteGuard(ctx,current,entry,witness):
+      contentWriteGuard(ctx,current.entries,entry);
     // Validate every selected original signed frame and migration decision
     // before the first address PUT. This is not a remote collection sweep.
     const frames=[];
     for(const entry of entries){
-      frames.push(await verifyFrame(ctx,entry,'index-migration-preflight'));
-      await guard(ctx,'t4.network.publish.index.migrate','index-migration-preflight',entry);
-      const check=contentWriteGuard(ctx,current.entries,entry);if(check)await check();
+      frames.push(await verifyFrame(ctx,entry,'index-migration-preflight',backed(entry)));
+      await guard(ctx,'t4.network.publish.index.migrate','index-migration-preflight',entry,null,backed(entry));
+      const check=checkFor(entry);if(check)await check();
     }
     const confirm=async()=>{
       const after=await read(ctx);
       if(after.revision!==current.revision||after.chainHash!==current.chainHash||
-        !same(after.entries,current.entries))fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+        !same(after.entries,current.entries)||!same(after.presentEvents,current.presentEvents)||
+        !same(after.multipartReservation,current.multipartReservation)||!same(after.multipartPlan,current.multipartPlan))
+        fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
     };
     await confirm();
     const results=[];
     for(let i=0;i<entries.length;i++){
       const entry=entries[i],frame=frames[i],key=entry.sha256+'.t4n';
-      await verifyFrame(ctx,entry,'index-migration');
-      await guard(ctx,'t4.network.publish.index.migrate','index-migration',entry);
+      await verifyFrame(ctx,entry,'index-migration',backed(entry));
+      await guard(ctx,'t4.network.publish.index.migrate','index-migration',entry,null,backed(entry));
       let observed;
       try{
-        const check=contentWriteGuard(ctx,current.entries,entry);
+        const check=checkFor(entry);
         observed=await frameTransport.inspectUnknownPublication({
           key,expectedSha256:entry.sha256,repairMissingFrameIndex:true,
           ...(check?{beforeNetworkWrite:check}:{})});
@@ -1994,8 +2031,8 @@ export function createT4OriginalNetworkPublicationPort({
         observed.sha256!==entry.sha256||observed.exactBytesPresent!==true||
         observed.originalBusinessApplied!==false)
         fail('PUBLICATION_NETWORK_READBACK_NOT_PROVEN');
-      await verifyFrame(ctx,entry,'index-migration-readback');
-      await guard(ctx,'t4.network.publish.index.migrate','index-migration-readback',entry);
+      await verifyFrame(ctx,entry,'index-migration-readback',backed(entry));
+      await guard(ctx,'t4.network.publish.index.migrate','index-migration-readback',entry,null,backed(entry));
       results.push(Object.freeze({sequence:entry.sequence,messageType:entry.messageType,key,
         sha256:entry.sha256,exactOriginalSignedFrameReadback:true,
         nativeSessionIndexVerified:true,
