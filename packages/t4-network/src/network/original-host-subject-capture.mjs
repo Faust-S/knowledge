@@ -3,6 +3,9 @@ import {validT4OriginalAssetMime,validT4OriginalRelationKind} from './original-s
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
 import {prepareT4OriginalAssetDelta,preflightT4OriginalAssetNativeCapacity,decodeT4OriginalAssetDeltaBytes} from './original-asset-delta.mjs';
 import {validateT4OriginalJsonField} from './original-object-delta.mjs';
+import {T4_NATIVE_MULTIPART_PROFILE,T4_NATIVE_MULTIPART_MAX_RAW_ASSET_BYTES,
+  T4_NATIVE_MULTIPART_MAX_CAPTURE_PLAINTEXT_BYTES,selectT4NativeAssetContentProfile}
+  from './original-native-content-limits.mjs';
 import {prepareT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes} from './original-relation-delta.mjs';
 import {captureT4OriginalDeletionAtMutation,reconcileT4OriginalSourceDeletion,
   runT4OriginalSubjectMutationBoundary} from './original-deletion-delta.mjs';
@@ -51,7 +54,7 @@ const originalRead=(kernel,kind,ws,input)=>
     kernel.getObject(ws,input.from_object_id);
 const originalWrite=(kernel,kind,input)=>
   kind==='ASSET_PUT'?kernel.putAsset(input):kernel.putRelation(input);
-function normalizeInput(kind,input,workspaceId,captureRef){
+function normalizeInput(kind,input,workspaceId,captureRef,enableMultipart=false){
   if(!SUBJECTS[kind]||!input||input.workspace_id!==workspaceId||
     !ID(subjectIdOf(kind,input))||!ID(originalIdFrom(kind,input))||
     !ID(input.event?.event_type))
@@ -61,7 +64,7 @@ function normalizeInput(kind,input,workspaceId,captureRef){
       !Number.isSafeInteger(input.base_revision)||input.base_revision<0||
       input.base_revision>=Number.MAX_SAFE_INTEGER||
       !(input.bytes instanceof Uint8Array)||
-      input.bytes.length>700000)
+      input.bytes.length>(enableMultipart?T4_NATIVE_MULTIPART_MAX_RAW_ASSET_BYTES:700000))
       fail('SUBJECT_CAPTURE_ASSET_INPUT_INVALID');
   }else if(!ID(input.to_object_id)||!validT4OriginalRelationKind(input.kind))
     fail('SUBJECT_CAPTURE_RELATION_INPUT_INVALID');
@@ -83,7 +86,8 @@ function normalizeInput(kind,input,workspaceId,captureRef){
       bytesBase64:Buffer.from(input.bytes).toString('base64'),
       event:payload};
     const bytes=json(wire);
-    if(bytes.length>1024*1024)fail('SUBJECT_CAPTURE_ORIGINAL_INPUT_TOO_LARGE');
+    if(bytes.length>(enableMultipart?T4_NATIVE_MULTIPART_MAX_CAPTURE_PLAINTEXT_BYTES+1024*1024:1024*1024))
+      fail('SUBJECT_CAPTURE_ORIGINAL_INPUT_TOO_LARGE');
     return Object.freeze({operation:wire,writeInput:{
       ...base,bytes:Uint8Array.from(input.bytes)},inputDigest:digest(wire),
       idempotencyKey:key});
@@ -111,7 +115,15 @@ function bindOriginalTrace(normalized,captureRef){
     writeInput:{...normalized.writeInput,event:structuredClone(operation.event)},
     inputDigest:digest(operation),originalInputDigest});
 }
-function readBackInput(kind,intent){
+function captureProfile(kind,intent,enabled){
+  const profile=intent.originalAssetCaptureProfile;
+  if(profile===undefined)return false;
+  if(kind!=='ASSET_PUT'||profile!==T4_NATIVE_MULTIPART_PROFILE||enabled!==true)
+    fail('SUBJECT_CAPTURE_MULTIPART_PROFILE_REQUIRED');
+  return true;
+}
+function readBackInput(kind,intent,enabled=false){
+  const multipart=captureProfile(kind,intent,enabled);
   if(!intent?.operation||!ID(intent.idempotencyKey)||
     intent.operation.event?.idempotency_key!==intent.idempotencyKey||
     !HASH(intent.inputDigest)||digest(intent.operation)!==intent.inputDigest)
@@ -131,8 +143,14 @@ function readBackInput(kind,intent){
   const normalized=kind==='ASSET_PUT'?
     normalizeInput(kind,{...op,bytes:Uint8Array.from(
       Buffer.from(op.bytesBase64??'','base64'))},
-      intent.workspaceId,intent.captureRef):
+      intent.workspaceId,intent.captureRef,multipart):
     normalizeInput(kind,op,intent.workspaceId,intent.captureRef);
+  if(multipart){
+    const n=preflightT4OriginalAssetNativeCapacity({workspaceId:intent.workspaceId,originalWriteOwnerRef:intent.originalWriteOwnerRef,
+      operation:normalized.operation,enableMultipart:true});
+    if(selectT4NativeAssetContentProfile(n,{enableMultipart:true})!==T4_NATIVE_MULTIPART_PROFILE)
+      fail('SUBJECT_CAPTURE_INTENT_TAMPERED');
+  }
   if(normalized.inputDigest!==intent.inputDigest||!equal(normalized.operation,op))
     fail('SUBJECT_CAPTURE_INTENT_TAMPERED');
   return normalized;
@@ -166,7 +184,7 @@ function validateIntent(intent,params){
     intent.sourceCursor.originalWriteOwnerRef!==originalWriteOwnerRef)
     fail('SUBJECT_CAPTURE_ORIGINAL_INTENT_INVALID');
   checkCursor(intent.sourceCursor,workspaceId,originalWriteOwnerRef);
-  const normalized=readBackInput(kind,intent);
+  const normalized=readBackInput(kind,intent,params.enableOriginalMultipartAssetCapture);
   if(subjectIdOf(kind,normalized.writeInput)!==subjectId||
     intent.expectedRevision!== (kind==='ASSET_PUT'?
       normalized.writeInput.base_revision+1:null))
@@ -179,6 +197,7 @@ function checkOutbox(outbox,expected,prepared,nextCursor,sourceWindow){
     outbox.originalWriteOwnerRef!==expected.originalWriteOwnerRef||
     outbox.subjectId!==expected.subjectId||
     outbox.inputDigest!==expected.inputDigest||
+    outbox.originalAssetCaptureProfile!==expected.originalAssetCaptureProfile||
     outbox.sourceEventId!==prepared.delta.sourceEventId||
     outbox.key!==prepared.key||outbox.sha256!==prepared.sha256||
     !equal(outbox.sourceCursorBefore,expected.sourceCursor)||
@@ -202,6 +221,7 @@ function makeOutbox(intent,{window,nextCursor,prepared}){
     sourceCursorBefore:intent.sourceCursor,sourceCursorAfter:nextCursor,
     sourceWindow:window,key:prepared.key,sha256:prepared.sha256,
     bytesBase64:prepared.bytes.toString('base64'),
+    ...(intent.originalAssetCaptureProfile!==undefined?{originalAssetCaptureProfile:intent.originalAssetCaptureProfile}:{}),
     originalT3MutationConfirmed:true,networkPublished:false,
     recipientApplied:false,
   });
@@ -224,7 +244,8 @@ async function capturePayload(params){
   const {intent,originalKernel,authorizeOriginalRead,readOriginalEvents,getMode,
     readOriginalIntent,readOriginalOutbox,allowHistorical=false}=params;
   const paged=commitHistoryPorts(params);
-  const kind=intent.kind, {writeInput}=readBackInput(kind,intent);
+  const kind=intent.kind,multipart=captureProfile(kind,intent,params.enableOriginalMultipartAssetCapture);
+  const {writeInput}=readBackInput(kind,intent,params.enableOriginalMultipartAssetCapture);
   const ws=intent.workspaceId,owner=intent.originalWriteOwnerRef;
   const subject=intent.subjectId;
   const context=proofContext(intent,'t1.listEventsSince');
@@ -286,11 +307,12 @@ async function capturePayload(params){
       getMode,authorizeOriginalRead,readOriginalEvents,
       ...(paged?{readOriginalCommitPage:paged.readOriginalCommitPage,
         withOriginalHistoryReadBoundary:paged.withOriginalHistoryReadBoundary,originalCommitPageSize:paged.pageSize}:{}),
+      enableOriginalMultipartAssetCapture:params.enableOriginalMultipartAssetCapture??false,
       readOriginalIntent:q=>checkedRead(readOriginalIntent,intent,q),
       readOriginalOutbox:q=>checkedRead(readOriginalOutbox,existing,q),
     });
     const prepared=(kind==='ASSET_PUT'?decodeT4OriginalAssetDeltaBytes:decodeT4OriginalRelationPutDeltaBytes)(
-      Buffer.from(existing.bytesBase64,'base64'));
+      Buffer.from(existing.bytesBase64,'base64'),...(kind==='ASSET_PUT'?[{enableMultipart:multipart}]:[]));
     if(evidence.sourceEventId!==event.event_id||evidence.originalEventDigest!==window.eventRefs[0].eventDigest||
       !equal(evidence.sourceCursorBefore,intent.sourceCursor)||!equal(evidence.sourceCursorAfter,nextCursor)||
       evidence.originalWindowDigest!==existing.sourceWindow?.windowDigest||evidence.sha256!==prepared.sha256||
@@ -321,7 +343,7 @@ async function capturePayload(params){
       fail('SUBJECT_CAPTURE_ORIGINAL_ASSET_CHANGED');
     prepared=await prepareT4OriginalAssetDelta({
       window,workspaceId:ws,assetId:subject,originalWriteOwnerRef:owner,
-      originalKernel,authorizeOriginalRead,getMode,
+      originalKernel,authorizeOriginalRead,getMode,enableMultipart:multipart,
     });
     if(prepared.delta.sourceRevision!==intent.expectedRevision||
       prepared.delta.assetBytesSha256!==packageSha256(writeInput.bytes))
@@ -354,6 +376,11 @@ async function originalPorts(params,recoveryOnly=false){
     readOriginalEvents,readOriginalIntent,persistOriginalOutbox,
     readOriginalOutbox,getMode}=params;
   const paged=commitHistoryPorts(params);
+  const enabled=params.enableOriginalMultipartAssetCapture??false;
+  if(typeof enabled!=='boolean'||(enabled&&(params.originalCaptureBackingEnabled!==true||
+    !paged||typeof params.authorizeOriginalMultipartAssetCapture!=='function'||
+    (!recoveryOnly&&typeof params.beforeOriginalMutationDispatch!=='function'))))
+    fail('SUBJECT_CAPTURE_MULTIPART_ORIGINAL_PORTS_REQUIRED');
   if(!SUBJECTS[kind]||![workspaceId,originalWriteOwnerRef,captureRef,subjectId].every(ID)||
     (!recoveryOnly&&!originalKernel?.hasOperation?.(SUBJECTS[kind].write))||
     !originalKernel?.hasOperation?.(SUBJECTS[kind].read)||
@@ -423,7 +450,8 @@ export async function captureT4OriginalHostSubjectMutation(params={}){
     fail('SUBJECT_CAPTURE_ORIGINAL_HOST_PORTS_REQUIRED');
   checkCursor(sourceCursor,workspaceId,originalWriteOwnerRef);
   const resolveRevision=kind==='ASSET_PUT'&&input?.base_revision===undefined;
-  const draft=normalizeInput(kind,resolveRevision?{...input,base_revision:0}:input,workspaceId,captureRef);
+  const enabled=kind==='ASSET_PUT'&&params.enableOriginalMultipartAssetCapture===true;
+  const draft=normalizeInput(kind,resolveRevision?{...input,base_revision:0}:input,workspaceId,captureRef,enabled);
   const captureParams={...params,subjectId};
   const readCtx=proofContext({...captureParams},SUBJECTS[kind].read);
   const writeCtx=proofContext({...captureParams},SUBJECTS[kind].write);
@@ -438,9 +466,24 @@ export async function captureT4OriginalHostSubjectMutation(params={}){
   // Omitted original API revisions are resolved to a witnessed CAS inside
   // the existing Host mutation boundary; never turn a stale explicit CAS into a new one.
   const normalized=bindOriginalTrace(resolveRevision?
-    normalizeInput(kind,{...input,base_revision:prior?.asset?.revision??0},workspaceId,captureRef):draft,captureRef);
+    normalizeInput(kind,{...input,base_revision:prior?.asset?.revision??0},workspaceId,captureRef,enabled):draft,captureRef);
   const revision=expectedRevision(kind,prior,normalized.writeInput);
-  if(kind==='ASSET_PUT')preflightT4OriginalAssetNativeCapacity({workspaceId,originalWriteOwnerRef,operation:normalized.operation});
+  let profile=null,reserved=null;
+  if(kind==='ASSET_PUT'){
+    reserved=preflightT4OriginalAssetNativeCapacity({workspaceId,originalWriteOwnerRef,operation:normalized.operation,enableMultipart:enabled});
+    profile=selectT4NativeAssetContentProfile(reserved,{enableMultipart:enabled});
+  }
+  const authorizeCapacity=async purpose=>{
+    if(profile===null)return;
+    mode(getMode);
+    if(await params.authorizeOriginalMultipartAssetCapture(Object.freeze({
+      ...writeCtx,purpose,originalAssetCaptureProfile:profile,reservedCanonicalBytes:reserved,
+      rawAssetBytes:normalized.writeInput.bytes.length,originalInputDigest:normalized.originalInputDigest,
+      originalCaptureBackingRequired:true,originalNativeDeliveryAdmissionRequired:true,networkGrantsNoWriteAuthority:true,
+    }))!==true)fail('SUBJECT_CAPTURE_MULTIPART_AUTHORITY_DENIED');
+    mode(getMode);
+  };
+  await authorizeCapacity('before-intent');
   const priorIntent=await readOriginalIntent({
     captureRef,workspaceId,originalWriteOwnerRef,kind,subjectId,
   });
@@ -457,6 +500,7 @@ export async function captureT4OriginalHostSubjectMutation(params={}){
     idempotencyKey:normalized.idempotencyKey,
     expectedRevision:revision,
     originalT3WriteRequired:true,networkPublished:false,
+    ...(profile===null?{}:{originalAssetCaptureProfile:profile}),
   });
   if(await persistOriginalIntent(intent)!==true)
     fail('SUBJECT_CAPTURE_ORIGINAL_INTENT_NOT_PERSISTED');
@@ -466,6 +510,7 @@ export async function captureT4OriginalHostSubjectMutation(params={}){
   mode(getMode);
   if(await authorizeOriginalWrite(writeCtx)!==true)
     fail('SUBJECT_CAPTURE_ORIGINAL_WRITE_AUTHORITY_DENIED');
+  await authorizeCapacity('before-original-dispatch');
   if(params.beforeOriginalMutationDispatch!==undefined){
     if(typeof params.beforeOriginalMutationDispatch!=='function')fail('SUBJECT_CAPTURE_DISPATCH_PORT_INVALID');
     await params.beforeOriginalMutationDispatch({intent,operation:SUBJECTS[kind].write,input:structuredClone(normalized.writeInput)});
@@ -503,7 +548,7 @@ export async function reconcileT4OriginalHostSubjectMutation(params={}){
     await params.authorizeOriginalWrite(writeCtx)!==true)
     fail('SUBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
   const intent=await readOriginalIntent(scope);
-  const {normalized}=validateIntent(intent,scope);
+  const {normalized}=validateIntent(intent,{...scope,enableOriginalMultipartAssetCapture:params.enableOriginalMultipartAssetCapture});
   mode(params.getMode);
   if(await params.authorizeOriginalRead(readCtx)!==true||
     await params.authorizeOriginalWrite(writeCtx)!==true)

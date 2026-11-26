@@ -647,6 +647,7 @@ export function createT4OriginalHostCaptureLedgerPort({
   const readOriginalCaptureInventory=query=>readInventory(query,true);
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_CAPTURE_LEDGER_PORT_V1',
     identity,technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
+    ...(enableOriginalCaptureBacking?{originalCaptureBackingEnabled:true}:{}),
     readOriginalIntent:async query=>read('intent',query,await context()),
     readOriginalOutbox:async query=>{
       const initial=await context();

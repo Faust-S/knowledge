@@ -8,6 +8,9 @@ import {publishT4OriginalAssetDelta,decodeT4OriginalAssetDeltaBytes} from './ori
 import {publishT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes} from './original-relation-delta.mjs';
 import {decodeT4OriginalDeleteDeltaBytes,originalT4DeletionCapturedEvent,t4OriginalDeletedSubjectRevision} from './original-deletion-delta.mjs';
 import {isT4NativeDeleteKind} from './standard-network-wire-candidate.mjs';
+import {T4_NATIVE_MULTIPART_PROFILE,T4_NATIVE_MULTIPART_MAX_CAPTURE_PLAINTEXT_BYTES,
+  selectT4NativeAssetContentProfile} from './original-native-content-limits.mjs';
+import {preflightT4OriginalAssetNativeCapacity} from './original-asset-delta.mjs';
 import {decodeT4OriginalGraphDeltaBytes,verifyT4OriginalGraphCapture} from './original-graph-delta.mjs';
 
 export class T4OriginalHostOutboxDeliveryError extends Error{
@@ -62,7 +65,12 @@ function scope(params){
   return Object.freeze({kind,captureRef,workspaceId,originalWriteOwnerRef,
     subjectId});
 }
-function validateEnvelope(scope,outbox,intent){
+function validateEnvelope(scope,outbox,intent,enabled=false){
+  const profile=intent?.originalAssetCaptureProfile;
+  const multipart=profile!==undefined;
+  if(outbox?.originalAssetCaptureProfile!==profile||(multipart&&(scope.kind!=='ASSET_PUT'||
+    enabled!==true||profile!==T4_NATIVE_MULTIPART_PROFILE)))fail('OUTBOX_MULTIPART_PROFILE_REQUIRED');
+  const max=multipart?T4_NATIVE_MULTIPART_MAX_CAPTURE_PLAINTEXT_BYTES:1024*1024;
   const definition=KIND_SCHEMA[scope.kind];
   if(outbox?.schema!==definition.outbox||
     intent?.schema!==definition.intent||
@@ -85,12 +93,12 @@ function validateEnvelope(scope,outbox,intent){
     outbox.originalT3MutationConfirmed!==true||
     outbox.networkPublished!==false||
     outbox.recipientApplied!==false||
-    typeof outbox.bytesBase64!=='string'||
+    typeof outbox.bytesBase64!=='string'||outbox.bytesBase64.length>Math.ceil(max/3)*4||
     Buffer.from(outbox.bytesBase64,'base64').toString('base64')!==
       outbox.bytesBase64)
     fail('OUTBOX_ORIGINAL_INTENT_OR_ENTRY_INVALID');
   const bytes=Buffer.from(outbox.bytesBase64,'base64');
-  if(!bytes.length||bytes.length>1024*1024||
+  if(!bytes.length||bytes.length>max||
     packageSha256(bytes)!==outbox.sha256)
     fail('OUTBOX_ORIGINAL_BYTES_CORRUPTED');
   if(!same(outbox.sourceCursorBefore,intent.sourceCursor)||
@@ -133,6 +141,12 @@ function validateEnvelope(scope,outbox,intent){
       fail('OUTBOX_ORIGINAL_GRAPH_INTENT_MISMATCH');
   }else if(scope.kind==='ASSET_PUT'){
     const original=intent.operation;
+    if(multipart){
+      const n=preflightT4OriginalAssetNativeCapacity({...scope,operation:original,enableMultipart:true});
+      if(selectT4NativeAssetContentProfile(n,{enableMultipart:true})!==profile)
+        fail('OUTBOX_ORIGINAL_ASSET_INTENT_MISMATCH');
+      decodeT4OriginalAssetDeltaBytes(bytes,{enableMultipart:true});
+    }
     if(!HASH(intent.inputDigest)||
       outbox.inputDigest!==intent.inputDigest||
       digest(original)!==intent.inputDigest||
@@ -201,7 +215,7 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
   mode(params.getMode);
   if(await params.authorizeOriginalRead(originalRight)!==true||await networkDenied())
     fail('OUTBOX_ORIGINAL_OR_NETWORK_AUTHORITY_DENIED');
-  const verified=validateEnvelope(s,outbox,intent);
+  const verified=validateEnvelope(s,outbox,intent,params.enableOriginalMultipartAssetCapture);
   // Reuse a single verified source read only for local frontier recovery.
   // Publication must independently read the current original history.
   const snapshot=requireNetworkPublish?null:params.originalLocalEventSnapshot??null;
@@ -466,7 +480,7 @@ async function readCapturedSubject(params,requireNetworkPublish){
       originalT3OutboxUnchanged:true,networkPublished:false,originalRecipientApplied:false});
   }
   const exact=params.kind==='ASSET_PUT'?
-    decodeT4OriginalAssetDeltaBytes(verified.prepared.bytes):
+    decodeT4OriginalAssetDeltaBytes(verified.prepared.bytes,{enableMultipart:intent.originalAssetCaptureProfile===T4_NATIVE_MULTIPART_PROFILE}):
     decodeT4OriginalRelationPutDeltaBytes(verified.prepared.bytes);
   const d=exact.delta,asset=params.kind==='ASSET_PUT';
   const sourceRevision=asset?d.sourceRevision:null;
@@ -501,6 +515,7 @@ async function readCapturedSubject(params,requireNetworkPublish){
     captureRef:verified.captureRef,workspaceId:verified.workspaceId,
     originalWriteOwnerRef:verified.originalWriteOwnerRef,
     sourceEventId:d.sourceEventId,sourceRevision,originalEventRevision:eventRevision,
+    ...(intent.originalAssetCaptureProfile!==undefined?{originalAssetCaptureProfile:intent.originalAssetCaptureProfile}:{}),
     sourceCursorBefore:structuredClone(outbox.sourceCursorBefore),
     sourceCursorAfter:structuredClone(outbox.sourceCursorAfter),
     sourceWindow:structuredClone(outbox.sourceWindow),prepared:exact,
@@ -571,6 +586,7 @@ export async function publishT4OriginalHostOutbox(params={}){
   if(typeof params.transport?.putSnapshot!=='function')
     fail('OUTBOX_NETWORK_TRANSPORT_REQUIRED');
   const verified=await loadVerifiedOutbox(params);
+  if(verified.intent.originalAssetCaptureProfile!==undefined)fail('OUTBOX_MULTIPART_REQUIRES_NATIVE_NETWORK');
   mode(params.getMode);
   let receipt;
   try{
@@ -608,6 +624,7 @@ export async function inspectT4OriginalHostOutboxNetwork(params={}){
   if(typeof params.transport?.inspectOutcome!=='function')
     fail('OUTBOX_NETWORK_INSPECTION_PORT_REQUIRED');
   const verified=await loadVerifiedOutbox(params);
+  if(verified.intent.originalAssetCaptureProfile!==undefined)fail('OUTBOX_MULTIPART_REQUIRES_NATIVE_NETWORK');
   let observed;
   try{
     observed=await params.transport.inspectOutcome({

@@ -24,7 +24,8 @@ export function createT4OriginalHostCaptureAdapter({
   listOriginalPendingIntents,authorizeOriginalCaptureRecovery,
   readOriginalAdmittedBaseline,listOriginalOutbox,resolveOriginalRelationOwner,readOriginalCaptureInventory,
   beforeOriginalMutationDispatch,inspectOriginalCaptureDispatch,closeOriginalUndispatchedCapture,
-  isHostActive=()=>true,
+  isHostActive=()=>true,enableOriginalMultipartAssetCapture=false,originalCaptureBackingEnabled=false,
+  authorizeOriginalMultipartAssetCapture,
 }={}){
   if(typeof getMode!=='function'||
     typeof originalKernel?.hasOperation!=='function'||
@@ -35,6 +36,10 @@ export function createT4OriginalHostCaptureAdapter({
   const dispatchEvidence=[beforeOriginalMutationDispatch,inspectOriginalCaptureDispatch,closeOriginalUndispatchedCapture];
   if(dispatchEvidence.some(p=>p!==undefined)&&(!paged||!dispatchEvidence.every(p=>typeof p==='function')))
     fail('ORIGINAL_HOST_CAPTURE_DISPATCH_PORTS_REQUIRED');
+  if(typeof enableOriginalMultipartAssetCapture!=='boolean'||(enableOriginalMultipartAssetCapture&&
+    (originalCaptureBackingEnabled!==true||!paged||!dispatchEvidence.every(p=>typeof p==='function')||
+      typeof authorizeOriginalMultipartAssetCapture!=='function')))
+    fail('ORIGINAL_HOST_CAPTURE_MULTIPART_PORTS_REQUIRED');
   if(paged&&(![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function')||
     !Number.isSafeInteger(originalCommitPageSize)||originalCommitPageSize<1||originalCommitPageSize>1024))
     fail('ORIGINAL_HOST_CAPTURE_COMMIT_HISTORY_PORTS_REQUIRED');
@@ -52,6 +57,7 @@ export function createT4OriginalHostCaptureAdapter({
     authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
     ...(paged?{readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize}:{}),originalGraphCatalog,
     persistOriginalIntent,readOriginalIntent,beforeOriginalMutationDispatch,
+    enableOriginalMultipartAssetCapture,originalCaptureBackingEnabled,authorizeOriginalMultipartAssetCapture,
     persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
   });
   const requiredOriginalHostCapturePorts=()=>{

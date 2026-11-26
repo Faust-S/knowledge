@@ -19,7 +19,7 @@ export async function readT4OriginalHostCaptureFrontier({
   workspaceId,originalWriteOwnerRef,getMode,authorizeOriginalRead,readOriginalEvents,
   readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize=256,
   readOriginalAdmittedBaseline,listOriginalPendingIntents,listOriginalOutbox,
-  readOriginalIntent,readOriginalOutbox,readOriginalCaptureInventory,
+  readOriginalIntent,readOriginalOutbox,readOriginalCaptureInventory,enableOriginalMultipartAssetCapture=false,
 }={}){
   const paged=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
   if(paged&&(![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function')||
@@ -159,7 +159,7 @@ export async function readT4OriginalHostCaptureFrontier({
       fail('CAPTURE_FRONTIER_ORIGINAL_CAUSAL_GAP');
     const evidence=await readT4OriginalHostLocalCaptureEvidence({
       ...scope,kind,subjectId,captureRef:row.captureRef,getMode,
-      authorizeOriginalRead,readOriginalEvents:async()=>events,...evidencePorts,
+      authorizeOriginalRead,readOriginalEvents:async()=>events,...evidencePorts,enableOriginalMultipartAssetCapture,
     },snapshot);
     if(!same(evidence.sourceCursorBefore,cursor)||!same(evidence.sourceCursorAfter,nextCursor)||
       evidence.sourceEventId!==row.sourceEventId||evidence.sha256!==row.sha256||evidence.key!==row.key||
