@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: b056cd594a8a498d3e6bbea3abbea5831f70312b
+          ref: 8954000d848590240a6d372227618a475190ed48
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -123,6 +123,8 @@ jobs:
               echo "::error::$gate=FAIL"
               grep -oE 'TS[0-9]{4}|D10_T3_INPUT_[A-Z0-9_]+' "$log" | sort | uniq -c | head -30 || true
               grep -E '^# (tests|pass|fail) [0-9]+$' "$log" || true
+              # Only numeric TAP failure ordinals, never test data or private code.
+              grep -E '^not ok [0-9]+ ' "$log" | sed -E 's/^not ok ([0-9]+) .*/D10_SOURCE_FAILED_TEST_ORDINAL=\1/' | head -25 || true
               failed=1
             fi
           done
@@ -266,7 +268,7 @@ jobs:
             else
               echo "::error::D10_T3_PRODUCT_JOURNEY_$script=FAIL"
               grep -E '^D10_[A-Z0-9_]+=(PASS|NOT_RUN|[0-9]+)$' "$log" | tail -20 || true
-              grep -E '^D10_PUBLIC_JOURNEY_[a-z0-9-]+=(PASS|FAIL stage=(navigate|input|save) reason=[A-Za-z0-9_-]+)$' "$log" | tail -23 || true
+              grep -E '^D10_PUBLIC_JOURNEY_[a-z0-9-]+=(PASS|FAIL stage=(open|input|save) reason=[A-Za-z0-9_-]+)$' "$log" | tail -23 || true
               grep -oE '(TimeoutError|AssertionError|TypeError|ReferenceError|ERR_[A-Z0-9_]+)' "$log" | sort -u | head -10 || true
               failed=1
             fi
