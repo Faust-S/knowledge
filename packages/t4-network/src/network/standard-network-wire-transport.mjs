@@ -603,7 +603,7 @@ export function createT4CandidateFrameTransport({
     return finish(receipts.length?'FOUND':'NOT_FOUND');
   }
   async function indexedRead({selector,requiredCryptoSuite,supportedCriticalExtensions=[],head=false,replacementHead=false,
-    expectedMultipartChange=null,expectedHandshake=null,expectedFrameSha256=null},ctx){
+    expectedMultipartChange=null,expectedHandshake=null,expectedFrameSha256=null,retained=null},ctx){
     if(!selector||!ID(selector.sourceNodeRef)||selector.sourceNodeRef===originalHostNodeRef||
       !Number.isSafeInteger(selector.ownerEpoch)||selector.ownerEpoch<1||!ID(requiredCryptoSuite)||
       !Array.isArray(supportedCriticalExtensions)||supportedCriticalExtensions.length>16||
@@ -618,7 +618,11 @@ export function createT4CandidateFrameTransport({
     const sha256=checkIndexRead(pointer,key),frameKey=sha256+'.t4n';
     if(expectedFrameSha256!==null&&sha256!==expectedFrameSha256)
       fail('WIRE_REPLACEMENT_CONTENT_PUBLICATION_ANCHOR_MISMATCH');
-    const downloaded=await wireTransport.getSnapshot({key:frameKey,expectedSha256:sha256});
+    // Only the private, bounded observation reader below can supply retained
+    // bytes. The original native index is still read on EVERY observation.
+    // Never treat a remembered index or authorization verdict as current.
+    const remembered=retained?.read(sha256)??null;
+    const downloaded=remembered===null?await wireTransport.getSnapshot({key:frameKey,expectedSha256:sha256}):{bytes:remembered};
     mode();
     if(!(downloaded?.bytes instanceof Uint8Array)||hash(downloaded.bytes)!==sha256)
       fail('WIRE_NATIVE_INDEX_TARGET_MISMATCH');
@@ -643,8 +647,10 @@ export function createT4CandidateFrameTransport({
         profile.extensions.every(e=>frame.criticalExtensions.includes(e))&&
         (profile.body===null||canonicalBody(frame.body)===canonicalBody(profile.body))))
       fail('WIRE_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH');
-    return verifyDownloaded({ctx,key:frameKey,expectedSha256:sha256,downloaded:{bytes},
+    const verified=await verifyDownloaded({ctx,key:frameKey,expectedSha256:sha256,downloaded:{bytes},
       requiredCryptoSuite,supportedCriticalExtensions,expectedMultipartChange});
+    if(retained!==null&&remembered===null)retained.remember(sha256,bytes);
+    return verified;
   }
   const indexedResult=(receipts,lookups)=>frozen({state:receipts.length?'FOUND':'NOT_FOUND',
     receipts:frozen(receipts),pages:0,candidatesExamined:lookups,listingDigest:null,
@@ -709,7 +715,7 @@ export function createT4CandidateFrameTransport({
       createsStore:false,createsScheduler:false});
   }
   async function discoverOriginalMultipartContentPage({selector,requiredCryptoSuite,startSequence=3,limit=64,
-    expectedManifestDigest=null,replacementFrameAnchors=null}={}){
+    expectedManifestDigest=null,replacementFrameAnchors=null}={},retained=null){
     if(!enableOriginalMultipartNegotiation||!indexed)fail('WIRE_NATIVE_MULTIPART_ORIGINAL_PORTS_REQUIRED');
     if(!selector||Object.keys(selector).sort().join(',')!=='ownerEpoch,sessionRef,sourceNodeRef'||
       !ID(selector.sessionRef)||!Number.isSafeInteger(startSequence)||startSequence<3||
@@ -723,6 +729,10 @@ export function createT4CandidateFrameTransport({
       fail('WIRE_REPLACEMENT_CONTENT_PUBLICATION_ANCHOR_MISMATCH');
     const anchors=replacement?structuredClone(replacementFrameAnchors):null;
     const input=Object.freeze({...selector}),ctx=await hostSnapshot(),receipts=[],missing=[];
+    if(retained!==null){
+      if(!replacement)fail('WIRE_REPLACEMENT_CONTENT_OBSERVATION_SCOPE_INVALID');
+      retained.check({selector:input,requiredCryptoSuite,anchors,ctx});
+    }
     const headExtension=replacement?T4_REPLACEMENT_SOURCE_SESSION_EXTENSION:T4_ORIGINAL_SOURCE_SESSION_EXTENSION;
     const extensions=Object.freeze([headExtension,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,T4_MULTIPART_OPAQUE_EXTENSION]);
     let lookups=0;
@@ -731,7 +741,8 @@ export function createT4CandidateFrameTransport({
       lookups++;return indexedRead({selector:{...input,messageType,sequence},
         requiredCryptoSuite,supportedCriticalExtensions:extensions,expectedMultipartChange,
         expectedFrameSha256:replacement?anchors[sequence-1].sha256:null,
-        expectedHandshake:replacement&&messageType==='HEADS'?{extensions:[headExtension,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION],body:null}:null},ctx);
+        expectedHandshake:replacement&&messageType==='HEADS'?{extensions:[headExtension,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION],body:null}:null,
+        retained},ctx);
     };
     const head=await get('HEADS',1);
     const result=(state,extra={})=>frozen({schema:'IWXA_T4_ORIGINAL_MULTIPART_CONTENT_PAGE_V1',state,
@@ -766,6 +777,65 @@ export function createT4CandidateFrameTransport({
     return result(missing.length?'PAGE_INCOMPLETE':'PAGE_COMPLETE',{change,manifestDigest:manifest.manifestDigest,
       originalMultipartAgreementDigest:change.originalMultipartAgreementDigest,totalChunks:total,
       endSequence:end,nextSequence:end<last?end+1:null});
+  }
+  // One existing recipient wake may repeatedly re-observe the same complete
+  // replacement content for the Vault and original APPLY_INTENT gates.
+  // Keep only exact verified encrypted wire bytes for that wake. There is
+  // no persisted cache, new cursor, cached permission or cached replay verdict.
+  // All original index, signature, Access, agreement and replay checks remain.
+  function createOriginalReplacementMultipartObservation({selector,requiredCryptoSuite}={}){
+    const exact=structuredClone(selector);
+    if(!enableOriginalMultipartNegotiation||!indexed||!exact||
+      Object.keys(exact).sort().join(',')!=='ownerEpoch,sessionRef,sourceNodeRef'||
+      !ID(exact.sourceNodeRef)||exact.sourceNodeRef===originalHostNodeRef||!ID(exact.sessionRef)||
+      !Number.isSafeInteger(exact.ownerEpoch)||exact.ownerEpoch<1||!ID(requiredCryptoSuite))
+      fail('WIRE_REPLACEMENT_CONTENT_OBSERVATION_SCOPE_INVALID');
+    mode();
+    const frames=new Map();
+    const maxBytes=(T4_MULTIPART_MAX_CHUNKS+2)*32768;
+    let selected=null,closed=false,busy=false,total=0,downloads=0,reuses=0;
+    const dispose=()=>{closed=true;frames.clear();selected=null;total=0;};
+    const requireOpen=()=>{
+      mode();
+      if(closed)fail('WIRE_REPLACEMENT_CONTENT_OBSERVATION_ENDED');
+    };
+    const retained={
+      check({selector,requiredCryptoSuite:suite,anchors,ctx}){
+        requireOpen();
+        if(canonicalBody(selector)!==canonicalBody(exact)||suite!==requiredCryptoSuite||
+          !Array.isArray(anchors))fail('WIRE_REPLACEMENT_CONTENT_OBSERVATION_SCOPE_INVALID');
+        const current=canonicalBody({anchors:anchors.map(({sequence,messageType,sha256})=>({sequence,messageType,sha256})),ctx});
+        if(selected===null)selected=current;
+        else if(selected!==current)fail('WIRE_REPLACEMENT_CONTENT_OBSERVATION_CHANGED');
+      },
+      read(sha256){
+        requireOpen();const value=frames.get(sha256);
+        if(value!==undefined){reuses++;return new Uint8Array(value);}
+        return null;
+      },
+      remember(sha256,bytes){
+        requireOpen();
+        if(!(bytes instanceof Uint8Array)||!bytes.length||bytes.length>32768||
+          frames.size>=T4_MULTIPART_MAX_CHUNKS+2||total+bytes.length>maxBytes||
+          frames.has(sha256)||hash(bytes)!==sha256)fail('WIRE_REPLACEMENT_CONTENT_OBSERVATION_LIMIT');
+        frames.set(sha256,new Uint8Array(bytes));total+=bytes.length;downloads++;
+      },
+    };
+    return frozen({
+      async readPage(request){
+        requireOpen();
+        if(busy)fail('WIRE_REPLACEMENT_CONTENT_OBSERVATION_BUSY');
+        busy=true;
+        try{
+          const result=await discoverOriginalMultipartContentPage(request,retained);
+          requireOpen();return result;
+        }catch(error){dispose();throw error;}
+        finally{busy=false;}
+      },
+      inspect:()=>frozen({originalVerifiedDownloads:downloads,originalRetainedByteReuses:reuses,
+        retainedFrameCount:frames.size,retainedBytes:total,closed,createsStore:false}),
+      dispose,
+    });
   }
   async function discoverSourceSessionHeads({selector,requiredCryptoSuite}={}){
     if(indexed){
@@ -814,7 +884,8 @@ export function createT4CandidateFrameTransport({
       ...(historical?{readOriginalHistoricalReceivedFrame}:{}),
       readAndVerifySignedFrame,discoverAndVerifySignedFrames,discoverUniqueSignedFrame,discoverSessionContent,
       discoverSourceSessionHeads,discoverReplacementSourceHead,
-      ...(enableOriginalMultipartNegotiation?{discoverOriginalMultipartContentPage,inspectOriginalOutboundMultipartIndexPage,originalMultipartNegotiationEnabled:true}:{})}),
+      ...(enableOriginalMultipartNegotiation?{discoverOriginalMultipartContentPage:request=>discoverOriginalMultipartContentPage(request),
+        createOriginalReplacementMultipartObservation,inspectOriginalOutboundMultipartIndexPage,originalMultipartNegotiationEnabled:true}:{})}),
     ...(historicalAck?{readOriginalHistoricalAppliedAck}:{}),
     forOriginalHostLifetime:isHostActive=>createT4CandidateFrameTransport({
       ...(!historicalReadOnly?{wireTransport:scopeOriginalHostPort(wireTransport,isHostActive,['wireKind','nativeFrameIndexVersion'],

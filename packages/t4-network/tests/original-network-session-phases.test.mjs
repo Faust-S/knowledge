@@ -2680,6 +2680,37 @@ test('K167 K170 K171 K172 K174 K175 successor multipart backing, lost PUT, compl
   await assert.rejects(recipientTransport.discoverOriginalMultipartContentPage({selector:{sourceNodeRef,sessionRef:c.sessionRef,ownerEpoch:c.ownerEpoch},
     requiredCryptoSuite:opts.requiredCryptoSuite,replacementFrameAnchors:wrongAnchors}),isCode('WIRE_REPLACEMENT_CONTENT_PUBLICATION_ANCHOR_MISMATCH'));
   assert.equal(x.phaseWrites(),recipientPhaseWrites);
+  // K179: exact immutable bytes can be reused only within one observation.
+  // Live Access, selected agreement, index lookup and replay are still checked.
+  const anchors=history.publication.frames.map(({sequence,messageType,sha256})=>({sequence,messageType,sha256}));
+  const selector={sourceNodeRef,sessionRef:c.sessionRef,ownerEpoch:c.ownerEpoch};
+  let liveAccess=true,accessChecks=0;
+  const revalidate=x.transport(recipientNodeRef,{readOriginalMultipartAgreement,
+    authorizeOriginalNetwork:async()=>{accessChecks++;return liveAccess;}});
+  const reader=revalidate.createOriginalReplacementMultipartObservation({selector,requiredCryptoSuite:opts.requiredCryptoSuite});
+  const page=()=>reader.readPage({selector,requiredCryptoSuite:opts.requiredCryptoSuite,replacementFrameAnchors:anchors});
+  const readCount=x.counts().networkGets;
+  const firstPage=await page();
+  assert.equal(firstPage.state,'PAGE_COMPLETE');
+  const afterPage=x.counts().networkGets,afterAccess=accessChecks;
+  assert.equal(afterPage-readCount,66);
+  const firstStats=reader.inspect();assert.equal(firstStats.originalVerifiedDownloads,66);
+  assert.equal(firstStats.originalRetainedByteReuses,0);
+  const repeatPage=await page();
+  assert.equal(repeatPage.manifestDigest,firstPage.manifestDigest);
+  assert.deepEqual(repeatPage.receipts.map(r=>r.sha256),firstPage.receipts.map(r=>r.sha256));
+  assert.equal(x.counts().networkGets,afterPage);assert.ok(accessChecks>afterAccess);
+  assert.equal(reader.inspect().originalRetainedByteReuses,66);
+  liveAccess=false;await assert.rejects(page());assert.equal(reader.inspect().closed,true);
+  assert.equal(reader.inspect().retainedBytes,0);liveAccess=true;
+  const changed=revalidate.createOriginalReplacementMultipartObservation({selector,requiredCryptoSuite:opts.requiredCryptoSuite});
+  await changed.readPage({selector,requiredCryptoSuite:opts.requiredCryptoSuite,limit:1,replacementFrameAnchors:anchors});
+  await assert.rejects(changed.readPage({selector,requiredCryptoSuite:opts.requiredCryptoSuite,limit:1,replacementFrameAnchors:wrongAnchors}),
+    isCode('WIRE_REPLACEMENT_CONTENT_OBSERVATION_CHANGED'));
+  assert.equal(changed.inspect().retainedFrameCount,0);
+  changed.dispose();reader.dispose();
+  await assert.rejects(reader.readPage({selector,requiredCryptoSuite:opts.requiredCryptoSuite,replacementFrameAnchors:anchors}),
+    isCode('WIRE_REPLACEMENT_CONTENT_OBSERVATION_ENDED'));
   // K174: exercise the original phase and ACK ports; the subject Result is
   // deliberately modeled here, not claimed as a real Asset mutation.
   const e=found.originalReplacementContentEvidence,actualEvent='event:k174:asset:result';
