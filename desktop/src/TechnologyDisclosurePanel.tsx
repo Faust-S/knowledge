@@ -1,7 +1,7 @@
 import {useLayoutEffect,useMemo,useState} from 'react';
 import {selectD05PracticalExperience} from '../../modules/activity-base-anonymizer/d05-practical-lessons.mjs';
 import type {SourceReference} from '../../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
-import {suggestD05ParameterDecisions,collectD05FunctionalReferences} from '../../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
+import {suggestD05ParameterDecisions,collectD05FunctionalReferences,type D05ContextMapping} from '../../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
 import {PresidioReviewPanel} from './PresidioReviewPanel';
 import {ObservationReviewPanel} from './ObservationReviewPanel';
 import {TechnologyProductPanel} from './TechnologyProductPanel';
@@ -12,10 +12,10 @@ const LABEL:Record<string,string>={quantity:'Объём',calendarMode:'Кале�
  hoursPerDay:'Часов в день',overallReserve:'Общий резерв',duration:'Длительность',unit:'Единица времени',
  setup:'Подготовительное время',buffer:'Буфер',slack:'Резерв операции'};
 const display=(v:D05DraftValue)=>v===null?'Не задано':Array.isArray(v)?v.map(x=>['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][x]??x).join(', '):String(v);
-export function TechnologyDisclosurePanel({review,groupId,profile,operations,form,decisions,onChange,suggestedTitle=''}:{
+export function TechnologyDisclosurePanel({review,groupId,profile,operations,form,decisions,onChange,contextMappings,suggestedTitle=''}:{
  review:unknown;groupId:string;profile:D05DraftProfile;operations:D05RouteGroup['operations'];
  form:D05TechnologyProposalForm;decisions:Record<string,D05ParameterDecision>;
- onChange:(value:Record<string,D05ParameterDecision>)=>void;suggestedTitle?:string;
+ onChange:(value:Record<string,D05ParameterDecision>)=>void;contextMappings:D05ContextMapping[];suggestedTitle?:string;
 }){
  const [open,setOpen]=useState(false),[scope,setScope]=useState('route');
  const [computed,setComputed]=useState<{form:D05TechnologyProposalForm;decisions:Record<string,D05ParameterDecision>;value:D05DisclosureCandidate}|null>(null);
@@ -34,9 +34,9 @@ export function TechnologyDisclosurePanel({review,groupId,profile,operations,for
  },[review,groupId,profile.model_number]);
  const allReferences=useMemo(()=>{
   const combined=new Map(sourceReferences.map(ref=>[JSON.stringify(ref),ref]));
-  if(candidate)for(const ref of collectD05FunctionalReferences(review,groupId,profile.model_number,form))combined.set(JSON.stringify(ref),ref);
+  if(candidate)for(const ref of collectD05FunctionalReferences(review,groupId,profile.model_number,form,contextMappings))combined.set(JSON.stringify(ref),ref);
   return [...combined.values()];
- },[sourceReferences,candidate,review,groupId,profile.model_number,form]);
+ },[sourceReferences,candidate,review,groupId,profile.model_number,form,contextMappings]);
  const fields=profile.conditions.filter(c=>c.use==='ADAPTATION_REVIEW');
  const selectedFields=fields.filter(c=>c.scope===scope);
  const scopeName=(id:string)=>id==='route'?'Маршрут':operations.find(o=>o.id===id)?.name??'Операция';

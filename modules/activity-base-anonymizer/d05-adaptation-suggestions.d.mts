@@ -11,6 +11,8 @@ export type D05FunctionalMappingRow={scope:string;field:D05FunctionalField;sourc
  linked_controls:Array<{check_id:string;title:string;control_type:string;requirements:Array<{field:string;value:import('./d05-route-comparison.mjs').D05DraftValue}>}>};
 export type D05FunctionalMappingReview={status:'LOCAL_D05_FUNCTIONAL_MAPPING_REVIEW';group_id:string;model_number:number;rows:D05FunctionalMappingRow[];
  context_requirements:Array<{code:string;scope:string;suggested_requirement:string|null}>;
+ local_context_entries:import('./d05-route-comparison.mjs').D05LocalContextEntry[];
  source_semantics:'DECLARED_RESOURCES_NOT_VERIFIED_CAPABILITIES';review_required:true;export_allowed:false;iwxa_package:null};
 export function reviewD05FunctionalMappings(review:unknown,groupId:string,modelNumber:number,form?:import('./d05-route-comparison.mjs').D05TechnologyProposalForm):D05FunctionalMappingReview;
-export function collectD05FunctionalReferences(review:unknown,groupId:string,modelNumber:number,form:import('./d05-route-comparison.mjs').D05TechnologyProposalForm):import('./technology-disclosure-generalization.mjs').SourceReference[];
+export type D05ContextMapping={scope:string;field:string;requirement:string};
+export function collectD05FunctionalReferences(review:unknown,groupId:string,modelNumber:number,form:import('./d05-route-comparison.mjs').D05TechnologyProposalForm,contextMappings?:D05ContextMapping[]):import('./technology-disclosure-generalization.mjs').SourceReference[];

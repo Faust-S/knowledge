@@ -508,7 +508,7 @@ function attachLocalContextDetails(review,entries,quality){
   const add=(scope,field,value)=>{
    if(value===null||value===undefined||value==='')return;
    if(typeof value==='string'&&!value.trim())return;
-   const available=typeof value==='boolean'||qualityText(value)&&nonempty(value);
+   const available=field==='materialReady'?typeof value==='boolean':qualityText(value)&&nonempty(value);
    context.push({scope,field,value:available?value:null,status:available?'DECLARED_LOCAL_VALUE':'SOURCE_VALUE_UNAVAILABLE'});
   };
   for(const field of ['orderName','startDate','dueDate'])add('technology',field,entry.inputs[field]);

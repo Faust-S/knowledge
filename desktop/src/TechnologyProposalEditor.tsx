@@ -1,4 +1,6 @@
-import {useState} from 'react';
+import {useMemo,useState} from 'react';
+import {reviewD05FunctionalMappings,type D05ContextMapping} from '../../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
+import {D05LocalContextPanel,SourceRequirement,LinkedControlRequirements} from './D05FunctionalMappingPanel';
 import {TechnologyDisclosurePanel} from './TechnologyDisclosurePanel';
 import {D05ExtractionPanel} from './D05ExtractionPanel';
 import {D05PracticalLessonsPanel} from './D05PracticalLessonsPanel';
@@ -21,15 +23,17 @@ const OP:Array<{field:OpField;label:string;hint:string}>=[
  {field:'material',label:'Требования к материалам',hint:'Свойства и совместимость или обоснованное отсутствие требования'},
 ];
 const FIELD_LABELS=Object.fromEntries([...TEXT,...OP].map(x=>[x.field,x.label]));
-export function TechnologyProposalEditor({review,groupId,profile,operations,form,onChange,decisions,onDecisions}:{
+export function TechnologyProposalEditor({review,groupId,profile,operations,form,onChange,decisions,onDecisions,contextMappings,onContextMappings}:{
  review:unknown;groupId:string;profile:D05DraftProfile;operations:D05RouteGroup['operations'];
  form:D05TechnologyProposalForm;onChange:(form:D05TechnologyProposalForm)=>void;
  decisions:Record<string,D05ParameterDecision>;onDecisions:(value:Record<string,D05ParameterDecision>)=>void;
+ contextMappings:D05ContextMapping[];onContextMappings:(value:D05ContextMapping[])=>void;
 }){
  const [open,setOpen]=useState(false),[opId,setOpId]=useState(operations[0].id);
  const [checkId,setCheckId]=useState(profile.checks[0]?.id??'');
  const [preview,setPreview]=useState<D05TechnologyProposal|null>(null),[error,setError]=useState('');
  const [suggestedTitle,setSuggestedTitle]=useState('');
+ const mapping=useMemo(()=>{if(!open)return null;try{return reviewD05FunctionalMappings(review,groupId,profile.model_number,form);}catch{return null;}},[open,review,groupId,profile.model_number,form]);
  const update=(value:D05TechnologyProposalForm)=>{setPreview(null);setError('');onChange(value);};
  const prepared=()=>{
   try{setError('');setPreview(prepareD05TechnologyProposal(review,groupId,profile.model_number,form));}
@@ -40,6 +44,18 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
  const scopeLabel=(id:string)=>id==='technology'?'Технология':
   operations.find(o=>o.id===id)?.name??profile.checks.find(c=>c.id===id)?.title??'Контрольная точка';
  const proposalOp=preview?.operations.find(o=>o.operation_id===opId);
+ const operationMapping=mapping?.rows.filter(r=>r.scope===opId)??[];
+ const qualityMapping=mapping?.rows.find(r=>r.scope===checkId&&r.field==='responsible_role');
+ const missingSuggestions=mapping?.rows.filter(r=>r.suggested_requirement&&!r.current_requirement)??[];
+ function fillFromSource(){
+  const next={...form,operations:{...form.operations},quality_roles:{...form.quality_roles}};
+  for(const row of missingSuggestions){
+   if(!row.suggested_requirement)continue;
+   if(row.field==='responsible_role')next.quality_roles[row.scope]=row.suggested_requirement;
+   else next.operations[row.scope]={...next.operations[row.scope],[row.field]:row.suggested_requirement};
+  }
+  update(next);
+ }
  return <div className="activity-domain-proposal">
   <div className="activity-v7-actions"><button aria-expanded={open} onClick={()=>setOpen(x=>!x)}>
     {open?'Закрыть уточнение технологии':'Уточнить технологию'}</button></div>
@@ -50,6 +66,13 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
     scopeLabel={scopeLabel} onApply={(next,params,title)=>{update(next);onDecisions(params);if(title)setSuggestedTitle(old=>old||title);}}/>
    <D05PracticalLessonsPanel review={review} groupId={groupId} modelNumber={profile.model_number} guidance={form.local_context_guidance??''}
     onApply={value=>update({...form,local_context_guidance:value})}/>
+   {mapping?<div className="activity-domain-group">
+    <h4>Функциональные требования к среде получателя</h4>
+    <p>Сопоставьте исходные обозначения с действительными функциями и связанными контрольными условиями. Исходное описание можно перенести в рабочий черновик, но оно само по себе не подтверждает пригодность ресурса и может содержать частные сведения.</p>
+    <button disabled={!missingSuggestions.length} onClick={fillFromSource}>Заполнить пустые поля исходными формулировками ({missingSuggestions.length})</button>
+    <D05LocalContextPanel review={mapping} scopeLabel={scopeLabel} guidance={form.local_context_guidance??''} mappings={contextMappings}
+     onApply={(guidance,mappings)=>{update({...form,local_context_guidance:guidance});onContextMappings(mappings);}}/>
+   </div>:<p role="status">Функциональное сопоставление текущей выборки недоступно.</p>}
    <div className="activity-domain-proposal-fields">
     {TEXT.map(x=><label key={x.field} className="activity-domain-label">{x.label}
      <textarea rows={2} maxLength={4096} value={form[x.field]??''} placeholder={x.hint}
@@ -60,9 +83,13 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
      {operations.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
     </select></label>
    {op?<div className="activity-domain-proposal-fields">
-    {OP.map(x=><label key={x.field} className="activity-domain-label">{x.label}
-     <textarea rows={2} maxLength={4096} placeholder={x.hint} value={form.operations?.[opId]?.[x.field]??''}
-      onChange={e=>update({...form,operations:{...form.operations,[opId]:{...form.operations?.[opId],[x.field]:e.target.value}}})}/></label>)}
+    <LinkedControlRequirements controls={operationMapping[0]?.linked_controls??[]}/>
+    {OP.map(x=><div key={x.field} className="activity-domain-op">
+     <label className="activity-domain-label">{x.label}
+      <textarea rows={2} maxLength={4096} placeholder={x.hint} value={form.operations?.[opId]?.[x.field]??''}
+       onChange={e=>update({...form,operations:{...form.operations,[opId]:{...form.operations?.[opId],[x.field]:e.target.value}}})}/></label>
+     <SourceRequirement row={operationMapping.find(r=>r.field===x.field)} onUse={value=>update({...form,operations:{...form.operations,[opId]:{...form.operations?.[opId],[x.field]:value}}})}/>
+    </div>)}
    </div>:null}
    {check?<><label className="activity-domain-label">Контрольная точка для уточнения
     <select value={checkId} aria-label="Контрольная точка для уточнения" onChange={e=>setCheckId(e.target.value)}>
@@ -71,9 +98,11 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
     <label className="activity-domain-label">Функциональная роль при контроле
      <textarea rows={2} maxLength={4096} value={form.quality_roles?.[checkId]??''} placeholder="Квалификация и ответственность проверяющего"
       onChange={e=>update({...form,quality_roles:{...form.quality_roles,[checkId]:e.target.value}})}/></label>
+    <SourceRequirement row={qualityMapping} onUse={value=>update({...form,quality_roles:{...form.quality_roles,[checkId]:value}})}/>
+    <LinkedControlRequirements controls={qualityMapping?.linked_controls??[]}/>
    </>:null}
    <div className="activity-v7-actions"><button className="activity-v7-primary" onClick={prepared}>Подготовить локальное предложение</button>
-    <button onClick={()=>{update({});onDecisions({});setSuggestedTitle('');}}>Очистить уточнения варианта</button></div>
+    <button onClick={()=>{update({});onDecisions({});onContextMappings([]);setSuggestedTitle('');}}>Очистить уточнения варианта</button></div>
    {error?<p role="alert" className="activity-v7-note hold">{error}</p>:null}
    {preview?<div className="activity-domain-group" aria-label="Предложение технологии">
     <h3>Предложение технологии</h3>
@@ -91,7 +120,7 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
     <p className="activity-v7-note">Предложение существует в текущей выборке. Не является утверждённой, сохранённой или разрешённой к передаче технологией.</p>
    </div>:null}
    <TechnologyDisclosurePanel review={review} groupId={groupId} profile={profile} operations={operations}
-    form={form} decisions={decisions} onChange={onDecisions} suggestedTitle={suggestedTitle}/>
+    form={form} decisions={decisions} onChange={onDecisions} contextMappings={contextMappings} suggestedTitle={suggestedTitle}/>
   </div>:null}
  </div>;
 }

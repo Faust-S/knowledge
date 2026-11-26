@@ -108,21 +108,34 @@ export function reviewD05FunctionalMappings(review,groupId,modelNumber,form={}){
    context.push({code:'CONTROL_NOTE_REVIEW',scope:c.check_id,suggested_requirement:null});
  }
  return {status:'LOCAL_D05_FUNCTIONAL_MAPPING_REVIEW',group_id:group.id,model_number:profile.model_number,
-  rows,context_requirements:context,source_semantics:'DECLARED_RESOURCES_NOT_VERIFIED_CAPABILITIES',
+  rows,context_requirements:context,local_context_entries:review.local_context_details?.profiles.find(p=>p.model_number===modelNumber)?.entries??[],
+  source_semantics:'DECLARED_RESOURCES_NOT_VERIFIED_CAPABILITIES',
   review_required:true,export_allowed:false,iwxa_package:null};
 }
 // Propagate an already formulated local requirement to occurrences of its
 // original resource name elsewhere in the same product. These are review
 // candidates, not classified PII. Conflicts remain separate reference rows.
-export function collectD05FunctionalReferences(review,groupId,modelNumber,form){
+export function collectD05FunctionalReferences(review,groupId,modelNumber,form,contextMappings=[]){
  const mapping=reviewD05FunctionalMappings(review,groupId,modelNumber,form),refs=new Map();
- for(const row of mapping.rows){
-  if(row.field==='label')continue;
-  const {source_text:original,current_requirement:replacement}=row;
-  if(!safeReference(original)||!replacement||replacement.length>512||
-   replacement.includes(original)||/[\u0000-\u001f\u007f]/.test(replacement))continue;
+ const add=(original,replacement)=>{
+  if(!safeReference(original)||typeof replacement!=='string'||!replacement.trim()||replacement.length>512||
+   replacement!==replacement.trim()||replacement.includes(original)||/[\u0000-\u001f\u007f]/.test(replacement))return;
   const ref={value:original,replacement,kind:'FUNCTIONAL_MAPPING'};
   refs.set(JSON.stringify(ref),ref);
+ };
+ for(const row of mapping.rows){
+  if(row.field==='label')continue;
+  add(row.source_text,row.current_requirement);
+ }
+ // Context mappings are explicit owner-local decisions, not inferred
+ // transformations of dates/documents. Drop an association if its reviewed
+ // wording has subsequently been removed from the actual product draft.
+ const current=new Set((form.local_context_guidance??'').split(/\r?\n/).map(v=>v.trim()));
+ need(Array.isArray(contextMappings)&&contextMappings.length<=512,'TECHNOLOGY_D05_CONTEXT_MAPPING_LIMIT');
+ for(const m of contextMappings){
+  if(!m||typeof m.requirement!=='string'||!current.has(m.requirement))continue;
+  const row=mapping.local_context_entries.find(e=>e.scope===m.scope&&e.field===m.field&&e.status==='DECLARED_LOCAL_VALUE');
+  if(row&&typeof row.value==='string')add(row.value.trim(),m.requirement);
  }
  return [...refs.values()].sort((a,b)=>JSON.stringify(a)<JSON.stringify(b)?-1:JSON.stringify(a)>JSON.stringify(b)?1:0);
 }

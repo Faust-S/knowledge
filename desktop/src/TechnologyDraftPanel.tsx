@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import type {D05ContextMapping} from '../../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
 import {TechnologyProposalEditor} from './TechnologyProposalEditor';
 import type {D05DraftValue,D05DraftUse,D05RouteGroup,D05TechnologyDraftGroup,D05TechnologyProposalForm,D05ParameterDecision}
  from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
@@ -43,11 +44,13 @@ function show(value:D05DraftValue,field:string){
 }
 const SIZE=8;
 const EMPTY_FORM:D05TechnologyProposalForm={};
+const EMPTY_CONTEXT_MAPPINGS:D05ContextMapping[]=[];
 const EMPTY_DECISIONS:Record<string,D05ParameterDecision>={};
 export function TechnologyDraftPanel({draft,operations,review}:{draft:D05TechnologyDraftGroup;operations:D05RouteGroup['operations'];review:unknown}){
  const [open,setOpen]=useState(false),[selected,setSelected]=useState(draft.profiles[0].model_number);
  const [scope,setScope]=useState('route'),[checkPage,setCheckPage]=useState(0),[checkIndex,setCheckIndex]=useState(0);
  const [forms,setForms]=useState<Record<number,D05TechnologyProposalForm>>({});
+ const [contextMappings,setContextMappings]=useState<Record<number,D05ContextMapping[]>>({});
  const [decisions,setDecisions]=useState<Record<number,Record<string,D05ParameterDecision>>>({});
  const profile=draft.profiles.find(p=>p.model_number===selected)??draft.profiles[0];
  const check=profile.checks[checkIndex];
@@ -112,6 +115,8 @@ export function TechnologyDraftPanel({draft,operations,review}:{draft:D05Technol
    {profile.local_context_review.length?<p className="activity-v7-note">Частные сведения не перенесены в черновик: {profile.local_context_review.map(x=>LOCAL[x]??x).join(', ')}. Уточните их предметное значение перед обобщением.</p>:null}
    <TechnologyProposalEditor key={profile.model_number} review={review} groupId={draft.group_id}
     profile={profile} operations={operations} form={forms[profile.model_number]??EMPTY_FORM}
+    contextMappings={contextMappings[profile.model_number]??EMPTY_CONTEXT_MAPPINGS}
+    onContextMappings={value=>setContextMappings(old=>({...old,[profile.model_number]:value}))}
     decisions={decisions[profile.model_number]??EMPTY_DECISIONS}
     onDecisions={value=>setDecisions(old=>({...old,[profile.model_number]:value}))}
     onChange={form=>setForms(old=>({...old,[profile.model_number]:form}))}/>
