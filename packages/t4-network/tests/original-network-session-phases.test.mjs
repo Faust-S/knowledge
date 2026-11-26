@@ -2595,6 +2595,13 @@ test('K167 successor multipart original backing CAS, explicit bilateral gate, lo
   const confirm=()=>confirmT4OriginalReplacementSourcePublication({sourceAdmissionPhasePort:phaseFor(),
     sourcePublicationPort:cold,getMode:opts.getMode});
   const phaseWrites=x.sourcePhaseWrites();
+  const historyRequest=createT4OriginalReplacementOwnerSourceContentRequest({session:c,requesterNodeRef:recipientNodeRef,
+    ownerNodeRef:sourceNodeRef,diffWireBase64:Buffer.from((await recipient.inspectOriginalPublication()).frames[0].wireBytes).toString('base64')});
+  const readHistory=()=>readT4OriginalReplacementOwnerHistory({...x.historicalReadOptions(sourceNodeRef),request:historyRequest,
+    requiredCryptoSuite:opts.requiredCryptoSuite,verifyOriginalRecipientApplied:async()=>false,
+    verifyOriginalHistoricalNodeSignature:x.historicalSignature(sourceNodeRef),authorizeOriginalHostWire:async()=>true,
+    authorizeOriginalOwnerHistoryRead:async()=>true});
+  assert.equal((await readHistory()).state,'WAITING_FOR_SOURCE_PUBLISHED');
   await assert.rejects(confirm(),isCode('PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT'));
   assert.equal(x.sourcePhaseWrites(),phaseWrites);
   const metadata=await source.inspectOriginalPublication({metadataOnly:true});
@@ -2648,4 +2655,15 @@ test('K167 successor multipart original backing CAS, explicit bilateral gate, lo
   assert.equal(x.sourcePhaseWrites(),phaseWrites+1);
   assert.equal(x.signatureCount(),initial.signs);
   assert.equal(x.counts().networkPuts,initial.puts+wireBytes.length);
+  const history=await readHistory();
+  assert.equal(history.state,'ORIGINAL_SOURCE_CONTENT_HISTORY_VERIFIED');
+  assert.equal(history.publication.frames.length,wireBytes.length+1);
+  assert.deepEqual(history.publication.multipart,{agreementDigest:agreement.agreementDigest,
+    manifestDigest:chunks.manifest.manifestDigest,contentDigest:chunks.manifest.contentDigest});
+  assert.ok(history.publication.frames.every(f=>!Object.hasOwn(f,'wireBytes')));
+  const bad=structuredClone(history);bad.publication.frames.pop();
+  assert.throws(()=>validateT4OriginalReplacementOwnerSourceContentSnapshot(bad,historyRequest));
+  const beforeHistory=counts();x.rotateSource();x.rotateRecipient();x.offline();x.f.restart();
+  assert.deepEqual(await readHistory(),history);
+  assert.deepEqual(counts(),beforeHistory);
 });

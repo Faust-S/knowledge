@@ -1096,6 +1096,7 @@ export function createT4OriginalNetworkPublicationPort({
   if(authorizeOriginalSealedPublication!==null&&(!source||typeof authorizeOriginalSealedPublication!=='function'))
     fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_INVALID');
   const multipartBackingEnabled=authorizeOriginalMultipartBacking!==null;
+  const historicalReplacementMultipart=historicalReadOnly&&replacement&&source&&identity.changeKind==='ASSET_PUT';
   const replacementMultipartContent=replacement&&replacementContent&&enableOriginalMultipartNegotiation===true;
   if(multipartBackingEnabled&&(typeof authorizeOriginalMultipartBacking!=='function'||historicalReadOnly||
     !source||control||(replacement&&!replacementMultipartContent)||identity.changeKind!=='ASSET_PUT'||technicalWorkspaceId===identity.workspaceId||
@@ -1257,7 +1258,7 @@ export function createT4OriginalNetworkPublicationPort({
     if(replacement&&!historicalReadOnly&&['HEADS','DIFF_REQUEST'].includes(frame.messageType)&&
       negotiated!==enableOriginalMultipartNegotiation)fail('PUBLICATION_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH');
     const multipart=frame.criticalExtensions.includes(T4_MULTIPART_OPAQUE_EXTENSION);
-    if(multipart&&(!allowMultipart||!multipartBackingEnabled||!source||identity.changeKind!=='ASSET_PUT'||
+    if(multipart&&(!allowMultipart||(!multipartBackingEnabled&&!historicalReplacementMultipart)||!source||identity.changeKind!=='ASSET_PUT'||
       !['CHANGE_REF','CHUNK'].includes(frame.messageType)||!same(frame.criticalExtensions,[T4_MULTIPART_OPAQUE_EXTENSION])))
       fail('PUBLICATION_MULTIPART_BACKING_PROFILE_REQUIRED');
     if(frame.sequence!==entry.sequence||frame.messageType!==entry.messageType||
@@ -1891,8 +1892,11 @@ export function createT4OriginalNetworkPublicationPort({
     // the slot descriptors, without reviving historical remote authority.
     // Uncommitted multipart bytes must still be reconstructed and verified
     // at the exact indexed reconciliation boundary below.
-    const witness=!metadataOnly&&current.multipartPlan&&current.entries.length>1?await readSelectedMultipart(ctx,current):null;
-    const entries=witness?current.entries.map(e=>e.sequence===1?e:multipartEntry(ctx,current,e.sequence,witness)):current.entries;
+    const historical=historicalReplacementMultipart&&!metadataOnly&&current.multipartPlan&&current.entries.length>1?
+      await readHistoricalMultipartBacking(ctx,current):null;
+    const witness=!historical&&!metadataOnly&&current.multipartPlan&&current.entries.length>1?await readSelectedMultipart(ctx,current):null;
+    const entries=historical?current.entries.map(e=>e.sequence===1?e:{...e,wireText:historical.entries[e.sequence-2].wireText}):
+      witness?current.entries.map(e=>e.sequence===1?e:multipartEntry(ctx,current,e.sequence,witness)):current.entries;
     return Object.freeze({schema:SCHEMA,session:identity,checkpointRef,
       revision:current.revision,chainHash:current.chainHash,
       ...(current.multipartPlan?{multipartBackingReserved:true,multipartPlanDigest:current.multipartPlan.planDigest,
@@ -2059,13 +2063,10 @@ export function createT4OriginalNetworkPublicationPort({
   // current publication permission, remote content or an unlocked Vault.
   // This proves the complete retained ciphertext and the historical HEADS
   // and CHANGE_REF signatures, not a fresh transport receipt.
-  async function readOriginalHistoricalMultipartPublication(){
-    const ctx=await context(),current=await read(ctx),plan=current.multipartPlan;
-    if(!source||!enableOriginalMultipartNegotiation||!multipartBackingEnabled||
-      verifyOriginalHistoricalNodeSignature===null||!plan||!DIG(current.multipartReservation?.agreementDigest)||
-      current.entries.length!==plan.frameCount+1||current.entries.some(e=>e.state!=='PRESENT'))
-      fail('PUBLICATION_MULTIPART_HISTORICAL_PROFILE_REQUIRED');
-    const saved=[];
+  // Read the original backing without a live transport or current Vault.
+  // This helper exposes no permission and never repairs missing data.
+  async function readHistoricalMultipartBacking(ctx,current){
+    const plan=current.multipartPlan,saved=[];
     for(const desc of plan.segments){
       const found=await readSegment(ctx,plan,desc,true);
       if(!found)fail('PUBLICATION_MULTIPART_SELECTED_SEGMENT_MISSING');
@@ -2076,8 +2077,22 @@ export function createT4OriginalNetworkPublicationPort({
     if(!same(current.multipartReservation,observed))fail('PUBLICATION_MULTIPART_SELECTED_EVENT_CHANGED');
     const checked=readT4OriginalMultipartBacking({...multipartAnchor(current),plan,segments:saved.map(x=>x.segment)});
     const entries=checked.wireBytes.map(w=>initialEntry(decodeT4CandidateFrame(w),Buffer.from(w).toString('utf8')));
-    if(!same(current.entries.slice(1).map(descriptor),entries.map(descriptor)))
+    if(current.entries.length>1&&!same(current.entries.slice(1).map(descriptor),entries.map(descriptor)))
       fail('PUBLICATION_MULTIPART_PREPARED_BYTES_CHANGED');
+    const after=await read(ctx);
+    if(after.revision!==current.revision||after.chainHash!==current.chainHash||
+      !same(after.entries,current.entries)||!same(after.presentEvents,current.presentEvents)||
+      !same(after.multipartPlan,plan)||!same(after.multipartReservation,current.multipartReservation))
+      fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+    return {entries,checked,observed};
+  }
+  async function readOriginalHistoricalMultipartPublication(){
+    const ctx=await context(),current=await read(ctx),plan=current.multipartPlan;
+    if(!source||(!historicalReplacementMultipart&&(!enableOriginalMultipartNegotiation||!multipartBackingEnabled))||
+      verifyOriginalHistoricalNodeSignature===null||!plan||!DIG(current.multipartReservation?.agreementDigest)||
+      current.entries.length!==plan.frameCount+1||current.entries.some(e=>e.state!=='PRESENT'))
+      fail('PUBLICATION_MULTIPART_HISTORICAL_PROFILE_REQUIRED');
+    const {entries,checked,observed}=await readHistoricalMultipartBacking(ctx,current);
     const exactHead=current.entries[0],exactChange={...current.entries[1],wireText:entries[0].wireText};
     const head=await historicalPublishedProof(current,exactHead,true);
     const change=await historicalPublishedProof(current,exactChange,true,true);
@@ -2394,8 +2409,8 @@ export function createT4OriginalNetworkPublicationPort({
       ...(enableOriginalMultipartNegotiation&&typeof frameTransport?.inspectOriginalOutboundMultipartIndexPage==='function'?
         {reconcileOriginalMultipartIndexPage}:{})}:{}),
     ...(verifyOriginalHistoricalNodeSignature!==null?{readOriginalHistoricalPublishedFrame,readOriginalHistoricalPublishedBatch}:{}),
-    ...(source&&enableOriginalMultipartNegotiation&&multipartBackingEnabled&&verifyOriginalHistoricalNodeSignature!==null?
-      {readOriginalHistoricalMultipartPublication}:{}),
+    ...((historicalReplacementMultipart||(source&&enableOriginalMultipartNegotiation&&multipartBackingEnabled))&&
+      verifyOriginalHistoricalNodeSignature!==null?{readOriginalHistoricalMultipartPublication}:{}),
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkPublicationPort({
       technicalSchemaId,
       session:identity,localNodeRef,technicalWorkspaceId,originalKernel,

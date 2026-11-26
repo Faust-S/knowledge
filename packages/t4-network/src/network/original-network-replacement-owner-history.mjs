@@ -8,6 +8,9 @@ import {createT4OriginalNetworkReplayPort} from './original-network-replay-check
 import {createT4CandidateFrameTransport} from './standard-network-wire-transport.mjs';
 import {t4NativeSubjectCriticalExtensions,decodeT4CandidateFrame,verifyT4CandidateHistoricalReceivedFrame,T4_REPLACEMENT_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
 
+import {T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,T4_MULTIPART_MAX_CHUNKS,validateT4NativeMultipartSelection}
+  from './standard-network-multipart-opaque-chunks.mjs';
+
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const SHA=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const DIG=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
@@ -129,8 +132,14 @@ export function createT4OriginalReplacementOwnerSourceContentRequest({session,re
   const bytes=Buffer.from(diffWireBase64,'base64'),frame=decodeT4CandidateFrame(bytes);
   if(bytes.toString('base64')!==diffWireBase64||frame.messageType!=='DIFF_REQUEST'||frame.sequence!==1||
     frame.sourceNodeRef!==c.recipientNodeRef||frame.recipientNodeRef!==c.sourceNodeRef||frame.scopeRef!==c.scopeRef||
-    frame.ownerEpoch!==c.ownerEpoch||frame.sessionRef!==c.sessionRef||!same(frame.criticalExtensions,[])||
-    !same(frame.body,{familyRef:c.familyRef,fromHeads:[c.sourcePrefixDigestBefore]}))fail('REPLACEMENT_CONTENT_HISTORY_DIFF_INVALID');
+    frame.ownerEpoch!==c.ownerEpoch||frame.sessionRef!==c.sessionRef)fail('REPLACEMENT_CONTENT_HISTORY_DIFF_INVALID');
+  const multipart=frame.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION);
+  if(!same(frame.criticalExtensions,multipart?[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:[])||
+    (multipart&&c.changeKind!=='ASSET_PUT')||
+    !same(frame.body,{familyRef:c.familyRef,fromHeads:[c.sourcePrefixDigestBefore],
+      ...(multipart?{multipartSelection:frame.body.multipartSelection}:{})}))
+    fail('REPLACEMENT_CONTENT_HISTORY_DIFF_INVALID');
+  if(multipart)validateT4NativeMultipartSelection(frame.body.multipartSelection);
   return Object.freeze({schema:T4_REPLACEMENT_SOURCE_CONTENT_REQUEST,session:c,requesterNodeRef,ownerNodeRef,diffWireBase64,
     originalHistoricalEvidenceOnly:true,originalSubjectMutationAllowed:false,originalFrameRetryAllowed:false});
 }
@@ -160,10 +169,15 @@ export function validateT4OriginalReplacementOwnerSourceContentSnapshot(raw,requ
     a.historicalSignature.frameDigest!==a.frameDigest||a.historicalSignature.signerRef!==a.signerRef||a.historicalSignature.liveNetworkAuthorityGranted!==false)
     fail('REPLACEMENT_CONTENT_HISTORY_DIFF_MISMATCH');
   const phase=validateT4OriginalReplacementSourceIntentStatus(v.phase,c),admission=phase.originalReplacementSourceAdmission;
+  const multipart=diff.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION),m=p?.multipart;
   if(phase.currentPhase!=='PUBLISHED'||!same(phase,v.phase)||!ID(p?.checkpointRef)||p.checkpointRef===phase.checkpointRef||
     p.checkpointRef!==admission.publicationRef||!Number.isSafeInteger(p.revision)||p.revision<1||!DIG(p.chainHash)||
-    !Array.isArray(p.frames)||p.frames.length<3||p.frames.length>66||
-    !same(p,{checkpointRef:p.checkpointRef,revision:p.revision,chainHash:p.chainHash,frames:p.frames}))fail('REPLACEMENT_CONTENT_HISTORY_PUBLICATION_MISMATCH');
+    !Array.isArray(p.frames)||p.frames.length<3||p.frames.length>(multipart?T4_MULTIPART_MAX_CHUNKS+2:66)||
+    (multipart?(!DIG(m?.agreementDigest)||!DIG(m.manifestDigest)||!DIG(m.contentDigest)||
+      !same(m,{agreementDigest:m.agreementDigest,manifestDigest:m.manifestDigest,contentDigest:m.contentDigest})||
+      diff.body.multipartSelection.headSha256!==admission.headSha256||p.frames.length<67):Object.hasOwn(p??{},'multipart'))||
+    !same(p,{checkpointRef:p.checkpointRef,revision:p.revision,chainHash:p.chainHash,frames:p.frames,...(multipart?{multipart:m}:{})}))
+    fail('REPLACEMENT_CONTENT_HISTORY_PUBLICATION_MISMATCH');
   const ids=new Set(),frameKeys=new Set();
   for(let i=0;i<p.frames.length;i++){
     const f=p.frames[i];
@@ -303,14 +317,30 @@ export async function readT4OriginalReplacementOwnerHistory({request,technicalSc
     const replay=createT4OriginalNetworkReplayPort({technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,
       readOriginalHostContext,authorizeOriginalTechnicalRead,originalWriteOwnerRef:c.originalWriteOwnerRef,scopeRef:c.scopeRef,historicalReadOnly:true,enableOriginalTechnicalObjectHistory});
     async function readContent(){
-      const acceptedDiff=await verifyT4CandidateHistoricalReceivedFrame({wireBytes:Buffer.from(r.diffWireBase64,'base64'),localNodeRef,
-        scopeRef:c.scopeRef,requiredCryptoSuite,supportedCriticalExtensions:[],verifyOriginalHistoricalNodeSignature,
+      const wireBytes=Buffer.from(r.diffWireBase64,'base64'),diff=decodeT4CandidateFrame(wireBytes);
+      const multipart=diff.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION);
+      const acceptedDiff=await verifyT4CandidateHistoricalReceivedFrame({wireBytes,localNodeRef,
+        scopeRef:c.scopeRef,requiredCryptoSuite,supportedCriticalExtensions:diff.criticalExtensions,verifyOriginalHistoricalNodeSignature,
         readOriginalHistoricalReplayEvidence:replay.readOriginalHistoricalReplayEvidence});await guard();
-      const batch=await publication.readOriginalHistoricalPublishedBatch();await guard();
+      const batch=multipart?await publication.readOriginalHistoricalMultipartPublication():await publication.readOriginalHistoricalPublishedBatch();
+      await guard();
+      if(multipart){
+        const head=decodeT4CandidateFrame(batch.head.wireBytes);
+        const profile=readT4OriginalReplacementHandshakeProfile({candidate:c,headBody:head.body,headSha256:batch.head.sha256,
+          headExtensions:head.criticalExtensions,enableOriginalMultipartNegotiation:true});
+        const canonical=x=>JSON.stringify(x,(_k,v)=>v&&typeof v==='object'&&!Array.isArray(v)?
+          Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
+        if(canonical(diff.body)!==canonical(profile.diffBody)||!same(diff.criticalExtensions,profile.diffExtensions)||
+          batch.originalAllPresentSlotsVerified!==true||batch.originalSelectedCiphertextDigestVerified!==true||
+          batch.originalMultipartBackingEventChainVerified!==true||head.cryptoSuite!==requiredCryptoSuite||
+          decodeT4CandidateFrame(batch.change.wireBytes).cryptoSuite!==requiredCryptoSuite)
+          fail('REPLACEMENT_CONTENT_HISTORY_PUBLICATION_MISMATCH');
+      }
       const frames=batch.frames.map(f=>({sequence:f.sequence,messageType:f.messageType,key:f.key,sha256:f.sha256,
         presentEventId:f.originalPresentEventId,presentRevision:f.originalPresentRevision,presentChainHash:f.originalPresentChainHash}));
       return result('ORIGINAL_SOURCE_CONTENT_HISTORY_VERIFIED',{phase,acceptedDiff,publication:{checkpointRef:batch.checkpointRef,
-        revision:batch.originalPublicationRevision,chainHash:batch.originalPublicationChainHash,frames}});
+        revision:batch.originalPublicationRevision,chainHash:batch.originalPublicationChainHash,frames,
+        ...(multipart?{multipart:{agreementDigest:batch.agreementDigest,manifestDigest:batch.manifestDigest,contentDigest:batch.contentDigest}}:{})}});
     }
     const first=await readContent(),second=await readContent();
     if(!same(first,second)||!same(phase,await successor.inspectOriginalSession())||!same(retiredPhase,await readRetired()))

@@ -903,7 +903,8 @@ export async function readT4OriginalLocalReplacementSelection({sourceCursorBefor
   const first=saved.frames[0],frame=decodeT4CandidateFrame(first.wireBytes);
   if(role==='SOURCE')readT4OriginalReplacementSourceHead({identity:root,body:frame.body,sessionRef:c.sessionRef,
     sourceCursorBefore:before,expectedCandidate:c});
-  else if(!eq(frame.body,{familyRef:c.familyRef,fromHeads:[c.sourcePrefixDigestBefore]}))
+  else if(!eq(frame.body,{familyRef:c.familyRef,fromHeads:[c.sourcePrefixDigestBefore],
+    ...(frame.body.multipartSelection?{multipartSelection:frame.body.multipartSelection}:{})}))
     fail('PHASE_ORIGINAL_REPLACEMENT_SELECTION_CAPTURE_CONFLICT');
   const phasePort=createT4OriginalReplacementHistoricalPhasePort({...base,session:c,verifyOriginalRecipientApplied});
   const phase=await phasePort.inspectOriginalSession();
@@ -919,7 +920,9 @@ export async function readT4OriginalLocalReplacementSelection({sourceCursorBefor
         fail('PHASE_ORIGINAL_REPLACEMENT_SELECTION_PHASE_MISMATCH');
     }else{
       const a=validateT4OriginalReplacementRecipientApplyAdmission(phase.originalReplacementRecipientAdmission),d=a.contentEvidence.agreement;
-      if(!eq(a.candidate,c)||d.originalRecipientPublicationCheckpointRef!==record.checkpointRef||d.diffSha256!==first.sha256||
+      if(!eq(a.candidate,c)||Object.hasOwn(d,'originalMultipartAgreement')!==Object.hasOwn(frame.body,'multipartSelection')||
+        (d.originalMultipartAgreement&&d.originalMultipartAgreement.headSha256!==frame.body.multipartSelection.headSha256)||
+        d.originalRecipientPublicationCheckpointRef!==record.checkpointRef||d.diffSha256!==first.sha256||
         d.originalRecipientDiffPresentEventId!==anchor.originalPresentEventId||d.originalRecipientPublicationRevision!==anchor.originalPresentRevision||
         d.originalRecipientPublicationChainHash!==anchor.originalPresentChainHash||
         (phase.currentPhase==='APPLIED'&&(saved.frames.length!==2||saved.frames[1].state!=='PRESENT'||
