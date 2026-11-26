@@ -4,7 +4,7 @@ import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_
   from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
-import {isT4RecoverableFrameTransportError} from './standard-network-wire-transport.mjs';
+import {isT4RecoverableFrameTransportError,T4CandidateFrameTransportError} from './standard-network-wire-transport.mjs';
 import {T4TransferError} from './webdav-package-transfer.mjs';
 import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,verifyT4CandidateHistoricalFrameSignature,readT4CandidateAppliedAckRetention,
   isT4NativeEventOnlyKind,validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions,
@@ -1856,8 +1856,11 @@ export function createT4OriginalNetworkPublicationPort({
   // The source can reconstruct its own signed frame from the one original
   // publication ledger and immutable remote readback after a cold restart.
   // This proves neither receipt nor application by the other peer.
-  async function readOriginalPublishedFrame({sequence,includePresentEventAnchor=false}={}){
-    if(typeof includePresentEventAnchor!=='boolean'||!Number.isSafeInteger(sequence)||sequence<1||sequence>(multipartBackingEnabled?MAX_MULTIPART_FRAMES:MAX_FRAMES))
+  async function readOriginalPublishedFrame({sequence,includePresentEventAnchor=false,repairMissingFrameIndex=false}={}){
+    if(typeof includePresentEventAnchor!=='boolean'||typeof repairMissingFrameIndex!=='boolean'||
+      !Number.isSafeInteger(sequence)||sequence<1||sequence>(multipartBackingEnabled?MAX_MULTIPART_FRAMES:MAX_FRAMES)||
+      (repairMissingFrameIndex&&(!enableOriginalMultipartNegotiation||frameTransport?.nativeFrameIndexVersion!==1||
+        (sequence!==1&&!(source&&sequence===2)))))
       fail('PUBLICATION_SEQUENCE_INVALID');
     const ctx=await context(),current=await read(ctx),multipart=!!current.multipartPlan&&sequence>1;
     let entry=current.entries[sequence-1];
@@ -1865,7 +1868,23 @@ export function createT4OriginalNetworkPublicationPort({
     if(multipart)entry=multipartEntry(ctx,current,sequence,await readSelectedMultipart(ctx,current));
     if(replacement&&isContent(entry.messageType))await requireReplacementContent(ctx);
     if(isReplacementAck(entry.messageType))await requireReplacementAck(ctx,entry);
-    const proof=await readPublishedProof(ctx,current,entry,includePresentEventAnchor,multipart);
+    if(repairMissingFrameIndex){
+      const frame=frameFor(entry,multipart);
+      if(sequence===1?!frame.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION):!multipart)
+        fail('PUBLICATION_MULTIPART_INDEX_MIGRATION_PROFILE_REQUIRED');
+    }
+    let proof;
+    try{proof=await readPublishedProof(ctx,current,entry,includePresentEventAnchor,multipart);}
+    catch(error){
+      // Repair only a proven missing address of the exact retained
+      // PRESENT handshake or CHANGE_REF. Never recreate raw bytes.
+      if(!repairMissingFrameIndex||!(error instanceof T4CandidateFrameTransportError)||
+        error.code!=='WIRE_NATIVE_INDEX_MISSING')throw error;
+      const fixed=await reconcileOriginalPublishedFrameIndexes({sequences:[sequence]});
+      if(fixed.originalPublicationRevision!==current.revision||fixed.originalPublicationChainHash!==current.chainHash||
+        fixed.frames[0]?.sha256!==entry.sha256)fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+      proof=await readPublishedProof(ctx,current,entry,includePresentEventAnchor,multipart);
+    }
     if(isReplacementAck(entry.messageType))await requireReplacementAck(ctx,entry);
     if(replacement&&isContent(entry.messageType))await requireReplacementContent(ctx);
     const after=await read(ctx);
@@ -2105,6 +2124,55 @@ export function createT4OriginalNetworkPublicationPort({
       sourceCursorAdvanced:false,recipientCursorAdvanced:false,originalBusinessApplied:false,
       remoteCollectionEnumerated:false});
   }
+  // A warm source awaiting ACK has no reason to republish confirmed
+  // frames. Probe bounded exact address metadata; reconstruct backing,
+  // validate signatures and recheck the original live agreement only
+  // for missing slots, using the existing original migration fence.
+  async function reconcileOriginalMultipartIndexPage({startSequence=3,limit=32}={}){
+    if(!source||!enableOriginalMultipartNegotiation||!multipartBackingEnabled||
+      typeof frameTransport?.inspectOriginalOutboundMultipartIndexPage!=='function'||
+      !Number.isSafeInteger(startSequence)||startSequence<3||!Number.isSafeInteger(limit)||limit<1||limit>64)
+      fail('PUBLICATION_MULTIPART_INDEX_MIGRATION_PROFILE_REQUIRED');
+    const ctx=await context(),current=await read(ctx);
+    if(!current.multipartPlan||!DIG(current.multipartReservation?.agreementDigest)||
+      current.entries.length!==current.multipartPlan.frameCount+1||
+      current.entries.some(e=>e.state!=='PRESENT')||startSequence>current.entries.length)
+      fail('PUBLICATION_MULTIPART_INDEX_MIGRATION_PRESENT_REQUIRED');
+    const frames=current.entries.slice(startSequence-1,startSequence-1+limit).map(descriptor);
+    const observed=await frameTransport.inspectOriginalOutboundMultipartIndexPage({session:identity,frames});
+    if(observed?.schema!=='IWXA_T4_ORIGINAL_OUTBOUND_MULTIPART_INDEX_PAGE_V1'||
+      observed.sessionRef!==identity.sessionRef||observed.indexMetadataOnly!==true||
+      observed.exactFrameReadbackVerified!==false||observed.originalBusinessApplied!==false||
+      observed.sourceCursorAdvanced!==false||observed.remoteCollectionEnumerated!==false||
+      !same(observed.frames,frames)||!Array.isArray(observed.missing)||
+      observed.missing.some((e,i)=>!frames.some(f=>same(f,e))||(i>0&&e.sequence<=observed.missing[i-1].sequence)))
+      fail('PUBLICATION_MULTIPART_INDEX_PAGE_INVALID');
+    async function confirm(){
+      const after=await read(ctx);
+      if(after.revision!==current.revision||after.chainHash!==current.chainHash||
+        !same(after.entries,current.entries)||!same(after.presentEvents,current.presentEvents)||
+        !same(after.multipartReservation,current.multipartReservation)||!same(after.multipartPlan,current.multipartPlan))
+        fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+    }
+    await confirm();
+    if(observed.missing.length){
+      const repaired=await reconcileOriginalPublishedFrameIndexes({sequences:observed.missing.map(e=>e.sequence)});
+      if(repaired.originalPublicationRevision!==current.revision||repaired.originalPublicationChainHash!==current.chainHash||
+        !same(repaired.frames.map(descriptor),observed.missing)||
+        repaired.originalFramePutInvoked!==false||repaired.originalPublicationLedgerChanged!==false)
+        fail('PUBLICATION_MULTIPART_INDEX_PAGE_INVALID');
+      await confirm();
+    }
+    const endSequence=frames.at(-1).sequence;
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_MULTIPART_INDEX_PAGE_RECOVERY_V1',
+      sessionRef:identity.sessionRef,checkpointRef,planDigest:current.multipartPlan.planDigest,
+      originalPublicationRevision:current.revision,originalPublicationChainHash:current.chainHash,
+      startSequence,endSequence,nextSequence:endSequence<current.entries.length?endSequence+1:null,
+      checkedFrameCount:frames.length,repairedIndexCount:observed.missing.length,
+      healthyIndexIsNotContentReadback:true,originalFramePutInvoked:false,originalSigningInvoked:false,
+      originalPublicationLedgerChanged:false,originalBusinessApplied:false,sourceCursorAdvanced:false,
+      recipientCursorAdvanced:false,remoteCollectionEnumerated:false});
+  }
   async function prepareSignedBatch({slots,createSignedFrames}={}){
     const requested=slotList(slots,writeTypes),ctx=await context();
     const current=await read(ctx),start=requested[0].sequence;
@@ -2262,7 +2330,9 @@ export function createT4OriginalNetworkPublicationPort({
     session:identity,checkpointRef,inspectOriginalPublication,
     ...(historicalReadOnly?{originalHistoricalReadOnly:true}:{prepareSignedBatch,publishPreparedFrame,readOriginalPublishedFrame,reconcileOriginalPublishedFrameIndexes}),
     ...(multipartBackingEnabled?{prepareOriginalMultipartBacking,readOriginalMultipartBacking,
-      prepareOriginalMultipartPublication,publishOriginalMultipartFrames}:{}),
+      prepareOriginalMultipartPublication,publishOriginalMultipartFrames,
+      ...(enableOriginalMultipartNegotiation&&typeof frameTransport?.inspectOriginalOutboundMultipartIndexPage==='function'?
+        {reconcileOriginalMultipartIndexPage}:{})}:{}),
     ...(verifyOriginalHistoricalNodeSignature!==null?{readOriginalHistoricalPublishedFrame,readOriginalHistoricalPublishedBatch}:{}),
     ...(source&&enableOriginalMultipartNegotiation&&multipartBackingEnabled&&verifyOriginalHistoricalNodeSignature!==null?
       {readOriginalHistoricalMultipartPublication}:{}),

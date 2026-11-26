@@ -175,6 +175,31 @@ export function createT4CandidateFrameTransport({
       await hostGuard('index-readback',ctx,frame,sha256);
     }
   }
+  // Only the selected original source publication uses this bounded
+  // read-only address probe. A matching pointer is NOT byte readback,
+  // a replay decision, or evidence of subject application.
+  async function inspectOriginalOutboundMultipartIndexPage({session,frames}={}){
+    const q=structuredClone({session,frames}),r=q.session,list=q.frames;
+    if(!enableOriginalMultipartNegotiation||!indexed||r?.changeKind!=='ASSET_PUT'||
+      r.sourceNodeRef!==originalHostNodeRef||r.scopeRef!==originalHostScopeRef||
+      !ID(r.recipientNodeRef)||r.recipientNodeRef===originalHostNodeRef||!ID(r.sessionRef)||
+      !Number.isSafeInteger(r.ownerEpoch)||r.ownerEpoch<1||
+      !Array.isArray(list)||list.length<1||list.length>64||
+      list.some((e,i)=>!Number.isSafeInteger(e?.sequence)||e.sequence<2||e.sequence>T4_MULTIPART_MAX_CHUNKS+2||
+        (i>0&&e.sequence!==list[i-1].sequence+1)||e.messageType!==(e.sequence===2?'CHANGE_REF':'CHUNK')||!SHA(e.sha256)))
+      fail('WIRE_MULTIPART_OUTBOUND_INDEX_PAGE_INVALID');
+    const ctx=await hostSnapshot(),missing=[];
+    for(const e of list){
+      const frame={sourceNodeRef:r.sourceNodeRef,recipientNodeRef:r.recipientNodeRef,scopeRef:r.scopeRef,
+        sessionRef:r.sessionRef,ownerEpoch:r.ownerEpoch,sequence:e.sequence,messageType:e.messageType};
+      const addresses=await inspectIndexes(ctx,frame,e.sha256);
+      if(addresses.length)missing.push(Object.freeze({...e}));
+    }
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_OUTBOUND_MULTIPART_INDEX_PAGE_V1',
+      sessionRef:r.sessionRef,frames:Object.freeze(list.map(e=>Object.freeze({...e}))),
+      missing:Object.freeze(missing),indexMetadataOnly:true,exactFrameReadbackVerified:false,
+      originalBusinessApplied:false,sourceCursorAdvanced:false,remoteCollectionEnumerated:false});
+  }
   async function publishSignedFrame({wireBytes,beforeNetworkWrite=null}={}){
     requireWriteGuard(beforeNetworkWrite);
     if(!(wireBytes instanceof Uint8Array))
@@ -747,7 +772,7 @@ export function createT4CandidateFrameTransport({
       ...(historical?{readOriginalHistoricalReceivedFrame}:{}),
       readAndVerifySignedFrame,discoverAndVerifySignedFrames,discoverUniqueSignedFrame,discoverSessionContent,
       discoverSourceSessionHeads,discoverReplacementSourceHead,
-      ...(enableOriginalMultipartNegotiation?{discoverOriginalMultipartContentPage,originalMultipartNegotiationEnabled:true}:{})}),
+      ...(enableOriginalMultipartNegotiation?{discoverOriginalMultipartContentPage,inspectOriginalOutboundMultipartIndexPage,originalMultipartNegotiationEnabled:true}:{})}),
     ...(historicalAck?{readOriginalHistoricalAppliedAck}:{}),
     forOriginalHostLifetime:isHostActive=>createT4CandidateFrameTransport({
       ...(!historicalReadOnly?{wireTransport:scopeOriginalHostPort(wireTransport,isHostActive,['wireKind','nativeFrameIndexVersion'],

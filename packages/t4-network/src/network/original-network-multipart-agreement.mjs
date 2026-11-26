@@ -220,7 +220,7 @@ export function createT4OriginalNativeMultipartAgreementBinding({
         requireSelected(selection);
         return result===true;
       },
-      readOriginalPublishedFrame:request=>publication.readOriginalPublishedFrame(request),
+      readOriginalPublishedFrame:request=>publication.readOriginalPublishedFrame({...request,repairMissingFrameIndex:true}),
       discoverUniqueSignedFrame,
     });
     selected=selection;

@@ -1220,6 +1220,11 @@ export function createT4OriginalNativeHostNetworkOwner({
             originalSupersessionEventId:(result.step??result).originalSupersessionEventId,
             replacementSessionRef:(result.step??result).replacementSessionRef,
             originalNewAttemptAdmissionStillRequired:true}:{}),
+          ...(result.originalMultipartIndexRecovery?{
+            originalMultipartCheckedFrameCount:result.originalMultipartIndexRecovery.checkedFrameCount,
+            originalMultipartRepairedIndexCount:result.originalMultipartIndexRecovery.repairedIndexCount,
+            originalMultipartIndexNextSequence:result.originalMultipartIndexRecovery.nextSequence,
+            originalFramePutInvoked:false}:{}),
           ...(ID(result.captureRef)?{captureRef:result.captureRef}:{}),
           ...(ID(result.originalSourceEventId)?{originalSourceEventId:result.originalSourceEventId}:{}),
           ...(Number.isSafeInteger(result.pendingCaptureCount)?{pendingCaptureCount:result.pendingCaptureCount}:{}),

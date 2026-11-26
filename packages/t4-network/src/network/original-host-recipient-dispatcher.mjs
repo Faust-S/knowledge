@@ -827,7 +827,7 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
   }
   async function localDiff(expected=null){
     const r=await live(a=>publication.readOriginalPublishedFrame(a),'read-original-diff')({sequence:1,
-      ...(expected?.multipart?{includePresentEventAnchor:true}:{})});
+      ...(expected?.multipart?{includePresentEventAnchor:true,repairMissingFrameIndex:true}:{})});
     if(!isT4OriginalOutboundFrameProof(r)||r.checkpointRef!==publication.checkpointRef||
       r.signedMessageType!=='DIFF_REQUEST'||r.verifiedSequence!==1||
       r.verifiedSourceNodeRef!==session.recipientNodeRef||r.verifiedRecipientNodeRef!==session.sourceNodeRef||

@@ -59,7 +59,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     typeof authorizeOriginalHostTask!=='function'||
     typeof dispatcher?.drain!=='function')
     fail('HOST_TASK_ORIGINAL_PORTS_REQUIRED');
-  let disposed=false,active=null,activeKind=null;
+  let disposed=false,active=null,activeKind=null,multipartIndexScan=null;
   const lifetime=()=>{
     if(disposed)return false;
     try{if(isHostActive()!==true)disposed=true;}
@@ -525,7 +525,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       fail('HOST_TASK_ORIGINAL_NATIVE_PUBLICATION_PORT_INVALID');
     expected.publicationCheckpointRef=rawPublication.checkpointRef;
     if(multipart&&(!['prepareOriginalMultipartBacking','readOriginalMultipartBacking','prepareOriginalMultipartPublication',
-      'publishOriginalMultipartFrames'].every(k=>typeof rawPublication[k]==='function')||
+      'publishOriginalMultipartFrames','reconcileOriginalMultipartIndexPage'].every(k=>typeof rawPublication[k]==='function')||
       frameDiscoveryPort?.originalMultipartNegotiationEnabled!==true))
       fail('HOST_TASK_NATIVE_MULTIPART_PORTS_REQUIRED');
     const publication=scopeOriginalHostPort(rawPublication,lifetime,
@@ -714,6 +714,10 @@ export function createT4OriginalHostDispatchTaskBinding({
         fail('HOST_TASK_NATIVE_SOURCE_DISCOVERY_INVALID');
       return found;
     }
+    // Repair our own confirmed handshake address before waiting on the
+    // peer, so loss of both indexes cannot deadlock the two live Hosts.
+    const multipartHead=multipart?await publication.readOriginalPublishedFrame({sequence:1,
+      includePresentEventAnchor:true,repairMissingFrameIndex:true}):null;
     const diff=await inbound('DIFF_REQUEST',1);
     if(diff.state!=='FOUND')return done(diff.state==='RESTART_SCAN'?
       'WAITING_FOR_STABLE_DISCOVERY':'WAITING_FOR_DIFF');
@@ -721,8 +725,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       !sameJSON(diff.receipt.verifiedBody?.fromHeads,[session.sourcePrefixDigestBefore]))
       fail('HOST_TASK_NATIVE_SOURCE_DIFF_FRONTIER_MISMATCH');
     if(multipart){
-      const sourceHead=await publication.readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
-      const agreement=readT4OriginalNativeMultipartAgreement({session,sourceHead,recipientDiff:diff.receipt,
+      const agreement=readT4OriginalNativeMultipartAgreement({session,sourceHead:multipartHead,recipientDiff:diff.receipt,
         localRole:'SOURCE',requiredCryptoSuite});
       await refresh();
       if(frames.length===1){
@@ -789,8 +792,8 @@ export function createT4OriginalHostDispatchTaskBinding({
     }
     // Source reconstructs its own signed publication, not a fabricated
     // receiver's receipt, and checks exact original history before ACK.
-    const heads=await publication.readOriginalPublishedFrame({sequence:1,...(multipart?{includePresentEventAnchor:true}:{})});
-    const change=await publication.readOriginalPublishedFrame({sequence:2});
+    const heads=multipart?multipartHead:await publication.readOriginalPublishedFrame({sequence:1});
+    const change=await publication.readOriginalPublishedFrame({sequence:2,...(multipart?{repairMissingFrameIndex:true}:{})});
     await refresh();
     const published={evidenceRef:change.key,evidenceDigest:'sha256:'+change.sha256};
     const sourceProof=await verifyT4OriginalSourceHeadCausality({
@@ -815,8 +818,30 @@ export function createT4OriginalHostDispatchTaskBinding({
     if(!evidenceMatches(status.sourcePublishedEvidence,published))
       fail('HOST_TASK_NATIVE_SOURCE_PUBLICATION_EVIDENCE_CONFLICT');
     const ack=await inbound('APPLIED_ACK',2);
-    if(ack.state!=='FOUND')return done(ack.state==='RESTART_SCAN'?
-      'WAITING_FOR_STABLE_DISCOVERY':'WAITING_FOR_ACK');
+    if(ack.state!=='FOUND'){
+      if(multipart&&ack.state==='NOT_FOUND'){
+        // Progress is only an ephemeral position in the existing task.
+        // Cold attach starts again at the first chunk; no cached authority.
+        const key=JSON.stringify([initial.hostSessionRef,session.sessionRef,saved.revision,saved.chainHash,saved.multipartPlanDigest]);
+        const start=multipartIndexScan?.key===key?multipartIndexScan.next:3;
+        const page=await publication.reconcileOriginalMultipartIndexPage({startSequence:start,limit:32});
+        await refresh();
+        const end=Math.min(frames.length,start+31);
+        if(page?.schema!=='IWXA_T4_ORIGINAL_MULTIPART_INDEX_PAGE_RECOVERY_V1'||
+          page.sessionRef!==session.sessionRef||page.checkpointRef!==publication.checkpointRef||
+          page.planDigest!==saved.multipartPlanDigest||page.originalPublicationRevision!==saved.revision||
+          page.originalPublicationChainHash!==saved.chainHash||page.startSequence!==start||page.endSequence!==end||
+          page.nextSequence!==(end<frames.length?end+1:null)||page.checkedFrameCount!==end-start+1||
+          !Number.isSafeInteger(page.repairedIndexCount)||page.repairedIndexCount<0||page.repairedIndexCount>page.checkedFrameCount||
+          page.originalFramePutInvoked!==false||page.originalSigningInvoked!==false||page.originalPublicationLedgerChanged!==false||
+          page.originalBusinessApplied!==false||page.sourceCursorAdvanced!==false||page.recipientCursorAdvanced!==false||
+          page.healthyIndexIsNotContentReadback!==true)fail('HOST_TASK_NATIVE_MULTIPART_INDEX_PAGE_INVALID');
+        multipartIndexScan={key,next:page.nextSequence??3};
+        return done('WAITING_FOR_ACK',{originalMultipartIndexRecovery:page});
+      }
+      return done(ack.state==='RESTART_SCAN'?'WAITING_FOR_STABLE_DISCOVERY':'WAITING_FOR_ACK');
+    }
+    multipartIndexScan=null;
     const confirmed=await executeNativeAcknowledgement({sourceCursorPort,recovery:{
       sourcePhasePort:rawPhase,verifiedAppliedAck:ack.receipt,verifiedChangeRef:change,
       originalSourceHeadProof:sourceProof,sourceCursorBefore:task.sourceCursorBefore,
