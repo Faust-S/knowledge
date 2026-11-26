@@ -316,7 +316,9 @@ jobs:
           test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/45777863688 --jq .head_sha)" = "792a42cd2f81ce2d18969e3b94360754b23f98af"
           test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/45777863688 --jq .status)" = completed
           test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/45777863688/jobs --jq 'any(.jobs[]; .id == 139765889621 and .name == "t3-source" and .conclusion == "success")')" = true
-          gh api repos/$GITHUB_REPOSITORY/actions/jobs/139766011397/logs > "$RUNNER_TEMP/d07-prior-qualification.log"
+          # Read the trusted previous job log into a file, never render its ANSI escapes.
+          gh api --allow-escape-sequences repos/$GITHUB_REPOSITORY/actions/jobs/139766011397/logs > "$RUNNER_TEMP/d07-prior-qualification.raw"
+          tr -d '\r' < "$RUNNER_TEMP/d07-prior-qualification.raw" > "$RUNNER_TEMP/d07-prior-qualification.log"
           grep -q 'Z D07_T3_QUALIFIED_DIST_TREE=d614243c9dbfc596f7c0c2a8d5ef516ab3703aa5b61b6ec4c9a2538d49749d69$' "$RUNNER_TEMP/d07-prior-qualification.log"
           grep -q 'Z D07_T3_INTERNAL_LINKS=PASS$' "$RUNNER_TEMP/d07-prior-qualification.log"
           grep -q 'Z D07_T3_RETAIN_INDEX=PASS {"files":98,"staged":98,"exactBytes":true,"checkoutExact":true}' "$RUNNER_TEMP/d07-prior-qualification.log"
