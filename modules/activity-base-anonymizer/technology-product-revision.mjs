@@ -65,6 +65,51 @@ export function editableProductTexts(data){
  const p=validateTechnologyProduct(data);
  return productTextInventory(p).map(row=>({...row,edit_kind:classify(p,row.path)}));
 }
+// A local content review uses the existing validated product and editable
+// fields, never a new acceptance/activation protocol. Only explicit textual
+// gaps and identical role texts are reported; no estimated usability score.
+const phrase=v=>v.normalize('NFC').trim().toLocaleLowerCase('ru-RU').replace(/\s+/g,' ').replace(/[.!?]+$/u,'').trim();
+const placeholders=new Set(['не указано','не определено','неизвестно','нет данных','уточнить','указать позже','заполнить позже',
+ 'требует уточнения','уточняется','по согласованию','tbd','todo','unknown','not specified','to be determined','to be clarified','fill in later']);
+const generic=new Set(['выполнить работу','выполнить задачу','согласно требованиям','по необходимости','при необходимости','соблюдать требования',
+ 'в соответствии с требованиями','по инструкции','согласно инструкции','do the work','perform the task','as required','as needed',
+ 'according to requirements','follow instructions','according to instructions']);
+const genericBinding=new Set(['определяет получатель','уточнить у получателя','по условиям получателя','по согласованию с получателем',
+ 'recipient decides','recipient defines','set by recipient','ask the recipient']);
+const roles=['purpose','inputs','outputs','applicability'];
+export function reviewTechnologyTransferContent(data){
+ const product=validateTechnologyProduct(data),fields=editableProductTexts(product),issues=[],seen=new Set();
+ const issue=(path,code,related_paths=[])=>{
+  const key=path+'|'+code;if(seen.has(key))return;seen.add(key);
+  issues.push({path,code,related_paths});
+ };
+ for(const row of fields){
+  if(row.edit_kind==='FIXED')continue;
+  const value=phrase(row.text);
+  if(placeholders.has(value))issue(row.path,'EXPLICIT_PLACEHOLDER');
+  // Do not treat "not required" as a gap. Resource-free operations and
+  // explicitly empty optional context can be valid.
+  const procedural=/\.(instructions|result_requirements\.\d+|requirement|sampling_rule|local_context_guidance|adaptation_guidance|purpose|inputs|outputs|applicability)$/.test(row.path)||
+    /\.quality_checks\.\d+\.declared_fields\.\d+\.value$/.test(row.path)&&row.edit_kind==='CONTROL_TEXT';
+  if(procedural&&generic.has(value))issue(row.path,'GENERIC_PROCEDURE');
+  if(row.path.endsWith('.guidance')&&genericBinding.has(value))issue(row.path,'PARAMETER_WITHOUT_SELECTION_RULE');
+ }
+ const base='object_data.technology.'+(product.target==='D05_OPERATION_ROUTE_QUALITY'?'terms.':'');
+ const roleFields=fields.filter(row=>roles.some(role=>row.path===base+role));
+ const repeats=new Map();
+ for(const row of roleFields){const k=phrase(row.text),values=repeats.get(k)??[];values.push(row.path);repeats.set(k,values);}
+ for(const paths of repeats.values())if(paths.length>1)for(const path of paths)issue(path,'IDENTICAL_DISTINCT_ROLES',paths.filter(p=>p!==path));
+ const t=product.technology;
+ const recipient=product.target==='D05_OPERATION_ROUTE_QUALITY'?{
+  target:product.target,route_parameter_count:t.route_parameters.filter(p=>p.mode==='PARAMETERIZE').length,
+  operation_count:t.operations.length,operation_parameter_count:t.operations.reduce((n,o)=>n+o.parameters.filter(p=>p.mode==='PARAMETERIZE').length,0),
+  quality_control_count:t.quality_checks.length,blocking_control_count:t.quality_checks.filter(c=>c.declared_fields.some(f=>f.field==='blocking'&&f.value===true)).length,
+  material_mapping_count:t.quality_checks.filter(c=>c.declared_fields.some(f=>f.field==='related_material_id')).length,
+ }:{target:product.target,result_requirement_count:t.result_requirements.length,context_requirement_count:t.context_requirements.length,
+  recipient_interval:t.cadence.mode==='RECIPIENT_INTERVAL'};
+ return {status:'LOCAL_TECHNOLOGY_CONTENT_REVIEW',issues,recipient,editable_field_count:fields.filter(f=>f.edit_kind!=='FIXED').length,
+  semantic_usefulness:'REQUIRES_RECIPIENT_REVIEW',recipient_validation:'REQUIRES_ORIGINAL_CONSUMER',export_allowed:false};
+}
 export async function reviseTechnologyProductText(preview,changes){
  need(preview?.status==='LOCAL_TECHNOLOGY_PRODUCT_PREVIEW'&&preview.schema_id===TECHNOLOGY_SCHEMA&&
   preview.schema_version===TECHNOLOGY_VERSION&&preview.disclosure_status==='REQUIRES_OWNER_REVIEW'&&

@@ -47,7 +47,7 @@ export function D05PracticalLessonsPanel({review,groupId,modelNumber,guidance,on
    {result.related_candidates.length>4?<div className="activity-v7-actions"><button disabled={!relatedPage} onClick={()=>setRelatedPage(p=>p-1)}>Назад</button><span>{relatedPage+1} / {Math.ceil(result.related_candidates.length/4)}</span><button disabled={(relatedPage+1)*4>=result.related_candidates.length} onClick={()=>setRelatedPage(p=>p+1)}>Далее</button></div>:null}
   </details>:null}
   {result?.related_comparison_limited?<p>Сравнение близких формулировок ограничено объёмом выборки; отдельные правила сохранены.</p>:null}
-  {lines.length>0?<button className="activity-v7-primary" disabled={!additions.length||next.length>4096} onClick={()=>onApply(next)}>Добавить выбранные правила к локальным требованиям</button>:null}
+  {lines.length>0?<button className="activity-v7-primary" disabled={!additions.length||next.length>4096||Object.values(combined).some(v=>!v.trim())} onClick={()=>onApply(next)}>Добавить выбранные правила к локальным требованиям</button>:null}
   {next.length>4096?<p>Сократите выбранные формулировки до 4096 символов, не меняя их технический смысл.</p>:null}
  </div>;
 }

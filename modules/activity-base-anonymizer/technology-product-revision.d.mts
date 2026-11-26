@@ -8,3 +8,11 @@ export type ProductRevisionReview={base_product_sha256:string;product_sha256:str
 export function reviewTechnologyTextChange(previous:string,replacement:string):TextChangeReview;
 export function editableProductTexts(data:unknown):Array<{path:string;text:string;edit_kind:ProductTextEditKind}>;
 export function reviseTechnologyProductText(preview:unknown,changes:unknown):Promise<{preview:ProductPreview;local_review:ProductRevisionReview}>;
+
+export type TransferContentIssue={path:string;code:'EXPLICIT_PLACEHOLDER'|'GENERIC_PROCEDURE'|'PARAMETER_WITHOUT_SELECTION_RULE'|'IDENTICAL_DISTINCT_ROLES';related_paths:string[]};
+export type TransferContentReview={status:'LOCAL_TECHNOLOGY_CONTENT_REVIEW';issues:TransferContentIssue[];editable_field_count:number;
+ recipient:{target:'D05_OPERATION_ROUTE_QUALITY';route_parameter_count:number;operation_count:number;operation_parameter_count:number;
+ quality_control_count:number;blocking_control_count:number;material_mapping_count:number}|
+ {target:'PERSONAL_AGENT_TASK_PROMPT';result_requirement_count:number;context_requirement_count:number;recipient_interval:boolean};
+ semantic_usefulness:'REQUIRES_RECIPIENT_REVIEW';recipient_validation:'REQUIRES_ORIGINAL_CONSUMER';export_allowed:false};
+export function reviewTechnologyTransferContent(data:unknown):TransferContentReview;

@@ -10,7 +10,7 @@ export function PersonalPracticalExperiencePanel({experience,requirements,contex
  const append=(previous:string,kind:string)=>[...new Set([...lines(previous),...experience.rules.filter(r=>r.kind===kind&&Object.hasOwn(selected,r.rule_id))
   .map(r=>selected[r.rule_id].trim()).filter(Boolean),...(kind==='HUMAN_REVIEW_CRITERION'?Object.values(combined).map(v=>v.trim()).filter(Boolean):[])])].join('\n');
  const nextRequirements=append(requirements,'HUMAN_REVIEW_CRITERION'),nextContexts=append(contexts,'REPORTED_CONTEXT_LIMITATION');
- const valid=lines(nextRequirements).length<=32&&lines(nextContexts).length<=16&&nextRequirements.length<=4096&&nextContexts.length<=4096&&
+ const valid=Object.values(combined).every(v=>v.trim().length>0&&!/[\r\n]/.test(v.trim()))&&lines(nextRequirements).length<=32&&lines(nextContexts).length<=16&&nextRequirements.length<=4096&&nextContexts.length<=4096&&
   [...lines(nextRequirements),...lines(nextContexts)].every(x=>x.length<=1000);
  return <div className="activity-domain-group">
   <h3>Практический опыт без модельного вызова</h3>
