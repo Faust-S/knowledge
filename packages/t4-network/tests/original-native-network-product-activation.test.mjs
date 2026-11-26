@@ -256,3 +256,42 @@ test('native graph capture is opt-in and remains unavailable to installed RECIPI
     assert.equal(f.calls.some(x=>x[0]==='commitObjectGraph'),false);
   }finally{release();f.relay.close();}
 });
+
+
+import {createSubjectKernelBinding} from '../../t3-core/src/t3/subject-access-binding.mjs';
+test('original Admin signed D3 receipt can share management Workspace without opening a raw Registry write',async()=>{
+  const storage='workspace:registry:'+'b'.repeat(64),effect='c'.repeat(64);
+  const relay=createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,timeoutMs:2000,
+    originalRegistryScope:{workspaceId:storage,objectId:OBJ}});
+  const c={...context,kind:'CORP',principal_id:'org:admin',organization_id:'org:admin',purpose:'application'};
+  let permitted=true,authorized=0;
+  const access={currentContext:()=>c,actionFor:op=>op,operationDigest:digest,
+    authorize(request){authorized++;return {schema:'IWXA_T3_ORGANIZATION_OPERATION_DECISION/1',allowed:permitted,
+      outcome:permitted?'PERMITTED':'DENIED',evidenceOnly:true,requestDigest:digest(request),policyDigest:'a'.repeat(64),
+      organizationId:c.organization_id,workspaceId:c.workspace_id,grantId:c.grant_id,operationDigest:request.operationDigest,
+      evidenceDigest:'d'.repeat(64),productionActivation:false,doesNotTransferData:true,doesNotAcceptCorporateCopy:true,
+      statusSequence:1,validUntil:new Date(Date.now()+60000).toISOString()};},verifyDecisionBinding:(request,decision)=>decision.requestDigest===digest(request)};
+  const logical={workspace_id:WS,idempotency_key:effect,object:{object_id:'result:applied:'+effect,
+    schema_id:'iwxa.admin.applied-results',schema_version:'1.0.0',base_revision:0,
+    data:{schema:'IWXA_T3_ADMIN_APPLIED_RESULTS/1',records:[{workspaceId:WS,organizationId:c.organization_id}]},extensions:{}},
+    event:{event_type:'iwxa.admin.result.applied',payload:{effectKey:effect}},relations_put:[],relations_deletes:[]};
+  const physical={...logical,workspace_id:storage};
+  try{
+    const s=await relay.exchange({verb:'attach',payload:{sessionInfo:{...info(base),service_id:'iwxa.admin-center.workspace'}}},1);
+    const raw=relay.nativeKernel;
+    const ex=(verb,rest={})=>relay.exchange({verb,payload:{sessionId:s.sessionId,...rest}},1);
+    const signed=createSubjectKernelBinding({kernel:raw,access,isHostActive:()=>relay.attached,
+      applicationReceiptScope:{workspaceId:storage,effectKey:effect}});
+    assert.throws(()=>raw.commitObjectGraph(physical),{code:'T3_ORIGINAL_REGISTRY_RELAY_SCOPE_DENIED'});
+    await assert.rejects(relay.nativeRegistryKernel.commitObjectGraph(physical),{code:'T3_ORIGINAL_REGISTRY_RELAY_SCOPE_DENIED'});
+    await assert.rejects(signed.commitObjectGraph({...logical,idempotency_key:'e'.repeat(64)}),{code:'T3_D3_APPLICATION_RECEIPT_SCOPE_INVALID'});
+    permitted=false;await assert.rejects(signed.commitObjectGraph(logical),{code:'T3_ACCESS_NOT_PERMITTED'});permitted=true;
+    const p=signed.commitObjectGraph(logical);p.catch(()=>{});
+    const command=await ex('next');assert.equal(command.kind,'COMMAND');assert.equal(command.method,'commitObjectGraph');
+    assert.deepEqual(command.args,[physical]);assert.equal(command.network,undefined);
+    const receipt=resultFor('commitObjectGraph',[physical]);await ex('result',{id:command.id,ok:true,result:receipt});
+    assert.deepEqual(await p,receipt);assert.equal(authorized,2);
+    assert.throws(()=>raw.commitObjectGraph(command.args[0]),{code:'T3_ORIGINAL_REGISTRY_RELAY_SCOPE_DENIED'});
+    assert.throws(()=>raw.commitObjectGraph({...graph(),workspace_id:storage}),{code:'T3_ORIGINAL_REGISTRY_RELAY_SCOPE_DENIED'});
+  }finally{relay.close();}
+});

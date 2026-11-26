@@ -7,7 +7,7 @@ import {randomBytes} from "node:crypto";
 import {AsyncLocalStorage} from "node:async_hooks";
 import {isDeepStrictEqual} from "node:util";
 import {normalizeOriginalInstalledNetworkScope,sameOriginalInstalledNetworkScope} from "./original-installed-network-scope.mjs";
-import {createSubjectKernelBinding} from "./subject-access-binding.mjs";
+import {createSubjectKernelBinding,consumeOriginalApplicationReceiptGraphBinding} from "./subject-access-binding.mjs";
 import {ORIGINAL_NETWORK_RELAY_METHODS as NETWORK_METHODS,
   encodeOriginalNetworkRelayArgs,decodeOriginalNetworkRelayArgs,decodeOriginalNetworkRelayResult}
   from "./original-kernel-native-relay-codec.mjs";
@@ -232,7 +232,11 @@ export function createOriginalKernelNativeRelay({
         return result.originalReceipt;
       });
     }
-    check(!(method==="commitObjectGraph"&&registryScope&&args[0]?.workspace_id===registryScope.workspaceId),
+    // The existing Admin D3 receipt may occupy the Registry's management
+    // Workspace, but only its exact signed SubjectBinding dispatch can pass.
+    // The raw native port and the network owner cannot manufacture the mark.
+    check(!(method==="commitObjectGraph"&&registryScope&&args[0]?.workspace_id===registryScope.workspaceId)||
+      consumeOriginalApplicationReceiptGraphBinding(live.kernel,args[0],registryScope.workspaceId),
       "T3_ORIGINAL_REGISTRY_RELAY_SCOPE_DENIED");
     check(!(method==="commitObjectGraph"&&activation&&(args[0]?.workspace_id===activation.technicalWorkspaceId||
       (activation.role==='RECIPIENT'&&args[0]?.workspace_id===activation.sourceWorkspaceId))),

@@ -38,6 +38,19 @@ const HEX = /^[a-f0-9]{64}$/;
 // call. A Kernel preview belongs to the same live Host and signed context,
 // not to that short-lived port object. The opaque key never reaches a module.
 const previewSessions = new WeakMap();
+// Local provenance of the exact already-authorized native D3 receipt graph.
+// This is neither a signed grant nor a public field on a Kernel command. Only
+// SubjectBinding can mark the physical dispatch, and only its original Kernel
+// instance can consume it once. A cloned/serialized object cannot carry it.
+const applicationReceiptGraphs=new WeakMap();
+export function consumeOriginalApplicationReceiptGraphBinding(kernel,input,workspaceId){
+  const bound=applicationReceiptGraphs.get(input);
+  if(!bound||bound.kernel!==kernel||bound.workspaceId!==workspaceId||input.workspace_id!==workspaceId||
+    input.idempotency_key!==bound.effectKey||input.object?.object_id!=="result:applied:"+bound.effectKey||
+    input.object?.schema_id!=="iwxa.admin.applied-results"||input.event?.event_type!=="iwxa.admin.result.applied")return false;
+  applicationReceiptGraphs.delete(input);
+  return true;
+}
 // These are existing original product schemas, not a second Exchange.
 // The installed signed corporate Host transfers WORK data only. A native
 // D3 applied receipt and the authority registry are not user-importable.
@@ -546,6 +559,12 @@ export function createSubjectKernelBinding({
     // This is the exact boundary where the original Kernel operation starts.
     // Observers may record uncertainty, but cannot issue a second operation.
     if (method === "commitObjectGraph") onCommitObjectGraphDispatch?.();
+    const dispatchApplicationReceipt=async()=>{
+      const physical=Object.freeze({...command,workspace_id:physicalWorkspace});
+      applicationReceiptGraphs.set(physical,Object.freeze({kernel,workspaceId:physicalWorkspace,effectKey:receiptScope.effectKey}));
+      try{return await kernel.commitObjectGraph(physical);}
+      finally{applicationReceiptGraphs.delete(physical);}
+    };
     const result = method === "getObject"
       ? await kernel.getObject(physicalWorkspace,command.object_id)
       : method === "getWorkspace"
@@ -568,8 +587,9 @@ export function createSubjectKernelBinding({
                     ? await kernel.importCancel(command.preview_token)
                     : method === "importCommit"
                       ? await kernel.importCommit(command)
-                      : await kernel[method](receiptScope===null?command:
-                        {...command,workspace_id:physicalWorkspace});
+                      : method === "commitObjectGraph"&&receiptScope!==null
+                        ? await dispatchApplicationReceipt()
+                        : await kernel[method](command);
     const scoped = (record,code) => {
       if (!record || typeof record !== "object" ||
           record.workspace_id !== physicalWorkspace) refused(code);
