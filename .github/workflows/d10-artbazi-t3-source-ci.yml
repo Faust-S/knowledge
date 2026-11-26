@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 68c10fcd8918b9719a6f1be0b66bb0ad065b5c8f
+          ref: 015874e726b6a7d325946022e20d127829602a94
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
