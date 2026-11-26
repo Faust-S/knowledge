@@ -8,8 +8,8 @@ import { connectKernel } from "./kernel-client/connect";
 import { createKernelFacade } from "./workspace-host/context/create-kernel-facade";
 import { createControlLoopbackOwner } from "./t3/control-loopback-owner.mjs";
 import { createOriginalLocalSourceMutationRoute,type OriginalLocalSourceMutationRoute } from "./t3/original-local-source-mutation-route.mjs";
-import { ORIGINAL_NETWORK_RELAY_METHODS,decodeOriginalNetworkRelayArgs,
-  encodeOriginalNetworkRelayResult } from "./t3/original-kernel-native-relay-codec.mjs";
+import { decodeOriginalNetworkRelayArgs,
+  encodeOriginalNetworkRelayResult,readOriginalNativeRelayNegotiation } from "./t3/original-kernel-native-relay-codec.mjs";
 import {
   acceptOriginalKernelRealmChannel,
   ISOLATED_KERNEL_SCHEMA,
@@ -76,10 +76,10 @@ async function attachOriginalNativeKernelRelay(
     granted_operations:[...plain.grantedOperations],
   };
   let connected:{sessionId:string;contextEpoch:number;networkRelayVersion?:number;
-    networkMethods?:string[];localSourceMutationVersion?:number;localSourceGraphVersion?:number;
+    networkMethods?:string[];networkActivationPending?:number;localSourceMutationVersion?:number;localSourceGraphVersion?:number;
     localSourceWorkspaceId?:string;localSourceMutationMethods?:string[]}|null=null;
   try{
-    connected=await owner.originalKernelRelay("attach",{sessionInfo:info,networkRelayVersion:1,
+    connected=await owner.originalKernelRelay("attach",{sessionInfo:info,networkRelayVersion:1,networkActivationVersion:1,
       ...(sourceRoute?{localSourceMutationVersion:1,localSourceGraphVersion:1}:{})});
   }catch(error){
     const code=(error as {code?:string}|null)?.code;
@@ -105,26 +105,20 @@ async function attachOriginalNativeKernelRelay(
     return;
   }
   const networkMethods=new Set<string>();
-  if(connected.networkRelayVersion!==undefined||connected.networkMethods!==undefined){
-    if(connected.networkRelayVersion!==1||!Array.isArray(connected.networkMethods)||
-      !connected.networkMethods.length||
-      new Set(connected.networkMethods).size!==connected.networkMethods.length||
-      !connected.networkMethods.every(name=>Object.hasOwn(ORIGINAL_NETWORK_RELAY_METHODS,name)&&
-        info.granted_operations.some(operation=>operation===ORIGINAL_NETWORK_RELAY_METHODS[name]))){
-      await owner.originalKernelRelay("detach",{sessionId:connected.sessionId}).catch(()=>{});
-      throw reject("T3_ORIGINAL_NETWORK_RELAY_NEGOTIATION_INVALID");
+  const selected=connected;
+  let activationPending=false;
+  try{
+    const negotiation=readOriginalNativeRelayNegotiation({reply:selected,grantedOperations:info.granted_operations});
+    activationPending=negotiation.state==="PENDING";
+    if(!activationPending){
+      for(const name of negotiation.networkMethods){originalMethods.add(name);networkMethods.add(name);}
+      sourceRoute?.accept(selected);
     }
-    for(const name of connected.networkMethods){originalMethods.add(name);networkMethods.add(name);}
-  }
-  if(sourceRoute){
-    try{sourceRoute.accept(connected);}
-    catch(error){
-      await owner.originalKernelRelay("detach",{sessionId:connected.sessionId}).catch(()=>{});
-      throw error;
-    }
+  }catch(error){
+    await owner.originalKernelRelay("detach",{sessionId:selected.sessionId}).catch(()=>{});
+    throw error;
   }
   let active=true;
-  const selected=connected;
   stopNativeRelay=()=>{
     active=false;
     sourceRoute?.clear();
@@ -148,6 +142,19 @@ async function attachOriginalNativeKernelRelay(
       const selectedCommand=await owner.originalKernelRelay("next",{
         sessionId:selected.sessionId});
       if(!active||!live)return;
+      if(selectedCommand?.kind==="NETWORK_ACTIVATION"){
+        if(!activationPending)throw reject("T3_ORIGINAL_NETWORK_RELAY_NEGOTIATION_INVALID");
+        const negotiation=readOriginalNativeRelayNegotiation({reply:selectedCommand,session:selected,
+          grantedOperations:info.granted_operations});
+        activationPending=false;
+        if(negotiation.state==="READY"){
+          for(const name of negotiation.networkMethods){originalMethods.add(name);networkMethods.add(name);}
+          sourceRoute?.accept(selectedCommand.activation);
+        }
+        // A denied source remains explicitly capture-blocked; never bypass
+        // into an untracked raw local write. Other T3 work remains available.
+        continue;
+      }
       if(selectedCommand?.kind==="IDLE"){
         // The original Control long-poll already waited for a native D3
         // command. Do not depend on throttled hidden-iframe timers.

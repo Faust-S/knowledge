@@ -54,3 +54,39 @@ export function encodeOriginalNetworkRelayResult(method,value){
 export function decodeOriginalNetworkRelayResult(method,value){
   return method==="getAsset"&&value!==null?decodeRecord(value):value;
 }
+
+// Internal Host negotiation, not T4 wire data. The trusted realm may
+// execute the inherited D3 methods while the original Registry is checked,
+// but no network/source-capture method is admitted until the final reply.
+export function readOriginalNativeRelayNegotiation({reply,grantedOperations,session=null}={}){
+  const invalid=()=>{throw Object.assign(Error("T3_ORIGINAL_NETWORK_RELAY_NEGOTIATION_INVALID"),
+    {code:"T3_ORIGINAL_NETWORK_RELAY_NEGOTIATION_INVALID"});};
+  const body=session===null?reply:reply?.activation;
+  if(!record(body)||!Array.isArray(grantedOperations)||
+    typeof body.sessionId!=="string"||!/^[A-Za-z0-9_-]{43}$/.test(body.sessionId)||
+    !Number.isSafeInteger(body.contextEpoch)||body.contextEpoch<0)invalid();
+  if(session!==null&&(reply?.kind!=="NETWORK_ACTIVATION"||body.networkActivationVersion!==1||
+    body.sessionId!==session.sessionId||body.contextEpoch!==session.contextEpoch||
+    !["READY","DENIED"].includes(body.state)||Object.hasOwn(body,"networkActivationPending")))invalid();
+  if(session===null&&(Object.hasOwn(body,"networkActivationVersion")||Object.hasOwn(body,"state")))invalid();
+  const sourceFields=["localSourceMutationVersion","localSourceGraphVersion","localSourceWorkspaceId","localSourceMutationMethods"];
+  const hasSource=sourceFields.some(key=>Object.hasOwn(body,key));
+  const hasNetwork=Object.hasOwn(body,"networkRelayVersion")||Object.hasOwn(body,"networkMethods");
+  if(Object.hasOwn(body,"networkActivationPending")){
+    if(body.networkActivationPending!==1||hasNetwork||hasSource)invalid();
+    return Object.freeze({state:"PENDING",networkMethods:Object.freeze([])});
+  }
+  if(session!==null&&body.state==="DENIED"){
+    if(hasNetwork||hasSource)invalid();
+    return Object.freeze({state:"DENIED",networkMethods:Object.freeze([])});
+  }
+  if(!hasNetwork){
+    if(hasSource||session!==null)invalid();
+    return Object.freeze({state:"LEGACY",networkMethods:Object.freeze([])});
+  }
+  if(body.networkRelayVersion!==1||!Array.isArray(body.networkMethods)||!body.networkMethods.length||
+    new Set(body.networkMethods).size!==body.networkMethods.length||
+    !body.networkMethods.every(name=>typeof name==="string"&&Object.hasOwn(ORIGINAL_NETWORK_RELAY_METHODS,name)&&
+      grantedOperations.includes(ORIGINAL_NETWORK_RELAY_METHODS[name])))invalid();
+  return Object.freeze({state:"READY",networkMethods:Object.freeze([...body.networkMethods])});
+}

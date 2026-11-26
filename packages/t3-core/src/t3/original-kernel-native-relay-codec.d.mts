@@ -3,3 +3,5 @@ export function encodeOriginalNetworkRelayArgs(method:string,args:unknown[]):unk
 export function decodeOriginalNetworkRelayArgs(method:string,args:unknown[]):unknown[];
 export function encodeOriginalNetworkRelayResult(method:string,value:unknown):unknown;
 export function decodeOriginalNetworkRelayResult(method:string,value:unknown):unknown;
+export function readOriginalNativeRelayNegotiation(input:{reply:unknown;grantedOperations:readonly string[];
+  session?:{sessionId:string;contextEpoch:number}|null}):Readonly<{state:"PENDING"|"READY"|"DENIED"|"LEGACY";networkMethods:readonly string[]}>;
