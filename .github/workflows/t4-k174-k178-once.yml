@@ -1,0 +1,36 @@
+name: T4 K174 K178 successor terminal and native binding
+on:
+  push:
+    branches:
+      - 'ci/once/t4-k174-k178/69b5ee8173e9'
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public candidate and source checks
+        run: |
+          test "$(git rev-parse HEAD^)" = "69b5ee8173e9a919d10500381bab86c2eca0074e"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+          npm run check --prefix packages/t4-network
+      - name: Successor complete phases and terminal history
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test tests/original-network-session-phases.test.mjs
+      - name: Original native owner and selected profile gates
+        if: ${{ !cancelled() }}
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test --test-name-pattern='K156|K178|K92' tests/original-native-host-network-owner.test.mjs
+      - name: Existing publication and cursor regressions
+        if: ${{ !cancelled() }}
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test tests/original-network-publication.test.mjs tests/original-network-source-cursor.test.mjs tests/original-host-native-recipient-step.test.mjs
