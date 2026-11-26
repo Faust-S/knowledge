@@ -22,8 +22,8 @@ const wording={
 function boundary(points,start,end,value,kind){
  if(word(points[start-1])&&word(points[start]))return false;
  if(word(points[end-1])&&word(points[end]))return false;
- if(kind==='EMAIL'&&(/[.@+%_-]/.test(points[start-1]??'')||
-    points[end]==='.'&&word(points[end+1])))return false;
+ if(kind==='EMAIL'&&(/[A-Za-z0-9.!#$%&'*+/=?^_`{|}~@-]/.test(points[start-1]??'')||
+    /[A-Za-z0-9_@-]/.test(points[end]??'')||points[end]==='.'&&word(points[end+1])))return false;
  return true;
 }
 function occurrences(row,value,kind){
@@ -102,10 +102,11 @@ export async function prepareProductGeneralization(preview,reports,language='ru'
  const result=[];
  for(const g of [...groups.values()].sort((a,b)=>cmp(a.value,b.value))){
   const types=[...g.types].sort(cmp),kind=direct(g.value,types,g.score);
+  const boundaryKind=kind??(email.test(g.value)?'EMAIL':null);
   // Expand identical complete references throughout the product. Short or
   // purely numeric findings stay scoped to the actual analyzer spans.
   if(kind||Array.from(g.value).length>=3&&/\p{L}/u.test(g.value)){
-   for(const row of inventory)for(const pos of occurrences(row,g.value,kind)){
+   for(const row of inventory)for(const pos of occurrences(row,g.value,boundaryKind)){
     const span={path:row.path,...pos,edit_kind:row.edit_kind,detected:false};
     if(!g.spans.has(spanKey(span)))g.spans.set(spanKey(span),span);
    }
@@ -116,7 +117,7 @@ export async function prepareProductGeneralization(preview,reports,language='ru'
   // contact replacement. A domain revision is needed if those are private.
   const editable=spans.filter(s=>s.edit_kind!=='FIXED'&&!(s.edit_kind==='CONTROL_TEXT'&&digit(g.value)));
   const blocked=spans.length-editable.length;
-  const complete=spans.every(s=>boundary(fields.get(s.path).points,s.start,s.end,g.value,kind));
+  const complete=spans.every(s=>boundary(fields.get(s.path).points,s.start,s.end,g.value,boundaryKind));
   const referenceRoles=[...new Set(g.references.map(r=>r.replacement))];
   // A replacement may itself be another known identifying reference. Such
   // chains and conflicting roles are left to the owner, never applied by default.

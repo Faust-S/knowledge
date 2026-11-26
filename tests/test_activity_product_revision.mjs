@@ -150,3 +150,13 @@ test('known private aliases and roles supplement Presidio without copying source
  const conflict=await prepareProductGeneralization(p,[],'ru',[...refs,{...refs[0],replacement:'контролёр'}]);
  assert.equal(conflict.groups.find(g=>g.value===refs[0].value).suggested_replacement,null);
 });
+
+test('a declared contact matches the whole address, not a suffix of another address',async()=>{
+ const p=await preparePersonalTechnologyProduct(personalRows(),'routine_001',{...personalProposal(),
+  instructions:'Send to quality@example.com, not alt+quality@example.com or quality@example.com-other.'});
+ const refs=[{value:'quality@example.com',replacement:'the designated quality contact',kind:'LOCAL_REFERENCE'}];
+ const plan=await prepareProductGeneralization(p,[],'en',refs);
+ assert.equal(plan.groups[0].spans.length,1);
+ const out=await applyProductGeneralization(p,[],select(plan,[{group_id:plan.groups[0].group_id,replacement:refs[0].replacement}]),refs);
+ assert.equal(out.preview.object_data.technology.instructions,'Send to the designated quality contact, not alt+quality@example.com or quality@example.com-other.');
+});
