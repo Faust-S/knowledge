@@ -21,7 +21,8 @@ import {createT4NativeMultipartOffer,createT4NativeMultipartSelection,prepareT4C
 import {createT4OriginalSourceSessionHead,readT4OriginalSourceSessionHead,createT4OriginalNetworkPublicationPort,
   createT4OriginalPublicationIndexMigrationStepper}
   from '../src/network/original-network-publication.mjs';
-import {readT4OriginalNativeMultipartAgreement as agreement,validateT4OriginalNativeMultipartAgreement as validate}
+import {readT4OriginalNativeMultipartAgreement as agreement,validateT4OriginalNativeMultipartAgreement as validate,
+  createT4OriginalNativeMultipartAgreementReader}
   from '../src/network/original-network-multipart-agreement.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID} from '../src/network/original-network-technical-schema.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
@@ -612,4 +613,55 @@ test('K153 multipart index repair cannot recreate a missing PRESENT frame or byp
   assert.equal(root.originalMultipartRootMetadataOnly,true);
   await assert.rejects(sp.reconcileOriginalPublishedFrameIndexes({sequences:[3]}),code('MULTIPART_AGREEMENT_WITNESS_INVALID'));
   assert.equal(f.indexes.has(address),false);assert.equal(f.writes,writes);assert.equal(f.puts,puts);
+});
+
+test('K154 live agreement reader binds exact original local publication, peer receipt and Host lifetime without a selected witness cache',async()=>{
+  const f=fixture(),{sp,rp,sa,ra}=await f.negotiate();f.selected.clear();
+  let binding=true,localReads=0,peerReads=0;
+  const readers=new Map();
+  for(const node of [source,recipient]){
+    const host=f.host,port=node===source?sp:rp,wire=f.transport(node);
+    readers.set(node,createT4OriginalNativeMultipartAgreementReader({session,
+      localRole:node===source?'SOURCE':'RECIPIENT',requiredCryptoSuite:suite,originalHostSessionRef:host,
+      technicalWorkspaceId:'workspace:technical:'+node,expectedHeadSha256:sa.headSha256,
+      assertOriginalOwnerBinding:async()=>binding&&f.host===host,
+      readOriginalPublishedFrame:async p=>{localReads++;return port.readOriginalPublishedFrame(p);},
+      discoverUniqueSignedFrame:async p=>{peerReads++;return wire.discoverUniqueSignedFrame(p);}
+    }));
+  }
+  const request={session,originalMultipartAgreementDigest:sa.agreementDigest,originalSubjectAuthorityGranted:false};
+  assert.deepEqual(await readers.get(source)(request),sa);assert.deepEqual(await readers.get(recipient)(request),ra);
+  const wireProof={purpose:'inspect',originalHostNodeRef:source,originalHostScopeRef:session.scopeRef,
+    originalHostSessionRef:f.host,sourceNodeRef:source,recipientNodeRef:recipient,
+    sessionRef:session.sessionRef,changeId:session.changeId,scopeRef:session.scopeRef,ownerEpoch:session.ownerEpoch,cryptoSuite:suite,
+    messageType:'CHUNK',originalSignedHeadAndDiffProofRequired:true,originalSubjectAuthorityGranted:false};
+  assert.deepEqual(await readers.get(source)(wireProof),sa);
+  assert.deepEqual(await readers.get(source)({...wireProof,sourceNodeRef:recipient,recipientNodeRef:source,messageType:'CHUNK_REQUEST'}),sa);
+  assert.equal(localReads,4);assert.equal(peerReads,4);
+  await assert.rejects(readers.get(source)({...wireProof,sessionRef:'session:other'}),code('MULTIPART_AGREEMENT_READER_SESSION_MISMATCH'));
+  await assert.rejects(readers.get(source)({...request,session:{...session,capturedSha256:hex('other')}}),code('MULTIPART_AGREEMENT_READER_SESSION_MISMATCH'));
+  await assert.rejects(readers.get(source)({...request,originalSubjectAuthorityGranted:true}),code('MULTIPART_AGREEMENT_READER_REQUEST_INVALID'));
+  assert.equal(localReads,4);assert.equal(peerReads,4);
+  await assert.rejects(readers.get(source)({...request,originalMultipartAgreementDigest:d('other')}),code('MULTIPART_AGREEMENT_READER_PROOF_CHANGED'));
+  assert.equal(localReads,5);assert.equal(peerReads,5);
+  binding=false;
+  await assert.rejects(readers.get(source)(request),code('MULTIPART_AGREEMENT_READER_ORIGINAL_BINDING_CHANGED'));
+  assert.equal(localReads,5);
+  binding=true;f.restart();
+  await assert.rejects(readers.get(source)(request),code('MULTIPART_AGREEMENT_READER_ORIGINAL_BINDING_CHANGED'));
+});
+test('K154 live agreement reader does not accept a missing or revoked exact signed peer proof',async()=>{
+  const f=fixture(),{sp,sa}=await f.negotiate();f.selected.clear();
+  const read=createT4OriginalNativeMultipartAgreementReader({session,localRole:'SOURCE',requiredCryptoSuite:suite,
+    originalHostSessionRef:f.host,technicalWorkspaceId:'workspace:technical:'+source,
+    assertOriginalOwnerBinding:async()=>true,readOriginalPublishedFrame:p=>sp.readOriginalPublishedFrame(p),
+    discoverUniqueSignedFrame:p=>f.transport(source).discoverUniqueSignedFrame(p)});
+  const request={session,originalSubjectAuthorityGranted:false};
+  assert.deepEqual(await read(request),sa);
+  const address=t4NativeFrameIndexKeys(decodeT4CandidateFrame(diffBytes))[0];
+  assert.ok(f.indexes.delete(address));
+  await assert.rejects(read(request),code('MULTIPART_AGREEMENT_READER_PEER_PROOF_REQUIRED'));
+  f.indexes.set(address,hex(diffBytes));f.allow(false);
+  await assert.rejects(read(request),error=>typeof error?.code==='string'&&error.code.includes('AUTHORIZATION_DENIED')||
+    error?.code==='PUBLICATION_ORIGINAL_AUTHORITY_DENIED');
 });
