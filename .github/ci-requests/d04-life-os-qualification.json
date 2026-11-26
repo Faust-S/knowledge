@@ -1,0 +1,11 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d04-life-os-qualification",
+  "prepared_sha": "5d1ad7af6780e04b5ec086d3ca63b96abad6dcff",
+  "profile": "full-release-after-navigation-fixes",
+  "revisions": {
+    "site": "4e2d5d7ede7a1ab062772d52664021a91eb2053b",
+    "subject": "b277a721135381813dfdc7333c7b8e8645610722",
+    "t2": "9c64951cd78411283e8a416641c36d71e169fc1d"
+  }
+}
