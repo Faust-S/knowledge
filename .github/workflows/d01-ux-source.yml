@@ -35,20 +35,20 @@ jobs:
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-ux-source \
             --profile full-product-qualification \
-            --revision site=5ec03621bd34449d0de83a8d273bd16d3fb3fb36 \
-            --revision subject=5defadc101fa0ec9bce92f6d2806f7b9976d1d6d \
+            --revision site=b03bbe5be39b52fd2ff91d7c8b67e595677b4c9f \
+            --revision subject=f4aff86f9dac88cfdb62dde10fa8c6946585f024 \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 5ec03621bd34449d0de83a8d273bd16d3fb3fb36
+          ref: b03bbe5be39b52fd2ff91d7c8b67e595677b4c9f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn
-          ref: 5defadc101fa0ec9bce92f6d2806f7b9976d1d6d
+          ref: f4aff86f9dac88cfdb62dde10fa8c6946585f024
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -59,8 +59,8 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 5ec03621bd34449d0de83a8d273bd16d3fb3fb36
-          test "$(git -C private/domain rev-parse HEAD)" = 5defadc101fa0ec9bce92f6d2806f7b9976d1d6d
+          test "$(git -C private/site rev-parse HEAD)" = b03bbe5be39b52fd2ff91d7c8b67e595677b4c9f
+          test "$(git -C private/domain rev-parse HEAD)" = f4aff86f9dac88cfdb62dde10fa8c6946585f024
           for path in study/services t2/domain-modules/learn; do
             for file in study-write-outcome.mjs study-write-outcome.d.mts; do
               cmp "private/domain/learning-journey/$file" "private/site/$path/$file"
@@ -216,8 +216,8 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 5ec03621bd34449d0de83a8d273bd16d3fb3fb36
-          test "$(git -C private/domain rev-parse HEAD)" = 5defadc101fa0ec9bce92f6d2806f7b9976d1d6d
+          test "$(git -C private/site rev-parse HEAD)" = b03bbe5be39b52fd2ff91d7c8b67e595677b4c9f
+          test "$(git -C private/domain rev-parse HEAD)" = f4aff86f9dac88cfdb62dde10fa8c6946585f024
           test "$(git -C private/t2 rev-parse HEAD)" = 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
           test "$(git -C private/t2 rev-parse refs/remotes/origin/main)" = 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
       - name: Run actual Learn/T2 build and browser user journey
@@ -227,7 +227,7 @@ jobs:
         env:
           D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
           D01_EXPECTED_T2_HEAD: 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
-          D01_EXPECTED_SITE_HEAD: 5ec03621bd34449d0de83a8d273bd16d3fb3fb36
+          D01_EXPECTED_SITE_HEAD: b03bbe5be39b52fd2ff91d7c8b67e595677b4c9f
           D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
           D01_CASE_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-001-workplace-numeracy.json
           D01_CASE_002_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-002-price-label-check.json
