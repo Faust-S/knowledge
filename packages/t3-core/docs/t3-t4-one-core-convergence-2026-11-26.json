@@ -1,22 +1,22 @@
 {
   "schema": "IWXA_T3_T4_ONE_CORE_CONVERGENCE_STAGE/1",
-  "state": "SOURCE_CONVERGENCE_PARTIALLY_QUALIFIED",
+  "state": "SOURCE_CONVERGENCE_PARTIALLY_QUALIFIED_NATIVE_PILOT_STAGED",
   "mergeBase": "fd927a1efb083219442d9504285f75fa738dbdda",
   "corporateT3": "8db847058cab231d2d39c34df46024b60564d2ad",
   "networkT4": "896515f361611e311b0df22dbcfebfefa8e58fa0",
   "corporateChanges": 55,
   "overlappingFiles": 9,
   "resolvedBlobs": {
-    "packages/t3-core/src/t3/access/original-kernel-registry-state.mjs": "9dcca61177cc1ff4e9ec9ecace82059bb53c4f8b",
+    "packages/t3-core/src/t3/access/original-kernel-registry-state.mjs": "077aa1f497805d44e38e77030156e96a1cda6e99",
     "packages/t3-core/src/main-trusted-kernel-realm.ts": "e99c99a2c6da124daf51cbb6ba33be8b6bc164cb",
     "packages/t3-core/src/t3/index.d.mts": "fedcde6696f00f57c52d73dc4f3cf2fe4136a6de",
-    "packages/t3-core/src/t3/original-kernel-native-relay.mjs": "d218d6995ec1ed107f713a11773314c1fbbfd8b4",
+    "packages/t3-core/src/t3/original-kernel-native-relay.mjs": "e10247866ed8cd147ff2d001bbf2c4a330aafee5",
     "packages/t3-core/src/t3/subject-access-binding.mjs": "09549eb3850a34ee0f2036038f4566eab844dfd2",
     "packages/t3-core/src/workspace-host/context/create-kernel-facade.ts": "302faf170162c3025c660db5ba30a26110ea665d",
     "packages/t3-core/tests/module-kernel-facade.test.ts": "4989c0a2c0aa173140399a0fa92f9dd4f134adc9",
     "packages/t3-core/tests/t3-d1-original-control-http.test.mjs": "dfb2cdfd9743893c90a360a7e560f4b29064326c",
     "packages/t3-core/tests/t3-subject-kernel-scope.test.mjs": "3b7347668f7693e6d26ec635678caf594a03b816",
-    "packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs": "c3f68123d548ea4d76befd6a800a4819e0f126f3",
+    "packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs": "3c97d7f5124cea1b3e85c537e470691a01f85a69",
     "packages/t3-core/src/t3/original-installed-network-scope.mjs": "95cce78bb156184f004a1e5919d29a85dbb10421",
     "packages/t3-core/src/t3/original-installed-network-scope.d.mts": "4fb308feaaa44a928fe12647376c3994612c63a4",
     "packages/t3-core/src/t3/original-control-http-handler.mjs": "4de7fe0cf20b291ac81068c82cc08e4ff0111a6b",
@@ -27,10 +27,10 @@
   "networkWireUnchanged": true,
   "accepted": false,
   "blocking": [
-    "Complete three interrupted long native/multipart/session contract files on exact recheck candidate.",
-    "Qualify final source changes after d9881287, especially signed management receipt provenance with real original Admin D3.",
-    "Mount original Registry, Access and Vault in one actual installed owner; current product code does not yet supply the required shared Registry/evaluator.",
-    "Original DB9 admission and actual two-node installed pilot.",
+    "Complete latest original immutable Runtime witness; no DB9 claim from this witness.",
+    "Bundle and supply canonical installed network factories and actual native profile provider; SOURCE original Registry/evaluator adoption remains unimplemented, RECIPIENT composition is staged only.",
+    "Provision exact original signed grants, durable keys and separate existing Registry/technical workspaces in authorized original owners.",
+    "Original DB9 qualification and actual two-node installed pilot.",
     "Independent final acceptance."
   ],
   "notes": [
@@ -40,20 +40,26 @@
     "Full converged Registry source verification passed, including mixed employee proof, seat and network-key history. No production grants created.",
     "Source native graph uses the existing local capture owner, not a second queue. Native Admin receipt graph enters the protected management partition only through exact original signed SubjectBinding provenance, not by schema name alone.",
     "The private Admin original mount currently constructs its Registry over liveKernel, not the required scoped Relay port; do not claim installed owner composition accepted.",
-    "Two public grouped CI runs this cycle; no private Actions or Codex. Latest receipt routing correction has only local source qualification."
+    "Two public grouped CI runs this cycle; no private Actions or Codex. Latest receipt routing correction has only local source qualification.",
+    "The previous three long files now pass 119/119 in run 45887831413; its exact earlier candidate is 206a289b.",
+    "Current source extends the original scoped Registry binding, never initializes on disappearance of an admitted authority record. New T4 passport grants no original Access authority; both product-local routes reject unconfigured pilot admission.",
+    "Compared full Git trees: all 66 original network src blobs unchanged; five additional integration modules.",
+    "One new public grouped run in this cycle; no private Actions or Codex."
   ],
   "additionalTests": {
-    "packages/t4-network/tests/original-native-network-product-activation.test.mjs": "e3d678a0ccb5025ae1cf04eef4ad9e4170a6fa28",
+    "packages/t4-network/tests/original-native-network-product-activation.test.mjs": "9f1fd80a9f76a2dd9f99d7367d804cc1acfe0f02",
     "packages/t4-network/tests/original-installed-control-factories.test.mjs": "9391594c3d36003edcdce510514c5b73e6d258a1",
-    "packages/t4-network/tests/original-installed-control-http.test.mjs": "9d29f4c3908667604c77738d266db47f8650f361"
+    "packages/t4-network/tests/original-installed-control-http.test.mjs": "9d29f4c3908667604c77738d266db47f8650f361",
+    "packages/t4-network/tests/original-installed-product-passport.test.mjs": "5a8fcd4139b5d42485164bcbb2cff10e118b7fe5",
+    "packages/t3-core/tests/t3-company-original-runtime-roundtrip.test.mjs": "4bf186c30015ec59d5a873dd84b98e46b6667c5d"
   },
   "localRelayQualification": {
-    "candidate": "d988128718688a3547a04c8b87a493daa5a68adc",
-    "pass": 51,
+    "candidate": "976efab7eca7afa09995d0ffa63413c3b99834d7",
+    "pass": 53,
     "fail": 0,
     "cancelled": 0,
     "skipped": 0,
-    "scope": "Exact Git blobs of converged Relay, SubjectBinding, scope, activation and original factory tests; mocked original Kernel and owner decisions. Not installed Host or original DB9.",
+    "scope": "Exact public Relay/SubjectBinding/factory/selection tests using modeled Kernel and owner decisions.",
     "history": [
       {
         "candidate": "47a0495bf8ab8fb4e8303fabc31bcd1dd00e50ef",
@@ -73,8 +79,8 @@
     ]
   },
   "sourceCandidate": {
-    "commit": "d988128718688a3547a04c8b87a493daa5a68adc",
-    "tree": "b36e90f51d0b8d3affdb115e148b7d7f3e5fccc0"
+    "commit": "3c38288c59cba9256fbfdbfc7fa4f0728a5ff3b8",
+    "tree": "57ba22f93b9050452c2d7b5d3757be694e29454b"
   },
   "publicQualification": {
     "previous": {
@@ -115,20 +121,80 @@
     "targetedRecheck": {
       "run": 45887831413,
       "candidate": "206a289b6c369eaa4bb5d56c7e7dd0da5d9d0661",
-      "state": "IN_PROGRESS",
+      "state": "PASS",
       "dependencies": "PASS",
       "typecheck": "PASS",
-      "dom": "PASS",
-      "changedRelayAndControl": "PASS",
+      "dom": {
+        "pass": 57,
+        "fail": 0
+      },
+      "changedRelayAndControl": {
+        "pass": 79,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
       "build": "PASS",
-      "longFiles": "IN_PROGRESS",
+      "longFiles": {
+        "pass": 119,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
       "scope": "Three interrupted files rerun; no other redundant complete suite."
+    },
+    "pilot": {
+      "run": 45890920799,
+      "ciCommit": "8f96677a6a7b457ef847c49be74829bd41618edf",
+      "candidate": "3c38288c59cba9256fbfdbfc7fa4f0728a5ff3b8",
+      "state": "IN_PROGRESS",
+      "dependencies": "PASS",
+      "registryRelayPassportContracts": "PASS",
+      "typecheck": "PASS",
+      "build": "PASS",
+      "immutableOriginalRuntime": "IN_PROGRESS",
+      "scope": "Public source and qualified K036 artifact with modeled browser platform; not DB9 or installed product acceptance."
     }
   },
   "frozenNetworkSource": {
     "commit": "6e542f5d28386c39a6fd9b5206c7d3fa79414c31",
     "originalBlobs": 66,
     "changed": 0,
-    "additionalProductIntegrationModules": 4
+    "additionalProductIntegrationModules": 5
+  },
+  "nativePilot": {
+    "scope": "LIMITED_ONE_WRITER_TWO_NODE_DEVELOPMENT_ONLY",
+    "passportCommit": "7178ff1a99984a6c1a842e9acd437b486b5eb121",
+    "passportLocal": {
+      "pass": 6,
+      "fail": 0
+    },
+    "existingRegistryOnly": "ed4b588f4b26d193c2c10aa6d8a21763c911e596",
+    "recordLossDenied": "214ba313ece46e9fa1912a18b6bbcee523e90400",
+    "admin": {
+      "repository": "Faust-S/T3",
+      "branch": "work/2026-11-26-admin-t4-original-registry",
+      "commit": "deb5c36bdc7ab45e9ca022757144e7a8564cd9fc",
+      "local": {
+        "pass": 8,
+        "fail": 0
+      },
+      "mode": "OPTIONAL_NATIVE_RECIPIENT_COMPOSITION_STAGED",
+      "installed": "NOT_RUN"
+    },
+    "agent": {
+      "repository": "Faust-S/iwxa-personal-agent",
+      "branch": "work/2026-11-26-t4-source-passport-admission",
+      "commit": "c8a58512e91cbc258a62dccbef81615427dd58a0",
+      "local": {
+        "pass": 10,
+        "fail": 0
+      },
+      "mode": "LOCAL_OWNER_REJECTS_T4_PASSPORT",
+      "installed": "NOT_RUN"
+    },
+    "sourceProfileProvider": "NOT_IMPLEMENTED",
+    "realOwnerGrantsAndKeys": "NOT_PROVISIONED",
+    "productionActivation": false
   }
 }
