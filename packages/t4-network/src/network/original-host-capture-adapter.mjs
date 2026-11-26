@@ -23,6 +23,7 @@ export function createT4OriginalHostCaptureAdapter({
   persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
   listOriginalPendingIntents,authorizeOriginalCaptureRecovery,
   readOriginalAdmittedBaseline,listOriginalOutbox,resolveOriginalRelationOwner,readOriginalCaptureInventory,
+  beforeOriginalMutationDispatch,inspectOriginalCaptureDispatch,closeOriginalUndispatchedCapture,
   isHostActive=()=>true,
 }={}){
   if(typeof getMode!=='function'||
@@ -31,6 +32,9 @@ export function createT4OriginalHostCaptureAdapter({
     typeof originalKernel.putObject!=='function')
     fail('ORIGINAL_HOST_T3_WRITE_PORT_REQUIRED');
   const paged=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
+  const dispatchEvidence=[beforeOriginalMutationDispatch,inspectOriginalCaptureDispatch,closeOriginalUndispatchedCapture];
+  if(dispatchEvidence.some(p=>p!==undefined)&&(!paged||!dispatchEvidence.every(p=>typeof p==='function')))
+    fail('ORIGINAL_HOST_CAPTURE_DISPATCH_PORTS_REQUIRED');
   if(paged&&(![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function')||
     !Number.isSafeInteger(originalCommitPageSize)||originalCommitPageSize<1||originalCommitPageSize>1024))
     fail('ORIGINAL_HOST_CAPTURE_COMMIT_HISTORY_PORTS_REQUIRED');
@@ -47,7 +51,7 @@ export function createT4OriginalHostCaptureAdapter({
     originalKernel,originalWriteOwnerRef,getMode:mode,
     authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
     ...(paged?{readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize}:{}),originalGraphCatalog,
-    persistOriginalIntent,readOriginalIntent,
+    persistOriginalIntent,readOriginalIntent,beforeOriginalMutationDispatch,
     persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
   });
   const requiredOriginalHostCapturePorts=()=>{
@@ -224,7 +228,7 @@ export function createT4OriginalHostCaptureAdapter({
         kind!=='OBJECT_PUT'&&!ID(key))fail('ORIGINAL_HOST_CAPTURE_RECOVERY_INTENT_INVALID');
       const matchesTrace=e=>kind==='OBJECT_PUT'||kind==='GRAPH_COMMIT'?e?.payload?.iwxa_t4_capture_ref===captureRef:
         kind==='OBJECT_DELETE'?e?.payload?.iwxa_t4_object_delete_intent===key:e?.idempotency_key===key;
-      let matchCount,matchedEvent;
+      let matchCount,matchedEvent,observation;
       if(paged){
         const trace=kind==='OBJECT_PUT'||kind==='GRAPH_COMMIT'?{kind:'capture_ref',value:captureRef}:
           kind==='OBJECT_DELETE'?{kind:'object_delete_intent',value:key}:{kind:'idempotency_key',value:key};
@@ -235,6 +239,7 @@ export function createT4OriginalHostCaptureAdapter({
           }});
         if(observed.originalTraceEvidence?.originalHistoryFullyRead!==true)
           fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_STREAM_INVALID');
+        observation=observed;
         matchCount=observed.originalTraceEvidence.matchCount;
         matchedEvent=observed.originalTraceEvidence.nextOriginalEvent;
         if(matchCount===1&&(!matchedEvent||!matchesTrace(matchedEvent)))
@@ -255,11 +260,40 @@ export function createT4OriginalHostCaptureAdapter({
       const eventId=matchCount===1?matchedEvent.event_id:null;
       if(expectedOriginalSourceEventId!==null&&eventId!==expectedOriginalSourceEventId)
         fail('ORIGINAL_HOST_CAPTURE_RECOVERY_SOURCE_EVENT_MISMATCH');
+      if(inspectOriginalCaptureDispatch!==undefined){
+        const dispatch=await inspectOriginalCaptureDispatch({...query,captureRef,kind,subjectId});
+        if(!dispatch||dispatch.originalIntentRecordDigest!==pending.originalIntentRecordDigest||dispatch.originalOutboxPresent)
+          fail('ORIGINAL_HOST_CAPTURE_RECOVERY_INVENTORY_CHANGED');
+        if(dispatch.protocol!==null&&dispatch.decision===null){
+          if(eventId!==null)fail('ORIGINAL_HOST_CAPTURE_EVENT_WITHOUT_DISPATCH');
+          if(observation?.window?.count===0&&observation.window.hasMore===false&&
+            expectedOriginalSourceEventId===null){
+            const closurePermission=Object.freeze({...permission,closeBeforeOriginalDispatch:true,
+              originalSourceWindowDigest:observation.window.windowDigest,originalSubjectMutationAllowed:false});
+            if(await authorizeOriginalCaptureRecovery(closurePermission)!==true)
+              fail('ORIGINAL_HOST_CAPTURE_RECOVERY_DENIED');
+            mode();
+            if(await closeOriginalUndispatchedCapture({pending,observation})!==true)
+              fail('ORIGINAL_HOST_CAPTURE_DISPATCH_CLOSURE_UNPROVEN');
+            mode();
+            const decision=await inspectOriginalCaptureDispatch({...query,captureRef,kind,subjectId});
+            if(decision?.decision!=='CLOSED_BEFORE_DISPATCH'||decision.originalIntentRecordDigest!==pending.originalIntentRecordDigest||
+              decision.originalOutboxPresent||(await readPending()).some(row=>row.captureRef===captureRef))
+              fail('ORIGINAL_HOST_CAPTURE_DISPATCH_CLOSURE_UNPROVEN');
+            closedBeforeDispatch=true;
+          }
+        }else if(dispatch.protocol!==null&&dispatch.decision!=='ADMITTED'){
+          fail('ORIGINAL_HOST_CAPTURE_RECOVERY_INVENTORY_CHANGED');
+        }
+      }
       return eventId;
     }
-    let recovered,eventId;
-    const waiting=()=>result('WAITING_FOR_ORIGINAL_EVENT',{captureRef,kind,subjectId,pendingCaptureCount:1,
-      originalT3OutboxVerified:false});
+    let recovered,eventId,closedBeforeDispatch=false;
+    const waiting=()=>closedBeforeDispatch?
+      result('ORIGINAL_CAPTURE_CLOSED_BEFORE_DISPATCH',{captureRef,kind,subjectId,pendingCaptureCount:0,
+        originalT3OutboxVerified:false,originalDispatchClosureVerified:true}):
+      result('WAITING_FOR_ORIGINAL_EVENT',{captureRef,kind,subjectId,pendingCaptureCount:1,
+        originalT3OutboxVerified:false});
     if(kind.endsWith('_DELETE')){
       // Deletion recovery already enters the same original mutation
       // boundary. Extend its proof and recheck the inventory there; do
@@ -284,7 +318,7 @@ export function createT4OriginalHostCaptureAdapter({
           reconcileT4OriginalHostSubjectMutation({...hostCapturePorts(),
           ...query,captureRef,kind,subjectId});
       });
-      if(step.state==='WAITING_FOR_ORIGINAL_EVENT')return step;
+      if(['WAITING_FOR_ORIGINAL_EVENT','ORIGINAL_CAPTURE_CLOSED_BEFORE_DISPATCH'].includes(step.state))return step;
       recovered=step;
     }
     mode();

@@ -404,17 +404,20 @@ export function createT4OriginalHostDispatchTaskBinding({
         r.originalOperationReceiptRecreated!==false||r.sourceCursorAdvanced!==false||
         r.networkPublished!==false||r.createsStore!==false||r.createsScheduler!==false||
         !['NO_PENDING_ORIGINAL_CAPTURE','WAITING_FOR_ORIGINAL_EVENT',
-          'ORIGINAL_CAPTURE_RECONCILIATION_AMBIGUOUS','ORIGINAL_CAPTURE_RECONCILED'].includes(r.state))
+          'ORIGINAL_CAPTURE_RECONCILIATION_AMBIGUOUS','ORIGINAL_CAPTURE_RECONCILED','ORIGINAL_CAPTURE_CLOSED_BEFORE_DISPATCH'].includes(r.state))
         fail('HOST_TASK_ORIGINAL_CAPTURE_RECOVERY_RESULT_INVALID');
       if(r.state==='ORIGINAL_CAPTURE_RECONCILED'&&
         (r.originalT3OutboxVerified!==true||!ID(r.captureRef)||!ID(r.originalSourceEventId)||
           (sourceEventId!==null&&r.originalSourceEventId!==sourceEventId)))
         fail('HOST_TASK_ORIGINAL_CAPTURE_RECOVERY_RESULT_INVALID');
+      if(r.state==='ORIGINAL_CAPTURE_CLOSED_BEFORE_DISPATCH'&&
+        (sourceEventId!==null||r.originalDispatchClosureVerified!==true||r.originalT3OutboxVerified!==false||
+          r.pendingCaptureCount!==0||!ID(r.captureRef)))fail('HOST_TASK_ORIGINAL_CAPTURE_RECOVERY_RESULT_INVALID');
       if(r.state==='NO_PENDING_ORIGINAL_CAPTURE')return null;
       return result(r.state,{...(ID(r.captureRef)?{captureRef:r.captureRef}:{}),
         ...(ID(r.originalSourceEventId)?{originalSourceEventId:r.originalSourceEventId}:{}),
         ...(Number.isSafeInteger(r.pendingCaptureCount)?{pendingCaptureCount:r.pendingCaptureCount}:{}),
-        originalT3OutboxVerified:r.originalT3OutboxVerified===true,networkPublished:false});
+        originalT3OutboxVerified:r.originalT3OutboxVerified===true,...(r.state==='ORIGINAL_CAPTURE_CLOSED_BEFORE_DISPATCH'?{originalDispatchClosureVerified:true}:{}),networkPublished:false});
     };
     let tick;
     try{tick=await prepareNative();}

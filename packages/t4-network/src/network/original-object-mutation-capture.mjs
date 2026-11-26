@@ -48,7 +48,7 @@ export async function captureT4OriginalObjectMutation({
   authorizeOriginalWrite,readOriginalEvents,getMode,
   readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize=256,
   persistOriginalIntent,readOriginalIntent,
-  persistOriginalOutbox,readOriginalOutbox,
+  persistOriginalOutbox,readOriginalOutbox,beforeOriginalMutationDispatch,
 }={}){
   const paged=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
   if(paged&&(![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function')||
@@ -156,6 +156,10 @@ export async function captureT4OriginalObjectMutation({
   networkMode(getMode);
   if(await authorizeOriginalWrite(ctx)!==true)
     fail('OBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
+  if(beforeOriginalMutationDispatch!==undefined){
+    if(typeof beforeOriginalMutationDispatch!=='function')fail('OBJECT_CAPTURE_DISPATCH_PORT_INVALID');
+    await beforeOriginalMutationDispatch({intent,operation:'t1.putObject',input:structuredClone(tracedMutation)});
+  }
   let receipt;
   try{receipt=await originalKernel.putObject(tracedMutation);}
   catch(error){

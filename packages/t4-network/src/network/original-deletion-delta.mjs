@@ -215,7 +215,7 @@ export function originalT4DeletionCapturedEvent(capture){
   return originalInput(capture.kind,capture.workspaceId,id,capture.captureRef,
     pre,sourceTrace(capture)).event;
 }
-function sourceDeleteInput(capture){
+export function originalT4CapturedDeletionInput(capture){
   const pre=capture.preImage;
   const id=deleteSubjectId(capture.kind,pre);
   const event=originalT4DeletionCapturedEvent(capture);
@@ -482,8 +482,13 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
     fail('DELETE_ORIGINAL_EVENT_WINDOW_UNCERTAIN');
   await guard(ops.read);
   networkMode(getMode);
+  const originalCommand=originalT4CapturedDeletionInput(capture);
+  if(params.beforeOriginalMutationDispatch!==undefined){
+    if(typeof params.beforeOriginalMutationDispatch!=='function')fail('DELETE_ORIGINAL_DISPATCH_PORT_INVALID');
+    await params.beforeOriginalMutationDispatch({intent:capture,operation:ops.write,input:structuredClone(originalCommand)});
+  }
   let result;
-  try{result=await callDelete(originalKernel,kind,sourceDeleteInput(capture));}
+  try{result=await callDelete(originalKernel,kind,originalCommand);}
   catch(error){
     fail('DELETE_ORIGINAL_SOURCE_OUTCOME_UNKNOWN',{
       originalCode:error?.code??null,captureRef:capture.captureRef,

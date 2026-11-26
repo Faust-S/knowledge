@@ -1,5 +1,7 @@
 import {requireT4OriginalObjectCatalog,visitT4OriginalObjectCatalog} from './original-object-catalog-pages.mjs';
 import {createHash} from 'node:crypto';
+import {validateT4OriginalProjectedEventWindow} from './original-event-window.mjs';
+import {originalT4CapturedDeletionInput} from './original-deletion-delta.mjs';
 import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID} from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {visitT4OriginalTechnicalCommitEvents,readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHistory} from './original-technical-event-pages.mjs';
@@ -9,6 +11,31 @@ const EVENT='t4.network.original.capture.record';
 const INTENTS=['IWXA_T4_ORIGINAL_OBJECT_MUTATION_INTENT_V1',
   'IWXA_T4_ORIGINAL_SUBJECT_MUTATION_INTENT_V1','IWXA_T4_ORIGINAL_PRE_DELETE_CAPTURE_V1'];
 const OUTBOXES=['IWXA_T4_ORIGINAL_OBJECT_DELTA_OUTBOX_V1','IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1'];
+const DISPATCH_PROTOCOL='ORIGINAL_CAPTURE_DISPATCH_CAS_V1';
+const DISPATCH_SCHEMA='IWXA_T4_ORIGINAL_CAPTURE_DISPATCH_V1';
+const DIG=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
+const OPERATIONS=Object.freeze({OBJECT_PUT:'t1.putObject',ASSET_PUT:'t1.putAsset',RELATION_PUT:'t1.putRelation',
+  OBJECT_DELETE:'t1.deleteObject',ASSET_DELETE:'t1.deleteAsset',RELATION_DELETE:'t1.deleteRelation',GRAPH_COMMIT:'t1.commitObjectGraph'});
+// Type-tagged canonical representation: a binary Asset cannot collide with
+// a JSON object that merely looks like encoded bytes. This digest binds an
+// original command, not its network encoding or its authority.
+function commandValue(x){
+  if(x===undefined)return ['undefined'];
+  if(x===null)return ['null'];
+  if(x instanceof Uint8Array)return ['bytes',Buffer.from(x).toString('base64')];
+  if(Array.isArray(x))return ['array',x.map(commandValue)];
+  if(typeof x==='object'){
+    if(Object.getPrototypeOf(x)!==Object.prototype&&Object.getPrototypeOf(x)!==null)fail('CAPTURE_LEDGER_DISPATCH_COMMAND_INVALID');
+    return ['object',Object.keys(x).sort().map(k=>[k,commandValue(x[k])])];
+  }
+  if(typeof x==='number'&&!Number.isFinite(x))fail('CAPTURE_LEDGER_DISPATCH_COMMAND_INVALID');
+  if(!['string','number','boolean'].includes(typeof x))fail('CAPTURE_LEDGER_DISPATCH_COMMAND_INVALID');
+  return [typeof x,x];
+}
+export function digestT4OriginalCaptureCommand(operation,input){
+  if(!Object.values(OPERATIONS).includes(operation)||!object(input))fail('CAPTURE_LEDGER_DISPATCH_COMMAND_INVALID');
+  return 'sha256:'+createHash('sha256').update('IWXA-T4-ORIGINAL-CAPTURE-COMMAND-V1\0'+JSON.stringify([operation,commandValue(input)])).digest('hex');
+}
 const KINDS=['OBJECT_PUT','ASSET_PUT','RELATION_PUT','ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE','GRAPH_COMMIT'];
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
@@ -46,10 +73,13 @@ export function createT4OriginalHostCaptureLedgerPort({
   originalKernel,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
   getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   enableOriginalTechnicalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,originalTechnicalPageSize=256,
-  enableOriginalObjectCatalogWindow=false,originalObjectCatalogPageSize=16,
+  enableOriginalObjectCatalogWindow=false,originalObjectCatalogPageSize=16,enableOriginalDispatchEvidence=false,
 }={}){
   requireT4OriginalTechnicalObjectHistory(enableOriginalTechnicalObjectHistory,originalKernel);
   requireT4OriginalObjectCatalog(enableOriginalObjectCatalogWindow,originalKernel,originalObjectCatalogPageSize);
+  if(typeof enableOriginalDispatchEvidence!=='boolean'||(enableOriginalDispatchEvidence&&
+    (!enableOriginalTechnicalCommitOrder||!enableOriginalTechnicalObjectHistory)))
+    fail('CAPTURE_LEDGER_DISPATCH_PROFILE_REQUIRED');
   if(enableOriginalObjectCatalogWindow&&!enableOriginalTechnicalCommitOrder)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_PROFILE_INVALID');
   if(enableOriginalTechnicalObjectHistory&&!enableOriginalTechnicalCommitOrder)
     fail('CAPTURE_LEDGER_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
@@ -89,15 +119,25 @@ export function createT4OriginalHostCaptureLedgerPort({
     if(p?.workspaceId!==sourceWorkspaceId||p.originalWriteOwnerRef!==originalWriteOwnerRef||
       (requireCapture&&!ID(p.captureRef)))fail('CAPTURE_LEDGER_SCOPE_MISMATCH');
   }
-  function record(role,raw){
+  function record(role,raw,protocol=undefined){
     const p=jsonRecord(raw);checkScope(p);
-    const kind=kindOf(p),subjectId=subjectOf(p,kind);
-    if(!(role==='intent'?INTENTS:OUTBOXES).includes(p.schema)||
+    const kind=kindOf(p),subjectId=role==='dispatch'?p.subjectId:subjectOf(p,kind);
+    if(protocol!==undefined&&(role!=='intent'||protocol!==DISPATCH_PROTOCOL||!enableOriginalDispatchEvidence))
+      fail('CAPTURE_LEDGER_DISPATCH_PROFILE_REQUIRED');
+    if(role==='dispatch'){
+      if(!enableOriginalDispatchEvidence||p.schema!==DISPATCH_SCHEMA||!DIG(p.originalIntentRecordDigest)||
+        p.operation!==OPERATIONS[kind]||!['ADMITTED','CLOSED_BEFORE_DISPATCH'].includes(p.decision)||
+        !same(Object.keys(p).sort(),['schema','workspaceId','originalWriteOwnerRef','captureRef','kind','subjectId',
+          'originalIntentRecordDigest','operation','decision',p.decision==='ADMITTED'?'commandDigest':'sourceObservation'].sort())||
+        (p.decision==='ADMITTED'?!DIG(p.commandDigest):!object(p.sourceObservation)))
+        fail('CAPTURE_LEDGER_DISPATCH_RECORD_INVALID');
+    }
+    if(!(role==='intent'?INTENTS:role==='outbox'?OUTBOXES:[DISPATCH_SCHEMA]).includes(p.schema)||
       !KINDS.includes(kind)||!ID(subjectId)||
       (role==='outbox'&&(!ID(p.sourceEventId)||p.originalT3MutationConfirmed!==true||
         p.networkPublished!==false||p.recipientApplied!==false)))
       fail('CAPTURE_LEDGER_RECORD_INVALID');
-    const body={...identity,role,captureRef:p.captureRef,kind,subjectId,payload:p};
+    const body={...identity,role,captureRef:p.captureRef,kind,subjectId,payload:p,...(protocol===undefined?{}:{dispatchProtocol:protocol})};
     return {schema:SCHEMA,title:'Original T3 T4 '+role,...body,recordDigest:HASH(body)};
   }
   function eventPayload(data){return {captureRef:data.captureRef,role:data.role,
@@ -141,7 +181,7 @@ export function createT4OriginalHostCaptureLedgerPort({
     });
     return matches;
   }
-  async function read(role,query,initial,knownEvents,catalogObject=null){
+  async function read(role,query,initial,knownEvents,catalogObject=null,returnRecord=false){
     checkScope(query);const objectId=ref(role,query.captureRef);
     await guard(initial,'t1.getObject',role,query.captureRef);
     const row=await originalKernel.getObject(technicalWorkspaceId,objectId);
@@ -156,7 +196,7 @@ export function createT4OriginalHostCaptureLedgerPort({
     if(o?.workspace_id!==technicalWorkspaceId||o.object_id!==objectId||
       o.schema_id!==T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID||o.schema_version!=='1.0.0'||
       o.revision!==1||o.deleted===true||d?.schema!==SCHEMA||
-      !same(d,record(role,d.payload))||d.captureRef!==query.captureRef||
+      !same(d,record(role,d.payload,d.dispatchProtocol))||d.captureRef!==query.captureRef||
       (query.kind!==undefined&&query.kind!==d.kind)||
       (query.subjectId!==undefined&&query.subjectId!==d.subjectId)||
       (query.objectId!==undefined&&d.kind==='OBJECT_PUT'&&query.objectId!==d.subjectId))
@@ -178,16 +218,54 @@ export function createT4OriginalHostCaptureLedgerPort({
       await guard(initial,'t1.getObject',role,query.captureRef);
       if(!same(after?.object,o))fail('CAPTURE_LEDGER_ORIGINAL_RECORD_CHANGED');
     }
-    return copy(d.payload);
+    return copy(returnRecord?d:d.payload);
+  }
+  function validateDispatchLink(intent,dispatch,outbox){
+    if(!intent||(!dispatch&&intent.dispatchProtocol===DISPATCH_PROTOCOL&&outbox)||
+      (dispatch&&(intent.dispatchProtocol!==DISPATCH_PROTOCOL||dispatch.originalIntentRecordDigest!==intent.recordDigest||
+        dispatch.kind!==intent.kind||dispatch.subjectId!==intent.subjectId||dispatch.captureRef!==intent.captureRef||
+        (dispatch.decision==='CLOSED_BEFORE_DISPATCH'&&outbox))))
+      fail('CAPTURE_LEDGER_DISPATCH_LINK_INVALID');
+    if(dispatch?.decision==='CLOSED_BEFORE_DISPATCH'){
+      const observed=dispatch.sourceObservation;
+      const expectedTrace=traceFor(intent.payload,intent.kind);
+      if(!same(observed?.trace,expectedTrace)||observed?.matchCount!==0||observed.originalHistoryFullyRead!==true||
+        !same(Object.keys(observed).sort(),['trace','matchCount','originalHistoryFullyRead','window','nextCursor'].sort()))
+        fail('CAPTURE_LEDGER_DISPATCH_CLOSURE_INVALID');
+      const validated=validateT4OriginalProjectedEventWindow({workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
+        cursor:intent.payload.sourceCursor,maxEvents:1,result:{window:observed.window,nextCursor:observed.nextCursor}});
+      if(validated.window.count!==0||validated.window.hasMore!==false)fail('CAPTURE_LEDGER_DISPATCH_CLOSURE_INVALID');
+    }
+  }
+  function traceFor(intent,kind){
+    const key=kind.endsWith('_DELETE')?intent.sourceEvent?.idempotency_key:intent.idempotencyKey;
+    if(kind==='OBJECT_PUT'||kind==='GRAPH_COMMIT')return {kind:'capture_ref',value:intent.captureRef};
+    if(!ID(key))fail('CAPTURE_LEDGER_DISPATCH_CLOSURE_INVALID');
+    return {kind:kind==='OBJECT_DELETE'?'object_delete_intent':'idempotency_key',value:key};
+  }
+  async function dispatchState(query,initial){
+    const intent=await read('intent',query,initial,undefined,null,true);
+    const dispatch=await read('dispatch',query,initial);
+    const outbox=await read('outbox',query,initial);
+    if(intent)validateDispatchLink(intent,dispatch,outbox);
+    else if(dispatch||outbox)fail('CAPTURE_LEDGER_DISPATCH_LINK_INVALID');
+    return {intent,dispatch,outbox};
   }
   async function persist(role,payload){
-    const data=record(role,payload),initial=await context();
+    const data=record(role,payload,role==='intent'&&enableOriginalDispatchEvidence?DISPATCH_PROTOCOL:undefined),initial=await context();
     const query={workspaceId:sourceWorkspaceId,originalWriteOwnerRef,captureRef:data.captureRef};
     if(await read(role,query,initial)!==null)return false;
     if(role==='outbox'){
-      const intent=await read('intent',query,initial);
-      if(!intent||kindOf(intent)!==data.kind||subjectOf(intent,data.kind)!==data.subjectId)
+      const intent=await read('intent',query,initial,undefined,null,true);
+      if(!intent||intent.kind!==data.kind||intent.subjectId!==data.subjectId)
         fail('CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED');
+      if(enableOriginalDispatchEvidence)validateDispatchLink(intent,await read('dispatch',query,initial),data.payload);
+    }
+    if(role==='dispatch'){
+      const {intent,dispatch,outbox}=await dispatchState(query,initial);
+      if(dispatch!==null||outbox!==null||intent?.dispatchProtocol!==DISPATCH_PROTOCOL)
+        fail('CAPTURE_LEDGER_DISPATCH_NOT_AVAILABLE');
+      validateDispatchLink(intent,data.payload,null);
     }
     await guard(initial,'t1.putObject',role,data.captureRef);
     try{
@@ -202,6 +280,68 @@ export function createT4OriginalHostCaptureLedgerPort({
       originalCode:error?.code??null,automaticRetryAllowed:false,readOriginalRecordRequired:true});}
     if(!same(await read(role,query,initial),data.payload))
       fail('CAPTURE_LEDGER_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{automaticRetryAllowed:false});
+    return true;
+  }
+  async function inspectOriginalCaptureDispatch(query){
+    if(!enableOriginalDispatchEvidence)fail('CAPTURE_LEDGER_DISPATCH_PROFILE_REQUIRED');
+    const initial=await context(),a=await dispatchState(query,initial),b=await dispatchState(query,initial);
+    if(!same(a,b))fail('CAPTURE_LEDGER_DISPATCH_CHANGED');
+    if(!a.intent)return null;
+    return Object.freeze({protocol:a.intent.dispatchProtocol??null,originalIntentRecordDigest:a.intent.recordDigest,
+      decision:a.dispatch?.decision??null,commandDigest:a.dispatch?.commandDigest??null,originalOutboxPresent:a.outbox!==null});
+  }
+  async function admitOriginalCaptureDispatch({intent,operation,input,deduplicatedReceiptOnly=false}={}){
+    if(!enableOriginalDispatchEvidence)fail('CAPTURE_LEDGER_DISPATCH_PROFILE_REQUIRED');
+    const raw=copy(intent),exact=copy(input),query={workspaceId:sourceWorkspaceId,originalWriteOwnerRef,captureRef:raw?.captureRef};
+    const initial=await context(),state=await dispatchState(query,initial),i=state.intent;
+    if(!i||!same(i.payload,raw)||operation!==OPERATIONS[i.kind]||exact?.workspace_id!==sourceWorkspaceId||
+      exact.event?.payload?.iwxa_t4_capture_ref!==i.captureRef||
+      (i.kind==='GRAPH_COMMIT'?exact.object?.object_id:i.kind.startsWith('ASSET_')?exact.asset_id:
+        i.kind.startsWith('RELATION_')?exact.relation_id:exact.object_id)!==i.subjectId)
+      fail('CAPTURE_LEDGER_DISPATCH_COMMAND_INVALID');
+    const commandDigest=digestT4OriginalCaptureCommand(operation,exact);
+    if(deduplicatedReceiptOnly===true){
+      // Only the existing graph reconciliation path can request a native
+      // dedup receipt after proving the exact original Event and Outbox.
+      if(i.kind!=='GRAPH_COMMIT'||state.outbox===null||
+        (i.dispatchProtocol===DISPATCH_PROTOCOL&&(state.dispatch?.decision!=='ADMITTED'||state.dispatch.commandDigest!==commandDigest))||
+        !same(raw.operation,exact))fail('CAPTURE_LEDGER_DISPATCH_DEDUP_UNPROVEN');
+      return commandDigest;
+    }
+    if(deduplicatedReceiptOnly!==false||i.dispatchProtocol!==DISPATCH_PROTOCOL||state.dispatch!==null||state.outbox!==null)
+      fail('CAPTURE_LEDGER_DISPATCH_NOT_AVAILABLE');
+    // The existing Intent already binds the original input. For Asset
+    // bytes use its canonical persisted base64 representation.
+    if(i.kind==='OBJECT_PUT'||i.kind==='GRAPH_COMMIT'||i.kind.endsWith('_PUT')){
+      const expected=i.kind==='OBJECT_PUT'?raw.originalMutation:raw.operation;
+      const actual=i.kind==='ASSET_PUT'?{...exact,bytesBase64:Buffer.from(exact.bytes).toString('base64')}:exact;
+      if(i.kind==='ASSET_PUT')delete actual.bytes;
+      if(!same(expected,actual))fail('CAPTURE_LEDGER_DISPATCH_COMMAND_INVALID');
+    }else if(!same(originalT4CapturedDeletionInput(raw),exact))
+      fail('CAPTURE_LEDGER_DISPATCH_COMMAND_INVALID');
+    const decision={...query,schema:DISPATCH_SCHEMA,kind:i.kind,subjectId:i.subjectId,
+      originalIntentRecordDigest:i.recordDigest,operation,decision:'ADMITTED',commandDigest};
+    if(await persist('dispatch',decision)!==true)fail('CAPTURE_LEDGER_DISPATCH_NOT_AVAILABLE');
+    if(!same((await dispatchState(query,initial)).dispatch,decision))fail('CAPTURE_LEDGER_DISPATCH_CHANGED');
+    return commandDigest;
+  }
+  async function closeOriginalUndispatchedCapture({pending,observation}={}){
+    if(!enableOriginalDispatchEvidence)fail('CAPTURE_LEDGER_DISPATCH_PROFILE_REQUIRED');
+    const query={workspaceId:sourceWorkspaceId,originalWriteOwnerRef,captureRef:pending?.captureRef};
+    const expected=copy(pending),observed=copy(observation),initial=await context(),state=await dispatchState(query,initial),i=state.intent;
+    if(!i||i.dispatchProtocol!==DISPATCH_PROTOCOL||state.dispatch!==null||state.outbox!==null||
+      expected.workspaceId!==sourceWorkspaceId||expected.originalWriteOwnerRef!==originalWriteOwnerRef||
+      expected.kind!==i.kind||expected.subjectId!==i.subjectId||expected.originalIntentRecordDigest!==i.recordDigest)
+      fail('CAPTURE_LEDGER_DISPATCH_NOT_AVAILABLE');
+    const trace=traceFor(i.payload,i.kind),e=observed?.originalTraceEvidence;
+    if(e?.kind!==trace.kind||e.value!==trace.value||e.matchCount!==0||e.originalHistoryFullyRead!==true||
+      e.nextOriginalEvent!==null)fail('CAPTURE_LEDGER_DISPATCH_CLOSURE_INVALID');
+    const sourceObservation={trace,matchCount:0,originalHistoryFullyRead:true,window:observed.window,nextCursor:observed.nextCursor};
+    const decision={...query,schema:DISPATCH_SCHEMA,kind:i.kind,subjectId:i.subjectId,operation:OPERATIONS[i.kind],
+      originalIntentRecordDigest:i.recordDigest,decision:'CLOSED_BEFORE_DISPATCH',sourceObservation};
+    validateDispatchLink(i,decision,null);
+    if(await persist('dispatch',decision)!==true)fail('CAPTURE_LEDGER_DISPATCH_NOT_AVAILABLE');
+    if(!same((await dispatchState(query,initial)).dispatch,decision))fail('CAPTURE_LEDGER_DISPATCH_CHANGED');
     return true;
   }
   // Both directions of the local catalog/Event correspondence matter.
@@ -269,14 +409,19 @@ export function createT4OriginalHostCaptureLedgerPort({
       !query.kindFilter.every(k=>KINDS.includes(k))))fail('CAPTURE_LEDGER_KIND_FILTER_INVALID');
     if(query.sourceEventId!==undefined&&!ID(query.sourceEventId))fail('CAPTURE_LEDGER_EVENT_FILTER_INVALID');
   }
-  async function readIndexed(role,e,i,initial,combined=false){
+  async function readIndexed(role,e,i,initial,combined=false,returnRecord=false){
     const payload=await read(role,{workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
-      captureRef:e.payload.captureRef},initial,[e],combined?i.rows.get(e.object_id):null);
+      captureRef:e.payload.captureRef},initial,[e],combined?i.rows.get(e.object_id):null,returnRecord);
     if(!payload)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
     return payload;
   }
   async function listOriginalOutbox(query){
     checkFilters(query);
+    if(enableOriginalDispatchEvidence){
+      const inventory=await readInventory(query,true);
+      return inventory.pairs.map(p=>p.outbox).filter(o=>(query.sourceEventId===undefined||o.sourceEventId===query.sourceEventId)&&
+        (query.kindFilter===undefined||query.kindFilter.includes(kindOf(o))));
+    }
     const initial=await context(),i=await index(initial,'outbox'),result=[];
     for(const e of i.byCapture.values()){
       // Filter only after proving complete local index coverage. The exact
@@ -302,16 +447,23 @@ export function createT4OriginalHostCaptureLedgerPort({
   // recovery authorization, or parallel persisted work queue is created.
   async function readInventory(query,includePairs){
     checkScope(query,false);
-    const initial=await context(),snapshot=await indexes(initial,['intent','outbox']),
-      intents=snapshot.get('intent'),outboxes=snapshot.get('outbox'),pending=[],pairs=[];
+    const roles=enableOriginalDispatchEvidence?['intent','outbox','dispatch']:['intent','outbox'];
+    const initial=await context(),snapshot=await indexes(initial,roles),
+      intents=snapshot.get('intent'),outboxes=snapshot.get('outbox'),dispatches=snapshot.get('dispatch'),pending=[],pairs=[];
+    for(const captureRef of dispatches?.byCapture.keys()??[])if(!intents.byCapture.has(captureRef))
+      fail('CAPTURE_LEDGER_DISPATCH_LINK_INVALID');
     for(const [captureRef,e] of outboxes.byCapture){
       const intent=intents.byCapture.get(captureRef);
       if(!intent||intent.payload.kind!==e.payload.kind)
         fail('CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED',{captureRef});
     }
     for(const [captureRef,e] of intents.byCapture){
-      const input=await readIndexed('intent',e,intents,initial,true),kind=kindOf(input),
-        subjectId=subjectOf(input,kind),paired=outboxes.byCapture.get(captureRef);
+      const originalIntent=await readIndexed('intent',e,intents,initial,true,true),input=originalIntent.payload,
+        kind=originalIntent.kind,subjectId=originalIntent.subjectId,paired=outboxes.byCapture.get(captureRef);
+      const witness=dispatches?.byCapture.get(captureRef);
+      const dispatch=witness?await readIndexed('dispatch',witness,dispatches,initial,true):null;
+      if(enableOriginalDispatchEvidence)validateDispatchLink(originalIntent,dispatch,paired??null);
+      if(dispatch?.decision==='CLOSED_BEFORE_DISPATCH')continue;
       if(paired){
         const out=await readIndexed('outbox',paired,outboxes,initial,true);
         if(kindOf(out)!==kind||subjectOf(out,kind)!==subjectId)
@@ -328,11 +480,11 @@ export function createT4OriginalHostCaptureLedgerPort({
     // There is no atomic catalog+Event snapshot on this T3 port. Refuse a
     // changed capture index rather than report a misleading absence. The
     // original Host still owns exclusion for any subsequent mutation.
-    const next=await indexes(initial,['intent','outbox']),
-      nextIntents=next.get('intent'),nextOutboxes=next.get('outbox');
-    if(intents.fingerprint!==nextIntents.fingerprint||outboxes.fingerprint!==nextOutboxes.fingerprint)
+    const next=await indexes(initial,roles);
+    for(const role of roles)if(snapshot.get(role).fingerprint!==next.get(role).fingerprint)
       fail('CAPTURE_LEDGER_ORIGINAL_INDEX_CHANGED',{automaticRetryAllowed:false});
-    for(const [role,first,last] of [['intent',intents,nextIntents],['outbox',outboxes,nextOutboxes]]){
+    for(const role of roles){
+      const first=snapshot.get(role),last=next.get(role);
       // A stable Event digest alone cannot prove that the immutable Object
       // has not changed. Compare complete original ObjectRecords and recheck
       // each exact read authority after the fresh signed catalog read.
@@ -345,7 +497,7 @@ export function createT4OriginalHostCaptureLedgerPort({
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_CAPTURE_INVENTORY_V1',
       workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
       pending:Object.freeze(pending),pairs:Object.freeze(pairs),
-      inventoryDigest:HASH({intents:intents.fingerprint,outboxes:outboxes.fingerprint}),
+      inventoryDigest:HASH({intents:intents.fingerprint,outboxes:outboxes.fingerprint,...(dispatches?{dispatches:dispatches.fingerprint}:{})}),
       originalRecordsAndEventsVerified:true,originalAuthorityGranted:false,createsStore:false});
   }
   const listOriginalPendingIntents=query=>readInventory(query,false);
@@ -355,7 +507,11 @@ export function createT4OriginalHostCaptureLedgerPort({
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_CAPTURE_LEDGER_PORT_V1',
     identity,technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
     readOriginalIntent:async query=>read('intent',query,await context()),
-    readOriginalOutbox:async query=>read('outbox',query,await context()),
+    readOriginalOutbox:async query=>{
+      const initial=await context();
+      return enableOriginalDispatchEvidence?(await dispatchState(query,initial)).outbox:read('outbox',query,initial);
+    },
+    ...(enableOriginalDispatchEvidence?{inspectOriginalCaptureDispatch,admitOriginalCaptureDispatch,closeOriginalUndispatchedCapture}:{}),
     persistOriginalIntent:p=>persist('intent',p),persistOriginalOutbox:p=>persist('outbox',p),
     listOriginalOutbox,listOriginalPendingIntents,readOriginalCaptureInventory,
     originalT3OnlyStore:true,createsStore:false,createsScheduler:false,
@@ -363,7 +519,7 @@ export function createT4OriginalHostCaptureLedgerPort({
       originalKernel,...identity,getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       enableOriginalTechnicalCommitOrder,enableOriginalTechnicalObjectHistory,originalTechnicalPageSize,
-      enableOriginalObjectCatalogWindow,originalObjectCatalogPageSize,
+      enableOriginalObjectCatalogWindow,originalObjectCatalogPageSize,enableOriginalDispatchEvidence,
     }),
   });
 }

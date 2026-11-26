@@ -5,7 +5,7 @@ import {readT4OriginalCommitHistoryForCompatibility} from './original-event-wind
 import {bindT4OriginalHistoryBoundary} from './original-history-boundary.mjs';
 import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID as technicalSchemaId} from './original-network-technical-schema.mjs';
 import {createT4OriginalNetworkBaselineAdmissionPort} from './original-network-baseline-admission.mjs';
-import {createT4OriginalHostCaptureLedgerPort} from './original-host-capture-ledger.mjs';
+import {createT4OriginalHostCaptureLedgerPort,digestT4OriginalCaptureCommand} from './original-host-capture-ledger.mjs';
 import {createT4OriginalHostCaptureAdapter} from './original-host-capture-adapter.mjs';
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort}
   from './original-network-host-cursor.mjs';
@@ -71,7 +71,7 @@ export function createT4OriginalNativeHostNetworkOwner({
   role,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
   recipientNodeRef,scopeRef,ownerEpoch,requiredCryptoSuite,getMode,wireTransport,nativeTopologyTransport=null,
   originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
-  enableOriginalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,enableOriginalObjectCatalogWindow=false,enableOriginalRecipientFrontierCommitOrder=false,enableLocalSourceCapture=false,enablePublicationIndexMigration=false,enableLocalRecipientResultVerification=false,enableRecipientResultRead=false,
+  enableOriginalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,enableOriginalObjectCatalogWindow=false,enableOriginalRecipientFrontierCommitOrder=false,enableOriginalDispatchEvidence=false,enableLocalSourceCapture=false,enablePublicationIndexMigration=false,enableLocalRecipientResultVerification=false,enableRecipientResultRead=false,
   enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,requireSignedTopologyAccess=false,
   enableHistoricalAcknowledgementRecovery=false,enableLocalRetiredRecipientRecovery=false,enableLocalReplacementRecovery=false,
   enableReplacementTerminalRecovery=false,enableReplacementEligibilityRead=false,enableSourceEventWindowRead=false,enableSourceCaptureBinding=false,enableReplacementSourceAdmission=false,enableReplacementRecipientAdmission=false,enableReplacementSourceContent=false,enableReplacementRecipientContent=false,enableReplacementRecipientApply=false,enableReplacementSourceAckConfirmation=false,
@@ -86,6 +86,9 @@ export function createT4OriginalNativeHostNetworkOwner({
   if(typeof enableOriginalRecipientFrontierCommitOrder!=='boolean'||(enableOriginalRecipientFrontierCommitOrder&&
     (role!=='RECIPIENT'||!enableOriginalTechnicalObjectHistory||typeof originalPorts?.withOriginalHistoryReadBoundary!=='function')))
     fail('NATIVE_NETWORK_OWNER_RECIPIENT_COMMIT_ORDER_PROFILE_INVALID');
+  if(typeof enableOriginalDispatchEvidence!=='boolean'||(enableOriginalDispatchEvidence&&
+    (role!=='SOURCE'||!enableLocalSourceCapture||!enableOriginalCommitOrder||!enableOriginalTechnicalObjectHistory)))
+    fail('NATIVE_NETWORK_OWNER_DISPATCH_EVIDENCE_PROFILE_INVALID');
   if(typeof enableOriginalObjectCatalogWindow!=='boolean'||(enableOriginalObjectCatalogWindow&&!enableOriginalTechnicalObjectHistory))
     fail('NATIVE_NETWORK_OWNER_OBJECT_CATALOG_PROFILE_INVALID');
   if(typeof enableOriginalTechnicalObjectHistory!=='boolean'||
@@ -510,7 +513,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       Promise.resolve({state:'WAITING_FOR_REPLACEMENT_OWNER_EVIDENCE',selection});
     if(role==='SOURCE'){
       const ledger=createT4OriginalHostCaptureLedgerPort({...tech,
-        enableOriginalTechnicalCommitOrder:enableOriginalCommitOrder});
+        enableOriginalTechnicalCommitOrder:enableOriginalCommitOrder,enableOriginalDispatchEvidence});
       const historyBoundary=enableOriginalCommitOrder?bindT4OriginalHistoryBoundary({
         workspaceId:sourceWorkspaceId,originalWriteOwnerRef,getMode,
         withOriginalSubjectMutation:callback('withOriginalSubjectMutation'),
@@ -592,7 +595,22 @@ export function createT4OriginalNativeHostNetworkOwner({
         if(matches.length!==1)fail('NATIVE_LOCAL_RELATION_OWNER_NOT_UNIQUE');
         return matches[0];
       };
+      const beforeOriginalMutationDispatch=async command=>{
+        const local=state.localMutation;
+        const matchesCommand=()=>local!==null&&state.localMutation===local&&!local.invoked&&local.dispatchAdmission===null&&
+          command?.operation==='t1.'+local.method&&command.intent?.captureRef===local.captureRef&&
+          command.input?.workspace_id===sourceWorkspaceId&&subjectOf(local.method,command.input)===local.subjectId;
+        if(!matchesCommand())fail('NATIVE_LOCAL_SOURCE_DISPATCH_SCOPE_MISMATCH');
+        await requireBinding(state,'local-source-dispatch-admission');
+        if(!matchesCommand())fail('NATIVE_LOCAL_SOURCE_DISPATCH_SCOPE_MISMATCH');
+        const digest=await ledger.admitOriginalCaptureDispatch(command);
+        await requireBinding(state,'local-source-dispatch-admission-readback');
+        if(!matchesCommand()||digest!==digestT4OriginalCaptureCommand(command.operation,command.input))
+          fail('NATIVE_LOCAL_SOURCE_DISPATCH_SCOPE_MISMATCH');
+        local.dispatchAdmission=digest;
+      };
       const captureRecovery=createT4OriginalHostCaptureAdapter({...capture,
+        ...(enableOriginalDispatchEvidence?{beforeOriginalMutationDispatch}:{}),
         authorizeOriginalCaptureRecovery:callback('authorizeOriginalCaptureRecovery'),
         withOriginalSubjectMutation:historyBoundary?.withOriginalSubjectMutation??callback('withOriginalSubjectMutation'),
         readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage'),
@@ -899,7 +917,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       captureRef='t4:local:graph:'+createHash('sha256').update(JSON.stringify([
         sourceWorkspaceId,originalWriteOwnerRef,service,key])).digest('hex');
     }
-    const local={method:p.method,subjectId,captureRef,invoked:false};
+    const local={method:p.method,subjectId,captureRef,invoked:false,dispatchAdmission:null};
     state.localMutation=local;
     try{
       await requireBinding(state,'local-source-admission');
@@ -961,6 +979,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     ...(enableOriginalCommitOrder?{originalCommitOrderEnabled:true}:{}),
     ...(enableOriginalTechnicalObjectHistory?{originalTechnicalObjectHistoryEnabled:true}:{}),
     ...(enableOriginalObjectCatalogWindow?{originalObjectCatalogWindowEnabled:true}:{}),
+    ...(enableOriginalDispatchEvidence?{originalDispatchEvidenceEnabled:true}:{}),
     ...(enableOriginalRecipientFrontierCommitOrder?{originalRecipientFrontierCommitOrderEnabled:true}:{}),
     ...(enableSourceCaptureBinding?{originalSourceCaptureBindingEnabled:true}:{}),
     ...(enableLocalRecipientResultVerification?{originalLocalRecipientResultVerificationEnabled:true}:{}),
@@ -1039,7 +1058,8 @@ export function createT4OriginalNativeHostNetworkOwner({
           local=state.localMutation;
           if(!enableLocalSourceCapture||!local||local.invoked||proof.operation!=='t1.'+local.method||
             subjectOf(local.method,first)!==local.subjectId||
-            first.event?.payload?.iwxa_t4_capture_ref!==local.captureRef)return null;
+            first.event?.payload?.iwxa_t4_capture_ref!==local.captureRef||
+            (enableOriginalDispatchEvidence&&(local.dispatchAdmission===null||local.dispatchAdmission!==digestT4OriginalCaptureCommand(proof.operation,first))))return null;
         }else if(proof.operation==='t1.putObject')return null;
       }
       await requireBinding(state,'kernel-command');
@@ -1048,7 +1068,8 @@ export function createT4OriginalNativeHostNetworkOwner({
       if(graphCatalogQuery!==null&&state.graphCatalogQuery!==graphCatalogQuery)return null;
       if(relationCatalogMutation&&(state.localMutation!==relationCatalogMutation||relationCatalogMutation.invoked))return null;
       if(local){
-        if(state.localMutation!==local||local.invoked||access==null)return null;
+        if(state.localMutation!==local||local.invoked||access==null||
+          (enableOriginalDispatchEvidence&&(local.dispatchAdmission===null||local.dispatchAdmission!==digestT4OriginalCaptureCommand(proof.operation,first))))return null;
         local.invoked=true;
       }
       return access;

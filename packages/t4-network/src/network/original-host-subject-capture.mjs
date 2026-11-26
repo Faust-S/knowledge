@@ -466,6 +466,10 @@ export async function captureT4OriginalHostSubjectMutation(params={}){
   mode(getMode);
   if(await authorizeOriginalWrite(writeCtx)!==true)
     fail('SUBJECT_CAPTURE_ORIGINAL_WRITE_AUTHORITY_DENIED');
+  if(params.beforeOriginalMutationDispatch!==undefined){
+    if(typeof params.beforeOriginalMutationDispatch!=='function')fail('SUBJECT_CAPTURE_DISPATCH_PORT_INVALID');
+    await params.beforeOriginalMutationDispatch({intent,operation:SUBJECTS[kind].write,input:structuredClone(normalized.writeInput)});
+  }
   let receipt;
   try{receipt=await originalWrite(originalKernel,kind,normalized.writeInput);}
   catch(error){
@@ -555,6 +559,7 @@ function deletionParams(p,scope,sourceIdempotencyKey,objectId){
     nativeNetworkEvidence:true,getMode:p.getMode,
     readOriginalDependencyCoverage:p.readOriginalDependencyCoverage,
     authorizeOriginalRead:p.authorizeOriginalRead,authorizeOriginalDelete:p.authorizeOriginalWrite,
+    beforeOriginalMutationDispatch:p.beforeOriginalMutationDispatch,
     persistOriginalPreDeleteWitness:p.persistOriginalIntent,
     readOriginalPreDeleteWitness:p.readOriginalIntent,readOriginalEvents:p.readOriginalEvents};
 }

@@ -479,6 +479,10 @@ export async function captureT4OriginalGraphMutation(p={}){
       stream.matchCount!==1||stream.keyMatchCount!==1||typeof service!=='string'||event.service_id!==service)
       fail('GRAPH_ORIGINAL_IDEMPOTENCY_SERVICE_MISMATCH');
     await guard();
+    if(p.beforeOriginalMutationDispatch!==undefined){
+      if(typeof p.beforeOriginalMutationDispatch!=='function')fail('GRAPH_ORIGINAL_DISPATCH_PORT_INVALID');
+      await p.beforeOriginalMutationDispatch({intent:prior,operation:'t1.commitObjectGraph',input:structuredClone(original.traced),deduplicatedReceiptOnly:true});
+    }
     let receipt;
     try{receipt=await p.originalKernel.commitObjectGraph(original.traced);}
     catch(error){fail('GRAPH_ORIGINAL_DEDUPLICATED_RECEIPT_UNAVAILABLE',{
@@ -531,6 +535,10 @@ export async function captureT4OriginalGraphMutation(p={}){
   checkBefore(await graphState(p,scope,graphIds(op.relation_puts,deleted),endpoints([...op.relation_puts,...deleted])),
     reserve.objectBeforeDigest,op.relation_puts,deleted);
   if(!sameGraphHistory(await graphHistory(p,scope,p.sourceCursor,query),stream,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
+  if(p.beforeOriginalMutationDispatch!==undefined){
+    if(typeof p.beforeOriginalMutationDispatch!=='function')fail('GRAPH_ORIGINAL_DISPATCH_PORT_INVALID');
+    await p.beforeOriginalMutationDispatch({intent,operation:'t1.commitObjectGraph',input:structuredClone(traced)});
+  }
   let receipt;
   try{receipt=await p.originalKernel.commitObjectGraph(traced);}
   catch(error){fail('GRAPH_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{originalCode:error?.code??null,

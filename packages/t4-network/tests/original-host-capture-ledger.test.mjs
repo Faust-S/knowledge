@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createT4OriginalHostCaptureLedgerPort} from '../src/network/original-host-capture-ledger.mjs';
+import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
+import {createT4OriginalHostCaptureAdapter} from '../src/network/original-host-capture-adapter.mjs';
+import {originalT4CapturedDeletionInput} from '../src/network/original-deletion-delta.mjs';
+import {createT4OriginalHostCaptureLedgerPort,digestT4OriginalCaptureCommand} from '../src/network/original-host-capture-ledger.mjs';
 const scope={workspaceId:'ws:source',originalWriteOwnerRef:'owner:original'};
 const query={...scope,captureRef:'capture:1'};
 const intent={...query,schema:'IWXA_T4_ORIGINAL_OBJECT_MUTATION_INTENT_V1',objectId:'object:1'};
@@ -375,4 +378,192 @@ test('K132 capture catalog requires both original role grants on every page and 
   const scoped=f.port().forOriginalHostLifetime(()=>false);await assert.rejects(scoped.listOriginalOutbox(scope));
   f.params.enableOriginalTechnicalCommitOrder=false;
   assert.throws(()=>f.port(),{code:'CAPTURE_LEDGER_ORIGINAL_CATALOG_PROFILE_INVALID'});
+});
+
+function dispatchFixture(){
+  const f=pagedFixture(4),kernel=f.params.originalKernel;
+  f.params.enableOriginalTechnicalObjectHistory=true;
+  f.params.enableOriginalDispatchEvidence=true;
+  kernel.listEventObjectCommitWindow=async(ws,id,after,limit)=>{
+    assert.equal(ws,'ws:technical');
+    const events=f.events.filter(e=>e.object_id===id),start=after===null?0:events.findIndex(e=>e.event_id===after)+1;
+    const entries=events.slice(start,start+limit).map(event=>({event:structuredClone(event),legacy_history:false}));
+    return {entries,next_after_event_id:entries.at(-1)?.event.event_id??after,has_more:start+limit<events.length,
+      order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+  };
+  return f;
+}
+const sourceRows=()=>[{event_id:'event:source:base',event_type:'source.baseline',workspace_id:scope.workspaceId,
+  service_id:'service:owner',object_id:'object:1',revision:1,occurred_at:'2026-11-26T00:00:00Z',payload:{}}];
+function sourcePorts(rows){
+  return {readOriginalCommitPage:async p=>{
+    const start=p.afterEventId===null?0:rows.findIndex(e=>e.event_id===p.afterEventId)+1;
+    assert.equal(p.workspaceId,scope.workspaceId);
+    const entries=rows.slice(start,start+p.limit).map(event=>({event:structuredClone(event),legacy_history:false}));
+    return {entries,next_after_event_id:entries.at(-1)?.event.event_id??p.afterEventId,
+      has_more:start+p.limit<rows.length,order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+  },withOriginalHistoryReadBoundary:async(_,action)=>action(),authorizeOriginalRead:async()=>true};
+}
+async function dispatchIntent(rows=sourceRows()){
+  const sourceCursor=(await readT4OriginalEventWindow({...scope,...sourcePorts(rows),maxEvents:1})).nextCursor;
+  const originalMutation={workspace_id:scope.workspaceId,object_id:intent.objectId,base_revision:1,
+    schema_id:'iwxa.demo.note',schema_version:'1.0.0',data:{title:'next'},event:{
+      event_type:'source.updated',payload:{iwxa_t4_capture_ref:intent.captureRef}}};
+  return {...intent,sourceCursor,originalMutation};
+}
+async function observeDispatch(i,rows=sourceRows(),trace={kind:'capture_ref',value:i.captureRef}){
+  return readT4OriginalEventWindow({...scope,...sourcePorts(rows),cursor:i.sourceCursor,maxEvents:1,originalTraceQuery:trace});
+}
+async function pendingOf(p){const a=await p.listOriginalPendingIntents(scope);assert.equal(a.length,1);return a[0];}
+const admit=(p,i,input=i.originalMutation)=>p.admitOriginalCaptureDispatch({intent:i,operation:'t1.putObject',input});
+test('K139 original CAS admits a command only once, and outbox is impossible before admission',async()=>{
+  const f=dispatchFixture(),p=f.port(),i=await dispatchIntent();
+  await p.persistOriginalIntent(i);
+  await assert.rejects(p.persistOriginalOutbox(outbox),{code:'CAPTURE_LEDGER_DISPATCH_LINK_INVALID'});
+  const digest=await admit(p,i);
+  assert.equal(digest,digestT4OriginalCaptureCommand('t1.putObject',i.originalMutation));
+  await assert.rejects(admit(p,i),{code:'CAPTURE_LEDGER_DISPATCH_NOT_AVAILABLE'});
+  const q=await pendingOf(p);assert.equal(q.automaticSubjectMutationAllowed,false);
+  await p.persistOriginalOutbox(outbox);
+  f.restart();const cold=f.port();
+  assert.equal((await cold.inspectOriginalCaptureDispatch(query)).decision,'ADMITTED');
+  assert.equal((await cold.readOriginalCaptureInventory(scope)).pending.length,0);
+  assert.deepEqual(await cold.listOriginalOutbox(scope),[outbox]);assert.equal(f.events.length,3);
+});
+test('K139 closed before dispatch is durable across restart without a fabricated outbox or source cursor',async()=>{
+  const f=dispatchFixture(),p=f.port(),i=await dispatchIntent();
+  await p.persistOriginalIntent(i);
+  assert.equal(await p.closeOriginalUndispatchedCapture({pending:await pendingOf(p),observation:await observeDispatch(i)}),true);
+  f.restart();const cold=f.port(),status=await cold.inspectOriginalCaptureDispatch(query);
+  assert.equal(status.decision,'CLOSED_BEFORE_DISPATCH');assert.equal(status.originalOutboxPresent,false);
+  assert.deepEqual(await cold.listOriginalPendingIntents(scope),[]);assert.deepEqual(await cold.listOriginalOutbox(scope),[]);
+  assert.equal(await cold.readOriginalOutbox(query),null);assert.equal(f.events.length,2);
+  await assert.rejects(admit(cold,i),{code:'CAPTURE_LEDGER_DISPATCH_NOT_AVAILABLE'});
+  await assert.rejects(cold.persistOriginalOutbox(outbox),{code:'CAPTURE_LEDGER_DISPATCH_LINK_INVALID'});
+});
+test('K139 legacy Intent remains ambiguous and cannot be closed on absence of original Event',async()=>{
+  const f=dispatchFixture(),i=await dispatchIntent();
+  f.params.enableOriginalDispatchEvidence=false;await f.port().persistOriginalIntent(i);
+  f.params.enableOriginalDispatchEvidence=true;const p=f.port();
+  assert.equal((await p.inspectOriginalCaptureDispatch(query)).protocol,null);
+  await assert.rejects(p.closeOriginalUndispatchedCapture({pending:await pendingOf(p),observation:await observeDispatch(i)}),
+    {code:'CAPTURE_LEDGER_DISPATCH_NOT_AVAILABLE'});
+  await assert.rejects(admit(p,i),{code:'CAPTURE_LEDGER_DISPATCH_NOT_AVAILABLE'});assert.equal(f.events.length,1);
+  await p.persistOriginalOutbox(outbox);assert.equal((await p.readOriginalCaptureInventory(scope)).pairs.length,1);
+});
+test('K139 lost original dispatch CAS reply never permits close or repeat admission',async()=>{
+  const f=dispatchFixture(),p=f.port(),i=await dispatchIntent();
+  await p.persistOriginalIntent(i);f.lose();
+  await assert.rejects(admit(p,i),{code:'CAPTURE_LEDGER_ORIGINAL_WRITE_OUTCOME_UNKNOWN'});
+  f.restart();const cold=f.port(),pending=await pendingOf(cold);
+  assert.equal((await cold.inspectOriginalCaptureDispatch(query)).decision,'ADMITTED');
+  await assert.rejects(cold.closeOriginalUndispatchedCapture({pending,observation:await observeDispatch(i)}),{code:'CAPTURE_LEDGER_DISPATCH_NOT_AVAILABLE'});
+  await assert.rejects(admit(cold,i),{code:'CAPTURE_LEDGER_DISPATCH_NOT_AVAILABLE'});assert.equal(f.events.length,2);
+});
+test('K139 lost closure reply is recovered as the exact immutable closure, never another decision',async()=>{
+  const f=dispatchFixture(),p=f.port(),i=await dispatchIntent();
+  await p.persistOriginalIntent(i);const pending=await pendingOf(p),observation=await observeDispatch(i);f.lose();
+  await assert.rejects(p.closeOriginalUndispatchedCapture({pending,observation}),{code:'CAPTURE_LEDGER_ORIGINAL_WRITE_OUTCOME_UNKNOWN'});
+  f.restart();const cold=f.port();assert.deepEqual(await cold.listOriginalPendingIntents(scope),[]);
+  assert.equal((await cold.inspectOriginalCaptureDispatch(query)).decision,'CLOSED_BEFORE_DISPATCH');
+  await assert.rejects(admit(cold,i),{code:'CAPTURE_LEDGER_DISPATCH_NOT_AVAILABLE'});assert.equal(f.events.length,2);
+});
+test('K139 same original CAS arbitrates concurrent dispatch and closure without both decisions',async()=>{
+  const f=dispatchFixture(),p=f.port(),i=await dispatchIntent();
+  await p.persistOriginalIntent(i);
+  const pending=await pendingOf(p),observation=await observeDispatch(i);
+  const settled=await Promise.allSettled([admit(p,i),p.closeOriginalUndispatchedCapture({pending,observation})]);
+  assert.equal(settled.filter(x=>x.status==='fulfilled').length,1);
+  assert.equal(f.events.filter(e=>e.payload.role==='dispatch').length,1);
+  assert.ok(['ADMITTED','CLOSED_BEFORE_DISPATCH'].includes((await p.inspectOriginalCaptureDispatch(query)).decision));
+});
+test('K139 nonempty source window, wrong trace, incomplete proof and forged cursor cannot close',async()=>{
+  const f=dispatchFixture(),p=f.port(),rows=sourceRows(),i=await dispatchIntent(rows);
+  await p.persistOriginalIntent(i);const pending=await pendingOf(p),good=await observeDispatch(i,rows);
+  const invalid=[{...good,originalTraceEvidence:{...good.originalTraceEvidence,originalHistoryFullyRead:false}},
+    {...good,originalTraceEvidence:{...good.originalTraceEvidence,value:'capture:foreign'}},
+    {...good,nextCursor:{...good.nextCursor,seenEventCount:2}},
+    {...good,window:{...good.window,windowDigest:'sha256:'+'b'.repeat(64)}}];
+  rows.push({...rows[0],event_id:'event:source:unexpected',revision:2});
+  invalid.push(await observeDispatch(i,rows));
+  for(const observation of invalid)await assert.rejects(p.closeOriginalUndispatchedCapture({pending,observation}));
+  assert.equal((await p.inspectOriginalCaptureDispatch(query)).decision,null);assert.equal(f.events.length,1);
+});
+test('K139 dispatch decision cannot be hidden by catalog, lost Event, revocation or legacy profile',async()=>{
+  const f=dispatchFixture(),p=f.port(),i=await dispatchIntent();await p.persistOriginalIntent(i);await admit(p,i);
+  const id=f.events[1].object_id,record=f.objects.get(id),event=f.events[1];
+  f.objects.delete(id);await assert.rejects(p.listOriginalOutbox(scope),{code:'CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING'});
+  f.objects.set(id,record);f.events.pop();await assert.rejects(p.readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN'});
+  f.events.push(event);f.params.authorizeOriginalTechnicalRead=q=>q.recordRole!=='dispatch';
+  await assert.rejects(f.port().listOriginalPendingIntents(scope),{code:'CAPTURE_LEDGER_ORIGINAL_AUTHORITY_DENIED'});
+  f.params.authorizeOriginalTechnicalRead=()=>true;f.params.enableOriginalDispatchEvidence=false;
+  await assert.rejects(f.port().readOriginalIntent(query),{code:'CAPTURE_LEDGER_DISPATCH_PROFILE_REQUIRED'});
+});
+test('K139 dispatch digest is stable on key ordering but distinguishes Asset bytes and JSON lookalikes',()=>{
+  const a={asset_id:'a',workspace_id:'w',bytes:new Uint8Array([0,255,1])};
+  assert.equal(digestT4OriginalCaptureCommand('t1.putAsset',a),digestT4OriginalCaptureCommand('t1.putAsset',{bytes:a.bytes,workspace_id:'w',asset_id:'a'}));
+  for(const bytes of [new Uint8Array([0,254,1]),{'0':0,'1':255,'2':1},[0,255,1],'AP8B'])
+    assert.notEqual(digestT4OriginalCaptureCommand('t1.putAsset',a),digestT4OriginalCaptureCommand('t1.putAsset',{...a,bytes}));
+});
+test('K139 exact admission binds every original mutation family and rejects a modified command',async()=>{
+  const families=['OBJECT_PUT','ASSET_PUT','RELATION_PUT','GRAPH_COMMIT','OBJECT_DELETE','ASSET_DELETE','RELATION_DELETE'];
+  const operations=['t1.putObject','t1.putAsset','t1.putRelation','t1.commitObjectGraph','t1.deleteObject','t1.deleteAsset','t1.deleteRelation'];
+  for(const [index,kind] of families.entries()){
+    const f=dispatchFixture(),p=f.port(),base=await dispatchIntent();
+    const event={event_type:'source.changed',payload:{iwxa_t4_capture_ref:query.captureRef},idempotency_key:'key:source'};
+    let i,input;
+    if(kind==='OBJECT_PUT'){i=base;input=base.originalMutation;}
+    else if(kind.endsWith('_DELETE')){
+      i={...query,kind,schema:'IWXA_T4_ORIGINAL_PRE_DELETE_CAPTURE_V1',sourceCursor:base.sourceCursor,
+        preImage:{objectId:'object:1',assetId:'asset:1',relationId:'relation:1',revision:1},
+        preImageDigest:'sha256:'+'a'.repeat(64),sourceEvent:{event_type:'source.deleted',payload:{},idempotency_key:'key:source'}};
+      input=originalT4CapturedDeletionInput(i);
+    }else{
+      input=kind==='GRAPH_COMMIT'?{workspace_id:scope.workspaceId,object:{object_id:'object:1'},event}:
+        kind==='ASSET_PUT'?{workspace_id:scope.workspaceId,asset_id:'asset:1',object_id:'object:1',bytes:new Uint8Array([0,255,1]),event}:
+        {workspace_id:scope.workspaceId,relation_id:'relation:1',from_object_id:'object:1',to_object_id:'object:2',event};
+      const operation=kind==='ASSET_PUT'?{...input,bytesBase64:'AP8B'}:input;
+      if(kind==='ASSET_PUT')delete operation.bytes;
+      i={...query,kind,schema:'IWXA_T4_ORIGINAL_SUBJECT_MUTATION_INTENT_V1',sourceCursor:base.sourceCursor,operation,
+        subjectId:kind==='ASSET_PUT'?'asset:1':kind==='RELATION_PUT'?'relation:1':'object:1',idempotencyKey:'key:source'};
+    }
+    await p.persistOriginalIntent(i);
+    await assert.rejects(p.admitOriginalCaptureDispatch({intent:i,operation:operations[index],input:{...input,event:{...input.event,event_type:'source.modified'}}}),
+      {code:'CAPTURE_LEDGER_DISPATCH_COMMAND_INVALID'});
+    const digest=await p.admitOriginalCaptureDispatch({intent:i,operation:operations[index],input});
+    assert.equal(digest,digestT4OriginalCaptureCommand(operations[index],input));
+    assert.equal((await p.inspectOriginalCaptureDispatch(query)).decision,'ADMITTED');
+  }
+});
+function recoveryHost(f,rows,p=f.port(),override={}){
+  const originalKernel={...f.params.originalKernel,putObject:async()=>{assert.fail('business mutation during recovery');}};
+  return createT4OriginalHostCaptureAdapter({...p,originalKernel,...sourcePorts(rows),originalWriteOwnerRef:scope.originalWriteOwnerRef,
+    getMode:()=> 'T4_NETWORK',authorizeOriginalWrite:async()=>true,authorizeOriginalCaptureRecovery:async()=>true,
+    readOriginalEvents:async()=>{assert.fail('legacy history during selected recovery');},
+    withOriginalSubjectMutation:async(_,action)=>action(),
+    beforeOriginalMutationDispatch:async()=>{assert.fail('dispatch during recovery');},...override});
+}
+test('K139 original Host recovery closes only proven never-admitted Intent and resumes frontier eligibility cold',async()=>{
+  const f=dispatchFixture(),p=f.port(),rows=sourceRows(),i=await dispatchIntent(rows);await p.persistOriginalIntent(i);
+  const r=await recoveryHost(f,rows).reconcileNextOriginalCapture({workspaceId:scope.workspaceId});
+  assert.equal(r.state,'ORIGINAL_CAPTURE_CLOSED_BEFORE_DISPATCH');assert.equal(r.originalDispatchClosureVerified,true);
+  assert.equal(r.originalSubjectMutationInvoked,false);assert.equal(r.sourceCursorAdvanced,false);assert.equal(r.originalT3OutboxVerified,false);
+  f.restart();assert.equal((await recoveryHost(f,rows).reconcileNextOriginalCapture({workspaceId:scope.workspaceId})).state,'NO_PENDING_ORIGINAL_CAPTURE');
+  assert.equal(f.events.length,2);
+});
+test('K139 original Host recovery refuses missing dispatch proof for committed Event and keeps admitted missing Event waiting',async()=>{
+  const f=dispatchFixture(),p=f.port(),rows=sourceRows(),i=await dispatchIntent(rows);await p.persistOriginalIntent(i);
+  rows.push({...rows[0],event_id:'event:source:2',revision:2,payload:{iwxa_t4_capture_ref:i.captureRef}});
+  await assert.rejects(recoveryHost(f,rows).reconcileNextOriginalCapture({workspaceId:scope.workspaceId}),{code:'ORIGINAL_HOST_CAPTURE_EVENT_WITHOUT_DISPATCH'});
+  rows.pop();await admit(p,i);
+  assert.equal((await recoveryHost(f,rows).reconcileNextOriginalCapture({workspaceId:scope.workspaceId})).state,'WAITING_FOR_ORIGINAL_EVENT');
+  assert.equal(f.events.length,2);
+});
+test('K139 original Host recovery closure requires explicit original consent and no expected committed source Event',async()=>{
+  const f=dispatchFixture(),p=f.port(),rows=sourceRows(),i=await dispatchIntent(rows);await p.persistOriginalIntent(i);
+  await assert.rejects(recoveryHost(f,rows,p,{authorizeOriginalCaptureRecovery:async proof=>proof.closeBeforeOriginalDispatch!==true})
+    .reconcileNextOriginalCapture({workspaceId:scope.workspaceId}),{code:'ORIGINAL_HOST_CAPTURE_RECOVERY_DENIED'});
+  await assert.rejects(recoveryHost(f,rows).reconcileNextOriginalCapture({workspaceId:scope.workspaceId,expectedOriginalSourceEventId:'event:missing'}),
+    {code:'ORIGINAL_HOST_CAPTURE_RECOVERY_SOURCE_EVENT_MISMATCH'});
+  assert.equal(f.events.length,1);
 });
