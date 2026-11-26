@@ -1,0 +1,131 @@
+name: D10 ArtBazi T3 source and standalone build
+on:
+  push:
+    branches: [work/2026-11-18-d10-case-ci]
+    paths: [.github/workflows/d10-artbazi-t3-source-ci.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  d10-t3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact D10 candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/artbazi.ru
+          ref: 0c680b6b1611167a073971aee251da941c26ea88
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Checkout original T3 release source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          path: original
+          persist-credentials: false
+      - name: Obtain original public T3 candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: iwxa-t3-mobile-portable-candidate-326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          run-id: 45395047723
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/d10-portable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - name: Frozen D10 dependencies
+        working-directory: site
+        shell: bash
+        run: |
+          if bun install --frozen-lockfile > "$RUNNER_TEMP/d10-t3-install.log" 2>&1; then
+            echo "D10_T3_INSTALL=PASS"
+          else
+            echo "::error::D10_T3_INSTALL=FAIL"; exit 1
+          fi
+      - name: Exact source and metadata regressions
+        working-directory: site
+        shell: bash
+        run: |
+          for gate in check:t3:source check:types; do
+            log="$RUNNER_TEMP/d10-t3-${gate//:/-}.log"
+            if npm run "$gate" > "$log" 2>&1; then
+              echo "$gate=PASS"
+              if [[ "$gate" == "check:t3:source" ]]; then
+                grep -E '^# (tests|pass|fail) [0-9]+$' "$log" || true
+              fi
+            else
+              echo "::error::$gate=FAIL"
+              grep -oE 'TS[0-9]{4}|D10_T3_INPUT_[A-Z0-9_]+' "$log" | sort | uniq -c | head -30 || true
+              grep -E '^# (tests|pass|fail) [0-9]+$' "$log" || true
+              exit 1
+            fi
+          done
+      - name: Compile original T3 Host with D10 and one original BLI engine
+        working-directory: site
+        shell: bash
+        run: |
+          if npm run prepare:t3:host -- "$GITHUB_WORKSPACE/original" "$RUNNER_TEMP/d10-portable/platform-inputs.zip" "$RUNNER_TEMP/d10-prepared-host" > "$RUNNER_TEMP/d10-t3-prepare.log" 2>&1; then
+            echo "D10_ORIGINAL_T3_HOST_COMPILE=PASS"
+          else
+            echo "::error::D10_ORIGINAL_T3_HOST_COMPILE=FAIL"
+            grep -oE 'TS[0-9]{4}|D10_T3_INPUT_[A-Z0-9_]+|ERR_[A-Z0-9_]+|MODULE_NOT_FOUND|ENOENT|ERESOLVE' "$RUNNER_TEMP/d10-t3-prepare.log" | sort | uniq -c | head -40 || true
+            exit 1
+          fi
+      - name: Retain verified inputs within temporary D10 checkout
+        working-directory: site
+        shell: bash
+        run: |
+          if python3 scripts/verify-d10-t3-inputs.py "$RUNNER_TEMP/d10-portable/platform-inputs.zip" --retain > "$RUNNER_TEMP/d10-t3-retain.log" 2>&1; then
+            mv "$RUNNER_TEMP/d10-prepared-host" runtime/t3-platform/0.3.1-rc.1/prepared-host
+            echo "D10_LOCAL_ORIGINAL_INPUTS=PASS"
+          else
+            echo "::error::D10_LOCAL_ORIGINAL_INPUTS=FAIL"; exit 1
+          fi
+      - name: Remove preparation checkout and downloaded archive
+        shell: bash
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/original" "$RUNNER_TEMP/d10-portable"
+          test ! -e "$GITHUB_WORKSPACE/original"
+          test ! -e "$RUNNER_TEMP/d10-portable"
+          echo "D10_EXTERNAL_PREPARATION_INPUTS_REMOVED=PASS"
+      - name: Assemble standalone ArtBazi T3 site from local inputs
+        working-directory: site
+        shell: bash
+        run: |
+          if npm run build:t3:site > "$RUNNER_TEMP/d10-t3-build.log" 2>&1; then
+            echo "D10_T3_ONE_REPO_DIST=PASS"
+          else
+            echo "::error::D10_T3_ONE_REPO_DIST=FAIL"
+            grep -oE 'TS[0-9]{4}|D10_T3_INPUT_[A-Z0-9_]+|ERR_[A-Z0-9_]+|MODULE_NOT_FOUND|ENOENT|ERESOLVE' "$RUNNER_TEMP/d10-t3-build.log" | sort | uniq -c | head -40 || true
+            exit 1
+          fi
+      - name: Confirm exact original runtime and complete static snapshot
+        working-directory: site
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from "node:fs";
+          import {createHash} from "node:crypto";
+          import assert from "node:assert/strict";
+          const hash=p=>createHash("sha256").update(readFileSync(p)).digest("hex");
+          const manifest=JSON.parse(readFileSync("dist/t3-offline-manifest.json","utf8"));
+          assert.equal(hash("dist/_iwxa/runtime/0.3.6/runtime.js"),"e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78");
+          assert.equal(manifest.complete_static_tree,true);
+          assert.equal(manifest.domain_origin,"https://artbazi.ru");
+          console.log("D10_T3_ORIGINAL_RUNTIME=PASS");
+          console.log("D10_T3_OFFLINE_MANIFEST_ROWS="+manifest.files.length);
+          console.log("D10_T3_OFFLINE_MANIFEST_BYTES="+manifest.total_bytes);
+          console.log("D10_T3_BUILD_CANDIDATE=PASS");
+          console.log("D10_T3_BROWSER_AND_MODEL_ACCEPTANCE=NOT_RUN");
+          NODE
+      - name: Delete private build logs
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP"/d10-t3-*.log
