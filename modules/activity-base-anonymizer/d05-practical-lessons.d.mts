@@ -5,7 +5,7 @@ export type PracticalLesson={lesson_id:string;control_number:number;control:stri
  order_count:number;rechecked_order_count:number;unresolved_order_count:number;status:'REQUIRES_REVIEW'|'REPORTED_CORRECTION_AND_RECHECK';suggested_guidance:string|null};
 export type PracticalLessonReview={status:'LOCAL_D05_PRACTICAL_LESSONS';source_model_number:number;source_sha256:string;
  source_model_numbers:number[];source_report_count:number;excluded_duplicate_order_count:number;excluded_unaligned_count:number;
- lessons:PracticalLesson[];semantics:'RECORDED_CORRECTIONS_NOT_CAUSAL_PROOF';export_allowed:false;iwxa_package:null};
+ lessons:PracticalLesson[];related_candidates:import('./practical-rule-wording.mjs').RelatedWordingPair[];related_comparison_limited:boolean;semantics:'RECORDED_CORRECTIONS_NOT_CAUSAL_PROOF';export_allowed:false;iwxa_package:null};
 export type PracticalExperienceOptions={includeCompatibleDeclarations?:boolean};
 export function extractD05PracticalLessons(review:unknown,groupId:string,modelNumber:number,options?:PracticalExperienceOptions):Promise<PracticalLessonReview>;
 export function selectD05PracticalExperience(review:unknown,groupId:string,modelNumber:number,options?:PracticalExperienceOptions):Promise<{

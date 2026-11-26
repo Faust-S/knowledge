@@ -1,7 +1,7 @@
 // Activity local extraction of reusable corrective practice from recorded D05
 // Results. No new result owner, quality gate, scheduler or technology format.
 import {ActivityHold,sha256Canonical} from './engine.mjs';
-import {practicalWordingKey} from './practical-rule-wording.mjs';
+import {practicalWordingKey,compareRelatedPracticalWordings} from './practical-rule-wording.mjs';
 import {reviewD05RecurringTechnologies} from './d05-recurring-technology.mjs';
 const need=(ok,code)=>{if(!ok)throw new ActivityHold(code);};
 const cmp=(a,b)=>a<b?-1:a>b?1:0;
@@ -103,7 +103,10 @@ export async function extractD05PracticalLessons(review,groupId,modelNumber,opti
    status:state,suggested_guidance:guidance&&guidance.length<=4096?guidance:null});
  }
  rows.sort((a,b)=>b.rechecked_order_count-a.rechecked_order_count||b.order_count-a.order_count||cmp(a.lesson_id,b.lesson_id));
- return {status:'LOCAL_D05_PRACTICAL_LESSONS',source_model_number:modelNumber,
+ const related=compareRelatedPracticalWordings(rows.map(r=>({id:r.lesson_id,
+  partition:JSON.stringify([r.control_number,r.operation_id,r.scope,r.deviation_type,r.severity,r.disposition]),
+  sections:[r.problem,r.action],observations:[...new Set(r.observations.map(o=>o.model_number+':'+o.report_number))]})),{actionSection:1});
+ return {status:'LOCAL_D05_PRACTICAL_LESSONS',source_model_number:modelNumber,related_candidates:related.pairs,related_comparison_limited:related.limited,
   source_sha256:await sha256Canonical({groupId,modelNumber,model_numbers,reports:source}),lessons:rows,
   source_model_numbers:model_numbers,source_report_count:source.length,excluded_duplicate_order_count:scope.duplicate_order_count,excluded_unaligned_count,
   semantics:'RECORDED_CORRECTIONS_NOT_CAUSAL_PROOF',export_allowed:false,iwxa_package:null};

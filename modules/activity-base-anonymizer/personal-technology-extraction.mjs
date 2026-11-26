@@ -3,7 +3,7 @@
 // checks the exact source and proposed fields, then uses the existing product
 // builder. No scheduler, model runtime, new archive or acceptance authority.
 import {ActivityHold,sha256Canonical} from './engine.mjs';
-import {practicalWordingKey} from './practical-rule-wording.mjs';
+import {practicalWordingKey,compareRelatedPracticalWordings} from './practical-rule-wording.mjs';
 import {groupPersonalRoutineEvidence,preparePersonalTechnologyProduct} from './technology-product.mjs';
 export const SOURCE='LOCAL_ACTIVITY_PERSONAL_EXTRACTION_SOURCE';
 export const REQUEST='IWXA_ACTIVITY_PERSONAL_EXTRACTION_REQUEST_V1';
@@ -92,9 +92,8 @@ export async function reviewPersonalPracticalExperience(source){
   }
   observation.uncertainties.forEach((value,i)=>add('REPORTED_CONTEXT_LIMITATION',value,observation.id,'uncertainties.'+i));
  }
- const rules=[];
+ const rules=[],single=[];
  for(const row of candidates.values()){
-  if(row.occurrences.size<2)continue;
   const variants=[...row.variants].map(([source_text,refs])=>({source_text,occurrence_count:refs.size,evidence:[...refs.values()]}))
    .sort((a,b)=>b.occurrence_count-a.occurrence_count||compare(a.source_text,b.source_text));
   const primary=variants[0].source_text;
@@ -102,13 +101,17 @@ export async function reviewPersonalPracticalExperience(source){
    'Уточнить у получателя сведения, связанные с ограничением: «'+primary+'».';
 
   if(suggested.length>1000)continue;
-  rules.push({rule_id:'rule_'+await sha256Canonical({variant_id,key:row.key}),
+  const rule={rule_id:'rule_'+await sha256Canonical({variant_id,key:row.key}),
    kind:row.kind,source_text:primary,suggested_text:suggested,occurrence_count:row.occurrences.size,
    variants,wording_review_required:variants.length>1,
-   evidence:variants.flatMap(v=>v.evidence)});
+   evidence:variants.flatMap(v=>v.evidence)};
+  (row.occurrences.size>=2?rules:single).push(rule);
  }
  rules.sort((a,b)=>compare(a.kind,b.kind)||b.occurrence_count-a.occurrence_count||compare(a.rule_id,b.rule_id));
- return {status:'LOCAL_PERSONAL_PRACTICAL_EXPERIENCE',source_sha256,variant_id,
+ const candidatesForReview=compareRelatedPracticalWordings(single.filter(r=>r.kind==='HUMAN_REVIEW_CRITERION').map(r=>({id:r.rule_id,partition:r.kind,sections:[r.source_text],observations:[...new Set(r.evidence.map(e=>e.id))]})));
+ const byId=new Map(single.map(r=>[r.rule_id,r]));
+ const related_candidates=candidatesForReview.pairs.map(p=>({...p,left:byId.get(p.left_id),right:byId.get(p.right_id)}));
+ return {status:'LOCAL_PERSONAL_PRACTICAL_EXPERIENCE',source_sha256,variant_id,related_candidates,related_comparison_limited:candidatesForReview.limited,
   occurrence_count:document.observations.length,rules,source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED',
   evidence_semantics:'REPEATED_EXPLICIT_STATEMENTS_NOT_EXTERNAL_EXECUTION',export_allowed:false,iwxa_package:null};
 }
