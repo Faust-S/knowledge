@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: c8441c6a6c095a39126753bebe826610cb744645
+          ref: eacd7f6645d34fefb8d36725bd91dddee9a50a5e
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi
-          ref: 6829bf822e6aeeef0d3bdbb8e4ed49def1cf062d
+          ref: f00b1fba280e091627b641f0a2c849b6f1d436c6
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -79,7 +79,7 @@ jobs:
           echo "D10_T3_CANONICAL_SKILL_PROJECTION=PASS"
           cmp -s src/commercial/company-monthly-plan.mjs ../site/runtime/artbazi-module/runtime/company-monthly-plan.mjs
           cmp -s src/commercial/campaign-month.mjs ../site/runtime/artbazi-module/runtime/campaign-month.mjs
-          for model in commercial-review-context commercial-review-signals revops-cycle; do
+          for model in commercial-review-context commercial-review-signals revops-cycle plan-action; do
             cmp -s "src/commercial/$model.mjs" "../site/runtime/artbazi-module/runtime/$model.mjs"
           done
           echo "D10_T3_CANONICAL_MONTH_PROJECTIONS=PASS"
@@ -225,7 +225,7 @@ jobs:
             grep -oE 'D10_T3_(BUILD|ASSEMBLY)_PHASE=[A-Z_]+|D10_T3_(INPUT|SHELL)_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_PWA_[A-Z0-9_]+' "$RUNNER_TEMP/d10-t3-https.log" | tail -35 || true
             exit 1
           fi
-      - name: Original browser assistant, six forms, scoped analytical context and cold offline readback
+      - name: Original assistant, six forms, existing decision review and cold offline readback
         if: ${{ !cancelled() && steps.https_dist.outcome == 'success' }}
         working-directory: site
         shell: bash
