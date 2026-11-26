@@ -1,0 +1,33 @@
+{
+  "schema": "IWXA_D05_T3_PRIVATE_PUBLICATION_RECOVERY_RECEIPT/1",
+  "runId": 45783259434,
+  "jobId": 139783697332,
+  "requestCommit": "2c415939da47bd6575bc2c950ab856010300e1c5",
+  "sourceRepository": "Faust-S/cehovod.ru",
+  "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+  "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
+  "assistantCommit": "e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f",
+  "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+  "expectedSourceTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+  "priorFunctionalReceipt": "qualification/d05/receipts/45780282826-linux.json",
+  "priorFunctionalEvidenceVerified": true,
+  "credentialReference": "DOMEN",
+  "operation": "POST /repos/Faust-S/cehovod.ru/git/blobs (same tracked bytes)",
+  "diagnostic": {
+    "status": 403,
+    "category": "TOKEN_RESOURCE_ACCESS_DENIED",
+    "remaining": "4911",
+    "reset": "1795682806",
+    "retryAfter": "unknown"
+  },
+  "conclusion": "failure",
+  "preflight": "FAIL",
+  "dependenciesInstalled": false,
+  "productTestsRepeated": false,
+  "retainedCommitPublished": false,
+  "remoteReproduction": false,
+  "artifacts": 0,
+  "productAccepted": false,
+  "interpretation": "GitHub rejected resource access for the credential on this write. Primary rate limit was not exhausted. Exact token configuration or policy responsible for the denial is not observable from this classified response.",
+  "nextAction": "Do not dispatch another recovery until write access for the existing authorized credential has been restored or an authorized supported private publication path has been established."
+}
