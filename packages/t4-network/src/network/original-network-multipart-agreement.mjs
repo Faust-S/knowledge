@@ -29,6 +29,10 @@ const fields=['sessionRef','changeId','sourceNodeRef','recipientNodeRef','scopeR
   'sourcePrefixDigestBefore','sourcePrefixDigestAfter'];
 const replacementSession=s=>s?.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_SESSION_CANDIDATE_V1';
 const headExtension=s=>replacementSession(s)?T4_REPLACEMENT_SOURCE_SESSION_EXTENSION:T4_ORIGINAL_SOURCE_SESSION_EXTENSION;
+// The successor address is deterministic for the original change; the exact
+// retirement evidence is a separate identity component of its agreement.
+const replacementBindingDigest=s=>'sha256:'+createHash('sha256')
+  .update('IWXA-T4-MULTIPART-REPLACEMENT-BINDING-V1\0').update(JSON.stringify(sorted(s.replacement))).digest('hex');
 function checkIdentity(s){
   if(replacementSession(s)){
     try{validateT4OriginalReplacementSessionCandidate(s);}catch{fail('MULTIPART_AGREEMENT_SESSION_INVALID');}
@@ -84,7 +88,8 @@ export function readT4OriginalNativeMultipartAgreement({session,sourceHead,recip
   if(!same(diff.verifiedBody,expected))fail('MULTIPART_AGREEMENT_DIFF_MISMATCH');
   const core={schema:SCHEMA,...Object.fromEntries(fields.map(k=>[k,s[k]])),cryptoSuite:requiredCryptoSuite,
     profile:T4_MULTIPART_OPAQUE_EXTENSION,maxCiphertextBytes:offer.maxCiphertextBytes,
-    headSha256:head.sha256,diffSha256:diff.sha256,offerDigest:offer.offerDigest};
+    headSha256:head.sha256,diffSha256:diff.sha256,offerDigest:offer.offerDigest,
+    ...(replacementSession(s)?{replacementBindingDigest:replacementBindingDigest(s)}:{})};
   return Object.freeze({...core,agreementDigest:digest(core),originalSessionAgreementProven:true,
     originalSubjectAuthorityGranted:false});
 }
@@ -100,14 +105,18 @@ export function validateT4OriginalNativeMultipartAgreement({agreement,session=nu
     a.sourcePrefixDigestBefore===a.sourcePrefixDigestAfter||!SHA(a.headSha256)||!SHA(a.diffSha256))
     fail('MULTIPART_AGREEMENT_WITNESS_INVALID');
   const {agreementDigest,originalSessionAgreementProven,originalSubjectAuthorityGranted,...core}=a;
-  if(Object.keys(core).length!==fields.length+7||digest(core)!==agreementDigest)
+  const replacement=Object.hasOwn(core,'replacementBindingDigest');
+  if((replacement&&!DIG(core.replacementBindingDigest))||
+    Object.keys(core).length!==fields.length+7+(replacement?1:0)||digest(core)!==agreementDigest)
     fail('MULTIPART_AGREEMENT_WITNESS_INVALID');
   // Require the one exact profile offer, not a different suite or limit.
   validateT4NativeMultipartOffer({...createT4NativeMultipartOffer(),profile:a.profile,
     maxCiphertextBytes:a.maxCiphertextBytes,offerDigest:a.offerDigest});
   if(session!==null){
     checkIdentity(session);
-    if(!fields.every(k=>a[k]===session[k]))fail('MULTIPART_AGREEMENT_SESSION_MISMATCH');
+    if(!fields.every(k=>a[k]===session[k])||replacement!==replacementSession(session)||
+      (replacement&&a.replacementBindingDigest!==replacementBindingDigest(session)))
+      fail('MULTIPART_AGREEMENT_SESSION_MISMATCH');
   }
   if(headSha256!==null&&a.headSha256!==headSha256)fail('MULTIPART_AGREEMENT_HEAD_MISMATCH');
   if(frame!==null){

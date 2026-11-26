@@ -1042,6 +1042,10 @@ test('K164 replacement HEAD and exact DIFF negotiate only for the signed success
   assert.throws(()=>validate({agreement:a,session}),code('MULTIPART_AGREEMENT_SESSION_MISMATCH'));
   const other=deriveT4OriginalReplacementSessionCandidate({originalCaptureSession:session,
     replacement:{...replacement,sourcePhaseEventId:'event:source:different'}});
+  assert.equal(other.sessionRef,candidate.sessionRef);
+  assert.throws(()=>validate({agreement:a,session:other}),code('MULTIPART_AGREEMENT_SESSION_MISMATCH'));
+  assert.throws(()=>validate({agreement:{...a,replacementBindingDigest:d('different retirement')},session:candidate}),
+    code('MULTIPART_AGREEMENT_WITNESS_INVALID'));
   assert.throws(()=>agreement({session:other,sourceHead:sh,recipientDiff:df.receipt,localRole:'SOURCE',requiredCryptoSuite:suite}),
     code('MULTIPART_AGREEMENT_HEAD_MISMATCH'));
   assert.throws(()=>agreement({session:candidate,sourceHead:sh,recipientDiff:{...df.receipt,
