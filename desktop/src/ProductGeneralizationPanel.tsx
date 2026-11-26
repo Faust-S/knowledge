@@ -3,6 +3,7 @@ import {productTextInventory} from '../../modules/activity-base-anonymizer/presi
 import {prepareProductGeneralization,applyProductGeneralization,type GeneralizationPlan,type SourceReference}
  from '../../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 import type {ProductPreview} from '../../modules/activity-base-anonymizer/technology-product.mjs';
+import {ProductRevisionComparison} from './ProductRevisionComparison';
 
 type Choice={selected:boolean;replacement:string};
 const EMPTY_REFERENCES:SourceReference[]=[];
@@ -20,6 +21,7 @@ export function ProductGeneralizationPanel({product,reports,onRevision,disabled=
  const [language,setLanguage]=useState<'ru'|'en'>('ru'),[plan,setPlan]=useState<GeneralizationPlan|null>(null);
  const [choices,setChoices]=useState<Record<string,Choice>>({}),[page,setPage]=useState(0);
  const [busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [pending,setPending]=useState<{signature:string;value:Awaited<ReturnType<typeof applyProductGeneralization>>}|null>(null);
  const [additional,setAdditional]=useState<SourceReference[]>([]),[privateValue,setPrivateValue]=useState(''),[functional,setFunctional]=useState('');
  const references=useMemo(()=>[...sourceReferences,...additional],[sourceReferences,additional]);
  const list=Object.values(reports);
@@ -32,7 +34,7 @@ export function ProductGeneralizationPanel({product,reports,onRevision,disabled=
  }
  const sourceFields=useMemo(()=>new Map(productTextInventory(product.object_data).map(f=>[f.path,Array.from(f.text)])),[product]);
  useLayoutEffect(()=>{
-  const token=++epoch.current;setChoices({});setPlan(null);setPage(0);setError('');
+  const token=++epoch.current;setChoices({});setPlan(null);setPage(0);setError('');setPending(null);
   if(!Object.keys(reports).length&&!references.length){setBusy(false);return;}
   setBusy(true);
   void prepareProductGeneralization(product,Object.values(reports),language,references).then(p=>{
@@ -45,14 +47,16 @@ export function ProductGeneralizationPanel({product,reports,onRevision,disabled=
  },[product,reports,language,references]);
  const selected=plan?.groups.filter(g=>choices[g.group_id]?.selected)??[];
  const invalid=selected.some(g=>!choices[g.group_id]?.replacement.trim());
- async function apply(){
+ const signature=JSON.stringify([plan?.proposal_sha256,selected.map(g=>[g.group_id,choices[g.group_id].replacement.trim()])]);
+ const current=pending?.signature===signature?pending.value:null;
+ async function prepareRevision(){
   if(!plan||disabled||busy||running.current||!selected.length||invalid)return;
-  const token=++epoch.current;running.current=true;setBusy(true);setError('');
+  const token=++epoch.current;running.current=true;setBusy(true);setError('');setPending(null);
   try{
    const value=await applyProductGeneralization(product,Object.values(reports),{base_product_sha256:plan.base_product_sha256,
     proposal_sha256:plan.proposal_sha256,language:plan.language,replacements:selected.map(g=>({group_id:g.group_id,replacement:choices[g.group_id].replacement.trim()}))},references);
    if(token!==epoch.current)return;
-   onRevision(value.preview);
+   setPending({signature,value});
   }catch(e){
    if(token===epoch.current){
     const code=e&&typeof e==='object'&&'code' in e?String(e.code):'';
@@ -60,6 +64,10 @@ export function ProductGeneralizationPanel({product,reports,onRevision,disabled=
      'Выбранные замены нельзя применить к этой редакции. Проверьте фиксированные требования и формулировки.');
    }
   }finally{running.current=false;if(token===epoch.current)setBusy(false);}
+ }
+ function confirmRevision(){
+  if(!current||disabled||busy||current.local_review.base_product_sha256!==product.product_sha256)return;
+  const value=current;setPending(null);onRevision(value.preview);
  }
  // Known source references work even before the original Presidio report.
  const blocked=disabled||busy;
@@ -111,7 +119,8 @@ export function ProductGeneralizationPanel({product,reports,onRevision,disabled=
    {plan.groups.length>8?<div className="activity-v7-actions"><button disabled={blocked||page===0} onClick={()=>setPage(x=>x-1)}>Назад</button>
     <span>{page+1} / {Math.ceil(plan.groups.length/8)}</span><button disabled={blocked||(page+1)*8>=plan.groups.length} onClick={()=>setPage(x=>x+1)}>Далее</button></div>:null}
    <p>Сопоставьте предлагаемые роли и контакты с назначением технологии. Новая редакция требует повторной проверки всего продукта.</p>
-   <div className="activity-v7-actions"><button className="activity-v7-primary" disabled={blocked||!selected.length||invalid} onClick={()=>void apply()}>Применить выбранные обобщения</button></div>
+   <div className="activity-v7-actions"><button className="activity-v7-primary" disabled={blocked||!selected.length||invalid} onClick={()=>void prepareRevision()}>Сравнить редакции</button></div>
+   {current?<ProductRevisionComparison key={signature} review={current.local_review} disabled={blocked} onConfirm={confirmRevision} onCancel={()=>setPending(null)}/>:null}
   </>:null}
   {error?<p role="alert" className="activity-v7-note hold">{error}</p>:null}
  </div>;

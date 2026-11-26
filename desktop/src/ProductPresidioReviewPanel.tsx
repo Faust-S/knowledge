@@ -1,5 +1,6 @@
 import {useLayoutEffect,useRef,useState,type ChangeEvent} from 'react';
 import {ProductGeneralizationPanel} from './ProductGeneralizationPanel';
+import {ProductRevisionComparison} from './ProductRevisionComparison';
 import type {SourceReference} from '../../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 import {productTextInventory,reviewProductPresidioTextScreening} from '../../modules/activity-base-anonymizer/presidio-text-review.mjs';
 import {editableProductTexts,reviseTechnologyProductText} from '../../modules/activity-base-anonymizer/technology-product-revision.mjs';
@@ -9,9 +10,10 @@ export function ProductPresidioReviewPanel({product,onRevision,sourceReferences}
  const input=useRef<HTMLInputElement>(null),generation=useRef(0);
  const [reviews,setReviews]=useState<Partial<Record<'en'|'ru',Review>>>({}),[problem,setProblem]=useState('');
  const [rawReports,setRawReports]=useState<Partial<Record<'en'|'ru',unknown>>>({});
+ const [pending,setPending]=useState<{signature:string;value:Awaited<ReturnType<typeof reviseTechnologyProductText>>}|null>(null);
  const [replacement,setReplacement]=useState(''),[reason,setReason]=useState(''),[page,setPage]=useState<Record<'en'|'ru',number>>({en:0,ru:0});
  const [busy,setBusy]=useState(false),[selected,setSelected]=useState<{language:'en'|'ru';path:string}|null>(null);
- useLayoutEffect(()=>{generation.current++;setReviews({});setRawReports({});setProblem('');setSelected(null);setReplacement('');setReason('');setPage({en:0,ru:0});setBusy(false);return()=>{generation.current++;};},[product]);
+ useLayoutEffect(()=>{generation.current++;setReviews({});setRawReports({});setPending(null);setProblem('');setSelected(null);setReplacement('');setReason('');setPage({en:0,ru:0});setBusy(false);return()=>{generation.current++;};},[product]);
  async function load(e:ChangeEvent<HTMLInputElement>){
   const f=e.target.files?.[0];e.target.value='';if(!f)return;
   const token=++generation.current;setBusy(true);setProblem('');
@@ -20,18 +22,24 @@ export function ProductPresidioReviewPanel({product,onRevision,sourceReferences}
    const raw=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await f.arrayBuffer()));
    const r=await reviewProductPresidioTextScreening(product,raw);
    if(token!==generation.current)return;
-   setRawReports(x=>({...x,[r.language]:raw}));setReviews(x=>({...x,[r.language]:r}));setSelected(null);setReplacement('');setReason('');setPage(x=>({...x,[r.language]:0}));
+   setPending(null);setRawReports(x=>({...x,[r.language]:raw}));setReviews(x=>({...x,[r.language]:r}));setSelected(null);setReplacement('');setReason('');setPage(x=>({...x,[r.language]:0}));
   }catch{if(token===generation.current)setProblem('Результат должен относиться ко всему текущему продукту, включая название. Проверка прежней редакции не подходит.');}
   finally{if(token===generation.current)setBusy(false);}
  }
  const row=selected?reviews[selected.language]?.fields.find(f=>f.path===selected.path):null;
  const value=row?productTextInventory(product.object_data).find(f=>f.path===row.path)?.text??'':'';
  const editKind=row?editableProductTexts(product.object_data).find(f=>f.path===row.path)?.edit_kind:'FIXED';
+ const signature=JSON.stringify([product.product_sha256,selected,replacement.trim(),reason.trim()]);
+ const current=pending?.signature===signature?pending.value:null;
+ function confirmRevision(){
+  if(!current||busy||!onRevision||current.local_review.base_product_sha256!==product.product_sha256)return;
+  onRevision(current.preview);setPending(null);setReviews({});setRawReports({});setSelected(null);setReplacement('');setReason('');
+ }
  async function revise(){
   if(!row||!onRevision)return;
-  const token=++generation.current;setBusy(true);setProblem('');
+  const token=++generation.current;setBusy(true);setProblem('');setPending(null);
   try{const result=await reviseTechnologyProductText(product,{base_product_sha256:product.product_sha256,edits:[{path:row.path,previous:value,replacement:replacement.trim(),reason:reason.trim()}]});
-   if(token===generation.current){onRevision(result.preview);setReviews({});setRawReports({});setSelected(null);setReplacement('');setReason('');}}
+   if(token===generation.current)setPending({signature,value:result});}
   catch{if(token===generation.current)setProblem('Не удалось исправить поле. Технические числовые условия, структуру и фиксированные параметры менять нельзя.');}
   finally{if(token===generation.current)setBusy(false);}
  }
@@ -56,7 +64,8 @@ export function ProductPresidioReviewPanel({product,onRevision,sourceReferences}
    {onRevision&&editKind!=='FIXED'?<><label className="activity-domain-label">Обобщённая формулировка<textarea rows={4} value={replacement} maxLength={16000} onChange={e=>setReplacement(e.target.value)}/></label>
     <label className="activity-domain-label">Что изменено и почему<input value={reason} maxLength={1000} onChange={e=>setReason(e.target.value)}/></label>
     {editKind==='CONTROL_TEXT'?<p>Сохраните смысл требования и все технические числовые условия. Нужна новая предметная проверка.</p>:null}
-    <button disabled={busy||!replacement.trim()||replacement.trim()===value||!reason.trim()} onClick={()=>void revise()}>Исправить текст и повторить проверку</button></>:<p>Это фиксированное предметное поле. Изменение требует возврата к исходной технологии.</p>}
+    <button disabled={busy||!replacement.trim()||replacement.trim()===value||!reason.trim()} onClick={()=>void revise()}>Сравнить исправление</button>
+    {current?<ProductRevisionComparison key={signature} review={current.local_review} disabled={busy} onConfirm={confirmRevision} onCancel={()=>setPending(null)}/>:null}</>:<p>Это фиксированное предметное поле. Изменение требует возврата к исходной технологии.</p>}
    </div>:null}
  </div>;
 }

@@ -1,7 +1,10 @@
 import type {ProductPreview} from './technology-product.mjs';
 export type ProductTextEditKind='TEXT'|'CONTROL_TEXT'|'FIXED';
 export type ProductTextEdit={path:string;previous:string;replacement:string;reason:string};
+export type TextChangeReview={changed_markers:Array<{kind:'NUMBERS'|'UNITS'|'COMPARISONS'|'CONDITIONS'|'OBLIGATIONS';before:string[];after:string[]}>;semantic_equivalence:'NOT_ESTABLISHED'};
+export type ReviewedProductTextEdit=ProductTextEdit&{edit_kind:ProductTextEditKind;text_review:TextChangeReview};
+export type ProductRevisionReview={base_product_sha256:string;product_sha256:string;edits:ReviewedProductTextEdit[];
+ requires_new_screening:true;requires_domain_review:true;semantic_equivalence:'NOT_ESTABLISHED';export_allowed:false};
+export function reviewTechnologyTextChange(previous:string,replacement:string):TextChangeReview;
 export function editableProductTexts(data:unknown):Array<{path:string;text:string;edit_kind:ProductTextEditKind}>;
-export function reviseTechnologyProductText(preview:unknown,changes:unknown):Promise<{preview:ProductPreview;local_review:{
- base_product_sha256:string;product_sha256:string;edits:Array<ProductTextEdit&{edit_kind:ProductTextEditKind}>;
- requires_new_screening:true;requires_domain_review:true;semantic_equivalence:'NOT_ESTABLISHED';export_allowed:false}}>;
+export function reviseTechnologyProductText(preview:unknown,changes:unknown):Promise<{preview:ProductPreview;local_review:ProductRevisionReview}>;

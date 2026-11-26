@@ -1,5 +1,5 @@
 import type {ProductPreview} from './technology-product.mjs';
-import type {ProductTextEditKind,ProductTextEdit} from './technology-product-revision.mjs';
+import type {ProductTextEditKind,ProductRevisionReview} from './technology-product-revision.mjs';
 export type SourceReference={value:string;replacement:string;kind:'CUSTOMER'|'PERFORMER'|'CONTRACTOR'|'LOCAL_REFERENCE'};
 export type GeneralizationSpan={path:string;start:number;end:number;edit_kind:ProductTextEditKind;detected:boolean};
 export type GeneralizationGroup={group_id:string;value:string;types:string[];languages:string[];score:number;spans:GeneralizationSpan[];
@@ -9,7 +9,6 @@ export type GeneralizationPlan={status:'LOCAL_PRODUCT_GENERALIZATION_PROPOSAL';b
  group_count:number;automatic_group_count:number;source_reference_count:number;matched_reference_count:number;screening_profile_count:number;requires_owner_review:true;anonymity:'NOT_ESTABLISHED';export_allowed:false;iwxa_package:null};
 export function prepareProductGeneralization(preview:unknown,reports:unknown,language?:'ru'|'en',references?:SourceReference[]):Promise<GeneralizationPlan>;
 export function applyProductGeneralization(preview:unknown,reports:unknown,choices:unknown,references?:SourceReference[]):Promise<{preview:ProductPreview;
- local_review:{base_product_sha256:string;product_sha256:string;edits:Array<ProductTextEdit&{edit_kind:ProductTextEditKind}>;
- requires_new_screening:true;requires_domain_review:true;semantic_equivalence:'NOT_ESTABLISHED';export_allowed:false};
+ local_review:ProductRevisionReview;
  summary:{selected_groups:number;changed_occurrences:number;changed_fields:number;retained_fixed_occurrences:number;unselected_groups:number;
  requires_new_screening:true;semantic_equivalence:'NOT_ESTABLISHED';export_allowed:false}}>;

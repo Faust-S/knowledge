@@ -26,5 +26,5 @@ export function practicalWordingKey(value){
  // the exact numbers/operators. A final period after a letter is ordinary
  // sentence punctuation; a period after a number is not normalized.
  const source=value.normalize('NFC').trim().replace(/(\p{L})\.$/u,'$1');
- return source.replace(/[\p{L}\p{M}]+/gu,word=>aliases.get(word.toLocaleLowerCase('ru-RU'))??word);
+ return source.replace(/[\p{L}\p{M}\p{N}_]+/gu,word=>aliases.get(word.toLocaleLowerCase('ru-RU'))??word);
 }

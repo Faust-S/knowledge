@@ -9,6 +9,29 @@ const exact=(v,keys)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).
 const own=(v,k)=>v!==null&&typeof v==='object'&&Object.hasOwn(v,k);
 const qualityTextFields=new Set(['related_product_characteristic','requirement','inspection_method_custom','sampling_rule','required_evidence','action_custom']);
 const numericTokens=s=>s.match(/[+-]?\d+(?:[.,]\d+)*(?:[eE][+-]?\d+)?/g)??[];
+// Compare observable text markers, not inferred meaning. Numeric changes
+// can be legitimate (private dates/IDs); the editor shows these for review
+// rather than guessing whether a number is an engineering requirement.
+const words=s=>(s.match(/[\p{L}\p{M}]+/gu)??[]).map(x=>x.toLocaleLowerCase('ru-RU'));
+const conditionWords=new Set(('если когда перед после затем сначала только кроме исключая при до пока одновременно последовательно доработки иначе при условии unless if when before after then first only except until while otherwise concurrently sequentially').split(' '));
+const obligationWords=new Set(('не без нельзя запрещено запретить запрещается обязательно должен должна должны должно требуется требуются необходимо допускается допустимо можно not no without never must shall required require mandatory prohibited forbidden cannot may optional').split(' '));
+const unitPattern=/(?<![\p{L}\p{N}_])(?:[+-]?\d+(?:[.,]\d+)*(?:[eE][+-]?\d+)?)\s*(мм|см|мкм|нм|км|м|кг|мг|г|л|мл|квт|вт|мпа|кпа|па|нм³|н|мин|час(?:а|ов)?|сек(?:унд[а-я]*)?|дн(?:я|ей)?|mm|cm|µm|μm|um|nm|km|kg|mg|g|ml|l|kw|w|mpa|kpa|pa|psi|rpm|ms|s|min|h|hours?|days?|°\s*[cсf]|%)(?![\p{L}\p{N}_])/giu;
+function markerValues(value){
+ const terms=words(value);
+ return {
+  NUMBERS:numericTokens(value),
+  UNITS:[...value.matchAll(unitPattern)].map(m=>m[1].toLocaleLowerCase('ru-RU').replace(/\s+/g,'')),
+  COMPARISONS:value.match(/<=|>=|!=|==|[<>=≤≥≠±−]/gu)??[],
+  CONDITIONS:terms.filter(x=>conditionWords.has(x)),
+  OBLIGATIONS:terms.filter(x=>obligationWords.has(x)),
+ };
+}
+export function reviewTechnologyTextChange(previous,replacement){
+ need(typeof previous==='string'&&typeof replacement==='string'&&previous.length<=16000&&replacement.length<=16000,'TECHNOLOGY_REVISION_EDIT');
+ const before=markerValues(previous),after=markerValues(replacement);
+ return {changed_markers:Object.keys(before).filter(k=>JSON.stringify(before[k])!==JSON.stringify(after[k]))
+  .map(kind=>({kind,before:before[kind],after:after[kind]})),semantic_equivalence:'NOT_ESTABLISHED'};
+}
 function lookup(root,path){
  const parts=path.split('.');
  need(parts.shift()==='object_data','TECHNOLOGY_REVISION_PATH');
@@ -67,7 +90,8 @@ export async function reviseTechnologyProductText(preview,changes){
   const {parent,key,value}=lookup(p,edit.path);
   need(value===edit.previous,'TECHNOLOGY_REVISION_FIELD_FIXED_OR_STALE');
   parent[key]=edit.replacement;seen.add(edit.path);
-  revisions.push({path:edit.path,edit_kind:row.edit_kind,previous:edit.previous,replacement:edit.replacement,reason:edit.reason});
+  revisions.push({path:edit.path,edit_kind:row.edit_kind,previous:edit.previous,replacement:edit.replacement,reason:edit.reason,
+   text_review:reviewTechnologyTextChange(edit.previous,edit.replacement)});
  }
  const object_data=validateTechnologyProduct(p);
  const product_sha256=await sha256Canonical(object_data);
