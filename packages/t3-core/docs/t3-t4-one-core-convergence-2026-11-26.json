@@ -1,42 +1,134 @@
 {
   "schema": "IWXA_T3_T4_ONE_CORE_CONVERGENCE_STAGE/1",
-  "state": "UNQUALIFIED_STAGING",
+  "state": "SOURCE_CONVERGENCE_PARTIALLY_QUALIFIED",
   "mergeBase": "fd927a1efb083219442d9504285f75fa738dbdda",
   "corporateT3": "8db847058cab231d2d39c34df46024b60564d2ad",
   "networkT4": "896515f361611e311b0df22dbcfebfefa8e58fa0",
   "corporateChanges": 55,
   "overlappingFiles": 9,
   "resolvedBlobs": {
-    "packages/t3-core/src/t3/access/original-kernel-registry-state.mjs": "ca3717d9a40bc3ac97c477cc354146141b0a0ba6",
+    "packages/t3-core/src/t3/access/original-kernel-registry-state.mjs": "9dcca61177cc1ff4e9ec9ecace82059bb53c4f8b",
     "packages/t3-core/src/main-trusted-kernel-realm.ts": "e99c99a2c6da124daf51cbb6ba33be8b6bc164cb",
     "packages/t3-core/src/t3/index.d.mts": "fedcde6696f00f57c52d73dc4f3cf2fe4136a6de",
-    "packages/t3-core/src/t3/original-kernel-native-relay.mjs": "335b07ceaebcff8559a73aa161f1ffbe010d2e0c",
-    "packages/t3-core/src/t3/subject-access-binding.mjs": "88f44e9645c82a92b3792c341dbbe5c83c64537a",
+    "packages/t3-core/src/t3/original-kernel-native-relay.mjs": "d218d6995ec1ed107f713a11773314c1fbbfd8b4",
+    "packages/t3-core/src/t3/subject-access-binding.mjs": "09549eb3850a34ee0f2036038f4566eab844dfd2",
     "packages/t3-core/src/workspace-host/context/create-kernel-facade.ts": "302faf170162c3025c660db5ba30a26110ea665d",
     "packages/t3-core/tests/module-kernel-facade.test.ts": "4989c0a2c0aa173140399a0fa92f9dd4f134adc9",
     "packages/t3-core/tests/t3-d1-original-control-http.test.mjs": "dfb2cdfd9743893c90a360a7e560f4b29064326c",
     "packages/t3-core/tests/t3-subject-kernel-scope.test.mjs": "3b7347668f7693e6d26ec635678caf594a03b816",
-    "packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs": "e4ac8cc810a841a839363071baa3c6f7472f9cec"
+    "packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs": "c3f68123d548ea4d76befd6a800a4819e0f126f3",
+    "packages/t3-core/src/t3/original-installed-network-scope.mjs": "95cce78bb156184f004a1e5919d29a85dbb10421",
+    "packages/t3-core/src/t3/original-installed-network-scope.d.mts": "4fb308feaaa44a928fe12647376c3994612c63a4",
+    "packages/t3-core/src/t3/original-control-http-handler.mjs": "4de7fe0cf20b291ac81068c82cc08e4ff0111a6b",
+    "packages/t3-core/src/modules/exchange/features/packages/ImportView.tsx": "ecc247885cf99a6aa202cc5ae0c14931af0f670a",
+    "packages/t3-core/tests/t3-d1-signed-selected-workspace.dom.test.tsx": "fdf329ef303a226037b5518b8eb5d648d215ead2",
+    "packages/t4-network/src/network/original-product-network-profile.mjs": "7512d931cbc9d4a74a9a8e5b8a2b058426a9ae6e"
   },
   "networkWireUnchanged": true,
   "accepted": false,
   "blocking": [
-    "Execute combined source and full TypeScript build",
-    "Validate corporate authority, registry storage and network key transitions together",
-    "Confirm installed owner reuses original registry and physical placement",
-    "Qualify original DB9 and real two-node pilot"
+    "Complete three interrupted long native/multipart/session contract files on exact recheck candidate.",
+    "Qualify final source changes after d9881287, especially signed management receipt provenance with real original Admin D3.",
+    "Mount original Registry, Access and Vault in one actual installed owner; current product code does not yet supply the required shared Registry/evaluator.",
+    "Original DB9 admission and actual two-node installed pilot.",
+    "Independent final acceptance."
   ],
   "notes": [
     "No automatic Registry migration, issuance or fallback.",
     "The source branch heads remain untouched. Corporate Registry placement must be resolved before provenance check; a scoped network Relay cannot bootstrap corporate placement.",
-    "Source staging only; no private or installed qualification."
+    "Source staging only; no private or installed qualification.",
+    "Full converged Registry source verification passed, including mixed employee proof, seat and network-key history. No production grants created.",
+    "Source native graph uses the existing local capture owner, not a second queue. Native Admin receipt graph enters the protected management partition only through exact original signed SubjectBinding provenance, not by schema name alone.",
+    "The private Admin original mount currently constructs its Registry over liveKernel, not the required scoped Relay port; do not claim installed owner composition accepted.",
+    "Two public grouped CI runs this cycle; no private Actions or Codex. Latest receipt routing correction has only local source qualification."
   ],
   "additionalTests": {
-    "packages/t4-network/tests/original-native-network-product-activation.test.mjs": "c6e8dac9f2ee93763078e76d90a641f940221bb1"
+    "packages/t4-network/tests/original-native-network-product-activation.test.mjs": "e3d678a0ccb5025ae1cf04eef4ad9e4170a6fa28",
+    "packages/t4-network/tests/original-installed-control-factories.test.mjs": "9391594c3d36003edcdce510514c5b73e6d258a1",
+    "packages/t4-network/tests/original-installed-control-http.test.mjs": "9d29f4c3908667604c77738d266db47f8650f361"
   },
   "localRelayQualification": {
-    "pass": 46,
+    "candidate": "d988128718688a3547a04c8b87a493daa5a68adc",
+    "pass": 51,
     "fail": 0,
-    "scope": "Exact converged Relay and activation tests; prior qualified SubjectBinding, mocked original Kernel/owner. Not the full merged core."
+    "cancelled": 0,
+    "skipped": 0,
+    "scope": "Exact Git blobs of converged Relay, SubjectBinding, scope, activation and original factory tests; mocked original Kernel and owner decisions. Not installed Host or original DB9.",
+    "history": [
+      {
+        "candidate": "47a0495bf8ab8fb4e8303fabc31bcd1dd00e50ef",
+        "pass": 46,
+        "scope": "prior SubjectBinding"
+      },
+      {
+        "candidate": "03feb44f6f52b438a53e4d52f33c7f0fac817605",
+        "pass": 47,
+        "scope": "exact converged SubjectBinding"
+      },
+      {
+        "candidate": "2f79e053b79f7921cc789a25562bf34bcc0e4b5a",
+        "pass": 50,
+        "scope": "native graph capture"
+      }
+    ]
+  },
+  "sourceCandidate": {
+    "commit": "d988128718688a3547a04c8b87a493daa5a68adc",
+    "tree": "b36e90f51d0b8d3affdb115e148b7d7f3e5fccc0"
+  },
+  "publicQualification": {
+    "previous": {
+      "run": 45883700387,
+      "candidate": "896515f361611e311b0df22dbcfebfefa8e58fa0",
+      "state": "INCOMPLETE",
+      "observedMainPass": 49,
+      "canonicalProfileVault": {
+        "pass": 3,
+        "fail": 0
+      },
+      "fixtureDefect": "invalid service ID and missing server cleanup"
+    },
+    "converged": {
+      "run": 45887051248,
+      "candidate": "03feb44f6f52b438a53e4d52f33c7f0fac817605",
+      "state": "FAIL",
+      "sourceT3": {
+        "pass": 289,
+        "fail": 0,
+        "skipped": 0
+      },
+      "mixedRegistryHistory": "PASS",
+      "networkContracts": {
+        "pass": 958,
+        "fail": 0,
+        "cancelledFiles": 3,
+        "outerFileTimeoutMs": 60000
+      },
+      "typecheck": "FAIL_MISSING_IMPORT_VIEW_REF",
+      "dom": {
+        "pass": 55,
+        "fail": 1,
+        "unhandledErrors": 1
+      },
+      "build": "PASS"
+    },
+    "targetedRecheck": {
+      "run": 45887831413,
+      "candidate": "206a289b6c369eaa4bb5d56c7e7dd0da5d9d0661",
+      "state": "IN_PROGRESS",
+      "dependencies": "PASS",
+      "typecheck": "PASS",
+      "dom": "PASS",
+      "changedRelayAndControl": "PASS",
+      "build": "PASS",
+      "longFiles": "IN_PROGRESS",
+      "scope": "Three interrupted files rerun; no other redundant complete suite."
+    }
+  },
+  "frozenNetworkSource": {
+    "commit": "6e542f5d28386c39a6fd9b5206c7d3fa79414c31",
+    "originalBlobs": 66,
+    "changed": 0,
+    "additionalProductIntegrationModules": 4
   }
 }
