@@ -1,0 +1,28 @@
+name: T4 K179 K180 multipart observation and subject qualification
+on:
+  push:
+    branches:
+      - 'ci/once/t4-k179-k180/028e7504307e'
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public candidate and source checks
+        run: |
+          test "$(git rev-parse HEAD^)" = "028e7504307ef8635de6c93091f1a80e10665b47"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+          npm run check --prefix packages/t4-network
+      - name: Bounded multipart observation and complete Asset subject route
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test --test-name-pattern='K167|K180' tests/original-network-session-phases.test.mjs
