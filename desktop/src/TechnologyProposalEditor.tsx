@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {TechnologyDisclosurePanel} from './TechnologyDisclosurePanel';
 import {D05ExtractionPanel} from './D05ExtractionPanel';
+import {D05PracticalLessonsPanel} from './D05PracticalLessonsPanel';
 import {prepareD05TechnologyProposal,type D05TechnologyProposalForm,type D05TechnologyProposal,
  type D05DraftProfile,type D05RouteGroup,type D05ParameterDecision} from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 type TextField='purpose'|'inputs'|'outputs'|'applicability'|'adaptation_guidance'|'local_context_guidance';
@@ -47,6 +48,8 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
    <p>Сформулируйте требования для выбранного исходного варианта {profile.model_number}. Значения других вариантов не используются. Если конкретный ресурс не нужен, укажите это с обоснованием. Исходные условия и контрольные точки не изменяются.</p>
    <D05ExtractionPanel review={review} groupId={groupId} modelNumber={profile.model_number} form={form} decisions={decisions}
     scopeLabel={scopeLabel} onApply={(next,params,title)=>{update(next);onDecisions(params);if(title)setSuggestedTitle(old=>old||title);}}/>
+   <D05PracticalLessonsPanel review={review} groupId={groupId} modelNumber={profile.model_number} guidance={form.local_context_guidance??''}
+    onApply={value=>update({...form,local_context_guidance:value})}/>
    <div className="activity-domain-proposal-fields">
     {TEXT.map(x=><label key={x.field} className="activity-domain-label">{x.label}
      <textarea rows={2} maxLength={4096} value={form[x.field]??''} placeholder={x.hint}

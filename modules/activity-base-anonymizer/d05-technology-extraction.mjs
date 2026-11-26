@@ -60,7 +60,7 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
   }
  }
  const recorded=includeRecordedReports&&review.recorded_execution_review?.status==='LOCAL_D05_RECORDED_EXECUTION_REVIEW'?
-  review.recorded_execution_review.profiles.filter(p=>experienceNumbers.includes(p.model_number)&&p.reports.length):[];
+  review.recorded_execution_review.profiles.filter(p=>experienceNumbers.includes(p.model_number)&&p.reports.length).map(({source_references,...p})=>p):[];
  const recordedCount=recorded.reduce((n,p)=>n+p.reports.length,0);
  const source={group:{basis:group.basis,operations:group.operations,model_count:group.model_count},
   profile,shared_condition_keys:draft.shared_condition_keys,differing_condition_keys:draft.differing_condition_keys,

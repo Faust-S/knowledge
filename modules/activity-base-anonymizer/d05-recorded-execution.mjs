@@ -54,8 +54,14 @@ export function projectD05RecordedExecution(entries,plans,templates,details,work
  const byType=Object.fromEntries(D05_RECORDED_TYPES.map(t=>[t,rows.filter(r=>r.type===t).sort((a,b)=>cmp(a.id,b.id))]));
  const used=new Set();
  const profiles=entries.map(entry=>{
-  const issues=new Set(),reports=[];
-  if(entry.ambiguous)return {model_number:entry.number,reports,issues:['AMBIGUOUS_OPERATION_MAPPING']};
+  const issues=new Set(),reports=[],referenceMap=new Map();
+  const remember=(value,replacement,kind)=>{
+   if(typeof value!=='string'||typeof replacement!=='string')return;
+   value=value.trim();replacement=replacement.trim();
+   if(value.length<3||value.length>240||!replacement||replacement.length>240||replacement.includes(value)||/[\u0000-\u001f\u007f]/.test(value+replacement))return;
+   const k=JSON.stringify([value,replacement,kind]);referenceMap.set(k,{value,replacement,kind});
+  };
+  if(entry.ambiguous)return {model_number:entry.number,reports,source_references:[],issues:['AMBIGUOUS_OPERATION_MAPPING']};
   const orders=byType['production-order'].filter(r=>r.body.plan_snapshot?.operations_ref===entry.routeId);
   // The existing D05 completed-production reader requires a frozen revision
   // 1 of the calculation source and approved order. Do not attach current
@@ -89,8 +95,15 @@ export function projectD05RecordedExecution(entries,plans,templates,details,work
      result_note:localText(op.resultComment),pause_reason:localText(op.pauseReason)});
    }
    if(invalid){issues.add('EXECUTION_OPERATION_MAPPING_INVALID');continue;}
+   remember(order.body.plan_snapshot?.request?.customer,'заказчик получателя','CUSTOMER');
+   for(const op of body.operation_executions){
+    remember(op.responsibleName,typeof op.responsibleRole==='string'&&op.responsibleRole.trim()?op.responsibleRole:'назначенный исполнитель','PERFORMER');
+    remember(op.contractor?.contractor,'подрядчик получателя','CONTRACTOR');
+   }
    if(operationRefs.size!==entry.aliases.size)issues.add('EXECUTION_OPERATION_REPORTS_INCOMPLETE');
    const related=new Set([order.id,execution.id]),actuals=[],quality=[],defects=[],qualityIds=new Map();
+   const batchNumbers=new Map();
+   const scopeNumber=v=>{if(!v.batch_ref)return 0;if(!batchNumbers.has(v.batch_ref))batchNumbers.set(v.batch_ref,batchNumbers.size+1);return batchNumbers.get(v.batch_ref);};
    const belongs=row=>row.body.production_order_ref===order.id&&row.body.production_execution_ref===execution.id&&
     linked(row,order.id,execution.id)&&(!row.body.batch_ref||linked(row,row.body.batch_ref));
    for(const row of byType['production-actuals'].filter(r=>r.body.production_order_ref===order.id)){
@@ -122,6 +135,8 @@ export function projectD05RecordedExecution(entries,plans,templates,details,work
      }
      qualityIds.set(row.id,quality.length+1);related.add(row.id);
      quality.push({kind:'CONTROL_REPORT',reported_sequence:known?qcRows.indexOf(row)+1:null,control:localText(template.title),status:v.status,
+      control_number:plan.body.check_template_ids.indexOf(v.control_point_ref)+1,
+      operation_id:entry.aliases.get(template.related_operation_id)??null,scope_number:scopeNumber(v),
       scope:v.batch_ref?'BATCH_REPORT':'ORDER_REPORT',measured_value:localText(v.measured_value),
       deviation_type:localText(v.deviation_type),result_note:localText(v.text_result),comment:localText(v.comment)});
     }else if(typeof v.passed==='boolean'){
@@ -151,7 +166,7 @@ export function projectD05RecordedExecution(entries,plans,templates,details,work
     actuals:actuals.sort((a,b)=>a.sequence-b.sequence||cmp(a.scope,b.scope)),quality,defects,
     semantics:'RECORDED_REPORTS_NOT_VERIFIED_FINAL_ACCEPTANCE'});
   }
-  return {model_number:entry.number,reports,issues:[...issues].sort(cmp)};
+  return {model_number:entry.number,reports,source_references:[...referenceMap.values()].sort((a,b)=>cmp(a.value,b.value)||cmp(a.replacement,b.replacement)),issues:[...issues].sort(cmp)};
  });
  return {status:'LOCAL_D05_RECORDED_EXECUTION_REVIEW',profiles,
   report_count:profiles.reduce((n,p)=>n+p.reports.length,0),source_record_count:used.size,
