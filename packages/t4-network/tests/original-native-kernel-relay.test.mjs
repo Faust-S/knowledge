@@ -6,7 +6,11 @@ import {ORIGINAL_NETWORK_RELAY_METHODS,decodeOriginalNetworkRelayArgs,
 const base=["t1.getWorkspace","t1.getObject","t1.listEventsSince","t1.commitObjectGraph"];
 const info=operations=>({contract_version:"1.3.0",runtime_version:"0.3.6",
   service_id:"iwxa.workspace.relay",mode:"ready",granted_operations:operations});
-const all=Object.values(ORIGINAL_NETWORK_RELAY_METHODS);
+// K7 uses the original boolean owner compatibility contract. Later optional
+// catalog/history methods require a signed owner and are tested separately.
+const signedOnly=new Set(["listEventCommitWindow","listEventObjectCommitWindow","listObjectWindow"]);
+const compatibilityMethods=Object.keys(ORIGINAL_NETWORK_RELAY_METHODS).filter(name=>!signedOnly.has(name));
+const all=compatibilityMethods.map(name=>ORIGINAL_NETWORK_RELAY_METHODS[name]);
 function fixture({operations=all,authorizeOperation=()=>true,onIdleWake,onAttach}={}){
   let context=null,epoch=1,detaches=0;
   const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,
@@ -42,7 +46,7 @@ test("K7 exact original operations and binary Asset data traverse the existing J
   try{
     const s=await f.attach(),k=f.context.kernel;
     assert.equal(s.networkRelayVersion,1);
-    assert.deepEqual(new Set(s.networkMethods),new Set(Object.keys(ORIGINAL_NETWORK_RELAY_METHODS)));
+    assert.deepEqual(new Set(s.networkMethods),new Set(compatibilityMethods));
     assert.equal(k.hasOperation("t1.putAsset"),true);
     assert.equal(k.hasOperation("t2.importCommit"),false);
     assert.equal(f.relay.nativeKernel.putAsset,undefined);
@@ -162,4 +166,12 @@ test("K7 failed wake disables only its network owner and does not silently retry
     await f.exchange(s.sessionId,"result",{id:command.id,ok:true,result:null});
     assert.equal(await read,null);assert.equal(wakes,1);assert.equal(f.detaches,1);
   }finally{f.relay.close();}
+});
+
+test("K150 compatibility owner cannot opt into the signed-only original history and catalog operations",()=>{
+  for(const name of signedOnly){
+    const owner={operations:[...all,ORIGINAL_NETWORK_RELAY_METHODS[name]],authorizeOperation:()=>true,onAttach:()=>true,onDetach:()=>{}};
+    const code=name==="listObjectWindow"?"T3_ORIGINAL_NETWORK_RELAY_OBJECT_WINDOW_OWNER_REQUIRED":"T3_ORIGINAL_NETWORK_RELAY_COMMIT_HISTORY_OWNER_REQUIRED";
+    assert.throws(()=>createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,networkOwner:owner}),{code});
+  }
 });
