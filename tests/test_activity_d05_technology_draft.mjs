@@ -380,6 +380,7 @@ test('recorded defects and actuals without original matching links cannot become
 import {reviewSelectedD05RouteModels} from '../modules/activity-base-anonymizer/d05-route-host.mjs';
 test('original signed D05 Host reads actual reports only on explicit selection and refuses a changed relation',async()=>{
  const records=recordedCase(),workspace_id=records[0].object.workspace_id,selected={workspace_id};
+ routes(records)[0].object.data.value.data.inputs.operations[0].comment='Проверить состояние оснастки. PRIVATE_LOCAL_NOTE';
  const reads=[],details=new Map(records.map(x=>[x.object.object_id,x]));
  let change=false,defectReads=0;
  const signedAccess={currentContext:async()=>({workspace_id,kind:'CORP',purpose:'activity.analysis'}),
@@ -396,6 +397,12 @@ test('original signed D05 Host reads actual reports only on explicit selection a
   includeQualityPlans:true,includeTechnologyDraft:true};
  const ordinary=await reviewSelectedD05RouteModels(config);
  assert.equal(ordinary.recorded_execution_review,undefined);
+ assert.equal(ordinary.local_context_details,undefined);
+ assert.ok(!reads.some(x=>x.endsWith('.production-execution')));
+ const context=await reviewSelectedD05RouteModels({...config,includeLocalContextDetails:true});
+ assert.equal(context.source_authority,'ORIGINAL_SIGNED_SELECTED_READBACK');
+ assert.ok(context.local_context_details.profiles[0].entries.some(e=>e.field==='comment'&&e.value.includes('PRIVATE_LOCAL_NOTE')));
+ assert.doesNotMatch(JSON.stringify(context.technology_draft),/PRIVATE_LOCAL_NOTE/);
  assert.ok(!reads.some(x=>x.endsWith('.production-execution')));
  const actual=await reviewSelectedD05RouteModels({...config,includeRecordedReports:true});
  assert.equal(actual.source_authority,'ORIGINAL_SIGNED_SELECTED_READBACK');
@@ -497,7 +504,7 @@ test('compatible route experience aligns actual controls across differing plan o
  assert.equal(duplicate.lessons.length,0);
 });
 
-import {reviewD05FunctionalMappings,collectD05FunctionalReferences} from '../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
+import {reviewD05FunctionalMappings,collectD05FunctionalReferences,suggestD05ParameterDecisions} from '../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
 test('functional review reads exact optional context, retains declared controls and propagates only current local mappings',async()=>{
  const data=recordedCase(),input=routes(data)[0].object.data.value.data.inputs;
  input.orderName='PRIVATE_ORDER_ALPHA';input.startDate='2026-11-01';
