@@ -46,5 +46,8 @@ test('material revision diff reports assigned and unassigned impact separately',
 
 test('unverified or cross-workspace comparison is rejected',async()=>{const {owner,readback}=await base();
  assert.throws(()=>compareWorkspaceMethodRevisions({before:readback,after:{...readback,revisionSetVerified:false}}),e=>e.code==='METHOD_COMPARISON_READBACK_REQUIRED');
- assert.throws(()=>compareWorkspaceMethodRevisions({before:readback,after:{...readback,workspaceId:'foreign'}}),e=>e.code==='METHOD_COMPARISON_SCOPE_MISMATCH');
+ const foreign={...readback,workspaceId:'foreign',
+  projectRef:{...readback.projectRef,objectId:'project:foreign:project-a'},
+  workRefs:readback.workRefs.map(ref=>({...ref,objectId:ref.objectId.replace('work:ws-method-comparison:','work:foreign:')}))};
+ assert.throws(()=>compareWorkspaceMethodRevisions({before:readback,after:foreign}),e=>e.code==='METHOD_COMPARISON_SCOPE_MISMATCH');
  assert.equal((await owner.audit()).length,5);});
