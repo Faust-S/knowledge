@@ -16,7 +16,7 @@ const context={kind:'PERSONAL',context_id:'context:local',actor_id:'person:local
 // This fixture models the Access decision and original T2 receipts ONLY.
 // Both the production Relay and SubjectKernelBinding are used unchanged
 // apart from the candidate relay changes; no original Kernel execution is claimed.
-function fixture({role='SOURCE',installed=false,grants=[...new Set([...base,...operations])],profilePatch={},ownerPatch={},createHook=null,bindHook=null,attachHook=null,wake=null,history=null,local=null}={}){
+function fixture({role='SOURCE',installed=false,grants=[...new Set([...base,...operations])],profilePatch={},ownerPatch={},createHook=null,bindHook=null,attachHook=null,nativeAttach=null,wake=null,history=null,local=null}={}){
   const installedScope={schema:'IWXA_T4_INSTALLED_NATIVE_NETWORK_SCOPE/1',role,sourceWorkspaceId:WS,technicalWorkspaceId:TECH,registryWorkspaceId:REG};
   let epoch=1,registry=null,kernel=null,profile=null,revoked=false,lateRead=null;
   const counts={create:0,attach:0,detach:0,close:0,bind:0,stop:0,proofs:0},calls=[];
@@ -29,7 +29,7 @@ function fixture({role='SOURCE',installed=false,grants=[...new Set([...base,...o
         requestDigest:digest(request),policyDigest:'a'.repeat(64),authorityPath:[{grantId:context.grant_id}],statusSequence:1,
         validUntil:new Date(now+60000).toISOString(),evaluatedAt:new Date(now).toISOString(),statusObservedAt:new Date(now-1).toISOString()};
     },verifyDecisionBinding:(request,decision)=>decision.requestDigest===digest(request)};
-  const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,timeoutMs:2000,
+  const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:nativeAttach??(()=>true),timeoutMs:2000,
     originalRegistryScope:{workspaceId:REG,objectId:OBJ},networkActivation:{role,sourceWorkspaceId:WS,technicalWorkspaceId:TECH,
       ...(installed?{installedScope}:{}),
       async createProfile(p){
@@ -293,5 +293,42 @@ test('original Admin signed D3 receipt can share management Workspace without op
     assert.deepEqual(await p,receipt);assert.equal(authorized,2);
     assert.throws(()=>raw.commitObjectGraph(command.args[0]),{code:'T3_ORIGINAL_REGISTRY_RELAY_SCOPE_DENIED'});
     assert.throws(()=>raw.commitObjectGraph({...graph(),workspace_id:storage}),{code:'T3_ORIGINAL_REGISTRY_RELAY_SCOPE_DENIED'});
+  }finally{relay.close();}
+});
+
+
+test('one native product Registry port is handed off before attach and reused by later profile',async()=>{
+  let binding,raw,expectedEpoch=1;
+  const f=fixture({installed:true,nativeAttach:async(k,b)=>{
+    raw=k;binding=b;
+    assert.ok(Object.isFrozen(b));assert.equal(b.workspaceId,REG);assert.equal(b.objectId,OBJ);
+    assert.equal(b.contextEpoch,expectedEpoch);assert.equal(b.isHostActive(),false);
+    assert.equal(b.registryKernel.hasOperation('t1.getWorkspace'),true);
+    assert.equal(b.registryKernel.hasOperation('t1.commitObjectGraph'),true);
+    assert.equal(b.registryKernel.hasOperation('t1.createWorkspace'),false);
+    assert.equal(b.registryKernel.createWorkspace,undefined);
+    await assert.rejects(b.registryKernel.getWorkspace(REG),{code:'T3_ORIGINAL_REGISTRY_RELAY_NOT_CONNECTED'});
+    assert.equal(f.relay.nativeRegistryKernel,null);
+    return true;
+  },createHook:async lifetime=>{
+    assert.equal(lifetime.registryKernel,binding.registryKernel);
+    assert.equal(lifetime.sessionId,binding.sessionId);assert.equal(lifetime.contextEpoch,binding.contextEpoch);
+    assert.equal(binding.isHostActive(),true);await lifetime.registryKernel.getObject(REG,OBJ);
+  }});
+  try{const s=await f.attach();assert.equal(s.sessionId,binding.sessionId);assert.equal(f.relay.nativeKernel,raw);
+    assert.equal(f.relay.nativeRegistryKernel,binding.registryKernel);assert.equal(binding.isHostActive(),true);
+    await f.activate(s);assert.equal(f.registry,binding.registryKernel);
+    f.invalidate();assert.equal(binding.isHostActive(),false);assert.equal(binding.registryKernel.hasOperation('t1.getObject'),false);
+    await assert.rejects(binding.registryKernel.getObject(REG,OBJ),{code:'T3_ORIGINAL_REGISTRY_RELAY_NOT_CONNECTED'});
+    const prior=binding;expectedEpoch=2;const second=await f.attach();assert.notEqual(second.sessionId,prior.sessionId);
+    assert.notEqual(binding.registryKernel,prior.registryKernel);assert.equal(prior.isHostActive(),false);
+  }finally{f.relay.close();}
+});
+
+test('legacy unscoped native attach keeps its existing one-argument contract',async()=>{
+  let count=0;
+  const relay=createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach(...args){count=args.length;return true;},timeoutMs:2000});
+  try{await relay.exchange({verb:'attach',payload:{sessionInfo:info(base)}},1);
+    assert.equal(count,1);assert.equal(relay.nativeRegistryKernel,null);
   }finally{relay.close();}
 });

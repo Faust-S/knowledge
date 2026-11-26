@@ -327,7 +327,11 @@ export function createOriginalKernelNativeRelay({
     }finally{if(registryCommand===held)registryCommand=null;}
   };
   const registryKernelFor=state=>Object.freeze({sessionInfo:state.kernel.sessionInfo,
-    hasOperation:id=>liveState(state)&&[METHODS.getWorkspace,METHODS.getObject,METHODS.listEventsSince,METHODS.commitObjectGraph].includes(id)&&state.kernel.hasOperation(id),
+    // During attach the original owner may construct its ONE Registry
+    // from this exact port. Capability inspection is not a command: the
+    // registryDispatch live-state check still prevents all I/O until the
+    // realm has received its token and can service the original slot.
+    hasOperation:id=>!closed&&live===state&&[METHODS.getWorkspace,METHODS.getObject,METHODS.listEventsSince,METHODS.commitObjectGraph].includes(id)&&state.kernel.hasOperation(id),
     getWorkspace:(...args)=>registryDispatch(state,"getWorkspace",args),
     getObject:(...args)=>registryDispatch(state,"getObject",args),
     listEventsSince:(...args)=>registryDispatch(state,"listEventsSince",args),
@@ -572,7 +576,13 @@ export function createOriginalKernelNativeRelay({
         live=state;
         attaching=state;
         try{
-          check(await onAttach(kernel)===true,
+          // Supply the very same Registry port to the existing native
+          // product owner before the later network profile is constructed.
+          // No read, bootstrap or independent transport is performed here.
+          const registryBinding=registryScope?Object.freeze({registryKernel:state.registryKernel,
+            workspaceId:registryScope.workspaceId,objectId:registryScope.objectId,
+            sessionId,contextEpoch:epoch,isHostActive:()=>liveState(state)}):null;
+          check(await (registryBinding===null?onAttach(kernel):onAttach(kernel,registryBinding))===true,
             "T3_D3_ORIGINAL_KERNEL_OWNER_ATTACH_FAILED");
           if(await currentEpoch()!==epoch||live!==state)
             fail("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
