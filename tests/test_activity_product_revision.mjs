@@ -218,3 +218,22 @@ test('known names include complete case and quote variants but never preselect a
   'Согласовать с подрядчиком получателя и подрядчиком получателя. ООО «ЧАСТНЫЙ ЦЕХ 2» оставить для предметного уточнения.');
  assert.equal(out.preview.export_allowed,false);
 });
+
+test('source functional mappings remain explicit contextual suggestions and preserve conflicts for field review',async()=>{
+ const c=d05Candidate();
+ c.technology.terms.local_context_guidance='Использовать станок LT-02 при изготовлении.';
+ const p=await prepareD05TechnologyProduct(c,'Part');
+ const ref={value:'станок LT-02',replacement:'лазерный станок с ЧПУ',kind:'FUNCTIONAL_MAPPING'};
+ const plan=await prepareProductGeneralization(p,[],'ru',[ref]);
+ assert.equal(plan.groups.length,1);
+ const g=plan.groups[0];
+ assert.equal(g.mode,'FUNCTIONAL_MAPPING_REVIEW');assert.equal(g.source_review_required,true);
+ assert.equal(plan.automatic_group_count,0);assert.equal(g.suggested_replacement,ref.replacement);
+ const result=await applyProductGeneralization(p,[],select(plan,[{group_id:g.group_id,replacement:ref.replacement}]),[ref]);
+ assert.equal(result.preview.object_data.technology.terms.local_context_guidance,'Использовать лазерный станок с ЧПУ при изготовлении.');
+ assert.deepEqual(result.preview.object_data.technology.quality_checks,p.object_data.technology.quality_checks);
+ assert.equal(result.preview.export_allowed,false);
+ const conflict=await prepareProductGeneralization(p,[],'ru',[ref,{...ref,replacement:'другой класс оборудования'}]);
+ assert.equal(conflict.groups[0].suggested_replacement,null);
+ assert.equal(conflict.groups[0].reference_alternatives.length,2);
+});

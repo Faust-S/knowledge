@@ -159,7 +159,7 @@ export async function prepareProductGeneralization(preview,reports,language='ru'
    (g.references.length?referenceSuggestion:kind?wording[language][kind]:null):null;
   result.push({group_id:'g_'+String(result.length+1).padStart(4,'0'),value:g.value,types,languages:[...g.languages].sort(cmp),
    score:g.score,spans,editable_count:editable.length,blocked_count:blocked,
-   source_kinds:[...new Set(g.references.map(r=>r.kind))].sort(cmp),source_variant:g.source_variant===true,source_review_required:g.source_variant===true||g.references.some(r=>r.kind==='FUNCTIONAL_MAPPING'),
+   source_kinds:[...new Set(g.references.map(r=>r.kind))].sort(cmp),reference_alternatives:referenceRoles.sort(cmp),source_variant:g.source_variant===true,source_review_required:g.source_variant===true||g.references.some(r=>r.kind==='FUNCTIONAL_MAPPING'),
    mode:editable.length===0?'DOMAIN_REVIEW_REQUIRED':suggestion?(g.source_variant?'SOURCE_REFERENCE_VARIANT':g.references.some(r=>r.kind==='FUNCTIONAL_MAPPING')?'FUNCTIONAL_MAPPING_REVIEW':g.references.length?'SOURCE_REFERENCE_SUGGESTION':'DIRECT_CONTACT_SUGGESTION'):'CONTEXT_REQUIRED',
    suggested_replacement:suggestion});
  }

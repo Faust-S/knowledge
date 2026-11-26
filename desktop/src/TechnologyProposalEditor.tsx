@@ -33,7 +33,7 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
  const [checkId,setCheckId]=useState(profile.checks[0]?.id??'');
  const [preview,setPreview]=useState<D05TechnologyProposal|null>(null),[error,setError]=useState('');
  const [suggestedTitle,setSuggestedTitle]=useState('');
- const mapping=useMemo(()=>{if(!open)return null;try{return reviewD05FunctionalMappings(review,groupId,profile.model_number,form);}catch{return null;}},[open,review,groupId,profile.model_number,form]);
+ const mapping=useMemo(()=>{if(!open)return null;try{return reviewD05FunctionalMappings(review,groupId,profile.model_number);}catch{return null;}},[open,review,groupId,profile.model_number]);
  const update=(value:D05TechnologyProposalForm)=>{setPreview(null);setError('');onChange(value);};
  const prepared=()=>{
   try{setError('');setPreview(prepareD05TechnologyProposal(review,groupId,profile.model_number,form));}
@@ -44,9 +44,10 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
  const scopeLabel=(id:string)=>id==='technology'?'Технология':
   operations.find(o=>o.id===id)?.name??profile.checks.find(c=>c.id===id)?.title??'Контрольная точка';
  const proposalOp=preview?.operations.find(o=>o.operation_id===opId);
- const operationMapping=mapping?.rows.filter(r=>r.scope===opId)??[];
- const qualityMapping=mapping?.rows.find(r=>r.scope===checkId&&r.field==='responsible_role');
- const missingSuggestions=mapping?.rows.filter(r=>r.suggested_requirement&&!r.current_requirement)??[];
+ const mappedRows=(mapping?.rows??[]).map(r=>({...r,current_requirement:(r.field==='responsible_role'?form.quality_roles?.[r.scope]:form.operations?.[r.scope]?.[r.field])?.trim()||null}));
+ const operationMapping=mappedRows.filter(r=>r.scope===opId);
+ const qualityMapping=mappedRows.find(r=>r.scope===checkId&&r.field==='responsible_role');
+ const missingSuggestions=mappedRows.filter(r=>r.suggested_requirement&&!r.current_requirement);
  function fillFromSource(){
   const next={...form,operations:{...form.operations},quality_roles:{...form.quality_roles}};
   for(const row of missingSuggestions){

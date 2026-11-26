@@ -2,6 +2,7 @@
 // Reuse the existing D05 proposal and validation. Common declarations are not
 // measured productivity or a new norm. Never mix separate source variants.
 import {ActivityHold} from './engine.mjs';
+import {explicitPracticalInstructions} from './practical-rule-wording.mjs';
 import {prepareD05TechnologyProposal} from './d05-route-comparison.mjs';
 const need=(ok,code)=>{if(!ok)throw new ActivityHold(code);};
 const routeGuidance={
@@ -72,6 +73,7 @@ export function reviewD05FunctionalMappings(review,groupId,modelNumber,form={}){
  const group=review.groups.find(g=>g.id===groupId),profile=review.technology_draft.groups.find(g=>g.group_id===groupId).profiles.find(p=>p.model_number===modelNumber);
  const sourceRefs=review.recorded_execution_review?.profiles?.find(p=>p.model_number===modelNumber)?.source_references??[];
  const rows=[],context=[];
+ const local=review.local_context_details?.profiles.find(p=>p.model_number===modelNumber)?.entries??[];
  function add(scope,field,source,current,controls){
   const original=value(source),present=value(current);
   const roleMappings=field==='role'||field==='responsible_role'?sourceRefs.filter(r=>r.kind==='PERFORMER'&&r.value===original):[];
@@ -107,8 +109,15 @@ export function reviewD05FunctionalMappings(review,groupId,modelNumber,form={}){
   if(c.declared_fields.some(f=>f.field==='comment'&&f.status==='LOCAL_REFERENCE_REVIEW_REQUIRED'))
    context.push({code:'CONTROL_NOTE_REVIEW',scope:c.check_id,suggested_requirement:null});
  }
+ // A source note is not a normative control. Offer only complete explicit
+ // instructions, scoped to their original operation or quality check.
+ for(const e of local.filter(e=>e.field==='comment'&&typeof e.value==='string')){
+  for(const instruction of new Set(explicitPracticalInstructions(e.value))){
+   context.push({code:'SOURCE_NOTE_INSTRUCTION',scope:e.scope,suggested_requirement:instruction});
+  }
+ }
  return {status:'LOCAL_D05_FUNCTIONAL_MAPPING_REVIEW',group_id:group.id,model_number:profile.model_number,
-  rows,context_requirements:context,local_context_entries:review.local_context_details?.profiles.find(p=>p.model_number===modelNumber)?.entries??[],
+  rows,context_requirements:context,local_context_entries:local,
   source_semantics:'DECLARED_RESOURCES_NOT_VERIFIED_CAPABILITIES',
   review_required:true,export_allowed:false,iwxa_package:null};
 }
@@ -124,7 +133,6 @@ export function collectD05FunctionalReferences(review,groupId,modelNumber,form,c
   refs.set(JSON.stringify(ref),ref);
  };
  for(const row of mapping.rows){
-  if(row.field==='label')continue;
   add(row.source_text,row.current_requirement);
  }
  // Context mappings are explicit owner-local decisions, not inferred

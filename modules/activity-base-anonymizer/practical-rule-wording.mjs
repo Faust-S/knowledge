@@ -73,3 +73,14 @@ export function compareRelatedPracticalWordings(rows,{actionSection=0}={}){
  pairs.sort((a,b)=>b.distinct_observations-a.distinct_observations||b.shared_terms.length-a.shared_terms.length||cmp(a.left_id,b.left_id)||cmp(a.right_id,b.right_id));
  return {pairs:pairs.slice(0,64),limited:pairs.length>64};
 }
+
+// Preserve complete explicit source instructions; never convert a report of
+// uncertainty or an unrecognized fragment into a normative requirement.
+const directive=/^(?:(?:keep|check|confirm|verify|separate|identify|do not|don't|never|ensure|use|include|list|avoid|compare|require|record|preserve|distinguish|remember)(?:\s|$)|(?:проверить|проверьте|уточнить|уточните|сохранить|сохраните|сохранять|сохраняйте|учитывать|учтите|учитывайте|разделять|разделить|разделите|разделяйте|отделять|отделить|отделите|не\s+(?:менять|изменять|переносить|копировать|считать|смешивать|утверждать|придумывать|удалять|допускать|заменять|публиковать|выполнять|использовать|пропускать|игнорировать|повторять|нарушать)|исключить|исключайте|указать|укажите|сопоставить|сопоставьте|сопоставляйте|фиксировать|зафиксировать|зафиксируйте|фиксируйте|выделить|выделите|выделяйте|помнить|учесть|настроить|настройте|отрегулировать|отрегулируйте|повторить|повторите|измерить|измерьте)(?:\s|$))/iu;
+function reviewLines(value){
+ return value.split(/\r?\n/).map(line=>line.trim().replace(/^(?:[-*•]\s+|\d+[.)]\s+)/,'').trim()).filter(v=>v.length>=6&&v.length<=1000);
+}
+export function explicitPracticalInstructions(value){
+ if(typeof value!=='string')throw new TypeError('PRACTICAL_WORDING_TEXT');
+ return reviewLines(value).filter(line=>directive.test(line));
+}

@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import type {D05ContextMapping,D05FunctionalMappingReview,D05FunctionalMappingRow} from '../../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
 const labels:Record<string,string>={orderName:'Название заказа',startDate:'Дата запуска',dueDate:'Срок заказа',materialReady:'Наличие материала',materialReadyDate:'Дата готовности материала',comment:'Примечание',product:'Изделие',productVersion:'Редакция изделия',requirementBasis:'Основание требований',sourceDocuments:'Исходные документы',related_material_id:'Исходная ссылка на материал',requirement:'Требование',unit:'Единица',lower_limit:'Нижний допуск',target_value:'Целевое значение',upper_limit:'Верхний допуск',allowed_values:'Допустимые значения',inspection_method:'Метод контроля',sampling_rule:'Выборка',required_evidence:'Подтверждение',blocking:'Блокирует выпуск',action_on_failure:'Действие при отклонении'};
-const contextLabels:Record<string,string>={ORDER_CONTEXT:'Заказ получателя',LOCAL_DATES:'Календарь получателя',MATERIAL_AVAILABILITY:'Доступность материалов',QUALITY_SOURCE_CONTEXT:'Технические документы получателя',OPERATION_NOTES:'Исходные примечания к операциям',CONTROL_MATERIAL_MAPPING:'Привязка контрольного материала',CONTROL_NOTE_REVIEW:'Примечание к контролю'};
+const contextLabels:Record<string,string>={ORDER_CONTEXT:'Заказ получателя',LOCAL_DATES:'Календарь получателя',MATERIAL_AVAILABILITY:'Доступность материалов',QUALITY_SOURCE_CONTEXT:'Технические документы получателя',OPERATION_NOTES:'Исходные примечания к операциям',CONTROL_MATERIAL_MAPPING:'Привязка контрольного материала',CONTROL_NOTE_REVIEW:'Примечание к контролю',SOURCE_NOTE_INSTRUCTION:'Явное указание в исходном примечании'};
 const valueLabel=(v:unknown)=>v===null?'Недоступно':typeof v==='boolean'?v?'Да':'Нет':Array.isArray(v)?v.join(', '):String(v);
 export function SourceRequirement({row,onUse}:{row?:D05FunctionalMappingRow;onUse:(value:string)=>void}){
  if(!row)return null;
@@ -29,9 +29,17 @@ export function D05LocalContextPanel({review,scopeLabel,guidance,mappings,onAppl
  const current=review.local_context_entries.find(e=>key(e)===selected);
  const lines=guidance.split(/\r?\n/).map(v=>v.trim()).filter(Boolean);
  const append=(v:string)=>lines.includes(v)?guidance:[guidance.trim(),v].filter(Boolean).join('\n');
- const valid=!!requirement.trim()&&!/[\r\n]/.test(requirement.trim())&&append(requirement.trim()).length<=4096;
+ const prior=mappings.find(m=>key(m)===selected);
+ const nextGuidance=(v:string)=>{
+  if(prior&&prior.requirement!==v&&!mappings.some(m=>key(m)!==selected&&m.requirement===prior.requirement)){
+   const original=guidance.split(/\r?\n/);const index=original.findIndex(line=>line.trim()===prior.requirement);
+   if(index>=0){if(lines.includes(v))original.splice(index,1);else original[index]=v;return original.join('\n');}
+  }
+  return append(v);
+ };
+ const valid=!!requirement.trim()&&!/[\r\n]/.test(requirement.trim())&&nextGuidance(requirement.trim()).length<=4096;
  const suggestions=review.context_requirements.filter(r=>r.suggested_requirement&&!lines.includes(r.suggested_requirement));
- const all=[...new Set(suggestions.map(r=>r.suggested_requirement!))];
+ const all=[...new Set(suggestions.filter(r=>r.code!=='SOURCE_NOTE_INSTRUCTION').map(r=>r.suggested_requirement!))];
  const suggestedText=[guidance.trim(),...all].filter(Boolean).join('\n');
  function adopt(){
   if(!current||!valid)return;
@@ -40,14 +48,14 @@ export function D05LocalContextPanel({review,scopeLabel,guidance,mappings,onAppl
   // No copy of the source value is put into the technological product.
   const next=[...mappings.filter(m=>key(m)!==key(item)),item];
   if(next.length>512)return;
-  onApply(append(text),next);setRequirement('');setSelected('');
+  onApply(nextGuidance(text),next);setRequirement('');setSelected('');
  }
  return <details className="activity-domain-group">
   <summary>Обобщить локальные условия и документы</summary>
   <p>Правила получателя выводятся из известных видов исходных условий. Неизвестное содержание примечания или документа не восстанавливается автоматически.</p>
   {review.context_requirements.map((r,i)=><div key={r.scope+':'+r.code+':'+i} className="activity-domain-op">
    <strong>{contextLabels[r.code]??r.code} · {scopeLabel(r.scope)}</strong>
-   {r.suggested_requirement?<><p>{r.suggested_requirement}</p><button disabled={lines.includes(r.suggested_requirement)||append(r.suggested_requirement).length>4096} onClick={()=>onApply(append(r.suggested_requirement!),mappings)}>Добавить к условиям получателя</button></>:<p>Требуется содержательное уточнение исходной записи.</p>}
+   {r.suggested_requirement?<><p>{r.suggested_requirement}</p>{r.code==='SOURCE_NOTE_INSTRUCTION'?<p>Сначала проверьте применимость и частные обозначения. Это исходное указание, не новый норматив.</p>:null}<button disabled={lines.includes(r.suggested_requirement)||append(r.suggested_requirement).length>4096} onClick={()=>onApply(append(r.suggested_requirement!),mappings)}>Добавить к условиям получателя</button></>:<p>Требуется содержательное уточнение исходной записи.</p>}
   </div>)}
   {all.length>1?<button disabled={suggestedText.length>4096} onClick={()=>onApply(suggestedText,mappings)}>Добавить предложенные правила ({all.length})</button>:null}
   <h4>Исходные локальные сведения</h4>

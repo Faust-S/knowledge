@@ -3,7 +3,7 @@
 // checks the exact source and proposed fields, then uses the existing product
 // builder. No scheduler, model runtime, new archive or acceptance authority.
 import {ActivityHold,sha256Canonical} from './engine.mjs';
-import {practicalWordingKey,compareRelatedPracticalWordings} from './practical-rule-wording.mjs';
+import {practicalWordingKey,compareRelatedPracticalWordings,explicitPracticalInstructions} from './practical-rule-wording.mjs';
 import {groupPersonalRoutineEvidence,preparePersonalTechnologyProduct} from './technology-product.mjs';
 export const SOURCE='LOCAL_ACTIVITY_PERSONAL_EXTRACTION_SOURCE';
 export const REQUEST='IWXA_ACTIVITY_PERSONAL_EXTRACTION_REQUEST_V1';
@@ -67,10 +67,6 @@ export async function preparePersonalExtractionRequest(source){
 // Extract explicit repeated human instructions and declared limitations
 // locally. Recognized grammatical variants are grouped for explicit review.
 // Claims and draft artifacts are not promoted into requirements.
-const directive=/^(?:(?:keep|check|confirm|verify|separate|identify|do not|don't|never|ensure|use|include|list|avoid|compare|require|record|preserve|distinguish|remember)(?:\s|$)|(?:проверить|проверьте|уточнить|уточните|сохранить|сохраните|сохранять|сохраняйте|учитывать|учтите|учитывайте|разделять|разделить|разделите|разделяйте|отделять|отделить|отделите|не\s+(?:менять|изменять|переносить|копировать|считать|смешивать|утверждать|придумывать|удалять|допускать|заменять|публиковать|выполнять|использовать|пропускать|игнорировать|повторять|нарушать)|исключить|исключайте|указать|укажите|сопоставить|сопоставьте|сопоставляйте|фиксировать|зафиксировать|зафиксируйте|фиксируйте|выделить|выделите|выделяйте|помнить|учесть|настроить|настройте|отрегулировать|отрегулируйте|повторить|повторите|измерить|измерьте)(?:\s|$))/iu;
-function reviewLines(value){
- return value.split(/\r?\n/).map(line=>line.trim().replace(/^(?:[-*•]\s+|\d+[.)]\s+)/,'').trim()).filter(v=>v.length>=6&&v.length<=1000);
-}
 export async function reviewPersonalPracticalExperience(source){
  const {document,source_sha256,variant_id}=await readPersonalExtractionSource(source);
  const candidates=new Map();
@@ -87,8 +83,8 @@ export async function reviewPersonalPracticalExperience(source){
   if(!row.occurrences.has(id))row.occurrences.set(id,evidence);
  };
  for(const observation of document.observations){
-  for(const line of reviewLines(observation.review_notes)){
-   if(directive.test(line))add('HUMAN_REVIEW_CRITERION',line,observation.id,'review_notes');
+  for(const line of explicitPracticalInstructions(observation.review_notes)){
+   add('HUMAN_REVIEW_CRITERION',line,observation.id,'review_notes');
   }
   observation.uncertainties.forEach((value,i)=>add('REPORTED_CONTEXT_LIMITATION',value,observation.id,'uncertainties.'+i));
  }
