@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_GROUPED_QUALIFICATION_REQUEST/1",
-  "siteCommit": "50434a76193644c552a13fe087d281ff8a2f61e8",
+  "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
   "assistantCommit": "e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
@@ -33,10 +33,11 @@
     45682754906,
     45685741390,
     45692010068,
-    45695493606
+    45695493606,
+    45697492951
   ],
   "scopeExpansionAllowed": false,
-  "reason": "Correct only the repeated out-of-domain recommendation defect by an independent, structured model applicability decision when scope is explicit or unclear. Preserve exact successful six scenario prompts, all authored actions, original hardware witness, model, original One Core, all quality and private publication gates. No new product scope, no permission change.",
+  "reason": "Resume the unchanged hardware and protected production evidence only after exact prior run and two-file decorative home diff checks. Repeat source, canonical build, Apache, browser, navigation, reproducibility and private publication gates. No model or product contract expansion.",
   "productAccepted": false,
   "remotePublicationVerified": false,
   "formatOnlyCorrection": false,
@@ -45,5 +46,5 @@
   "manualDispatchOnly": false,
   "oneTimeDispatchAllowed": true,
   "ciRequestSchema": "IWXA_CI_ONCE/1",
-  "ciProfile": "1.6.0-light-hardware-first"
+  "ciProfile": "1.6.0-navigation-resume"
 }

@@ -30,6 +30,10 @@ on:
       full_release:
         type: boolean
         default: false
+      navigation_resume:
+        description: Reuse exact passed model and protected journeys only for the approved decorative home correction
+        type: boolean
+        default: false
       rendered_link_audit:
         description: Inspect actual hydrated internal links and representative clicks at desktop and mobile widths
         type: boolean
@@ -96,6 +100,66 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - name: Bind navigation resume to exact prior evidence and the two-file decorative correction
+        if: inputs.navigation_resume
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOMEN_TOKEN: ${{ secrets.DOMEN }}
+          SITE_SHA: ${{ inputs.site_sha }}
+          DOMAIN_SHA: ${{ inputs.domain_sha }}
+          ASSISTANT_SHA: ${{ inputs.assistant_sha }}
+          FULL_RELEASE: ${{ inputs.full_release }}
+          RECOVERY: ${{ inputs.publication_recovery }}
+          RENDERED_LINK_AUDIT: ${{ inputs.rendered_link_audit }}
+          SKILLS_VERSION: ${{ inputs.skills_version }}
+          RESULT_COUNT: ${{ inputs.result_count }}
+          ADVICE_COUNT: ${{ inputs.advice_count }}
+          DETAIL_ROUTES: ${{ inputs.detail_routes }}
+          RETAINED_BASE: ${{ inputs.retained_base_sha }}
+          GROUNDED_ADVICE: ${{ inputs.grounded_advice }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {execFileSync} from "node:child_process";
+          import {readFileSync} from "node:fs";
+          const pins={SITE_SHA:"5e3ff328f7b31d7fa69b86a0759b914148c921df",DOMAIN_SHA:"547148d8cd74838e0dd384c9da2f196e3595bf9d",ASSISTANT_SHA:"e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f",FULL_RELEASE:"true",RECOVERY:"false",RENDERED_LINK_AUDIT:"true",SKILLS_VERSION:"1.6.0",RESULT_COUNT:"15",ADVICE_COUNT:"46",DETAIL_ROUTES:"4",RETAINED_BASE:"ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",GROUNDED_ADVICE:"true"};
+          for(const [k,v] of Object.entries(pins))assert.equal(process.env[k],v,"D05_RESUME_PIN_"+k);
+          const git=(dir,...args)=>execFileSync("git",["-C",dir,...args],{encoding:"utf8",stdio:["ignore","pipe","pipe"]}).trim();
+          for(const [dir,sha] of [["site",pins.SITE_SHA],["domain",pins.DOMAIN_SHA],["assistant",pins.ASSISTANT_SHA],["one-core","326f725c44d69ac99f6b912241e9e8a6c3d716a5"]])assert.equal(git(dir,"rev-parse","HEAD"),sha);
+          const api=(endpoint,token=process.env.GH_TOKEN)=>JSON.parse(execFileSync("gh",["api",endpoint],{encoding:"utf8",env:{...process.env,GH_TOKEN:token},stdio:["ignore","pipe","pipe"]}));
+          const original=api("repos/Faust-S/knowledge/actions/runs/45697492951");
+          assert.equal(original.head_sha,"5119f72069eaa7d82d5c6022e8e2a73460af9555");
+          assert.equal(original.run_attempt,1);assert.equal(original.status,"completed");assert.equal(original.conclusion,"failure");
+          const priorJobs=api("repos/Faust-S/knowledge/actions/runs/45697492951/attempts/1/jobs?per_page=100").jobs;
+          const gpu=priorJobs.find(j=>j.id===139498666456),linux=priorJobs.find(j=>j.id===139500848420);
+          assert.equal(gpu?.name,"hardware / model");assert.equal(gpu?.conclusion,"success");
+          assert.equal(linux?.name,"linux / source");assert.equal(linux?.conclusion,"failure");
+          assert.deepEqual(linux.steps.filter(s=>s.conclusion==="failure").map(s=>s.number),[45]);
+          assert.ok([8,10,14,16,17,18,19,20,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43].every(n=>linux.steps.some(s=>s.number===n&&s.conclusion==="success")));
+          const oldRequest=api("repos/Faust-S/knowledge/contents/.github/ci-requests/d05-t3-release.json?ref=5119f72069eaa7d82d5c6022e8e2a73460af9555");
+          const request=JSON.parse(Buffer.from(oldRequest.content,"base64").toString("utf8"));
+          assert.deepEqual(request.revisions,{site:"50434a76193644c552a13fe087d281ff8a2f61e8",subject:pins.DOMAIN_SHA,assistant:pins.ASSISTANT_SHA,"one-core":"326f725c44d69ac99f6b912241e9e8a6c3d716a5",witness:"26fc08b7d39f7e24cc5208742f7037367c32c1b0",evaluator:"d506577539a4ca530a02f548fa2b225221a6af11","retained-base":pins.RETAINED_BASE});
+          const saved=api("repos/Faust-S/knowledge/contents/qualification/d05/receipts/45697492951-hardware.json?ref=7e49043cdde8b8bd0a5900f1a15b3cb762ea99a6");
+          const proof=JSON.parse(Buffer.from(saved.content,"base64").toString("utf8"));
+          assert.equal(proof.hardwareJobId,139498666456);assert.equal(proof.siteCommit,request.revisions.site);
+          assert.equal(proof.assistantCommit,pins.ASSISTANT_SHA);assert.equal(proof.qualityGate,"PASS");
+          assert.deepEqual(proof.exactSource,{passed:7,total:7});assert.deepEqual(proof.correctChoice,{passed:7,total:7});
+          assert.equal(proof.actualInference,true);assert.equal(proof.serverStopped,true);assert.equal(proof.browserRestarted,true);
+          const revision=api("repos/Faust-S/cehovod.ru/commits/"+pins.SITE_SHA,process.env.DOMEN_TOKEN);
+          assert.equal(revision.sha,pins.SITE_SHA);assert.deepEqual(revision.parents.map(p=>p.sha),[request.revisions.site]);
+          assert.equal(revision.commit.tree.sha,git("site","rev-parse","HEAD^{tree}"));
+          const wanted=[{"path":"src/components/home/DocumentStack.test.tsx","sha":"51712014a84efc0eaa163948c10c290b1e5f2461","status":"added"},{"path":"src/components/home/DocumentStack.tsx","sha":"e4526d3897bb79f28ed99dcce5129781e1e27604","status":"modified"}];
+          const actual=revision.files.map(f=>({path:f.filename,sha:f.sha,status:f.status})).sort((a,b)=>a.path.localeCompare(b.path));
+          assert.deepEqual(actual,wanted);
+          for(const row of wanted)assert.equal(git("site","rev-parse","HEAD:"+row.path),row.sha);
+          // Confirm the original production and hardware witnesses, model manifest
+          // and protected Host source inventory have no changed path.
+          assert.equal(proof.witnessCommit,request.revisions.witness);
+          console.log("D05_T3_PRIOR_HARDWARE_AND_PROTECTED_EVIDENCE_REUSED_EXACT_COMPONENTS");
+          console.log("D05_T3_DECORATIVE_NAVIGATION_DIFF_ONLY_PASS");
+          JS
       - name: Bind publication recovery to completed exact Linux evidence
         if: inputs.publication_recovery
         shell: bash
@@ -571,7 +635,7 @@ jobs:
           fi
           echo D05_T3_PLATFORM_PASS
       - name: Prepare original Host for a fixed HTTPS loopback origin
-        if: inputs.full_release && !inputs.publication_recovery
+        if: inputs.full_release && !inputs.publication_recovery && !inputs.navigation_resume
         working-directory: site
         run: |
           set -euo pipefail
@@ -583,7 +647,7 @@ jobs:
           fi
           echo D05_T3_PROTECTED_HOST_PASS
       - name: Assemble the real loopback T3 product
-        if: inputs.full_release && !inputs.publication_recovery
+        if: inputs.full_release && !inputs.publication_recovery && !inputs.navigation_resume
         working-directory: site
         env:
           PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
@@ -597,7 +661,7 @@ jobs:
           fi
           echo D05_T3_PROTECTED_BUILD_PASS
       - name: Read the already assembled product through the actual T3 preview CLI
-        if: inputs.full_release && !inputs.publication_recovery
+        if: inputs.full_release && !inputs.publication_recovery && !inputs.navigation_resume
         working-directory: site
         shell: bash
         run: |
@@ -610,7 +674,7 @@ jobs:
           fi
           grep -Fx 'CEHOVOD_T3_PREVIEW_PASS {"files":10,"notFound":true,"exactBytes":true}' "$log"
       - name: Install original witness dependencies
-        if: inputs.full_release && !inputs.publication_recovery
+        if: inputs.full_release && !inputs.publication_recovery && !inputs.navigation_resume
         working-directory: one-core/packages/t3-core
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -619,11 +683,11 @@ jobs:
           npm ci --include=dev --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-protected-witness-npm.log" 2>&1 || { echo D05_T3_WITNESS_NPM_FAIL; exit 1; }
           npx --no-install playwright install chromium >"$RUNNER_TEMP/d05-t3-protected-browser-install.log" 2>&1 || { echo D05_T3_WITNESS_BROWSER_INSTALL_FAIL; exit 1; }
       - name: Check exact combined witness syntax
-        if: inputs.full_release && !inputs.publication_recovery
+        if: inputs.full_release && !inputs.publication_recovery && !inputs.navigation_resume
         working-directory: site
         run: node --check scripts/d05-first-use-real-kernel-witness.mjs
       - name: Actual assistant handoff, independent Kernel readback and cold autonomous Workspace
-        if: inputs.full_release && !inputs.publication_recovery
+        if: inputs.full_release && !inputs.publication_recovery && !inputs.navigation_resume
         id: cold
         working-directory: site
         env:
@@ -642,7 +706,7 @@ jobs:
           grep -qx 'D05_T3_PROTECTED_COLD_OFFLINE_READBACK=PASS' "$log"
           grep -qx 'D05_T3_PROTECTED_WORKSPACE_VISIBLE=PASS' "$log"
       - name: Original completed CASE-001 and physical Exchange on the T3-assembled Host
-        if: inputs.full_release && !inputs.publication_recovery
+        if: inputs.full_release && !inputs.publication_recovery && !inputs.navigation_resume
         working-directory: site
         env:
           D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
@@ -659,7 +723,7 @@ jobs:
           grep -qx 'D05_FIRST_USE_REAL_T2_CROSS_SERVICE=PASS' "$log"
           echo D05_T3_T2_COMPATIBLE_CASE001_EXCHANGE_PASS
       - name: Real offline costed production, physical Exchange and independent cold recovery
-        if: inputs.full_release && !inputs.publication_recovery
+        if: inputs.full_release && !inputs.publication_recovery && !inputs.navigation_resume
         working-directory: site
         env:
           D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
@@ -682,7 +746,7 @@ jobs:
             grep -Fxq "$marker=PASS" "$log"
           done
       - name: Remove disposable loopback assembly before canonical production build
-        if: inputs.full_release && !inputs.publication_recovery
+        if: inputs.full_release && !inputs.publication_recovery && !inputs.navigation_resume
         shell: bash
         run: |
           rm -rf "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build" "$RUNNER_TEMP/d05-t3-protected-host"
@@ -897,6 +961,7 @@ jobs:
           log="$RUNNER_TEMP/d05-t3-rendered-links.log"
           if ! node --import tsx "$audit" >"$log" 2>&1; then
             grep -Eo 'D05_T3_RENDERED_LINK_[A-Z0-9_]+|TimeoutError|AssertionError' "$log" | sort -u | head -30 || true
+            grep -E '^D05_T3_RENDERED_LINK_DIAG \{"code":"[A-Z0-9_]+","sourceIndex":-?[0-9]+,"targetIndex":-?[0-9]+,"width":[0-9]+,"fragment":"[A-Za-z0-9_-]*","hasQuery":(true|false),"errorKind":"(timeout|other)"\}$' "$log" | head -60 || true
             grep -E '^\{"status":"D05_T3_RENDERED_LINK_AUDIT_FAIL","declaredPages":[0-9]+,"publicPages":[0-9]+,"linkOccurrences":[0-9]+,"uniqueLocalTargets":[0-9]+,"clicks":[0-9]+,"pageErrors":[0-9]+,"localErrors":[0-9]+,"externalRequests":[0-9]+,"failures":\{("[A-Z0-9_]+":[0-9]+,?)*\}\}$' "$log" || true
             exit 1
           fi
@@ -908,6 +973,7 @@ jobs:
           const r=rows[0];
           assert.equal(r.declaredPages,43);assert.equal(r.publicPages,40);
           for(const k of ["menuPages","linkOccurrences","uniqueLocalTargets","clicks"])assert.ok(Number.isSafeInteger(r[k])&&r[k]>0);
+          assert.equal(r.clicks,r.plannedClicks);assert.ok(r.keyboardClicks>0&&r.orderPickerClicks>0);
           assert.equal(r.externalLinksFetched,false);assert.equal(r.protectedNavigationAccepted,false);assert.equal(r.productAccepted,false);
           console.log(JSON.stringify(r));
           JS

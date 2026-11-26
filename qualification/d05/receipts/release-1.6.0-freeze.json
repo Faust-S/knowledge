@@ -1,8 +1,8 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "HARDWARE_QUALIFIED_FUNCTIONAL_QUALIFICATION_IN_PROGRESS",
+  "status": "FROZEN_DECORATIVE_NAVIGATION_FIX_READY_FOR_RESUME",
   "scope": "1.6.0",
-  "siteCommit": "50434a76193644c552a13fe087d281ff8a2f61e8",
+  "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
   "assistantCommit": "e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
@@ -30,14 +30,14 @@
   },
   "scopeExpansionAllowed": false,
   "productAccepted": false,
-  "qualification": "IN_PROGRESS",
-  "publication": "PREFLIGHT_PASS_FULL_PRIVATE_PUBLICATION_PENDING",
+  "qualification": "PENDING_NAVIGATION_RESUME",
+  "publication": "PREFLIGHT_PREVIOUS_PASS_NOT_PUBLISHED",
   "notes": "Only release blockers may change this candidate. Keep all existing source, protected production, offline, hardware and publication gates. Codex may assemble the hosting archive only after stable qualification, not perform testing or preparation. Full release also requires a test-only rendered navigation audit after original browser gates; it does not replace protected or hardware evidence.",
   "originalFrozenSiteCommit": "0d88c6822a224cb54d8f7908b216e41f98dfd550",
   "originalFrozenWitnessCommit": "3af00278ef77eb38084df4e9c7854528380dc615",
   "formatOnlyCorrection": false,
   "priorSourceRun": 45655978598,
-  "hardware": "PASS",
+  "hardware": "PASS_PRIOR_EXACT_COMPONENTS_NAVIGATION_ONLY_DIFF",
   "browserWitnessOnlyCorrection": false,
   "remotePublicationVerified": false,
   "previousQualification": {
@@ -121,12 +121,40 @@
       "deduplicatedClicksPerWidth": true,
       "productSourceUnchanged": true,
       "workflowLiteralPatchReversible": true
+    },
+    "navigationCorrection": {
+      "oldSiteCommit": "50434a76193644c552a13fe087d281ff8a2f61e8",
+      "newSiteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+      "changedFiles": [
+        {
+          "path": "src/components/home/DocumentStack.test.tsx",
+          "sha": "51712014a84efc0eaa163948c10c290b1e5f2461",
+          "status": "added"
+        },
+        {
+          "path": "src/components/home/DocumentStack.tsx",
+          "sha": "e4526d3897bb79f28ed99dcce5129781e1e27604",
+          "status": "modified"
+        }
+      ],
+      "priorHardwareRun": 45697492951,
+      "priorLinuxReceipt": "qualification/d05/receipts/45697492951-linux.json",
+      "missingAnchorRemoved": true,
+      "ordinaryBuildAndProductContractsUnchanged": true,
+      "harnessCorrections": [
+        "fresh document for each HTTP navigation",
+        "keyboard activation of skip link",
+        "focus command for existing order picker",
+        "wait for real destination content and exact fragment",
+        "pointer hit testing and bounded failure coordinates"
+      ],
+      "status": "SOURCE_FIX_NOT_BROWSER_QUALIFIED"
     }
   },
   "manualDispatchOnly": false,
   "hardwareFirst": true,
   "oneTimeDispatchAllowed": true,
-  "ciProfile": "1.6.0-light-hardware-first",
+  "ciProfile": "1.6.0-navigation-resume",
   "oneTimeRequestVerifierBlob": "85d548c38f27106675243866ca00d1ef82b41051",
   "oneTimeRequestLocalRealGitCases": {
     "passed": 15,
@@ -238,6 +266,71 @@
         "total": 2
       },
       "linux": "SKIPPED_BY_QUALITY_GATE"
+    },
+    {
+      "runId": 45697492951,
+      "preparedCommit": "1e9cc724c9b76c43fc87b612501c43ea745d3362",
+      "requestCommit": "5119f72069eaa7d82d5c6022e8e2a73460af9555",
+      "requestBranch": "ci/once/d05-t3-release/1e9cc724c9b76c43fc87b612501c43ea745d3362",
+      "requestFile": ".github/ci-requests/d05-t3-release.json",
+      "runStatusAtRecording": "queued",
+      "conclusionAtRecording": null,
+      "matchingRuns": 1,
+      "immutable": true,
+      "hardwareExecution": "PASS",
+      "hardwareReceipt": "qualification/d05/receipts/45697492951-hardware.json",
+      "correctChoice": {
+        "passed": 7,
+        "total": 7
+      },
+      "exactSource": {
+        "passed": 7,
+        "total": 7
+      },
+      "functionalProgress": {
+        "jobId": 139500848420,
+        "status": "in_progress",
+        "conclusion": null,
+        "passedSteps": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          8,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "failedSteps": [],
+        "activeSteps": [
+          32
+        ],
+        "notFinal": true
+      },
+      "runStatus": "completed",
+      "conclusion": "failure",
+      "linuxReceipt": "qualification/d05/receipts/45697492951-linux.json",
+      "linux": "PARTIAL_NAVIGATION_FAILED"
     }
   ],
   "publicationProcedure": "UNCHANGED_EXISTING_AUTHORIZED_PROCEDURE",
@@ -332,73 +425,12 @@
       "productOrWitnessChanged": false
     }
   ],
-  "oneTimeRequest": {
-    "runId": 45697492951,
-    "preparedCommit": "1e9cc724c9b76c43fc87b612501c43ea745d3362",
-    "requestCommit": "5119f72069eaa7d82d5c6022e8e2a73460af9555",
-    "requestBranch": "ci/once/d05-t3-release/1e9cc724c9b76c43fc87b612501c43ea745d3362",
-    "requestFile": ".github/ci-requests/d05-t3-release.json",
-    "runStatusAtRecording": "queued",
-    "conclusionAtRecording": null,
-    "matchingRuns": 1,
-    "immutable": true,
-    "hardwareExecution": "PASS",
-    "hardwareReceipt": "qualification/d05/receipts/45697492951-hardware.json",
-    "correctChoice": {
-      "passed": 7,
-      "total": 7
-    },
-    "exactSource": {
-      "passed": 7,
-      "total": 7
-    },
-    "functionalProgress": {
-      "jobId": 139500848420,
-      "status": "in_progress",
-      "conclusion": null,
-      "passedSteps": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        8,
-        10,
-        11,
-        12,
-        13,
-        14,
-        15,
-        16,
-        17,
-        18,
-        19,
-        20,
-        22,
-        23,
-        24,
-        25,
-        26,
-        27,
-        28,
-        29,
-        30,
-        31
-      ],
-      "failedSteps": [],
-      "activeSteps": [
-        32
-      ],
-      "notFinal": true
-    }
-  },
   "assemblyHandoff": {
     "status": "HOLD_UNTIL_FULL_RELEASE_PASS",
     "sourceRepository": "Faust-S/cehovod.ru",
     "retainedBranch": "work/2026-11-25-d05-t3-retained-inputs",
-    "expectedParent": "50434a76193644c552a13fe087d281ff8a2f61e8",
-    "qualificationRun": 45697492951,
+    "expectedParent": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+    "qualificationRun": null,
     "retainedCommit": null,
     "retainedTree": null,
     "nodeVersion": "22.16.0",

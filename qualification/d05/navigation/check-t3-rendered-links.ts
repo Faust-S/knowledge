@@ -9,7 +9,7 @@ import { serveStatic } from './lib/serve';
 import { resolveBrowserExecutable } from './lib/resolve-browser-executable';
 import { isNotFoundPage } from './lib/not-found-page';
 import { prerenderSiteRoutes, publicSiteRoutes, PUBLIC_ORIGIN } from '../src/site-routes';
-import { pagePath, linkTarget, fragmentExists } from './d05-release-link-target.mjs';
+import { pagePath, linkTarget, fragmentExists, activationKind } from './d05-release-link-target.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(root, 'dist');
@@ -56,6 +56,7 @@ async function snapshot(page: Page) {
       const style = getComputedStyle(el);
       return {
         raw: el.getAttribute('href')!, resolved: el.href, target: el.target,
+        label: (el.textContent || '').trim(), keyboardOnly: el.classList.contains('sr-only') && el.tabIndex >= 0,
         download: el.hasAttribute('download'), inMenu: !!el.closest('[role="dialog"]'),
         visible: rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && !el.closest('[inert]'),
       };
@@ -70,6 +71,9 @@ async function ready(page: Page, expectedPath: string) {
   return state;
 }
 async function load(page: Page, origin: string, request: string, expectedPath: string) {
+  // A genuine HTTP navigation is required: Puppeteer returns null for same-document hash changes.
+  // Start each witness from a fresh document, including when the preceding click left a fragment.
+  await page.goto('about:blank', { waitUntil: 'domcontentloaded', timeout: 10000 });
   const response = await page.goto(origin + request, { waitUntil: 'networkidle0', timeout: 30000 });
   if (!response?.ok() || !response.headers()['content-type']?.includes('text/html')) fail('PAGE_HTTP');
   if (new URL(response.url()).origin !== origin) fail('PAGE_REDIRECT');
@@ -86,8 +90,8 @@ async function httpCheck(origin: string, request: string, html: boolean) {
 type State = Awaited<ReturnType<typeof snapshot>>;
 type Link = State['links'][number];
 type PublicTarget = { kind: 'page' | 'protected' | 'asset'; request: string; href: string; path: string; fragment: string; localClick?: boolean };
-type Representative = { source: string; link: Link; viewport: typeof desktop };
-async function clickTarget(page: Page, origin: string, target: PublicTarget, rep: Representative) {
+type Representative = { source: string; link: Link; viewport: typeof desktop; activation: 'keyboard' | 'pointer' | 'order-picker' };
+async function clickTarget(page: Page, origin: string, target: PublicTarget, rep: Representative, expectedState: State) {
   await page.setViewport(rep.viewport);
   await load(page, origin, rep.source, pagePath(rep.source));
   if (rep.link.inMenu && !(await openMenu(page))) fail('MENU_LINK_HIDDEN');
@@ -96,16 +100,45 @@ async function clickTarget(page: Page, origin: string, target: PublicTarget, rep
   for (const anchor of anchors) {
     const match = await anchor.evaluate((el, wanted) => {
       if (!(el instanceof HTMLAnchorElement)) return false;
-      return el.getAttribute('href') === wanted.raw && el.href === wanted.resolved &&
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' &&
+        el.getAttribute('href') === wanted.raw && el.href === wanted.resolved &&
+        (el.textContent || '').trim() === wanted.label &&
         !!el.closest('[role="dialog"]') === wanted.inMenu && (!el.target || el.target === '_self') &&
         !el.hasAttribute('download') && !el.closest('[inert]');
     }, rep.link);
     if (!match || !(await anchor.boundingBox())) continue;
-    await anchor.click();
+    if (rep.activation === 'keyboard') {
+      await anchor.focus();
+      if (!(await anchor.evaluate(el => document.activeElement === el))) fail('KEYBOARD_FOCUS');
+      await page.keyboard.press('Enter');
+    } else {
+      await anchor.evaluate(el => el.scrollIntoView({block:'center', inline:'nearest', behavior:'instant'}));
+      const point = await anchor.evaluate(el => {
+        const r=el.getBoundingClientRect();
+        const left=Math.max(0,r.left),right=Math.min(innerWidth,r.right),top=Math.max(0,r.top),bottom=Math.min(innerHeight,r.bottom);
+        if(right<=left||bottom<=top)return null;
+        for(const fy of [0.5,0.25,0.75])for(const fx of [0.5,0.25,0.75]){
+          const x=left+(right-left)*fx,y=top+(bottom-top)*fy;
+          const hit=document.elementFromPoint(x,y);
+          if(hit&&(hit===el||el.contains(hit)))return {x,y};
+        }
+        return null;
+      });
+      if(!point)fail('POINTER_OCCLUDED');
+      await page.mouse.click(point.x,point.y);
+    }
     clicked = true;
     break;
   }
   if (!clicked) fail('VISIBLE_LINK_MISSING');
+  if(rep.activation === 'order-picker') {
+    await page.waitForFunction(() => document.activeElement instanceof HTMLSelectElement &&
+      document.activeElement.closest('label')?.textContent?.includes('Первичный источник (заказ)'), {timeout:10000});
+    if(pagePath(new URL(page.url()).pathname)!==pagePath(rep.source)||new URL(page.url()).hash)fail('ORDER_PICKER_NAVIGATED');
+    return;
+  }
   const expected = new URL(origin + target.href);
   await page.waitForFunction((path, search, hash) => {
     let actual = location.pathname;
@@ -113,8 +146,16 @@ async function clickTarget(page: Page, origin: string, target: PublicTarget, rep
     else if (!actual.endsWith('/')) actual += '/';
     return actual === path && location.search === search && location.hash === hash;
   }, { timeout: 15000 }, target.path, expected.search, expected.hash);
+  // A router may update the URL before the new page mounts. Require the
+  // independently loaded destination's actual content and exact fragment.
+  await page.waitForFunction((title,h1,fragment)=> document.title===title &&
+    (document.querySelector('h1')?.textContent?.trim()||'')===h1 &&
+    (!fragment || fragment.toLowerCase()==='top' || !!document.getElementById(fragment) ||
+      [...document.querySelectorAll<HTMLAnchorElement>('a[name]')].some(a=>a.name===fragment)),
+    {timeout:15000},expectedState.title,expectedState.h1,target.fragment);
   const state = await ready(page, target.path);
   if (!fragmentExists(target.fragment, state.ids, state.names)) fail('CLICK_FRAGMENT_MISSING');
+  if(rep.activation==='keyboard'&&target.fragment==='main'&&!(await page.evaluate(()=>document.activeElement?.id==='main')))fail('SKIP_LINK_FOCUS');
   if (rep.link.inMenu && pagePath(rep.source) !== target.path)
     await page.waitForSelector('[role="dialog"]', { hidden: true, timeout: 10000 });
 }
@@ -128,11 +169,18 @@ async function main() {
   const contacts = new Set<string>();
   let linkOccurrences = 0, menuPages = 0, pagesLoaded = 0, fragments = 0, clicks = 0;
   let privateTargets = 0, assetTargets = 0, pageErrors = 0, localErrors = 0, externalRequests = 0;
+  let plannedClicks=0,keyboardClicks=0,orderPickerClicks=0;
   const failures: Record<string, number> = {};
-  const note = (error: unknown) => {
+  const note = (error: unknown, source?: string, target?: PublicTarget, width?: number) => {
     const msg = error instanceof Error ? error.message : '';
     const code = /^[A-Z][A-Z0-9_]{1,80}$/.test(msg) ? msg : 'BROWSER_OPERATION';
     failures[code] = (failures[code] || 0) + 1;
+    // Only registered public route ordinals, booleans, and static ASCII anchor IDs.
+    // Never print query contents, source bytes, customer values or arbitrary errors.
+    const sourceIndex=source?[...publicPages].indexOf(pagePath(source)):-1;
+    const targetIndex=target?[...publicPages].indexOf(target.path):-1;
+    const fragment=target&&/^[A-Za-z][A-Za-z0-9_-]{0,79}$/.test(target.fragment)?target.fragment:'';
+    console.log('D05_T3_RENDERED_LINK_DIAG '+JSON.stringify({code,sourceIndex,targetIndex,width:width||0,fragment,hasQuery:Boolean(target?.request.includes('?')),errorKind:error instanceof Error&&error.name==='TimeoutError'?'timeout':'other'}));
   };
   try {
     // Every declared page is requested over HTTP, including the separate Host entry.
@@ -157,12 +205,13 @@ async function main() {
         if (resolved.kind === 'external') { external.add(resolved.href); continue; }
         if (resolved.kind === 'contact') { contacts.add(resolved.href); continue; }
         const target = resolved as PublicTarget;
-        const key = target.kind + ':' + target.href;
+        const activation=activationKind(link,source);
+        const key = target.kind + ':' + target.href + (activation==='order-picker'?':order-picker':'');
         const item = targets.get(key) || { target, reps: new Map<number, Representative>() };
         if (!item.reps.has(viewport.width) && target.kind === 'page' && target.localClick && link.visible && !link.download && (!link.target || link.target === '_self'))
-          item.reps.set(viewport.width, { source, link, viewport });
+          item.reps.set(viewport.width, { source, link, viewport, activation });
         targets.set(key, item);
-        } catch (error) { note(error); }
+        } catch (error) { note(error,source,undefined,viewport.width); }
       }
     };
     for (const source of publicPages) {
@@ -188,15 +237,22 @@ async function main() {
       if (!state) { state = await load(page, server.origin, target.request, target.path); responses.set(target.request, state); }
       if (!fragmentExists(target.fragment, state.ids, state.names)) fail('FRAGMENT_MISSING');
       if (target.fragment) fragments++;
-      } catch (error) { note(error); }
+      } catch (error) { note(error,undefined,target); }
     }
     for (const { target, reps } of targets.values()) {
       for (const rep of reps.values()) {
-        try { await clickTarget(page, server.origin, target, rep); clicks++; }
-        catch (error) { note(error); }
+        plannedClicks++;
+        try {
+          const expectedState=responses.get(target.request);
+          if(!expectedState)fail('CLICK_TARGET_NOT_LOADED');
+          await clickTarget(page, server.origin, target, rep, expectedState);
+          clicks++;
+          if(rep.activation==='keyboard')keyboardClicks++;
+          if(rep.activation==='order-picker')orderPickerClicks++;
+        } catch (error) { note(error,rep.source,target,rep.viewport.width); }
       }
     }
-    if (!clicks || pageErrors || localErrors || externalRequests) note(Error('BROWSER_BOUNDARY'));
+    if (!clicks || clicks!==plannedClicks || !keyboardClicks || !orderPickerClicks || pageErrors || localErrors || externalRequests) note(Error('BROWSER_BOUNDARY'));
     if (Object.keys(failures).length) {
       console.log(JSON.stringify({status:'D05_T3_RENDERED_LINK_AUDIT_FAIL',declaredPages:declaredPages.size,publicPages:pagesLoaded,linkOccurrences,uniqueLocalTargets:targets.size,clicks,pageErrors,localErrors,externalRequests,failures}));
       fail('QUALIFICATION');
@@ -204,7 +260,7 @@ async function main() {
     console.log(JSON.stringify({
       status: 'D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED', declaredPages: declaredPages.size,
       publicPages: pagesLoaded, menuPages, linkOccurrences, uniqueLocalTargets: targets.size,
-      fragments, clicks, assetTargets, privateTargets, externalTargets: external.size, contactTargets: contacts.size,
+      fragments, clicks, plannedClicks, keyboardClicks, orderPickerClicks, assetTargets, privateTargets, externalTargets: external.size, contactTargets: contacts.size,
       externalLinksFetched: false, protectedNavigationAccepted: false, productAccepted: false,
     }));
   } finally {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pagePath, linkTarget, fragmentExists } from './t3-link-target.mjs';
+import { pagePath, linkTarget, fragmentExists, activationKind } from './t3-link-target.mjs';
 const origin = 'http://127.0.0.1:34567';
 const base = origin + '/catalog/';
 const options = { origin, canonical: 'https://cehovod.ru', pages: new Set(['/', '/catalog/', '/tools/', '/workspace/', '/404.html', '/workspace/isolated-signed-workspace.html']), files: new Set(['/docs/example.pdf']), protectedPages: new Set(['/workspace/', '/workspace/isolated-signed-workspace.html']) };
@@ -47,4 +47,11 @@ test('anchors use exact decoded IDs or legacy named anchors, not substring match
   assert.equal(fragmentExists('top', [], []), true);
   assert.equal(fragmentExists('', [], []), true);
   assert.equal(fragmentExists('missing', ['missing-more'], []), false);
+});
+
+test('keyboard skip links and the existing order picker have distinct activation contracts', () => {
+  assert.equal(activationKind({raw:'#main', keyboardOnly:true}, '/'), 'keyboard');
+  assert.equal(activationKind({raw:'#', label:'Выбрать заказ из рабочей зоны 2'}, '/instrumenty/gotovnost-k-zapusku/'), 'order-picker');
+  assert.equal(activationKind({raw:'#', label:'Выбрать заказ из рабочей зоны'}, '/'), 'pointer');
+  assert.equal(activationKind({raw:'/tools/', keyboardOnly:false}, '/'), 'pointer');
 });

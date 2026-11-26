@@ -37,3 +37,10 @@ export function linkTarget(raw, base, { origin, canonical, pages, files, protect
 export function fragmentExists(fragment, ids, names) {
   return !fragment || fragment.toLowerCase() === 'top' || ids.includes(fragment) || names.includes(fragment);
 }
+
+// A focus command must be exercised as a command, not mistaken for a hash route.
+export function activationKind(link, source) {
+  if (link.raw === '#' && pagePath(source) === '/instrumenty/gotovnost-k-zapusku/' &&
+      link.label?.startsWith('Выбрать заказ из рабочей зоны')) return 'order-picker';
+  return link.keyboardOnly ? 'keyboard' : 'pointer';
+}
