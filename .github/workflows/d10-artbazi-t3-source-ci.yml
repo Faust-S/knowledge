@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: d980221cabb24ac18b1c2ce625ce4ae761f04534
+          ref: c8441c6a6c095a39126753bebe826610cb744645
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi
-          ref: 91302e25d28a32b3e41c773a407cb2c26f2c9445
+          ref: 6829bf822e6aeeef0d3bdbb8e4ed49def1cf062d
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -233,7 +233,7 @@ jobs:
           if node scripts/tests/d10-t3-original-browser.mjs > "$RUNNER_TEMP/d10-t3-browser.log" 2>&1; then
             grep -E '^D10_T3_(BROWSER_[A-Z_]+|REAL_MODEL_INFERENCE)=(PASS|NOT_RUN)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
           else
-            grep -E '^D10_T3_BROWSER_[A-Z_]+=(PASS|[A-Z_]+|[A-Za-z]+Error)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
+            grep -E '^D10_T3_BROWSER_[A-Z_]+=(PASS|[A-Z_]+|[A-Za-z]*Error)$' "$RUNNER_TEMP/d10-t3-browser.log" || true
             echo "::error::D10_T3_BROWSER_REGRESSION=FAIL"; exit 1
           fi
       - name: All 16 existing product journeys against exact T3 HTTPS dist
