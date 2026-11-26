@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { normalizeProject, normalizeWork } from '../src/modules/base/features/project-process/project-process.mjs';
-import { createWorkspaceMethodDraft, captureWorkspaceMethodMaterials, prepareWorkspaceMethodPreview, reuseWorkspaceMethodPreview } from '../src/modules/base/features/workspace/workspace-project-method.mjs';
+import { createWorkspaceMethodDraft, captureWorkspaceMethodMaterials, prepareWorkspaceMethodPreview, reuseWorkspaceMethodPreview, inspectWorkspaceMethodMaterials, analyseWorkspaceMethodMaterialImpact } from '../src/modules/base/features/workspace/workspace-project-method.mjs';
 
 const workspaceId='workspace-a';
 const objects=['A','B','C'].map((object_id,i)=>({workspace_id:workspaceId,object_id,schema_id:'note',revision:i+1,data:{private:'fixture private '+object_id}}));
@@ -111,4 +111,57 @@ test('material-free research is allowed without a specific domain or executor',(
   assert.deepEqual(waves,[['read']]);assert.equal(preview.projectedProject.domainApplicability[0],'generic');
   assert.equal(preview.parameters.stepIntents[0].intendedActor,'human');
   assert.deepEqual(preview.parameters.materialRefs,[]);
+});
+
+test('material inspection reports current, changed and unavailable revisions without payload',()=>{
+  const draft=fixture();
+  const states=inspectWorkspaceMethodMaterials({workspaceId,objects:[{...objects[0],revision:8},objects[1]],materials:draft.materials});
+  assert.deepEqual(states,[{object_id:'B',revision:2,currentRevision:2,state:'CURRENT'},
+    {object_id:'A',revision:1,currentRevision:8,state:'CHANGED'}]);
+  for(const catalog of [[objects[1]], [{...objects[0],workspace_id:'other'},objects[1]], [...objects,objects[0]]]){
+    const value=inspectWorkspaceMethodMaterials({workspaceId,objects:catalog,materials:draft.materials});
+    assert.equal(value[1].state,'UNAVAILABLE');assert.equal(value[1].currentRevision,null);
+  }
+  assert.ok(!JSON.stringify(states).includes('fixture private'));
+});
+
+test('direct material impact propagates through declared prerequisites only',()=>{
+  const draft=fixture();
+  draft.steps.push({id:'independent',name:'Independent proof',actor:'human',instruction:'',dependsOn:[],materialIds:[]});
+  const changed=[{...objects[0],revision:8},...objects.slice(1)];
+  const impact=analyseWorkspaceMethodMaterialImpact({workspaceId,objects:changed,draft});
+  assert.deepEqual(impact.steps.map(step=>[step.stepId,step.state]),[
+    ['source','MATERIAL_REVIEW_REQUIRED'],['analyse','MATERIAL_REVIEW_REQUIRED'],
+    ['compute','DEPENDENCY_REVIEW_REQUIRED'],['review','DEPENDENCY_REVIEW_REQUIRED'],
+    ['independent','NO_DECLARED_MATERIAL_CHANGE']]);
+  assert.deepEqual(impact.steps[1].predecessorIds,['source']);
+  assert.deepEqual(impact.steps[3].predecessorIds,['analyse','compute']);
+  assert.equal(impact.executionAuthority,false);assert.equal(impact.resultReuseProven,false);
+  assert.throws(()=>prepare(draft,changed),hasCode('METHOD_MATERIAL_REVIEW_REQUIRED'));
+});
+
+test('a changed material outside declared stages is reported without inventing a dependency',()=>{
+  const draft=fixture();draft.materials=captureWorkspaceMethodMaterials({workspaceId,objects,selectedObjectIds:['A','B','C']});
+  const changed=[...objects.slice(0,2),{...objects[2],revision:9}];
+  const impact=analyseWorkspaceMethodMaterialImpact({workspaceId,objects:changed,draft});
+  assert.deepEqual(impact.unassignedIssues,['C']);assert.equal(impact.requiresReview,true);
+  assert.ok(impact.steps.every(step=>step.state==='NO_DECLARED_MATERIAL_CHANGE'));
+  assert.equal(impact.resultReuseProven,false);
+});
+
+test('unchanged and explicitly rebound materials produce no declared changes, not reuse authority',()=>{
+  const draft=fixture();
+  for(const catalog of [objects,[{...objects[0],revision:9},...objects.slice(1)]]){
+    draft.materials=captureWorkspaceMethodMaterials({workspaceId,objects:catalog,selectedObjectIds:['B','A']});
+    const impact=analyseWorkspaceMethodMaterialImpact({workspaceId,objects:catalog,draft});
+    assert.equal(impact.requiresReview,false);assert.equal(impact.resultReuseProven,false);
+    assert.ok(impact.steps.every(step=>step.state==='NO_DECLARED_MATERIAL_CHANGE'));
+    assert.ok(prepare(draft,catalog).preview);
+  }
+});
+
+test('invalid method structure is never projected as an impact conclusion',()=>{
+  assert.throws(()=>analyseWorkspaceMethodMaterialImpact({workspaceId,objects,draft:patch(fixture(),0,{dependsOn:['review']})}),hasCode('METHOD_DEPENDENCY_CYCLE'));
+  const {preview}=prepare();
+  for(const source of [undefined,'',' workspace-a']) assert.throws(()=>reuseWorkspaceMethodPreview({workspaceId,preview:{...preview,workspaceId:source},allocate:()=> 'project-new'}),hasCode('METHOD_PREVIEW_INVALID'));
 });

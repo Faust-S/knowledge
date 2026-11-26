@@ -2,12 +2,16 @@ import { useMemo, useState } from "react";
 import type { ObjectRecord } from "../../../../kernel-client";
 import {
   captureWorkspaceMethodMaterials,
+  inspectWorkspaceMethodMaterials,
+  analyseWorkspaceMethodMaterialImpact,
   prepareWorkspaceMethodPreview,
   reuseWorkspaceMethodPreview,
   WORKSPACE_METHOD_MAX_STEPS,
   type WorkspaceMethodActor,
   type WorkspaceMethodDraft,
   type WorkspaceMethodStep,
+  type WorkspaceMethodPreview,
+  type WorkspaceMethodStageImpact,
 } from "./workspace-project-method.mjs";
 
 const field = "mt-1 block w-full min-w-0 rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100 min-h-[44px]";
@@ -49,9 +53,19 @@ export function WorkspaceMethodEditor(props: {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [reuseText, setReuseText] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const current = draft.steps.find(step => step.id === focus) ?? draft.steps[0];
   const byId = useMemo(() => new Map(draft.steps.map(step => [step.id,step])), [draft.steps]);
   const pins = useMemo(() => new Map(draft.materials.map(ref => [ref.object_id,ref])), [draft.materials]);
+  const materialStatus = useMemo(() => {
+    try { return inspectWorkspaceMethodMaterials({workspaceId,objects,materials:draft.materials}); }
+    catch { return null; }
+  }, [workspaceId,objects,draft.materials]);
+  const impact = useMemo(() => {
+    if (!previewOpen) return null;
+    try { return analyseWorkspaceMethodMaterialImpact({workspaceId,objects,draft}); }
+    catch { return null; }
+  }, [previewOpen,workspaceId,objects,draft]);
   const plan = useMemo(() => {
     if (!previewOpen) return null;
     try {
@@ -61,7 +75,7 @@ export function WorkspaceMethodEditor(props: {
     }
   }, [previewOpen,workspaceId,objects,draft]);
   const update = (patch: Partial<WorkspaceMethodDraft>) => {
-    onChange({...draft,...patch}); setError("");
+    onChange({...draft,...patch}); setError(""); setNotice("");
   };
   const updateStep = (step: WorkspaceMethodStep, patch: Partial<WorkspaceMethodStep>) =>
     update({steps: draft.steps.map(item => item.id === step.id ? {...item,...patch} : item)});
@@ -91,13 +105,24 @@ export function WorkspaceMethodEditor(props: {
       update({materials});
     } catch (err) { setError(message(err)); }
   };
-  const reuse = () => {
-    if (!reuseText.trim() || reuseText.length > 2_000_000) return;
+  const reuseStructure = (preview: unknown) => {
     try {
-      const replacement = reuseWorkspaceMethodPreview({workspaceId,preview:JSON.parse(reuseText)});
+      const replacement = reuseWorkspaceMethodPreview({workspaceId,preview});
       onChange(replacement); setFocus(replacement.steps[0]?.id ?? "");
       setReuseText(""); setPreviewOpen(false); setError("");
-    } catch (err) { setError(message(err)); }
+      setNotice("Подготовлена новая работа по той же структуре. Материалы необходимо выбрать заново.");
+    } catch (err) { setError(message(err)); setNotice(""); }
+  };
+  const reuse = () => {
+    if (!reuseText.trim() || reuseText.length > 2_000_000) return;
+    try { reuseStructure(JSON.parse(reuseText)); }
+    catch (err) { setError(message(err)); }
+  };
+  const reuseCurrent = (preview: WorkspaceMethodPreview) => reuseStructure(preview);
+  const impactLabels: Record<WorkspaceMethodStageImpact["state"],string> = {
+    MATERIAL_REVIEW_REQUIRED: "Изменились материалы",
+    DEPENDENCY_REVIEW_REQUIRED: "Затронуты предшественники",
+    NO_DECLARED_MATERIAL_CHANGE: "По заданным связям изменений нет",
   };
   const canDelete = current && draft.steps.length > 1 && !draft.steps.some(step => step.dependsOn.includes(current.id));
   const currentIndex = current ? draft.steps.findIndex(step => step.id === current.id) : -1;
@@ -119,6 +144,12 @@ export function WorkspaceMethodEditor(props: {
         <p className="text-xs text-slate-400">Выбрано на полотне: {selectedObjectIds.length}. Привязки фиксируют редакции; содержимое не копируется.</p></div>
       <button type="button" className={button} disabled={selectionNeedsReview} onClick={capture}>Принять текущий выбор полотна</button>
     </div>
+    {materialStatus && materialStatus.some(item=>item.state!=="CURRENT") && <div className="space-y-1 rounded border border-amber-900/60 p-2" data-testid="workspace-method-material-changes">
+      <p role="status" className="text-xs text-amber-200">Материалы требуют проверки. Сохранённые редакции не заменены автоматически.</p>
+      <ul className="space-y-1 max-h-40 overflow-y-auto">{materialStatus.filter(item=>item.state!=="CURRENT").map(item=><li key={item.object_id} className="text-xs break-all">
+        {item.object_id} · ред. {item.revision} {item.state==="CHANGED" ? "→ "+item.currentRevision : "· недоступен"}
+      </li>)}</ul>
+    </div>}
     <div className="grid gap-3 lg:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]">
       <div className="min-w-0 space-y-2">
         <div className="flex items-center flex-wrap gap-2">
@@ -182,7 +213,19 @@ export function WorkspaceMethodEditor(props: {
       </div>}
     </div>
     <button type="button" className={button+" bg-emerald-900/40"} onClick={()=>setPreviewOpen(true)}>Проверить структуру</button>
+    {notice && <p role="status" className="text-xs text-emerald-200">{notice}</p>}
     {error && <p role="alert" className="text-xs text-rose-200">{error}</p>}
+    {impact?.requiresReview && <div className="space-y-2 border border-amber-900/60 p-2 rounded" data-testid="workspace-method-impact">
+      <h6 className="text-xs font-medium text-slate-200">Влияние изменения материалов</h6>
+      <ul className="space-y-1 max-h-72 overflow-y-auto">{impact.steps.map(item=><li key={item.stepId} className="text-xs rounded border border-slate-800 p-2">
+        <strong className="block break-words">{byId.get(item.stepId)?.name || item.stepId}</strong>
+        <span className={item.state==="NO_DECLARED_MATERIAL_CHANGE" ? "text-slate-400" : "text-amber-200"}>{impactLabels[item.state]}</span>
+        {item.materialIds.length>0 && <p className="text-[11px] break-all">Материалы: {item.materialIds.join(", ")}</p>}
+        {item.predecessorIds.length>0 && <p className="text-[11px] break-words">Предшественники: {item.predecessorIds.map(id=>byId.get(id)?.name||id).join(", ")}</p>}
+      </li>)}</ul>
+      {impact.unassignedIssues.length>0 && <p className="text-xs text-amber-200 break-all">Изменённые материалы без указанных связей с этапами: {impact.unassignedIssues.join(", ")}.</p>}
+      <p className="text-[11px] text-slate-400">Это проверка объявленных связей. Пригодность прежних результатов и право запуска не подтверждены.</p>
+    </div>}
     {plan && (plan.result ? <div className="space-y-2" data-testid="workspace-method-preview">
       <p role="status" className="text-sm text-emerald-200">Структура проверена. Проект не сохранён и не запущен.</p>
       <p className="text-xs text-slate-400">Группы ниже отражают только заданные зависимости, а не расписание или разрешение исполнения.</p>
@@ -190,6 +233,10 @@ export function WorkspaceMethodEditor(props: {
         <strong className="block text-slate-300">Группа {index+1}</strong>
         <span className="break-words">{wave.map(id=>byId.get(id)?.name||id).join(" · ")}</span>
       </li>)}</ol>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className={button} onClick={()=>reuseCurrent(plan.result!.preview)}>Новая работа по этой методике</button>
+        <p className="text-[11px] text-slate-400">Заменяет текущий черновик новой работой без старых привязок материалов.</p>
+      </div>
       <details><summary className="text-xs cursor-pointer text-slate-300 min-h-[44px]">Исходный предпросмотр проекта для повторного использования</summary>
         <p className="text-xs text-slate-400">Это существующий формат предпросмотра Project/Process, не пакет .iwxa и не разрешение записи. Скопируйте текст, чтобы сохранить его для согласования.</p>
         <textarea aria-label="Предпросмотр проекта" value={JSON.stringify(plan.result.preview,null,2)} readOnly rows={6} className={field+" font-mono text-xs"} />

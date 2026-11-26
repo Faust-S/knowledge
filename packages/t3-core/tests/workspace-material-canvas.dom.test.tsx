@@ -154,3 +154,85 @@ describe("W03 Workspace material canvas",()=>{
     expect(screen.getAllByTestId("workspace-canvas-material")).toHaveLength(3);
   });
 });
+
+describe("W04 Workspace methods",()=>{
+  function createMethod(){
+    fireEvent.click(screen.getByLabelText("Выбрать A"));
+    fireEvent.click(screen.getByRole("button",{name:"Полотно"}));
+    fireEvent.click(screen.getByRole("button",{name:"Методика",exact:true}));
+    fireEvent.change(screen.getByLabelText("Название проекта"),{target:{value:"General research"}});
+    fireEvent.change(screen.getByLabelText("Цель работы"),{target:{value:"Compare two approaches"}});
+    fireEvent.change(screen.getByLabelText("Название этапа"),{target:{value:"Prepare"}});
+    fireEvent.click(screen.getByRole("button",{name:"Принять текущий выбор полотна"}));
+    fireEvent.change(screen.getByLabelText("Добавить материал этапа"),{target:{value:"A"}});
+    fireEvent.click(screen.getByRole("button",{name:"Добавить этап"}));
+    fireEvent.change(screen.getByLabelText("Название этапа"),{target:{value:"Calculate"}});
+    fireEvent.change(screen.getByLabelText("Предполагаемый участник"),{target:{value:"program"}});
+    fireEvent.change(screen.getByLabelText("Добавить предшествующий этап"),{target:{value:"step-1"}});
+  }
+  const sourcePreview=()=>JSON.parse((screen.getByLabelText("Предпросмотр проекта") as HTMLTextAreaElement).value);
+  it("designs a method from canvas materials and reuses the original preview without invoking owners",()=>{
+    const invoke=vi.fn(async (_id:string,_args?:unknown)=>({ok:true}));
+    const commands={has:()=>true,invoke};
+    render(<RichWorkspaceReadModel workspace={workspace} objects={objects} events={[]} profileDefinition={profile}
+      commands={commands} onOpenObject={()=>{}} />);
+    createMethod();
+    fireEvent.click(screen.getByRole("button",{name:"Проверить структуру"}));
+    expect(screen.getByTestId("workspace-method-preview")).toBeTruthy();
+    const original=sourcePreview();
+    expect(original).toMatchObject({schema:"IWXA_T2_PROJECT_TEMPLATE_PREVIEW_V1",persisted:false,sourceTruth:false,
+      parameters:{materialRefs:[{object_id:"A",revision:1}],stepIntents:[
+        {stepId:"step-1",materialRefs:[{object_id:"A",revision:1}]},
+        {stepId:"step-2",intendedActor:"program",materialRefs:[]},
+      ]}});
+    expect(original.projectedWork[1].dependencies[0].predecessorWorkId).toBe(original.projectedProject.projectId+".step-1");
+    fireEvent.click(screen.getByRole("button",{name:"Новая работа по этой методике"}));
+    fireEvent.click(screen.getByRole("button",{name:"Проверить структуру"}));
+    const next=sourcePreview();
+    expect(next.projectedProject.projectId).not.toBe(original.projectedProject.projectId);
+    expect(next.parameters.materialRefs).toEqual([]);
+    expect(next.parameters.stepIntents[0].materialRefs).toEqual([]);
+    expect(next.projectedWork[1].dependencies[0].predecessorWorkId).toBe(next.projectedProject.projectId+".step-1");
+    expect(invoke).not.toHaveBeenCalled();
+  });
+  it("reports direct and downstream impact after a pinned material changes",()=>{
+    const props={workspace,events:[],profileDefinition:profile,onOpenObject:()=>{}};
+    const {rerender}=render(<RichWorkspaceReadModel {...props} objects={objects}/>);
+    createMethod();
+    fireEvent.click(screen.getByRole("button",{name:"Проверить структуру"}));
+    expect(screen.getByTestId("workspace-method-preview")).toBeTruthy();
+    rerender(<RichWorkspaceReadModel {...props} objects={[material("A",5),b,c]}/>);
+    expect(screen.queryByTestId("workspace-method-preview")).toBeNull();
+    expect(screen.getByTestId("workspace-method-invalid")).toBeTruthy();
+    expect(screen.getByTestId("workspace-method-material-changes").textContent).toContain("ред. 1");
+    expect(screen.getByTestId("workspace-method-impact").textContent).toContain("Изменились материалы");
+    expect(screen.getByTestId("workspace-method-impact").textContent).toContain("Затронуты предшественники");
+  });
+  it("retains the draft during catalog refresh and hide/show, but not a changed kernel session",()=>{
+    const kernel=facade(async()=>null);
+    const props={workspace,events:[],profileDefinition:profile,onOpenObject:()=>{},kernel};
+    const {rerender}=render(<RichWorkspaceReadModel {...props} objects={objects}/>);
+    createMethod();
+    fireEvent.click(screen.getByRole("button",{name:"Скрыть методику"}));
+    expect(screen.queryByTestId("workspace-method-editor")).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"Продолжить методику"}));
+    expect((screen.getByLabelText("Название проекта") as HTMLInputElement).value).toBe("General research");
+    rerender(<RichWorkspaceReadModel {...props} objects={[]} catalogReady={false}/>);
+    expect(screen.queryByTestId("workspace-method-editor")).toBeNull();
+    rerender(<RichWorkspaceReadModel {...props} objects={objects} catalogReady/>);
+    expect((screen.getByLabelText("Название проекта") as HTMLInputElement).value).toBe("General research");
+    rerender(<RichWorkspaceReadModel {...props} kernel={facade(async()=>null)} objects={objects}/>);
+    expect(screen.queryByTestId("workspace-method-editor")).toBeNull();
+    expect(screen.getByRole("button",{name:"Методика",exact:true})).toBeTruthy();
+  });
+  it("blocks deletion of referenced stages and never accepts a cyclic method",()=>{
+    render(<RichWorkspaceReadModel workspace={workspace} objects={objects} events={[]} profileDefinition={profile} onOpenObject={()=>{}}/>);
+    createMethod();
+    fireEvent.click(screen.getByRole("button",{name:/1\. Prepare/}));
+    expect((screen.getByRole("button",{name:"Удалить этап"}) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Добавить предшествующий этап"),{target:{value:"step-2"}});
+    fireEvent.click(screen.getByRole("button",{name:"Проверить структуру"}));
+    expect(screen.getByTestId("workspace-method-invalid").textContent).toContain("цикл");
+    expect(screen.queryByTestId("workspace-method-preview")).toBeNull();
+  });
+});

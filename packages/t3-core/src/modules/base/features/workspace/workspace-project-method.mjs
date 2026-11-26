@@ -4,7 +4,7 @@
  * or new persistence owner. Only the existing owner may materialize it.
  */
 import { normalizeProject, normalizeWork, previewProjectTemplate } from '../project-process/project-process.mjs';
-import { captureWorkspaceViewPresentation, restoreWorkspaceViewPresentation } from './workspace-persisted-view-state.mjs';
+import { captureWorkspaceViewPresentation, restoreWorkspaceViewPresentation, parseWorkspaceViewPresentation, projectWorkspaceCanvasMaterials } from './workspace-persisted-view-state.mjs';
 
 export const WORKSPACE_METHOD_MAX_STEPS = 64;
 const SAFE_ID = /^[A-Za-z0-9_-]{1,63}$/u;
@@ -82,11 +82,9 @@ function dependencyLayers(steps) {
   return Object.freeze(waves);
 }
 
-/** Prepare the existing, non-authoritative template preview. Inputs are
- * checked by original Project/Work normalizers before being projected.
- * No calls to storage, owner mutation, program invocation or task creation.
- */
-export function prepareWorkspaceMethodPreview({ workspaceId, objects, draft }) {
+// Structural validation is independent from current material availability.
+// A changed source must not prevent explaining which declared stages depend on it.
+function normalizeMethodStructure({ workspaceId, draft }) {
   if (typeof workspaceId !== 'string' || !workspaceId || workspaceId !== workspaceId.trim()) fail('METHOD_FIELD_INVALID', 'workspaceId');
   if (!draft || typeof draft !== 'object' || Array.isArray(draft)) fail('METHOD_FIELD_INVALID', 'draft');
   const templateId = id(draft.templateId, 'templateId');
@@ -99,10 +97,9 @@ export function prepareWorkspaceMethodPreview({ workspaceId, objects, draft }) {
   const project = { workspaceId, projectId, name, status: 'planned', domainApplicability,
     templateRef: { templateId, templateRevision } };
   normalizeProject(project);
-  const materialView = { version: 1, mode: 'browse', selected: draft.materials, detail: null };
-  const admitted = restoreWorkspaceViewPresentation({ workspaceId, objects, presentation: materialView });
-  if (admitted.changedCount || admitted.unavailableCount) fail('METHOD_MATERIAL_REVIEW_REQUIRED', 'Material revisions require review');
-  const pins = captureWorkspaceMethodMaterials({ workspaceId, objects, selectedObjectIds: admitted.selectedObjectIds });
+  const materialView = parseWorkspaceViewPresentation({ version: 1, mode: 'browse', selected: draft.materials, detail: null });
+  if (!materialView) fail('METHOD_SELECTION_INVALID', 'materials');
+  const pins = materialView.selected;
   const pinById = new Map(pins.map(pin => [pin.object_id, pin]));
   if (!Array.isArray(draft.steps) || !draft.steps.length || draft.steps.length > WORKSPACE_METHOD_MAX_STEPS) {
     fail('METHOD_STEP_LIMIT', 'A method needs between 1 and 64 stages');
@@ -133,6 +130,60 @@ export function prepareWorkspaceMethodPreview({ workspaceId, objects, draft }) {
     schedule: {},
   }));
   for (const item of work) normalizeWork(item);
+  return { templateId, templateRevision, project, work, objective, pins, pinById, steps, waves, workIdFor, materialView };
+}
+
+/** Current revision information comes from the original admitted catalog.
+ * Only references are returned, never the data payload or authorization.
+ */
+export function inspectWorkspaceMethodMaterials({ workspaceId, objects, materials }) {
+  const parsed = parseWorkspaceViewPresentation({ version: 1, mode: 'browse', selected: materials, detail: null });
+  if (!parsed) fail('METHOD_SELECTION_INVALID', 'materials');
+  const current = projectWorkspaceCanvasMaterials({ workspaceId, objects,
+    selectedObjectIds: parsed.selected.map(pin => pin.object_id) });
+  if (current.status !== 'READY') fail('METHOD_SELECTION_INVALID', 'materials');
+  const byId = new Map(current.items.map(record => [record.object_id, record]));
+  return Object.freeze(parsed.selected.map(pin => {
+    const record = byId.get(pin.object_id);
+    return Object.freeze({ object_id: pin.object_id, revision: pin.revision,
+      currentRevision: record?.revision ?? null,
+      state: !record ? 'UNAVAILABLE' : record.revision === pin.revision ? 'CURRENT' : 'CHANGED' });
+  }));
+}
+
+/** Explain the impact of changed declared inputs. This is not a proof of
+ * result reuse, readiness, completion or execution authority. */
+export function analyseWorkspaceMethodMaterialImpact({ workspaceId, objects, draft }) {
+  const { steps, waves, pins } = normalizeMethodStructure({ workspaceId, draft });
+  const materials = inspectWorkspaceMethodMaterials({ workspaceId, objects, materials: pins });
+  const issues = new Set(materials.filter(item => item.state !== 'CURRENT').map(item => item.object_id));
+  const assigned = new Set(steps.flatMap(step => step.materialIds));
+  const byId = new Map(steps.map(step => [step.id, step]));
+  const affected = new Set(), findings = new Map();
+  for (const wave of waves) for (const stepId of wave) {
+    const step = byId.get(stepId);
+    const materialIds = step.materialIds.filter(value => issues.has(value));
+    const predecessorIds = step.dependsOn.filter(value => affected.has(value));
+    const state = materialIds.length ? 'MATERIAL_REVIEW_REQUIRED'
+      : predecessorIds.length ? 'DEPENDENCY_REVIEW_REQUIRED' : 'NO_DECLARED_MATERIAL_CHANGE';
+    if (state !== 'NO_DECLARED_MATERIAL_CHANGE') affected.add(stepId);
+    findings.set(stepId, Object.freeze({ stepId, state,
+      materialIds: Object.freeze(materialIds), predecessorIds: Object.freeze(predecessorIds) }));
+  }
+  return Object.freeze({ materials, steps: Object.freeze(steps.map(step => findings.get(step.id))),
+    unassignedIssues: Object.freeze([...issues].filter(value => !assigned.has(value))),
+    requiresReview: issues.size > 0, executionAuthority: false, resultReuseProven: false });
+}
+
+/** Prepare the existing, non-authoritative template preview. Inputs are
+ * checked by original Project/Work normalizers before being projected.
+ * No calls to storage, owner mutation, program invocation or task creation.
+ */
+export function prepareWorkspaceMethodPreview({ workspaceId, objects, draft }) {
+  const { templateId, templateRevision, project, work, objective, pins, pinById, steps, waves, workIdFor, materialView }
+    = normalizeMethodStructure({ workspaceId, draft });
+  const admitted = restoreWorkspaceViewPresentation({ workspaceId, objects, presentation: materialView });
+  if (admitted.changedCount || admitted.unavailableCount) fail('METHOD_MATERIAL_REVIEW_REQUIRED', 'Material revisions require review');
   const preview = previewProjectTemplate({
     workspaceId, template: { templateId, templateRevision, project, work },
     parameters: {
@@ -153,6 +204,7 @@ export function prepareWorkspaceMethodPreview({ workspaceId, objects, draft }) {
  */
 export function reuseWorkspaceMethodPreview({ workspaceId, preview, allocate = methodId }) {
   if (!preview || preview.schema !== 'IWXA_T2_PROJECT_TEMPLATE_PREVIEW_V1'
+      || typeof preview.workspaceId !== 'string' || !preview.workspaceId || preview.workspaceId !== preview.workspaceId.trim()
       || preview.persisted !== false || preview.sourceTruth !== false || preview.schemaMutation !== false) {
     fail('METHOD_PREVIEW_INVALID', 'Expected the original non-persisted project template preview');
   }

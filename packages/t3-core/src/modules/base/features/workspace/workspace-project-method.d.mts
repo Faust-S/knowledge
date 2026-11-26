@@ -71,3 +71,27 @@ export function prepareWorkspaceMethodPreview(input: {
 export function reuseWorkspaceMethodPreview(input: {
   workspaceId: string; preview: unknown; allocate?: (prefix: string) => string;
 }): WorkspaceMethodDraft;
+
+export interface WorkspaceMethodMaterialStatus extends WorkspaceMethodMaterial {
+  readonly currentRevision: number | null;
+  readonly state: 'CURRENT' | 'CHANGED' | 'UNAVAILABLE';
+}
+export interface WorkspaceMethodStageImpact {
+  readonly stepId: string;
+  readonly state: 'MATERIAL_REVIEW_REQUIRED' | 'DEPENDENCY_REVIEW_REQUIRED' | 'NO_DECLARED_MATERIAL_CHANGE';
+  readonly materialIds: readonly string[];
+  readonly predecessorIds: readonly string[];
+}
+export function inspectWorkspaceMethodMaterials(input: {
+  workspaceId: string; objects: readonly unknown[]; materials: readonly WorkspaceMethodMaterial[];
+}): readonly WorkspaceMethodMaterialStatus[];
+export function analyseWorkspaceMethodMaterialImpact(input: {
+  workspaceId: string; objects: readonly unknown[]; draft: WorkspaceMethodDraft;
+}): Readonly<{
+  materials: readonly WorkspaceMethodMaterialStatus[];
+  steps: readonly WorkspaceMethodStageImpact[];
+  unassignedIssues: readonly string[];
+  requiresReview: boolean;
+  executionAuthority: false;
+  resultReuseProven: false;
+}>;
