@@ -465,11 +465,9 @@ export function createT4OriginalHostDispatchTaskBinding({
       return selectT4NativeAssetContentProfile(bytes.length,{enableMultipart:enableOriginalMultipartNegotiation})===T4_NATIVE_MULTIPART_PROFILE;
     };
     const multipart=selectProfile(task.capture);
-    // Historical multipart ACK recovery is not implemented yet. Do not
-    // invoke the live multipart backing reader during the pre-migration
-    // historical-only wake: the exact HEAD/DIFF indexes may need repair.
-    if(historicalOnly&&multipart)return result('NO_ORIGINAL_HISTORICAL_RECOVERY',{
-      sessionRef:session.sessionRef,changeId:session.changeId,originalHostFrontierRevision:task.originalHostFrontierRevision});
+    // Inspect durable multipart state without a live agreement. Historical
+    // ACK recovery must precede remote index repair. Live content operations
+    // still verify the exact selected backing and current agreement.
     const expected={initial,session,frontierRevision:task.originalHostFrontierRevision};
     const extensions=t4NativeSubjectCriticalExtensions(session.changeKind);
     const inboundExtensions=multipart?[...extensions,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:extensions;
@@ -539,7 +537,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     const discovery=scopeOriginalHostPort(frameDiscoveryPort,lifetime,
       ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion','originalMultipartNegotiationEnabled'],
       'HOST_TASK_NATIVE_SOURCE_DISCOVERY_REQUIRED');
-    const saved=await publication.inspectOriginalPublication();
+    const saved=await publication.inspectOriginalPublication({metadataOnly:multipart});
     await refresh();
     const stage=[null,'INTENT','PUBLISHED','APPLIED_CONFIRMED'].indexOf(status?.currentPhase);
     if(!phaseMatches(status)||stage<0||status.revision!==stage||
@@ -583,14 +581,14 @@ export function createT4OriginalHostDispatchTaskBinding({
       if(!phaseMatches(after)||after.currentPhase!==next||!evidenceMatches(after.currentEvidence,evidence))
         fail('HOST_TASK_NATIVE_SOURCE_PHASE_READBACK_MISMATCH');
     };
-    if(historicalOnly&&(stage<2||multipart))return done('NO_ORIGINAL_HISTORICAL_RECOVERY');
+    if(historicalOnly&&stage<2)return done('NO_ORIGINAL_HISTORICAL_RECOVERY');
     if(stage===0){
       await advance('INTENT',intent);
       return done('INTENT_RECORDED');
     }
-    if(stage===2&&!multipart&&authorizeOriginalHistoricalCursorRecovery!==null){
+    if(stage===2&&authorizeOriginalHistoricalCursorRecovery!==null){
       if(typeof discovery.readOriginalHistoricalAppliedAck!=='function'||
-        typeof publication.readOriginalHistoricalPublishedFrame!=='function')
+        typeof publication[multipart?'readOriginalHistoricalMultipartPublication':'readOriginalHistoricalPublishedFrame']!=='function')
         fail('HOST_TASK_NATIVE_HISTORICAL_RECOVERY_PORTS_REQUIRED');
       // Check the original frontier before attempting the original phase
       // CAS, as in the live ACK route. Do not use a remote slot as a grant.
@@ -618,11 +616,11 @@ export function createT4OriginalHostDispatchTaskBinding({
       // Only proven absence of an earlier accepted slot permits the
       // ordinary live receipt path below.
     }
-    if(stage===3&&!multipart&&authorizeOriginalHistoricalCursorRecovery!==null){
+    if(stage===3&&authorizeOriginalHistoricalCursorRecovery!==null){
       // The original result was independently confirmed before rotation.
       // Recover only the missing original source frontier.
       if(typeof sourceCursorPort?.commitHistoricallyConfirmedCursor!=='function'||
-        typeof publication.readOriginalHistoricalPublishedFrame!=='function'||
+        typeof publication[multipart?'readOriginalHistoricalMultipartPublication':'readOriginalHistoricalPublishedFrame']!=='function'||
         typeof discovery.readOriginalHistoricalReceivedFrame!=='function')
         fail('HOST_TASK_NATIVE_HISTORICAL_RECOVERY_PORTS_REQUIRED');
       const cursor=scopeOriginalHostPort(sourceCursorPort,lifetime,

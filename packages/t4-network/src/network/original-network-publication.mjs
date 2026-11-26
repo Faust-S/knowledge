@@ -1129,7 +1129,8 @@ export function createT4OriginalNetworkPublicationPort({
       permissionRef:signedFrame?.permissionRef??null,
       frameMessageType:signedFrame?.messageType??null,
       ...(record===null?{}:{originalRecordRef:record.objectId,recordRole:'multipart-backing-segment',
-        originalMultipartPlanDigest:record.planDigest}),
+        originalMultipartPlanDigest:record.planDigest,...(record.historical?{originalHistoricalEvidenceOnly:true,
+           liveNetworkAuthorityGranted:false,originalSubjectMutationAllowed:false}:{})}),
       ...(control?{originalControlPublicationRequired:true,originalCaptureSession:identity.originalCaptureSession,
         controlClaim:identity.controlClaim,controlBody:signedFrame?deepFreeze(clone(signedFrame.body)):null,
         originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationAllowed:false}:{}),
@@ -1597,10 +1598,11 @@ export function createT4OriginalNetworkPublicationPort({
       fail('PUBLICATION_MULTIPART_SEGMENT_TOO_LARGE');
     return data;
   }
-  async function readSegment(ctx,plan,desc){
-    const id=desc.objectId,record={objectId:id,planDigest:plan.planDigest};
+  async function readSegment(ctx,plan,desc,historical=false){
+    const id=desc.objectId,record={objectId:id,planDigest:plan.planDigest,...(historical?{historical:true}:{})};
     const permit=async(op,purpose)=>{
-      await multipartAuthority(ctx,plan,purpose,id);await guard(ctx,op,purpose,null,record);
+      if(!historical)await multipartAuthority(ctx,plan,purpose,id);
+      await guard(ctx,op,historical?'historical-'+purpose:purpose,null,record);
     };
     await permit('t1.getObject','read-multipart-segment');
     const row=clone(await originalKernel.getObject(technicalWorkspaceId,id));
@@ -1631,7 +1633,8 @@ export function createT4OriginalNetworkPublicationPort({
     await permit('t1.getObject','multipart-segment-double-read');
     if(!same(await originalKernel.getObject(technicalWorkspaceId,id),row))
       fail('PUBLICATION_MULTIPART_SEGMENT_CHANGED');
-    await multipartAuthority(ctx,plan,'multipart-segment-readback',id);
+    if(historical)await permit('t1.getObject','multipart-segment-readback');
+    else await multipartAuthority(ctx,plan,'multipart-segment-readback',id);
     return row===null?null:{segment:clone(s),eventId:events[0].event_id};
   }
   async function verifyMultipart(ctx,current,plan,segments){
@@ -1921,9 +1924,9 @@ export function createT4OriginalNetworkPublicationPort({
   }
   // Read-only history proof from the original PRESENT Event and exact
   // persisted bytes. No remote read/write, no fresh signer, no live proof.
-  async function historicalPublishedProof(current,entry,includePresentEventAnchor=false){
+  async function historicalPublishedProof(current,entry,includePresentEventAnchor=false,allowMultipart=false){
     if(entry?.state!=='PRESENT')fail('PUBLICATION_HISTORICAL_PRESENT_REQUIRED');
-    const frame=frameFor(entry);
+    const frame=frameFor(entry,allowMultipart);
     const historicalSignature=await verifyT4CandidateHistoricalFrameSignature({
       wireBytes:Buffer.from(entry.wireText,'utf8'),direction:'OUTBOUND',localNodeRef,
       scopeRef:identity.scopeRef,requiredCryptoSuite:frame.cryptoSuite,
@@ -1970,6 +1973,54 @@ export function createT4OriginalNetworkPublicationPort({
       checkpointRef,originalPublicationRevision:current.revision,originalPublicationChainHash:current.chainHash,
       frames:Object.freeze(frames),originalT3PublicationEventChainVerified:true,originalHistoricalEvidenceOnly:true,
       currentRemotePresenceProven:false,liveNetworkAuthorityGranted:false,originalBusinessApplied:false});
+  }
+  // Historical ACK recovery may use the original, fully PRESENT immutable
+  // multipart publication after network loss or key rotation. Read the
+  // selected backing Objects and original Events, never the live agreement,
+  // current publication permission, remote content or an unlocked Vault.
+  // This proves the complete retained ciphertext and the historical HEADS
+  // and CHANGE_REF signatures, not a fresh transport receipt.
+  async function readOriginalHistoricalMultipartPublication(){
+    const ctx=await context(),current=await read(ctx),plan=current.multipartPlan;
+    if(!source||!enableOriginalMultipartNegotiation||!multipartBackingEnabled||
+      verifyOriginalHistoricalNodeSignature===null||!plan||!DIG(current.multipartReservation?.agreementDigest)||
+      current.entries.length!==plan.frameCount+1||current.entries.some(e=>e.state!=='PRESENT'))
+      fail('PUBLICATION_MULTIPART_HISTORICAL_PROFILE_REQUIRED');
+    const saved=[];
+    for(const desc of plan.segments){
+      const found=await readSegment(ctx,plan,desc,true);
+      if(!found)fail('PUBLICATION_MULTIPART_SELECTED_SEGMENT_MISSING');
+      saved.push(found);
+    }
+    const observed={planDigest:plan.planDigest,segmentEvents:saved.map((x,i)=>({objectId:plan.segments[i].objectId,eventId:x.eventId})),
+      agreementDigest:current.multipartReservation.agreementDigest};
+    if(!same(current.multipartReservation,observed))fail('PUBLICATION_MULTIPART_SELECTED_EVENT_CHANGED');
+    const checked=readT4OriginalMultipartBacking({...multipartAnchor(current),plan,segments:saved.map(x=>x.segment)});
+    const entries=checked.wireBytes.map(w=>initialEntry(decodeT4CandidateFrame(w),Buffer.from(w).toString('utf8')));
+    if(!same(current.entries.slice(1).map(descriptor),entries.map(descriptor)))
+      fail('PUBLICATION_MULTIPART_PREPARED_BYTES_CHANGED');
+    const exactHead=current.entries[0],exactChange={...current.entries[1],wireText:entries[0].wireText};
+    const head=await historicalPublishedProof(current,exactHead,true);
+    const change=await historicalPublishedProof(current,exactChange,true,true);
+    const after=await read(ctx);
+    if(after.revision!==current.revision||after.chainHash!==current.chainHash||
+      !same(after.entries,current.entries)||!same(after.presentEvents,current.presentEvents)||
+      !same(after.multipartPlan,plan)||!same(after.multipartReservation,current.multipartReservation))
+      fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_HISTORICAL_MULTIPART_PUBLICATION_V1',session:identity,
+      checkpointRef,originalPublicationRevision:current.revision,originalPublicationChainHash:current.chainHash,
+      planDigest:plan.planDigest,manifestDigest:plan.manifestDigest,contentDigest:checked.contentDigest,
+      agreementDigest:observed.agreementDigest,
+      head:Object.freeze({...head,wireBytes:new Uint8Array(Buffer.from(exactHead.wireText,'utf8'))}),
+      change:Object.freeze({...change,wireBytes:new Uint8Array(Buffer.from(exactChange.wireText,'utf8'))}),
+      frames:Object.freeze(current.entries.map(e=>Object.freeze({...descriptor(e),state:e.state,key:e.sha256+'.t4n',
+        originalPresentEventId:current.presentEvents[e.sequence-1].eventId,
+        originalPresentRevision:current.presentEvents[e.sequence-1].revision,
+        originalPresentChainHash:current.presentEvents[e.sequence-1].chainHash}))),
+      originalT3PublicationEventChainVerified:true,originalMultipartBackingEventChainVerified:true,
+      originalAllPresentSlotsVerified:true,originalSelectedCiphertextDigestVerified:true,
+      originalHistoricalEvidenceOnly:true,currentRemotePresenceProven:false,liveNetworkAuthorityGranted:false,
+      originalBusinessApplied:false});
   }
   // Explicit original-owner migration/repair of already PRESENT frames.
   // It is not an ordinary publication attempt, cannot promote PREPARED or
@@ -2213,6 +2264,8 @@ export function createT4OriginalNetworkPublicationPort({
     ...(multipartBackingEnabled?{prepareOriginalMultipartBacking,readOriginalMultipartBacking,
       prepareOriginalMultipartPublication,publishOriginalMultipartFrames}:{}),
     ...(verifyOriginalHistoricalNodeSignature!==null?{readOriginalHistoricalPublishedFrame,readOriginalHistoricalPublishedBatch}:{}),
+    ...(source&&enableOriginalMultipartNegotiation&&multipartBackingEnabled&&verifyOriginalHistoricalNodeSignature!==null?
+      {readOriginalHistoricalMultipartPublication}:{}),
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkPublicationPort({
       technicalSchemaId,
       session:identity,localNodeRef,technicalWorkspaceId,originalKernel,
