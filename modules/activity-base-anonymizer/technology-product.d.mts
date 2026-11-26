@@ -20,6 +20,7 @@ export type PersonalEvidenceReview={status:'LOCAL_PERSONAL_ROUTINE_EVIDENCE';sou
  repeatability:'REPEATED_ACCEPTED_TASKS_DECLARED'|'ONE_ACCEPTED_TASK_DECLARED'}>;
  source_sha256:string;anonymity:'NOT_ESTABLISHED';export_allowed:false;iwxa_package:null};
 export function validateTechnologyProduct(data:unknown):TechnologyProduct;
+export function canRetainD05Parameter(field:string,value:unknown):boolean;
 export function prepareD05TechnologyProduct(candidate:unknown,title:string):Promise<ProductPreview>;
 export function groupPersonalRoutineEvidence(records:unknown):Promise<PersonalEvidenceReview>;
 export function preparePersonalTechnologyProduct(records:unknown,variantId:string,proposal:unknown):Promise<ProductPreview>;

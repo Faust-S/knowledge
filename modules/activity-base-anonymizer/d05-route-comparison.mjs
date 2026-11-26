@@ -1,5 +1,6 @@
 // Activity 0.4 / A4.1. Owner-local review of existing CehoVod route models.
 // Not an event miner, normative author, scheduler, authority or Exchange format.
+import {canRetainD05Parameter} from './technology-product.mjs';
 import {ActivityHold} from './engine.mjs';
 import {layoutObservedGraph} from './graph-order.mjs';
 import {D05_SOURCE_PIN} from './d05-t3-evidence-binding.mjs';
@@ -673,7 +674,10 @@ export function prepareD05DisclosureCandidate(review,groupId,modelNumber,form,de
   const mapped=new Map(fields.map(c=>{
     const choice=decisions[c.key],guidance=proposalText(choice?.guidance);
     let row={field:c.field,mode:'NEEDS_DECISION',value:null,guidance:null};
-    if(choice?.mode==='RETAIN_DECLARATION'&&c.value!==null){
+    const unit=fields.find(f=>f.scope===c.scope&&f.field==='unit');
+    const canKeep=canRetainD05Parameter(c.field,c.value)&&
+     (c.field!=='duration'||canRetainD05Parameter('unit',unit?.value)&&decisions[unit.key]?.mode==='RETAIN_DECLARATION');
+    if(choice?.mode==='RETAIN_DECLARATION'&&canKeep){
       row={field:c.field,mode:choice.mode,value:Array.isArray(c.value)?[...c.value]:c.value,guidance:null};
       retained++;
     }else if(choice?.mode==='PARAMETERIZE'&&guidance!==null){

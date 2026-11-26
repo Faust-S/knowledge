@@ -59,6 +59,7 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
  const fields=result?Object.entries(result.fields):[],pageSize=12;
  const family=request?.document.comparison.compatible_declarations;
  const recordedCount=request?.document.comparison.recorded_report_count??0;
+ const recordedScope=request?.document.comparison.recorded_scope;
  return <div className="activity-domain-group">
   <h3>Автоматизированное извлечение технологии</h3>
   <p>Локальная модель обобщает выбранную технологию, не меняя операции, зависимости, допуски и контроль качества.</p>
@@ -78,6 +79,7 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
    <div><strong>{family.technical_condition_count}</strong><span>Совпадающих технических условий</span></div>
    <div><strong>{family.control_count}</strong><span>Совпадающих контрольных точек</span></div></div>:null}
   {recordedCount>0?<p>Включено {recordedCount} связанных отчётов. Их фактические результаты помогают обобщать практику и не меняют нормативные допуски.</p>:null}
+  {recordedScope?<p>Отчёты включены из {recordedScope.model_count} нормативно совместимых исходных вариантов. Исключены повторные заказы: {recordedScope.excluded_duplicate_orders}; несопоставленные проверки: {recordedScope.excluded_unaligned_controls}; связанные отклонения: {recordedScope.excluded_unaligned_defects}.</p>:null}
   {request?<p role="status">Подготовлено {request.field_count} предметных полей. {family?'Повторение заявленных условий не подтверждает фактическое исполнение.':'Включён один исходный вариант.'} Откройте локальное задание в Agent. Используйте только разрешённую локальную модель и отдельную рабочую область; файл содержит частные сведения, не отправляйте его в облако.</p>:null}
   {busy?<p role="status">Проверяется выбранная редакция…</p>:null}
   {problem?<p role="alert" className="activity-v7-note hold">{problem}</p>:null}

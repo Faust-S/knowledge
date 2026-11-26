@@ -45,6 +45,21 @@ function parameterValue(field,v){
  default:return [...ROUTE_FIELDS,...OP_FIELDS].includes(field)&&bounded(v,0,1e9);
  }
 }
+
+ // A source declaration may be structurally readable yet unusable by the
+ // original native D05 route calculator (in particular a zero duration).
+ // Retain the existing product reader for old archives; use this predicate
+ // when selecting a new retained value and when preparing recipient inputs.
+export function canRetainD05Parameter(field,value){
+  return parameterValue(field,value)&&(field!=='duration'||number(value)>0);
+ }
+function requireUsableD05DurationPairs(t){
+  for(const op of t.operations){
+   const duration=op.parameters.find(p=>p.field==='duration'),unit=op.parameters.find(p=>p.field==='unit');
+   need(duration.mode!=='RETAIN_DECLARATION'||canRetainD05Parameter('duration',duration.value)&&unit.mode==='RETAIN_DECLARATION',
+    'TECHNOLOGY_D05_DURATION_REQUIRES_FIXED_UNIT');
+  }
+ }
 function validateParameters(rows,fields){
  need(Array.isArray(rows)&&rows.length===fields.length,'TECHNOLOGY_PARAMETER_COVERAGE');
  const seen=new Set();
@@ -164,7 +179,9 @@ export async function prepareD05TechnologyProduct(candidate,title){
   candidate.parameter_summary?.pending===0&&Array.isArray(candidate.unresolved_source_requirements)&&
   candidate.unresolved_source_requirements.every(v=>v==='UNSPECIFIED_EXECUTION_CONDITIONS'),
   'TECHNOLOGY_D05_SOURCE_INCOMPLETE');
- return preview({title,target:D05_TARGET,technology:candidate.technology});
+ const result=await preview({title,target:D05_TARGET,technology:candidate.technology});
+ requireUsableD05DurationPairs(result.object_data.technology);
+ return result;
 }
 // This is a LOCAL input projection of verified accepted native Task histories.
 // The original Agent owner must resolve each occurrence and verify the Task.
@@ -236,7 +253,7 @@ function bindParameters(rows,provided){
  need(exact(provided,required),'TECHNOLOGY_D05_RECIPIENT_PARAMETER_COVERAGE');
  return Object.fromEntries(rows.map(p=>{
   const value=p.mode==='RETAIN_DECLARATION'?p.value:provided[p.field];
-  need(parameterValue(p.field,value),'TECHNOLOGY_D05_RECIPIENT_PARAMETER_VALUE');
+  need(canRetainD05Parameter(p.field,value),'TECHNOLOGY_D05_RECIPIENT_PARAMETER_VALUE');
   return [p.field,copy(value)];
  }));
 }
@@ -250,7 +267,9 @@ export function prepareD05RecipientInputs(data,binding){
   ['order_name','product','product_version','responsible','requirement_basis','source_documents'].every(k=>text(binding[k]))&&
   (binding.batch===''||text(binding.batch))&&date(binding.start_date)&&date(binding.prep_date)&&
   (binding.due_date===''||date(binding.due_date)&&binding.due_date>=binding.start_date),'TECHNOLOGY_D05_RECIPIENT_BINDING');
- const t=product.technology,route=bindParameters(t.route_parameters,binding.route);
+ const t=product.technology;
+ requireUsableD05DurationPairs(t);
+ const route=bindParameters(t.route_parameters,binding.route);
  need(exact(binding.operations,t.operations.map(o=>o.operation_id))&&exact(binding.quality,t.quality_checks.map(c=>c.check_id)),
   'TECHNOLOGY_D05_RECIPIENT_OPERATION_COVERAGE');
  const operations=t.operations.map(o=>{

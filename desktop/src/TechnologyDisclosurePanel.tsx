@@ -1,4 +1,5 @@
 import {useLayoutEffect,useMemo,useState} from 'react';
+import {canRetainD05Parameter} from '../../modules/activity-base-anonymizer/technology-product.mjs';
 import {selectD05PracticalExperience} from '../../modules/activity-base-anonymizer/d05-practical-lessons.mjs';
 import type {SourceReference} from '../../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 import {suggestD05ParameterDecisions,collectD05FunctionalReferences,type D05ContextMapping} from '../../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
@@ -39,6 +40,7 @@ export function TechnologyDisclosurePanel({review,groupId,profile,operations,for
  },[sourceReferences,candidate,review,groupId,profile.model_number,form,contextMappings]);
  const fields=profile.conditions.filter(c=>c.use==='ADAPTATION_REVIEW');
  const selectedFields=fields.filter(c=>c.scope===scope);
+ const canKeep=(c:typeof fields[number])=>canRetainD05Parameter(c.field,c.value)&&(c.field!=='duration'||canRetainD05Parameter('unit',fields.find(f=>f.scope===c.scope&&f.field==='unit')?.value));
  const scopeName=(id:string)=>id==='route'?'Маршрут':operations.find(o=>o.id===id)?.name??'Операция';
  const change=(value:Record<string,D05ParameterDecision>)=>{setComputed(null);setError('');onChange(value);};
  function setMode(key:string,mode:string){
@@ -73,18 +75,20 @@ export function TechnologyDisclosurePanel({review,groupId,profile,operations,for
       const next={...decisions};selectedFields.forEach(c=>next[c.key]={mode:'PARAMETERIZE',guidance:form.adaptation_guidance!});change(next);
      }}>Применить правило адаптации к маршруту</button>:null}
     <button onClick={()=>{
-      const next={...decisions};selectedFields.filter(c=>c.value!==null).forEach(c=>next[c.key]={mode:'RETAIN_DECLARATION'});change(next);
+      const next={...decisions};selectedFields.filter(canKeep).forEach(c=>next[c.key]={mode:'RETAIN_DECLARATION'});change(next);
      }}>Сохранить известные параметры этой области</button>
    </div>
    <div className="activity-domain-ops">
     {selectedFields.map(c=><div className="activity-domain-op" key={c.key}>
       <strong>{LABEL[c.field]??c.field}</strong>
       <span>Исходное значение: {display(c.value)}</span>
+      {c.field==='duration'?<p>Фиксированная длительность сохраняется только вместе с исходной единицей времени. Нулевая длительность не поддерживается маршрутом CehoVod.</p>:null}
+      {!canKeep(c)&&c.value!==null?<p>Исходное значение или единица времени не подходят для сохранения. Уточните правило адаптации.</p>:null}
       <label className="activity-domain-label">Решение
        <select aria-label={'Решение: '+(LABEL[c.field]??c.field)} value={decisions[c.key]?.mode??''}
         onChange={e=>setMode(c.key,e.target.value)}>
         <option value="">Не выбрано</option>
-        <option value="RETAIN_DECLARATION" disabled={c.value===null}>Сохранить заявленное значение</option>
+        <option value="RETAIN_DECLARATION" disabled={!canKeep(c)}>Сохранить заявленное значение</option>
         <option value="PARAMETERIZE">Заменить правилом адаптации</option>
        </select></label>
       {decisions[c.key]?.mode==='PARAMETERIZE'?<label className="activity-domain-label">Правило адаптации

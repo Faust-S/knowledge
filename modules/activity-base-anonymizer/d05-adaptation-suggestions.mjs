@@ -4,6 +4,7 @@
 import {ActivityHold} from './engine.mjs';
 import {explicitPracticalInstructions} from './practical-rule-wording.mjs';
 import {prepareD05TechnologyProposal} from './d05-route-comparison.mjs';
+import {canRetainD05Parameter} from './technology-product.mjs';
 const need=(ok,code)=>{if(!ok)throw new ActivityHold(code);};
 const routeGuidance={
  quantity:'Определить объём по собственному заказу и утверждённой партии.',
@@ -27,19 +28,19 @@ export function suggestD05ParameterDecisions(review,groupId,modelNumber){
  const decisions={},explanations=[];
  for(const c of fields){
   const localRoute=c.scope==='route';
-  const reason=c.value===null||unknown.has(c.key)?'SOURCE_INCOMPLETE':
+  const reason=c.value===null||unknown.has(c.key)?'SOURCE_INCOMPLETE':!canRetainD05Parameter(c.field,c.value)?'SOURCE_INVALID':
    different.has(c.key)?'VARIANT_DIFFERS':common.has(c.key)?'COMMON_DECLARATION':'SELECTED_DECLARATION';
   const guidance=(localRoute?routeGuidance:opGuidance)[c.field];
   need(typeof guidance==='string','TECHNOLOGY_D05_ADAPTATION_FIELD');
   // Calendar/order always local. Retain the chosen operation's known values
   // by default, even if another route variant differs. The specialist can
   // explicitly parameterize them; no silent averaging or widening.
-  const knownUnit=c.field==='unit'&&['hours','work-days','calendar-days'].includes(c.value);
-  const knownNumber=c.field!=='unit'&&typeof c.value==='string'&&/^[0-9]{1,9}(?:[.,][0-9]{1,6})?$/.test(c.value);
-  const retain=!localRoute&&(knownUnit||knownNumber);
+  const unit=fields.find(f=>f.scope===c.scope&&f.field==='unit');
+  const retain=!localRoute&&canRetainD05Parameter(c.field,c.value)&&
+   (c.field!=='duration'||canRetainD05Parameter('unit',unit?.value));
   decisions[c.key]=retain?{mode:'RETAIN_DECLARATION'}:{mode:'PARAMETERIZE',guidance};
   explanations.push({key:c.key,scope:c.scope,field:c.field,reason,proposed_mode:decisions[c.key].mode,
-    needs_domain_attention:!retain&&!localRoute||reason==='VARIANT_DIFFERS'||reason==='SOURCE_INCOMPLETE'});
+    needs_domain_attention:!retain&&!localRoute||reason==='VARIANT_DIFFERS'||reason==='SOURCE_INCOMPLETE'||reason==='SOURCE_INVALID'});
  }
  return {status:'LOCAL_D05_ADAPTATION_SUGGESTIONS',group_id:groupId,model_number:modelNumber,decisions,explanations,
   source_semantics:'DECLARATIONS_NOT_EXECUTION',review_required:true,export_allowed:false,iwxa_package:null};

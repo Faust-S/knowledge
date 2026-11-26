@@ -6,6 +6,7 @@ import {prepareD05TechnologyProposal,prepareD05DisclosureCandidate} from './d05-
 import {suggestD05ParameterDecisions} from './d05-adaptation-suggestions.mjs';
 import {prepareD05TechnologyProduct} from './technology-product.mjs';
 import {reviewD05RecurringTechnologies} from './d05-recurring-technology.mjs';
+import {selectD05PracticalExperience} from './d05-practical-lessons.mjs';
 export const REQUEST='IWXA_ACTIVITY_D05_EXTRACTION_REQUEST_V1';
 export const PROPOSAL='IWXA_ACTIVITY_D05_EXTRACTION_PROPOSAL_V1';
 const TERMS=['purpose','inputs','outputs','applicability','adaptation_guidance','local_context_guidance'];
@@ -44,12 +45,11 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
  // Explicit pilot limit. Larger routes need separately qualified extraction
  // by slices, not silent truncation or partial control removal.
  need(group.operations.length<=32&&profile.checks.length<=64,'TECHNOLOGY_D05_EXTRACTION_SELECTION_LIMIT');
- let compatible=null,experienceNumbers=[modelNumber];
+ let compatible=null;
  if(includeCompatibleDeclarations){
   const recurring=await reviewD05RecurringTechnologies(review,groupId);
   const family=recurring.families.find(f=>f.model_numbers.includes(modelNumber));
   if(family?.member_count>1){
-   experienceNumbers=family.model_numbers;
    // The family contains exact original declaration bundles. Only summary
    // statistics for recipient planning are projected into the model input.
    compatible={source_sha256:family.source_sha256,member_count:family.member_count,
@@ -59,13 +59,47 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
     meaning:'REPEATED_DECLARATIONS_NOT_EXECUTION_OR_TECHNICAL_RANGE'};
   }
  }
- const recorded=includeRecordedReports&&review.recorded_execution_review?.status==='LOCAL_D05_RECORDED_EXECUTION_REVIEW'?
-  review.recorded_execution_review.profiles.filter(p=>experienceNumbers.includes(p.model_number)&&p.reports.length).map(({source_references,...p})=>p):[];
- const recordedCount=recorded.reduce((n,p)=>n+p.reports.length,0);
+
+ // Use the same original normative match and distinct-order selection as
+ // the local practical lesson editor. A repeated technical declaration alone
+ // is not enough to transfer another order's corrective experience.
+ const selectedReports=includeRecordedReports&&review.recorded_execution_review?.status==='LOCAL_D05_RECORDED_EXECUTION_REVIEW'?
+  await selectD05PracticalExperience(review,groupId,modelNumber,{includeCompatibleDeclarations}):null;
+ let excludedControls=0,excludedDefects=0;
+ const recorded=(selectedReports?.reports??[]).map(({model_number,report})=>{
+  const quality=[],controlScopes=new Map();
+  for(const [index,row] of report.quality.entries()){
+   if(row.kind==='CONTROL_REPORT'){
+    const check=profile.checks[(row.canonical_control_number??0)-1];
+    if(!check||check.operation_id!==(row.operation_id??null)){excludedControls++;continue;}
+    const {control_number,canonical_control_number,...rest}=row;
+    const quality_report_number=index+1;
+    controlScopes.set(quality_report_number,check.id);
+    quality.push({...rest,control_number:row.canonical_control_number,quality_report_number,check_id:check.id});
+   }else quality.push({...row,quality_report_number:index+1});
+  }
+  const defects=[];
+  for(const row of report.defects){
+   const check_id=controlScopes.get(row.quality_report_number);
+   if(!check_id){excludedDefects++;continue;}
+   defects.push({...row,check_id});
+  }
+  // IDs of orders, native objects and revisions stay local, even though the
+  // source digest below is bound to the original selected report identities.
+  return {model_number,operations:report.operations,actuals:report.actuals,quality,defects};
+ });
+ const recordedCount=recorded.length;
+ const recordedScope=recordedCount||selectedReports?.duplicate_order_count?{
+  report_count:recordedCount,model_count:new Set(recorded.map(p=>p.model_number)).size,
+  excluded_duplicate_orders:selectedReports?.duplicate_order_count??0,
+  excluded_unaligned_controls:excludedControls,excluded_unaligned_defects:excludedDefects,
+  meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED'
+ }:null;
  const source={group:{basis:group.basis,operations:group.operations,model_count:group.model_count},
   profile,shared_condition_keys:draft.shared_condition_keys,differing_condition_keys:draft.differing_condition_keys,
   unresolved_condition_keys:draft.unresolved_condition_keys,shared_check_count:draft.shared_check_count,
-  ...(compatible?{compatible_declarations:compatible}:{}),...(recordedCount?{recorded_reports:recorded}:{})};
+  ...(compatible?{compatible_declarations:compatible}:{}),...(recordedScope?{recorded_scope:recordedScope,recorded_reports:recorded,
+   original_report_references:selectedReports.reports.map(s=>s.report.source_refs??[])}:{})};
  const source_sha256=await sha256Canonical(source);
  const evidence=[],fields=[];
  const add=(scope,field,value,kind='DECLARED')=>{
@@ -77,16 +111,17 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
  const field=(scope,k)=>fields.push({id:fieldId(scope,k),scope,field:k,instruction:HINTS[k]});
  for(const k of ['title',...TERMS])field('technology',k);
  if(compatible)add('technology','compatible_declarations',compatible);
- if(recordedCount){
-  add('technology','recorded_report_scope',{report_count:recordedCount,meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED',
-   interpretation:'Reported practical experience; actual durations and measurements are not normative limits, independent observation, final acceptance, or independent repetitions.'});
+
+ if(recordedScope){
+  add('technology','recorded_report_scope',{...recordedScope,
+   interpretation:'Reported practical experience; actual durations and measurements are not normative limits, independent observation or final acceptance. Unaligned control reports and duplicate orders are excluded.'},'REPORTED');
   let reportNumber=0;
-  for(const p of recorded)for(const report of p.reports){
+  for(const report of recorded){
    reportNumber++;
-   for(const op of report.operations)add(op.operation_id,'recorded_operation_report',{report_number:reportNumber,...op});
-   for(const row of report.actuals)add('technology','recorded_actuals_report',{report_number:reportNumber,...row});
-   for(const row of report.quality)add('technology','recorded_quality_report',{report_number:reportNumber,...row});
-   for(const row of report.defects)add('technology','recorded_defect_report',{report_number:reportNumber,...row});
+   for(const op of report.operations)add(op.operation_id,'recorded_operation_report',{report_number:reportNumber,...op},'REPORTED');
+   for(const row of report.actuals)add('technology','recorded_actuals_report',{report_number:reportNumber,...row},'REPORTED');
+   for(const row of report.quality)add(row.check_id??'technology','recorded_quality_report',{report_number:reportNumber,...row},'REPORTED');
+   for(const row of report.defects)add(row.check_id,'recorded_defect_report',{report_number:reportNumber,...row},'REPORTED');
   }
  }
  for(const c of profile.conditions)add(c.scope,c.field,c.value);
@@ -105,7 +140,7 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
  const document={profile:REQUEST,source_sha256,source_semantics:'DECLARED_CONDITIONS_NOT_EXECUTION',
   comparison:{model_count:group.model_count,shared_condition_keys:draft.shared_condition_keys,
    differing_condition_keys:draft.differing_condition_keys,unresolved_condition_keys:draft.unresolved_condition_keys,
-   ...(compatible?{compatible_declarations:compatible}:{}),...(recordedCount?{recorded_report_count:recordedCount}:{})},
+   ...(compatible?{compatible_declarations:compatible}:{}),...(recordedScope?{recorded_report_count:recordedCount,recorded_scope:recordedScope}:{})},
   fields,evidence,quality_links:profile.checks.map(c=>({scope:c.id,operation:c.operation_id}))};
  const document_text=serial(document);
  need(new TextEncoder().encode(document_text).byteLength<=42000,'TECHNOLOGY_D05_EXTRACTION_MODEL_INPUT_LIMIT');
@@ -116,6 +151,7 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
   'Every field is {value:string or null,basis:"SOURCE_SUPPORTED" or "PROPOSED" or "MISSING",refs:[{ref:"evidence_0001",quote:"exact substring"}],note:string}. '+
   'Use SOURCE_SUPPORTED only when the cited source supports the content, PROPOSED for explicit functional suggestions with an explanation, MISSING with null and reason when necessary. '+
   'For an operation or quality role cite that scope, or its linked check or operation. Preserve all original technical controls; the existing domain engine supplies numeric conditions and dependencies. '+
+  'REPORTED evidence describes recorded practice, not a new normative requirement. Compare reported conditions only within their linked check or operation and report number. '+
   'Never claim physical execution, approval, anonymity or permission to export. No other fields or external actions.';
  return {document,document_text,request_sha256,source_sha256,objective,field_count:fields.length,
   export_allowed:false,iwxa_package:null};

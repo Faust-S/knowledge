@@ -12,7 +12,7 @@ export function TechnologyProductPanel({candidate,suggestedTitle='',sourceRefere
   const token=++generation.current;setBusy(true);setError('');setPreview(null);
   try{const value=await prepareD05TechnologyProduct(candidate,title);if(token===generation.current)setPreview(value);}
   catch(e){if(token===generation.current){const code=e&&typeof e==='object'&&'code' in e?String(e.code):'';
-   setError(code==='TECHNOLOGY_D05_SOURCE_INCOMPLETE'?'Уточните обязательные параметры, предметные требования и связанную карту качества.':
+   setError(code==='TECHNOLOGY_D05_DURATION_REQUIRES_FIXED_UNIT'?'Уточните положительную длительность операции и её единицу времени.':code==='TECHNOLOGY_D05_SOURCE_INCOMPLETE'?'Уточните обязательные параметры, предметные требования и связанную карту качества.':
     'Состав технологии неполон или содержит недопустимые условия. Проверьте параметры и критерии приёмки.');}}
   finally{if(token===generation.current)setBusy(false);}
  }

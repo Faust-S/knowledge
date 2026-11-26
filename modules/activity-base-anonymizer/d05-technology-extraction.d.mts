@@ -6,7 +6,7 @@ export type ExtractionField={value:string|null;basis:'SOURCE_SUPPORTED'|'PROPOSE
 export type D05ExtractionRequest={document:{profile:typeof REQUEST;source_sha256:string;
  fields:Array<{id:string;scope:string;field:string;instruction:string}>;
  evidence:Array<{ref:string;scope:string;field:string;text:string;kind:string}>;
- comparison:{recorded_report_count?:number;compatible_declarations?:{source_sha256:string;member_count:number;technical_condition_count:number;control_count:number;unknown_technical_conditions:string[];meaning:string}}};
+ comparison:{recorded_report_count?:number;recorded_scope?:{report_count:number;model_count:number;excluded_duplicate_orders:number;excluded_unaligned_controls:number;excluded_unaligned_defects:number;meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED'};compatible_declarations?:{source_sha256:string;member_count:number;technical_condition_count:number;control_count:number;unknown_technical_conditions:string[];meaning:string}}};
  document_text:string;request_sha256:string;source_sha256:string;objective:string;field_count:number;
  export_allowed:false;iwxa_package:null};
 export type D05ExtractionReview={status:'LOCAL_D05_EXTRACTION_REVIEW';request_sha256:string;source_sha256:string;
