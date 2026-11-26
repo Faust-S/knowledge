@@ -31,6 +31,20 @@ export function isOriginalKernelRegistryStatePortForKernel(value,kernel,{workspa
   return !!binding&&typeof workspaceId==="string"&&ID.test(workspaceId)&&binding.kernel===kernel&&
     (binding.currentWorkspaceId?.()??binding.workspaceId)===workspaceId&&binding.objectId===objectId;
 }
+// Resolve a cold corporate wrapper only at its independently pinned
+// physical address. A foreign Kernel, unexpected object or legacy business
+// location never becomes an eligible network Registry. This is read-only;
+// the pre-existing original corporate locate() still owns all placement.
+export async function resolveOriginalKernelRegistryStatePortForKernel(value,kernel,scope={}){
+  if(isOriginalKernelRegistryStatePortForKernel(value,kernel,scope))return true;
+  const binding=originalPorts.get(value);
+  if(!binding||binding.kernel!==kernel||
+    binding.objectId!==(scope.objectId??'t3.access.signed-registry')||
+    !ID.test(scope.workspaceId??'')||binding.expectedStorageWorkspaceId!==scope.workspaceId||
+    typeof binding.locatePlacement!=='function')return false;
+  await binding.locatePlacement();
+  return isOriginalKernelRegistryStatePortForKernel(value,kernel,scope);
+}
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
 const no=code=>{const e=new Error(code);e.name="T3OriginalKernelRegistryError";
@@ -455,7 +469,8 @@ function corporateRegistryPort({kernel,workspaceId,objectId,trustedPolicy,clock,
     getStatus:async()=> (await bound()).getStatus(),
   });
   // Provenance is confirmed physical placement, never the expected address.
-  originalPorts.set(api,Object.freeze({kernel,objectId,currentWorkspaceId:()=>selected?.workspaceId}));
+  originalPorts.set(api,Object.freeze({kernel,objectId,currentWorkspaceId:()=>selected?.workspaceId,
+    expectedStorageWorkspaceId:storageId,locatePlacement:locate}));
   return api;
 }
 

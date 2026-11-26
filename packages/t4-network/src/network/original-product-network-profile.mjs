@@ -1,6 +1,6 @@
 // Installed product composition only. The original RC.1 profile, Access
 // evaluator, signed Registry and native Control factories remain the owners.
-import {isOriginalKernelRegistryStatePortForKernel} from '../../../t3-core/src/t3/access/original-kernel-registry-state.mjs';
+import {resolveOriginalKernelRegistryStatePortForKernel} from '../../../t3-core/src/t3/access/original-kernel-registry-state.mjs';
 import {isOriginalPersonalAccessCheckForRegistry} from '../../../t3-core/src/t3/access/original-personal-evaluator.mjs';
 import {isOriginalOrganizationalOperationGateForRegistry} from '../../../t3-core/src/t3/access/organizational-operation.mjs';
 import {isOriginalSignedAccessHostPortForEvaluator} from '../../../t3-core/src/t3/signed-access-host-port.mjs';
@@ -65,9 +65,10 @@ export function createT4OriginalProductProfileFactory({scope,registryObjectId='t
       if(!obj(input)||!obj(input.profile)||!obj(input.networkAccess)||typeof input.resolveOriginalKernelAccess!=='function')
         fail('T4_INSTALLED_PRODUCT_ORIGINAL_OWNER_REQUIRED');
       const {registry,networkAccess,profile:options}=input;
-      if(!isOriginalKernelRegistryStatePortForKernel(registry,lifetime.registryKernel,{
-        workspaceId:selected.registryWorkspaceId,objectId:registryObjectId}))
-        fail('T4_INSTALLED_PRODUCT_ORIGINAL_REGISTRY_MISMATCH');
+      const registryBound=await resolveOriginalKernelRegistryStatePortForKernel(registry,lifetime.registryKernel,{
+        workspaceId:selected.registryWorkspaceId,objectId:registryObjectId});
+      requireActive();
+      if(!registryBound)fail('T4_INSTALLED_PRODUCT_ORIGINAL_REGISTRY_MISMATCH');
       if(options.role!==selected.role||options.sourceWorkspaceId!==selected.sourceWorkspaceId||
         options.technicalWorkspaceId!==selected.technicalWorkspaceId||Object.hasOwn(options,'originalAccess')||
         !obj(options.originalPorts)||Object.hasOwn(options.originalPorts,'resolveOriginalAccess')||typeof options.getMode!=='function')

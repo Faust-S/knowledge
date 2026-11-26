@@ -1,18 +1,5 @@
 name: T3 Publisher corporate license original Access qualification
 on:
-  push:
-    branches:
-      - work/2026-11-22-t3-corporate-license-publisher
-    paths:
-      - packages/t3-core/src/t3/access/corporate-product-license.mjs
-      - packages/t3-core/tests/t3-corporate-product-license.test.mjs
-      - packages/t3-core/src/t3/access/corporate-product-issuance.mjs
-      - packages/t3-core/tests/t3-corporate-product-issuance.test.mjs
-      - packages/t3-core/tests/t3-corporate-product-owner-status.test.mjs
-      - packages/t3-core/src/t3/publisher-license-handoff.mjs
-      - packages/t3-core/tests/t3-d7-publisher-handoff.test.mjs
-      - packages/t3-core/tests/t3-corporate-original-d7-interop.test.mjs
-      - .github/workflows/t3-publisher-corporate-license.yml
   workflow_dispatch:
 permissions:
   contents: read

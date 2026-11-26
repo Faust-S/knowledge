@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {digest,signRecord} from "../src/t3/access/core.mjs";
+import {generateKeyPairSync,sign} from "node:crypto";
+import {digest,signRecord,makeProof,iso,keyObjectSigner} from "../src/t3/access/core.mjs";
+import {ORIGINAL_NETWORK_KEY_TRANSITION,ORIGINAL_NETWORK_KEY_MANAGE,originalNetworkKeyPossessionBytes,
+  originalNetworkKeyOperationDigest,originalNetworkKeyStatusId} from "../src/t3/access/original-network-key-lifecycle.mjs";
 import {NOW,model,originalKernelFixture as corporateKernelFixture} from "./support/t3-two-corp-original-authority.mjs";
 import {createOriginalKernelRegistryStatePort,ORIGINAL_REGISTRY_EVENT,
   ORIGINAL_REGISTRY_SCHEMA,originalEmployeeRegistryWorkspaceId,prepareOriginalEmployeeRegistryRefresh,
-  isOriginalKernelRegistryStatePortForKernel}
+  isOriginalKernelRegistryStatePortForKernel,resolveOriginalKernelRegistryStatePortForKernel,
+  ORIGINAL_PROOF_KEY_ADMISSION,ORIGINAL_CORPORATE_SEAT_POLICY}
   from "../src/t3/access/original-kernel-registry-state.mjs";
 import {createTemporaryOriginalPersonalAuthority}
   from "./support/t3-original-personal-authority.mjs";
@@ -100,7 +104,7 @@ test("signed AccessRegistry persists in the ONE original Kernel Store; cold port
     {code:"T3_ACCESS_REGISTRY_ORIGINAL_SEQUENCE_ROLLBACK"});
 });
 
-function productionRegistryFixture({legacy=false,loseCreateAck=false,denyRead=false,emptyPartition=false}={}){
+function productionRegistryFixture({legacy=false,loseCreateAck=false,denyRead=false,emptyPartition=false,networkAdmin=false}={}){
   // Genuine signed state, with disposable keys from the original authority fixture.
   const fixture=model();
   const policy=structuredClone(fixture.policy);
@@ -114,6 +118,22 @@ function productionRegistryFixture({legacy=false,loseCreateAck=false,denyRead=fa
       id,signRecord({...s.payload,environment:"PRODUCTION"},fixture.signers[s.keyId])
     ]))};
   const scope={organizationId:"org:north",authorityId:"issuer:north",workspaceId:"ws:north"};
+  let manager=null;
+  if(networkAdmin){
+    const a=policy.authorities[scope.authorityId],member=state.grants["grant:north"].payload;
+    const actions=["grant.issue","grant.revoke",ORIGINAL_NETWORK_KEY_MANAGE];
+    a.actions.push(...actions);a.resources.push("authority:"+scope.authorityId);
+    a.roles.push("role:manager");a.rightClasses.push("ADMINISTRATION");a.purposes.push("access-administration");
+    Object.assign(policy.actionCatalog,Object.fromEntries(actions.map(action=>[action,"ADMINISTRATION"])));
+    manager={...member,id:"grant:north:manager",lineageId:"grant:north:manager",
+      roleId:"role:manager",rightClass:"ADMINISTRATION",resources:["authority:"+scope.authorityId,scope.workspaceId],
+      actions,purposes:["access-administration"]};
+    const issuer=fixture.all.north.issuerSigner;
+    state.grants[manager.id]=signRecord(manager,issuer);
+    const prior=state.statuses[scope.authorityId].payload;
+    state.statuses[scope.authorityId]=signRecord({...prior,entries:[...prior.entries,
+      {grantId:manager.id,state:"ACTIVE",effectiveAt:iso(NOW-2500),evidenceRef:"evidence:manager"}]},issuer);
+  }
   const storageId=originalEmployeeRegistryWorkspaceId(scope);
   const original=corporateKernelFixture();
   const workspaces=new Map([[scope.workspaceId,{workspace_id:scope.workspaceId,profile:"generic"}]]);
@@ -138,7 +158,7 @@ function productionRegistryFixture({legacy=false,loseCreateAck=false,denyRead=fa
   const opts={kernel,workspaceId:scope.workspaceId,trustedPolicy:policy,clock:()=>NOW};
   const port=()=>createOriginalKernelRegistryStatePort({...opts,corporateScope:{
     organizationId:scope.organizationId,authorityId:scope.authorityId}});
-  return {kernel,scope,storageId,creates,original,port,opts,state,
+  return {kernel,scope,storageId,creates,original,port,opts,state,manager,fixture,
     prepareLegacy:async()=>{if(legacy)await createOriginalKernelRegistryStatePort(opts).commitSignedState(state);}};
 }
 test("fresh corporate registry occupies an original separate Workspace; grants retain exact business scope",async()=>{
@@ -236,4 +256,113 @@ test("converged original corporate Registry proves the selected physical workspa
   assert.equal(isOriginalKernelRegistryStatePortForKernel(legacyPort,legacy.kernel,{workspaceId:legacy.storageId}),false);
   assert.equal(isOriginalKernelRegistryStatePortForKernel(legacyPort,legacy.kernel,{workspaceId:legacy.scope.workspaceId}),true);
   assert.equal(legacy.creates.length,0);
+});
+
+test("cold corporate network admission resolves only its exact existing physical Registry",async()=>{
+  const s=productionRegistryFixture(),scope={workspaceId:s.storageId};
+  const absent=s.port();
+  assert.equal(await resolveOriginalKernelRegistryStatePortForKernel(absent,s.kernel,scope),false);
+  assert.equal(s.creates.length,0);
+  await absent.initializeStorage({confirmed:true});await absent.commitSignedState(s.state);
+  const cold=s.port();
+  assert.equal(isOriginalKernelRegistryStatePortForKernel(cold,s.kernel,scope),false);
+  assert.equal(await resolveOriginalKernelRegistryStatePortForKernel(cold,{...s.kernel},scope),false);
+  assert.equal(await resolveOriginalKernelRegistryStatePortForKernel(cold,s.kernel,{workspaceId:s.scope.workspaceId}),false);
+  assert.equal(await resolveOriginalKernelRegistryStatePortForKernel(cold,s.kernel,scope),true);
+  assert.equal(isOriginalKernelRegistryStatePortForKernel(cold,s.kernel,scope),true);
+  assert.equal(s.creates.length,1);assert.equal(s.original.calls.length,1);
+  const legacy=productionRegistryFixture({legacy:true});await legacy.prepareLegacy();
+  assert.equal(await resolveOriginalKernelRegistryStatePortForKernel(legacy.port(),legacy.kernel,{workspaceId:legacy.storageId}),false);
+  assert.equal(legacy.creates.length,0);
+  const denied=productionRegistryFixture({denyRead:true});
+  assert.equal(await resolveOriginalKernelRegistryStatePortForKernel(denied.port(),{...denied.kernel},{workspaceId:denied.storageId}),false);
+  await assert.rejects(resolveOriginalKernelRegistryStatePortForKernel(denied.port(),denied.kernel,{workspaceId:denied.storageId}),{code:"DENIED"});
+});
+
+test("one original corporate Registry replays employee proof, seat policy and network key lifecycle in one signed history",async()=>{
+  const s=productionRegistryFixture({networkAdmin:true}),p=s.port(),{authorityId,organizationId,workspaceId}=s.scope;
+  const issuerSigner=s.fixture.all.north.issuerSigner,managerSigner=s.fixture.all.north.credentialSigner,g=s.manager;
+  const initial=structuredClone(s.state),rootDigest=digest(initial.policy);
+  await p.initializeStorage({confirmed:true});await p.commitSignedState(initial);
+  let serial=0;
+  const managerFor=(operationDigest,resource,action)=>{
+    const id=++serial,managerRequest={id:"request:merge:"+id,actorId:g.holderId,principalId:organizationId,
+      roleId:g.roleId,grantId:g.id,realmId:g.realmId,audience:g.audience,resource,action,
+      purpose:"access-administration",operationDigest};
+    const managerChallenge="challenge:merge:manager:"+id;
+    return {managerRequest,managerChallenge,managerProof:makeProof(managerRequest,managerChallenge,NOW,managerSigner,"PRODUCTION")};
+  };
+  const keyFor=(subjectId,use)=>{
+    const {privateKey,publicKey}=generateKeyPairSync("ed25519");
+    return {privateKey,keyRecord:{subjectId,environment:"PRODUCTION",status:"ACTIVE",uses:[use],
+      publicKey:publicKey.export({type:"spki",format:"pem"}).toString(),notBefore:iso(NOW-1000),expiresAt:iso(NOW+300000)}};
+  };
+  const employee=keyFor("person:merge:employee","PROOF"),credentialKeyId="key:merge:employee";
+  const admissionDigest=digest({schema:ORIGINAL_PROOF_KEY_ADMISSION,authorityId,organizationId,
+    employeeWorkspaceId:workspaceId,credentialKeyId,keyRecord:employee.keyRecord});
+  const employeeRequest={id:"request:merge:employee",actorId:employee.keyRecord.subjectId,principalId:organizationId,
+    roleId:"role:member",grantId:"grant:pending",realmId:g.realmId,audience:g.audience,resource:workspaceId,
+    action:"work.prepare",purpose:"work",operationDigest:admissionDigest};
+  const employeeChallenge="challenge:merge:employee";
+  await p.admitProofCredential({authorityId,organizationId,employeeWorkspaceId:workspaceId,credentialKeyId,
+    keyRecord:employee.keyRecord,issuerSigner,...managerFor(admissionDigest,"authority:"+authorityId,"grant.issue"),
+    employeeRequest,employeeChallenge,employeeProof:makeProof(employeeRequest,employeeChallenge,NOW,
+      keyObjectSigner(credentialKeyId,employee.privateKey),"PRODUCTION")});
+  const beforeSeat=await p.readState();
+  assert.equal(beforeSeat.statusFloor[authorityId],2);
+  const seatDigest=digest({schema:ORIGINAL_CORPORATE_SEAT_POLICY,authorityId,organizationId,oldPolicyDigest:digest(beforeSeat.policy)});
+  const seat=await p.enableCorporateSeatPolicy({authorityId,organizationId,issuerSigner,expectedStateDigest:digest(beforeSeat),
+    ...managerFor(seatDigest,"authority:"+authorityId,"grant.issue")});
+  assert.equal(seat.registryRevision,3);
+  const key=keyFor(employee.keyRecord.subjectId,"NETWORK_FRAME");
+  const binding={bindingRef:"binding:merge:one",subjectId:key.keyRecord.subjectId,permissionRef:"permission:merge:one",
+    keyId:"key:merge:network",nodeRef:"node:merge:a",recipientNodeRef:"node:merge:b",workspaceId,
+    originalWriteOwnerRef:"owner:merge",scopeRef:"scope:merge",ownerEpoch:1,generation:1,keyUse:"NETWORK_FRAME"};
+  const commandFor=async(kind,b,previous=null,patch={})=>{
+    const state=await p.readState();
+    const claims={schema:ORIGINAL_NETWORK_KEY_TRANSITION,kind,transitionRef:"transition:merge:"+kind,
+      authorityId,principalId:organizationId,previousPolicyDigest:digest(state.policy),registryWorkspaceId:s.storageId,
+      registryObjectId:"t3.access.signed-registry",rootPolicyDigest:rootDigest,
+      expectedStatusSequence:state.statusFloor[authorityId],previousBindingDigest:previous?digest(previous):null,
+      issuedAt:iso(NOW),binding:b,keyRecord:kind==="REVOKE"?null:key.keyRecord,...patch};
+    const transition={claims,possessionSignature:kind==="REVOKE"?null:sign(null,originalNetworkKeyPossessionBytes(claims),key.privateKey).toString("base64url"),
+      agreementPossession:null};
+    const signedStatus=signRecord({...state.statuses[authorityId].payload,id:originalNetworkKeyStatusId(transition),
+      sequence:claims.expectedStatusSequence+1,issuedAt:claims.issuedAt},issuerSigner);
+    return {transition,signedStatus,...managerFor(originalNetworkKeyOperationDigest(transition),workspaceId,ORIGINAL_NETWORK_KEY_MANAGE)};
+  };
+  await assert.rejects(p.applyNetworkKeyTransition(await commandFor("ENROLL",binding,null,{registryWorkspaceId:workspaceId})),
+    {code:"NETWORK_KEY_REGISTRY_SCOPE_MISMATCH"});
+  assert.equal(s.original.calls.length,3);
+  const enrolled=await p.applyNetworkKeyTransition(await commandFor("ENROLL",binding));
+  assert.equal(enrolled.kernelRevision,4);assert.equal(enrolled.keyCurrentlyActive,true);
+  const query=Object.fromEntries(["keyId","nodeRef","recipientNodeRef","workspaceId","originalWriteOwnerRef","scopeRef","ownerEpoch","keyUse"].map(k=>[k,binding[k]]));
+  const cold=s.port();
+  assert.equal(await resolveOriginalKernelRegistryStatePortForKernel(cold,s.kernel,{workspaceId:s.storageId}),true);
+  const evidence=await cold.readNetworkKeyEvidence(query);assert.equal(evidence.binding.keyId,binding.keyId);
+  const beforeRevoke=await cold.readState();
+  assert.ok(beforeRevoke.policy.keys[credentialKeyId]);
+  assert.ok(beforeRevoke.policy.authorities[authorityId].rightClasses.includes("ENTITLEMENT"));
+  assert.equal(beforeRevoke.statusFloor[authorityId],4);
+  const revoked=await p.applyNetworkKeyTransition(await commandFor("REVOKE",{...binding,generation:2},evidence.binding));
+  assert.equal(revoked.kernelRevision,5);assert.equal(revoked.keyCurrentlyActive,false);
+  const recovered=s.port();assert.equal(await recovered.readNetworkKeyEvidence(query),null);
+  const historic=await recovered.readNetworkKeyHistoryEvidence(query);
+  assert.equal(historic.admission.revision,4);assert.equal(historic.retirement.revision,5);
+  assert.equal(historic.liveNetworkAuthorityGranted,false);
+  const delivery=await recovered.readRegistryDelivery();
+  const refreshed=prepareOriginalEmployeeRegistryRefresh({...s.scope,previousState:initial,delivery,now:NOW});
+  assert.equal(refreshed.outcome,"VERIFIED_REFRESH");assert.equal(refreshed.originalRevision,5);
+  assert.equal(refreshed.state.statusFloor[authorityId],5);
+  assert.equal(refreshed.state.policy.keys[binding.keyId].status,"REVOKED");
+  assert.deepEqual(Object.keys(refreshed.state.grants).sort(),Object.keys(initial.grants).sort());
+  assert.equal(s.creates.length,1);assert.equal(s.original.calls.length,5);
+  assert.ok(s.original.calls.every(row=>row.workspace_id===s.storageId));
+  // One Event must never assert two independent policy transitions.
+  const corrupt=structuredClone(delivery);
+  const seatEvent=corrupt.events.find(e=>e.payload.corporate_seat_policy_admission);
+  const proofEvent=corrupt.events.find(e=>e.payload.proof_credential_admission);
+  seatEvent.payload.proof_credential_admission=proofEvent.payload.proof_credential_admission;
+  assert.throws(()=>prepareOriginalEmployeeRegistryRefresh({...s.scope,previousState:initial,delivery:corrupt,now:NOW}),
+    {code:"T3_ACCESS_REGISTRY_POLICY_ADMISSION_CONFLICT"});
 });
