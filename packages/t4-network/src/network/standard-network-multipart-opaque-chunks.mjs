@@ -6,6 +6,10 @@ import {T4_NATIVE_CHUNK_BYTES as CHUNK,T4_NATIVE_MAX_CHUNKS as PER_PART,
 // limits stay unchanged. A multipart transfer is ONE sealed byte string,
 // ONE source Event and ONE eventual original subject mutation.
 export const T4_MULTIPART_OPAQUE_EXTENSION='iwxa.opaque-content-multipart.v1';
+// The native compact route already reserves HEADS and DIFF_REQUEST at
+// sequence 1 in each direction. Negotiate the content profile in those
+// exact signed slots, without renumbering any existing content or ACK.
+export const T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION='iwxa.native-multipart-agreement.v1';
 export const T4_MULTIPART_MAX_PARTS=16;
 export const T4_MULTIPART_MAX_CIPHERTEXT_BYTES=PART*T4_MULTIPART_MAX_PARTS;
 export const T4_MULTIPART_MAX_CHUNKS=PER_PART*T4_MULTIPART_MAX_PARTS;
@@ -20,6 +24,30 @@ const sorted=x=>Array.isArray(x)?x.map(sorted):x&&typeof x==='object'?
   Object.fromEntries(Object.keys(x).sort().map(k=>[k,sorted(x[k])])):x;
 const manifestDigest=body=>hash('IWXA-T4-OPAQUE-MULTIPART-MANIFEST-V1\0'+JSON.stringify(sorted(body)));
 const fields=['schema','changeId','contentDigest','encryptionContextRef','totalCiphertextBytes','partCount','parts','manifestDigest'];
+const offerCore=()=>({profile:T4_MULTIPART_OPAQUE_EXTENSION,maxCiphertextBytes:T4_MULTIPART_MAX_CIPHERTEXT_BYTES,
+  partBytes:PART,chunkBytes:CHUNK,maxParts:T4_MULTIPART_MAX_PARTS});
+const offerDigest=x=>hash('IWXA-T4-NATIVE-MULTIPART-OFFER-V1\0'+JSON.stringify(sorted(x)));
+export function createT4NativeMultipartOffer(){
+  const core=offerCore();return Object.freeze({...core,offerDigest:offerDigest(core)});
+}
+export function validateT4NativeMultipartOffer(value){
+  const expected=createT4NativeMultipartOffer();
+  if(!keys(value,Object.keys(expected))||Object.keys(expected).some(k=>value[k]!==expected[k]))
+    fail('MULTIPART_NATIVE_OFFER_INVALID');
+  return expected;
+}
+export function createT4NativeMultipartSelection({offer,headSha256}={}){
+  const selected=validateT4NativeMultipartOffer(offer);
+  if(typeof headSha256!=='string'||!/^[a-f0-9]{64}$/.test(headSha256))
+    fail('MULTIPART_NATIVE_SELECTION_INVALID');
+  return Object.freeze({profile:selected.profile,headSha256,offerDigest:selected.offerDigest});
+}
+export function validateT4NativeMultipartSelection(value){
+  const expected=createT4NativeMultipartSelection({offer:createT4NativeMultipartOffer(),headSha256:value?.headSha256});
+  if(!keys(value,Object.keys(expected))||Object.keys(expected).some(k=>value[k]!==expected[k]))
+    fail('MULTIPART_NATIVE_SELECTION_INVALID');
+  return expected;
+}
 const addressFields=['changeId','contentDigest','manifestDigest','partIndex','partCount','partDigest','chunkIndex','chunkCount'];
 const chunkFields=[...addressFields,'ciphertextBase64','ciphertextSha256','encryptionContextRef'];
 const snapshot=x=>structuredClone(x);

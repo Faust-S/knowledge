@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,
   T4_ORIGINAL_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
 import {T4_MULTIPART_OPAQUE_EXTENSION,T4_MULTIPART_MAX_CHUNKS,
-  validateT4CandidateMultipartManifest,assembleT4CandidateMultipartOpaqueChunks}
+  validateT4CandidateMultipartManifest,assembleT4CandidateMultipartOpaqueChunks,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION}
   from './standard-network-multipart-opaque-chunks.mjs';
 
 // Candidate content backing for the existing original publication root.
@@ -76,7 +76,9 @@ function anchor({session,technicalWorkspaceId,checkpointRef,rootAnchor,headWireB
     !DIG(rootAnchor.chainHash)||!ID(rootAnchor.presentEventId)||!SHA(rootAnchor.headSha256))fail('MULTIPART_BACKING_ROOT_INVALID');
   const h=frame(headWireBytes),b=h.decoded.body,a=b.sourceSession;route(h.decoded,s);
   if(h.decoded.sequence!==1||h.decoded.messageType!=='HEADS'||
-    !same(h.decoded.criticalExtensions,[T4_ORIGINAL_SOURCE_SESSION_EXTENSION])||
+    !(same(h.decoded.criticalExtensions,[T4_ORIGINAL_SOURCE_SESSION_EXTENSION])||
+      (h.decoded.criticalExtensions.length===2&&h.decoded.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)&&
+        h.decoded.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION)))||
     h.entry.sha256!==rootAnchor.headSha256||b.familyRef!==s.familyRef||b.ownerEpoch!==s.ownerEpoch||
     !same(b.heads,[s.sourcePrefixDigestAfter])||!a||a.predecessorPrefixDigest!==s.sourcePrefixDigestBefore||
     !['sourceEventId','sourceEventDigest','sourceRevision','changeKind','capturedWindowDigest','capturedSha256'].every(k=>a[k]===s[k]))

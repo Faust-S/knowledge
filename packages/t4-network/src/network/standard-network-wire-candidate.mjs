@@ -1,8 +1,9 @@
 import {createHash} from 'node:crypto';
 import {T4_MULTIPART_OPAQUE_EXTENSION,validateT4CandidateMultipartManifest,
   validateT4CandidateMultipartChunkRequest,validateT4CandidateMultipartChunkBody,
-  t4CandidateMultipartChunkSequence} from './standard-network-multipart-opaque-chunks.mjs';
-export {T4_MULTIPART_OPAQUE_EXTENSION};
+  t4CandidateMultipartChunkSequence,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,
+  validateT4NativeMultipartOffer,validateT4NativeMultipartSelection} from './standard-network-multipart-opaque-chunks.mjs';
+export {T4_MULTIPART_OPAQUE_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION};
 
 /*
  * Experimental IWXA T4 Network Profile P1.0 wire contract.
@@ -222,6 +223,9 @@ function validateReplacementHeadEnvelope(frame){
 }
 function validateBody(type,body,extensions=[]){
   const multipart=Array.isArray(extensions)&&extensions.includes(T4_MULTIPART_OPAQUE_EXTENSION);
+  const nativeAgreement=Array.isArray(extensions)&&extensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION);
+  if(nativeAgreement&&!(type==='HEADS'&&extensions.length===2&&extensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)||
+    type==='DIFF_REQUEST'&&extensions.length===1))fail('WIRE_NATIVE_MULTIPART_AGREEMENT_EXTENSION_INVALID');
   if(multipart&&(extensions.length!==1||!['CAPABILITIES','CHANGE_REF','CHUNK_REQUEST','CHUNK'].includes(type)))
     fail('WIRE_MULTIPART_EXTENSION_INVALID');
   const relationEvent=Array.isArray(extensions)&&
@@ -240,8 +244,8 @@ function validateBody(type,body,extensions=[]){
     fail('WIRE_ATOMIC_GRAPH_EXTENSION_INVALID');
   const replacementHead=Array.isArray(extensions)&&extensions.includes(T4_REPLACEMENT_SOURCE_SESSION_EXTENSION);
   const sourceSession=Array.isArray(extensions)&&(extensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)||replacementHead);
-  if(sourceSession&&(type!=='HEADS'||extensions.length!==1))
-    fail('WIRE_ORIGINAL_SOURCE_SESSION_EXTENSION_INVALID');
+  if(sourceSession&&(type!=='HEADS'||extensions.length!==(nativeAgreement?2:1)||
+    (nativeAgreement&&replacementHead)))fail('WIRE_ORIGINAL_SOURCE_SESSION_EXTENSION_INVALID');
   const supersession=Array.isArray(extensions)&&extensions.includes(T4_SESSION_SUPERSESSION_EXTENSION);
   if(supersession!==SUPERSESSION_TYPES.has(type)||(supersession&&extensions.length!==1))
     fail('WIRE_SUPERSESSION_EXTENSION_REQUIRED');
@@ -259,7 +263,7 @@ function validateBody(type,body,extensions=[]){
       fail('WIRE_ADVERTISEMENT_INVALID');
   }else if(type==='HEADS'){
     sameKeys(body,replacementHead?['familyRef','ownerEpoch','heads','sourceSession','replacement']:
-      sourceSession?['familyRef','ownerEpoch','heads','sourceSession']:['familyRef','ownerEpoch','heads']);
+      sourceSession?['familyRef','ownerEpoch','heads','sourceSession',...(nativeAgreement?['multipartOffer']:[])]:['familyRef','ownerEpoch','heads']);
     if(replacementHead)validateT4CandidateReplacementHeadBinding(body.replacement);
     if(!ID(body.familyRef)||!Number.isSafeInteger(body.ownerEpoch)||
       body.ownerEpoch<1||!hashList(body.heads))
@@ -276,11 +280,19 @@ function validateBody(type,body,extensions=[]){
         !validT4NativeSubjectRevision(a.changeKind,a.sourceRevision)||
         body.heads.length!==1||body.heads[0]===a.predecessorPrefixDigest)
         fail('WIRE_ORIGINAL_SOURCE_SESSION_INVALID');
+      if(nativeAgreement){
+        if(a.changeKind!=='ASSET_PUT')fail('WIRE_NATIVE_MULTIPART_OFFER_KIND_INVALID');
+        try{validateT4NativeMultipartOffer(body.multipartOffer);}catch{fail('WIRE_NATIVE_MULTIPART_OFFER_INVALID');}
+      }
     }
   }else if(type==='DIFF_REQUEST'){
-    sameKeys(body,['familyRef','fromHeads']);
+    sameKeys(body,['familyRef','fromHeads',...(nativeAgreement?['multipartSelection']:[])]);
     if(!ID(body.familyRef)||!hashList(body.fromHeads))
       fail('WIRE_DIFF_INVALID');
+    if(nativeAgreement){
+      if(body.fromHeads.length!==1)fail('WIRE_NATIVE_MULTIPART_SELECTION_INVALID');
+      try{validateT4NativeMultipartSelection(body.multipartSelection);}catch{fail('WIRE_NATIVE_MULTIPART_SELECTION_INVALID');}
+    }
   }else if(type==='CHANGE_REF'){
     sameKeys(body,['changeId','changeKind','eventRef','ownerRef',
       'sourceRevision','contentDigest','parents',...(multipart?['multipartManifest']:[])]);
@@ -371,6 +383,8 @@ function validateUnsigned(frame){
     ((frame.messageType==='CHANGE_REF'&&frame.sequence!==2)||
      (frame.messageType==='CHUNK'&&frame.sequence!==t4CandidateMultipartChunkSequence(frame.body))))
     fail('WIRE_MULTIPART_SEQUENCE_INVALID');
+  if(frame.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION)&&frame.sequence!==1)
+    fail('WIRE_NATIVE_MULTIPART_AGREEMENT_SEQUENCE_INVALID');
   if(frame.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)&&
     (frame.sequence!==1||frame.body.ownerEpoch!==frame.ownerEpoch))
     fail('WIRE_ORIGINAL_SOURCE_SESSION_ENVELOPE_INVALID');
