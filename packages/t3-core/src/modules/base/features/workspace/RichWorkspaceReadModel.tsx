@@ -27,18 +27,28 @@ import {
 import {
   WORKSPACE_VIEW_STATE_COMMANDS,
   prepareWorkspacePersistedViewSave,
+  captureWorkspaceViewPresentation,
+  restoreWorkspaceViewPresentation,
   type WorkspacePersistedView,
+  type WorkspaceViewPresentation,
   projectWorkspacePersistedViews,
   workspaceViewStateCommandAvailability,
 } from "./workspace-persisted-view-state.mjs";
 import { classifyWorkspacePersistedViewMutationError } from "./workspace-persisted-view-conflict.mjs";
 
-type WorkspaceMode = "browse" | "queues" | "compare" | "receipts";
+type WorkspaceMode = WorkspaceViewPresentation["mode"];
 type WorkingView = {
   id: string;
   title: string;
   logicalAreaId: string | null;
   query: string;
+  presentation?: WorkspaceViewPresentation;
+};
+
+type RestoredViewState = {
+  workspaceId: string;
+  profileId: string;
+  presentation: WorkspaceViewPresentation;
 };
 
 type SavedViewEdit = {
@@ -62,7 +72,19 @@ const VIEW_SAVE_MESSAGES: Readonly<Record<string, string>> = {
   VIEW_STATE_NAME_AMBIGUOUS: "Есть несколько представлений с таким названием. Выберите нужное через «Изменить».",
   VIEW_STATE_CREATE_REVIEW_REQUIRED: "Предыдущее сохранение или одноимённое представление уже найдено. Откройте его перед изменением.",
   VIEW_STATE_ID_COLLISION: "Не удалось выделить новый идентификатор представления. Обновите список.",
+  VIEW_STATE_PRESENTATION_INVALID: "Проверьте режим представления и состав материалов (до 256 объектов).",
+  VIEW_STATE_SELECTION_CHANGED: "Выбранный материал больше недоступен. Обновите выбор.",
+  VIEW_STATE_SELECTION_REVIEW_REQUIRED: "Проверьте изменившиеся или недоступные материалы перед сохранением.",
 };
+
+const VIEW_MODE_TITLES: Readonly<Record<WorkspaceMode, string>> = {
+  browse: "Объекты", queues: "Очереди", compare: "Сравнение", receipts: "Receipts",
+};
+
+function viewSaveErrorMessage(error: unknown): string {
+  const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+  return VIEW_SAVE_MESSAGES[code] ?? (error instanceof Error ? error.message : String(error));
+}
 
 export function RichWorkspaceReadModel(props: {
   workspace: WorkspaceRecord;
@@ -100,6 +122,7 @@ export function RichWorkspaceReadModel(props: {
     workspaceId: workspace.workspace_id,
     value: "",
   });
+  const [restoredViewState, setRestoredViewState] = useState<RestoredViewState | null>(null);
   const [savedViewEdit, setSavedViewEdit] = useState<SavedViewEdit | null>(null);
   const pendingViewCreate = useRef<PendingViewCreate | null>(null);
   const [persistedViewBusy, setPersistedViewBusy] = useState<string | null>(null);
@@ -118,6 +141,7 @@ export function RichWorkspaceReadModel(props: {
     setPersistedViewBusy(null);
     setPersistedViewError(null);
     setSavedViewEdit(null);
+    setRestoredViewState(null);
     setOwnerCommandBusy(false);
     setOwnerCommandError(null);
     setOwnerCommandCompleted(null);
@@ -127,8 +151,18 @@ export function RichWorkspaceReadModel(props: {
     };
   }, [workspace.workspace_id, profileDefinition.id]);
 
-  const selectedObjectIds = selectionState.workspaceId === workspace.workspace_id ? selectionState.ids : [];
-  const selectedDetailId = detailState.workspaceId === workspace.workspace_id ? detailState.objectId : null;
+  const restoredPresentation = useMemo(() =>
+    restoredViewState?.workspaceId === workspace.workspace_id && restoredViewState.profileId === profileDefinition.id
+      ? restoreWorkspaceViewPresentation({
+          workspaceId: workspace.workspace_id, objects, presentation: restoredViewState.presentation,
+        })
+      : null,
+    [restoredViewState, workspace.workspace_id, profileDefinition.id, objects],
+  );
+  const selectedObjectIds = restoredPresentation ? [...restoredPresentation.selectedObjectIds]
+    : selectionState.workspaceId === workspace.workspace_id ? selectionState.ids : [];
+  const selectedDetailId = restoredPresentation ? restoredPresentation.detailObjectId
+    : detailState.workspaceId === workspace.workspace_id ? detailState.objectId : null;
   const workingViews = workingViewState.workspaceId === workspace.workspace_id ? workingViewState.views : [];
   const workingViewTitle =
     workingViewTitleState.workspaceId === workspace.workspace_id ? workingViewTitleState.value : "";
@@ -212,6 +246,7 @@ export function RichWorkspaceReadModel(props: {
   );
 
   const resetTransientSelection = () => {
+    setRestoredViewState(null);
     setSelectionState({ workspaceId: workspace.workspace_id, ids: [] });
     setDetailState({ workspaceId: workspace.workspace_id, objectId: null });
     setPreparedCommandState({ workspaceId: workspace.workspace_id, command: null });
@@ -228,7 +263,18 @@ export function RichWorkspaceReadModel(props: {
     setWindowOffset(0);
     resetTransientSelection();
   };
+  const adoptRestoredSelection = () => {
+    if (!restoredPresentation) return;
+    resetTransientSelection();
+    setSelectionState({ workspaceId: workspace.workspace_id, ids: [...restoredPresentation.selectedObjectIds] });
+    setDetailState({ workspaceId: workspace.workspace_id, objectId: restoredPresentation.detailObjectId });
+  };
+  const selectDetailObject = (objectId: string) => {
+    if (restoredPresentation) adoptRestoredSelection();
+    setDetailState({ workspaceId: workspace.workspace_id, objectId });
+  };
   const toggleSelectedObject = (objectId: string) => {
+    if (restoredPresentation) adoptRestoredSelection();
     setSelectionState((current) => {
       const ids = current.workspaceId === workspace.workspace_id ? current.ids : [];
       if (ids.includes(objectId)) {
@@ -240,12 +286,19 @@ export function RichWorkspaceReadModel(props: {
     setOwnerCommandError(null);
     setOwnerCommandCompleted(null);
   };
-  const applyWorkingView = (view: Pick<WorkingView, "logicalAreaId" | "query">) => {
+  const applyWorkingView = (view: Pick<WorkingView, "logicalAreaId" | "query" | "presentation">) => {
     setAreaId(view.logicalAreaId);
     setQuery(view.query);
     setWindowOffset(0);
-    setMode("browse");
+    setMode(view.presentation?.mode ?? "browse");
     resetTransientSelection();
+    if (view.presentation) {
+      setRestoredViewState({
+        workspaceId: workspace.workspace_id,
+        profileId: profileDefinition.id,
+        presentation: view.presentation,
+      });
+    }
     if (editingView) {
       setSavedViewEdit(null);
       setWorkingViewTitleState({ workspaceId: workspace.workspace_id, value: "" });
@@ -267,9 +320,25 @@ export function RichWorkspaceReadModel(props: {
     setWorkingViewTitleState({ workspaceId: workspace.workspace_id, value: "" });
     setPersistedViewError(null);
   };
+  const captureCurrentPresentation = () => {
+    if (restoredPresentation && (restoredPresentation.changedCount || restoredPresentation.unavailableCount)) {
+      throw Object.assign(new Error("VIEW_STATE_SELECTION_REVIEW_REQUIRED"), { code: "VIEW_STATE_SELECTION_REVIEW_REQUIRED" });
+    }
+    return captureWorkspaceViewPresentation({
+      workspaceId: workspace.workspace_id, objects, mode, selectedObjectIds, detailObjectId: selectedDetailId,
+    });
+  };
   const createWorkingView = () => {
     const title = workingViewTitle.trim();
     if (!title) return;
+    let presentation: WorkspaceViewPresentation | null;
+    try {
+      presentation = captureCurrentPresentation();
+      setPersistedViewError(null);
+    } catch (error) {
+      setPersistedViewError(viewSaveErrorMessage(error));
+      return;
+    }
     setWorkingViewState((current) => {
       const currentState =
         current.workspaceId === workspace.workspace_id
@@ -280,6 +349,7 @@ export function RichWorkspaceReadModel(props: {
         title,
         logicalAreaId: areaId,
         query: query.trim(),
+        ...(presentation ? { presentation } : {}),
       };
       return {
         workspaceId: workspace.workspace_id,
@@ -309,6 +379,7 @@ export function RichWorkspaceReadModel(props: {
     setPersistedViewBusy("save");
     setPersistedViewError(null);
     try {
+      const presentation = captureCurrentPresentation();
       const pending = pendingViewCreate.current;
       const sameIntent = pending && pending.workspaceId === workspace.workspace_id
         && pending.profileId === profileDefinition.id && pending.nameKey === title.toLowerCase();
@@ -319,6 +390,7 @@ export function RichWorkspaceReadModel(props: {
         logicalAreaId: areaId,
         query: query.trim(),
         objects,
+        presentation,
         edit: editingView,
         pendingCreateId: !editingView && sameIntent ? pending.viewId : null,
       });
@@ -338,6 +410,7 @@ export function RichWorkspaceReadModel(props: {
           profileId: profileDefinition.id,
           logicalAreaId: areaId,
           query: query.trim(),
+          presentation,
           baseRevision: prepared.baseRevision,
         });
         if (mutationGeneration !== workspaceMutationGeneration.current) return;
@@ -362,8 +435,7 @@ export function RichWorkspaceReadModel(props: {
           setPersistedViewError(`Конфликт версии; автоматический повтор запрещён. Не удалось обновить данные: ${refreshError instanceof Error ? refreshError.message : String(refreshError)}`);
         }
       } else {
-        const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-        setPersistedViewError(VIEW_SAVE_MESSAGES[code] ?? (error instanceof Error ? error.message : String(error)));
+        setPersistedViewError(viewSaveErrorMessage(error));
       }
     } finally {
       if (mutationGeneration === workspaceMutationGeneration.current) {
@@ -494,6 +566,12 @@ export function RichWorkspaceReadModel(props: {
           <button key={value} type="button" aria-pressed={mode === value} onClick={() => setMode(value)} className="px-3 py-1.5 text-xs rounded border border-slate-700 min-h-[44px]">{title}</button>
         ))}
       </nav>
+      {restoredPresentation && (restoredPresentation.changedCount > 0 || restoredPresentation.unavailableCount > 0) && (
+        <div className="border border-amber-900/60 rounded p-2 space-y-2 text-xs" data-testid="rich-workspace-view-restoration-warning">
+          <p role="status" className="text-amber-200">Изменилось материалов: {restoredPresentation.changedCount}. Недоступно: {restoredPresentation.unavailableCount}. Они не включены в выбор.</p>
+          <button type="button" onClick={adoptRestoredSelection} className="px-3 py-1.5 rounded border border-slate-700 min-h-[44px]">Принять доступные материалы</button>
+        </div>
+      )}
 
       {mode === "browse" ? (
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.72fr)]" data-testid="rich-workspace-master-detail">
@@ -515,7 +593,7 @@ export function RichWorkspaceReadModel(props: {
                   return (
                     <li key={object.object_id} className="p-2 flex flex-wrap items-center gap-2 text-xs" data-testid="rich-workspace-master-item">
                       <label className="flex items-center gap-1 text-slate-500"><input type="checkbox" checked={checked} onChange={() => toggleSelectedObject(object.object_id)} aria-label={`Выбрать ${object.object_id}`} />select</label>
-                      <button type="button" onClick={() => setDetailState({ workspaceId: workspace.workspace_id, objectId: object.object_id })} className="min-w-0 flex-1 text-left" aria-label={`Показать детали ${object.object_id}`}>
+                      <button type="button" onClick={() => selectDetailObject(object.object_id)} className="min-w-0 flex-1 text-left" aria-label={`Показать детали ${object.object_id}`}>
                         <code className="block break-all text-slate-200">{object.object_id}</code><span className="text-slate-500">{object.schema_id} · rev {object.revision}</span>
                       </button>
                       <button type="button" onClick={() => onOpenObject(workspace.workspace_id, object.object_id)} className="px-3 py-1.5 rounded bg-slate-800 min-h-[44px]">Открыть</button>
@@ -649,14 +727,14 @@ export function RichWorkspaceReadModel(props: {
             {editingView && <button type="button" disabled={persistedViewBusy !== null} onClick={cancelSavedViewEdit} className="px-3 py-1.5 text-xs rounded border border-slate-700 min-h-[44px] disabled:opacity-40">Отменить изменение</button>}
           </div>
           {editingView && <p role="status" className="text-xs text-emerald-300">Изменение сохранённого представления. Название и фильтр будут сохранены в той же записи.</p>}
-          <p className="text-[11px] text-slate-500">Текущий снимок: область {areaId ?? "все"}; поиск {query.trim() ? `«${query.trim()}»` : "без поиска"}. Локальный вид живёт только в текущей вкладке; persisted вид проходит через owner command.</p>
+          <p className="text-[11px] text-slate-500">Текущий вид: {VIEW_MODE_TITLES[mode]}; материалов выбрано {selectedObjectIds.length}; область {areaId ?? "все"}; поиск {query.trim() ? `«${query.trim()}»` : "без поиска"}. Локальный вид живёт только в текущей вкладке; сохранённый вид использует существующий owner.</p>
           {persistedViewError && <p role="alert" className="text-xs text-rose-200" data-testid="rich-workspace-persisted-view-error">Не удалось изменить сохранённое представление: {persistedViewError}</p>}
           {persistedViews.views.length > 0 && (
             <div className="space-y-1" data-testid="rich-workspace-persisted-views">
               <h6 className="text-xs font-medium text-slate-200">Сохранённые в Workspace</h6>
               <ul className="space-y-1">{persistedViews.views.map((view) => (
                 <li key={view.viewId} className="flex flex-wrap items-center gap-2 border border-emerald-900/50 rounded p-2 text-xs" data-testid="rich-workspace-persisted-view">
-                  <span className="text-slate-200">{view.title}</span><span className="text-[11px] text-slate-500">область {view.logicalAreaId ?? "все"}{view.query ? ` · поиск «${view.query}»` : ""}</span>
+                  <span className="text-slate-200">{view.title}</span><span className="text-[11px] text-slate-500">область {view.logicalAreaId ?? "все"}{view.query ? ` · поиск «${view.query}»` : ""}{view.presentation ? ` · ${VIEW_MODE_TITLES[view.presentation.mode]} · материалов ${view.presentation.selected.length}` : ""}</span>
                   <span className="ml-auto flex gap-1"><button type="button" onClick={() => applyWorkingView(view)} className="px-3 py-1.5 rounded bg-slate-800 min-h-[44px]" aria-label={`Применить сохранённый вид ${view.title}`}>Применить</button>{viewStateAvailability.save && <button type="button" disabled={persistedViewBusy !== null} onClick={() => editPersistedView(view)} className="px-3 py-1.5 rounded bg-slate-800 min-h-[44px] disabled:opacity-40" aria-label={`Изменить сохранённый вид ${view.title}`}>Изменить</button>}{viewStateAvailability.delete && <button type="button" disabled={persistedViewBusy !== null} onClick={() => void deletePersistedView(view.viewId, view.baseRevision)} className="px-3 py-1.5 rounded border border-slate-700 min-h-[44px] disabled:opacity-40" aria-label={`Удалить сохранённый вид ${view.title}`}>Удалить</button>}</span>
                 </li>
               ))}</ul>
@@ -666,7 +744,7 @@ export function RichWorkspaceReadModel(props: {
           {workingViews.length === 0 ? <p className="text-xs text-slate-500" role="status">Рабочих видов в этой сессии пока нет.</p> : (
             <ul className="space-y-1">{workingViews.map((view) => (
               <li key={view.id} className="flex flex-wrap items-center gap-2 border border-slate-800 rounded p-2 text-xs" data-testid="rich-workspace-working-view">
-                <span className="text-slate-200">{view.title}</span><span className="text-[11px] text-slate-500">область {view.logicalAreaId ?? "все"}{view.query ? ` · поиск «${view.query}»` : ""}</span>
+                <span className="text-slate-200">{view.title}</span><span className="text-[11px] text-slate-500">область {view.logicalAreaId ?? "все"}{view.query ? ` · поиск «${view.query}»` : ""}{view.presentation ? ` · ${VIEW_MODE_TITLES[view.presentation.mode]} · материалов ${view.presentation.selected.length}` : ""}</span>
                 <span className="ml-auto flex gap-1"><button type="button" onClick={() => applyWorkingView(view)} className="px-3 py-1.5 rounded bg-slate-800 min-h-[44px]" aria-label={`Применить рабочий вид ${view.title}`}>Применить</button><button type="button" onClick={() => removeWorkingView(view.id)} className="px-3 py-1.5 rounded border border-slate-700 min-h-[44px]" aria-label={`Удалить рабочий вид ${view.title}`}>Удалить</button></span>
               </li>
             ))}</ul>

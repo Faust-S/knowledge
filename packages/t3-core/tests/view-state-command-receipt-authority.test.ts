@@ -129,6 +129,28 @@ describe("view-state command receipt authority", () => {
     await expect(saveWorkspaceView(ctx, saveArgs)).rejects.toThrow("VIEW_STATE_COMMIT_RECEIPT_DATA_MISMATCH");
   });
 
+  it("preserves an optional presentation and rejects a receipt that drops it", async () => {
+    const presentation = {version:1,mode:"compare",selected:[{object_id:"a",revision:1},{object_id:"b",revision:2}],detail:null};
+    const receiptContext = (drop: boolean) => context({
+      putObject: async (input) => {
+        const data = {...(input.data as Record<string, unknown>)};
+        if (drop) delete data.presentation;
+        return {
+          object: {workspace_id:"w",object_id:"saved-view:v1",revision:3,
+            schema_id:"iwxa.workspace.internal.saved-view",schema_version:"1.0.0",
+            data,extensions:{owner_module:"iwxa.workspace.view-state"}} as never,
+          event:{} as never,deduplicated:false,
+        };
+      },
+    });
+    await expect(saveWorkspaceView(receiptContext(false), {...saveArgs,presentation}))
+      .resolves.toMatchObject({object:{data:{presentation}}});
+    await expect(saveWorkspaceView(receiptContext(true), {...saveArgs,presentation}))
+      .rejects.toThrow("VIEW_STATE_COMMIT_RECEIPT_DATA_MISMATCH");
+    await expect(saveWorkspaceView(receiptContext(false), {...saveArgs,presentation:{...presentation,version:2}}))
+      .rejects.toThrow("VIEW_STATE_PRESENTATION_INVALID");
+  });
+
   it("fails closed when delete receipt does not confirm the expected revision", async () => {
     const ctx = context({
       deleteObject: async () => ({

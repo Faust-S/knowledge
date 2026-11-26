@@ -1,4 +1,4 @@
-import { WORKSPACE_VIEW_STATE_FAMILY, workspaceSavedViewObjectId } from './workspace-view-state-boundary.mjs';
+import { WORKSPACE_VIEW_STATE_FAMILY, workspaceSavedViewObjectId, isWorkspaceBusinessObjectRecord } from './workspace-view-state-boundary.mjs';
 
 export const WORKSPACE_VIEW_STATE_COMMANDS = Object.freeze({
   save: 'workspace.view-state.save',
@@ -68,11 +68,12 @@ function saveError(code, message) {
  */
 export function prepareWorkspacePersistedViewSave({
   workspaceId, profileId, name, logicalAreaId, query, objects,
-  edit = null, pendingCreateId = null, allocateId = allocateWorkspaceViewId,
+  edit = null, pendingCreateId = null, presentation = null, allocateId = allocateWorkspaceViewId,
 }) {
   const title = requireText(name);
   if (!title || title.length > 120 || typeof query !== 'string' || query.length > 1000
-      || (logicalAreaId !== null && !requireText(logicalAreaId))) {
+      || (logicalAreaId !== null && !requireText(logicalAreaId))
+      || (presentation !== null && !parseWorkspaceViewPresentation(presentation))) {
     throw saveError('VIEW_STATE_SAVE_INPUT_INVALID', 'Invalid saved view name or filter.');
   }
   const projection = projectWorkspacePersistedViews({ workspaceId, profileId, objects });
@@ -106,7 +107,8 @@ export function prepareWorkspacePersistedViewSave({
     if (!NEW_VIEW_ID.test(pendingCreateId)) throw new Error('VIEW_STATE_PENDING_ID_INVALID');
     if (recordsFor(pendingCreateId).length) {
       const view = exact(pendingCreateId);
-      if (view.name === title && view.logicalAreaId === logicalAreaId && view.query === query) {
+      if (view.name === title && view.logicalAreaId === logicalAreaId && view.query === query
+        && workspaceViewPresentationMatches(view.presentation, presentation)) {
         return target(view.viewId, view.baseRevision, 'ALREADY_SAVED');
       }
       throw saveError('VIEW_STATE_CREATE_REVIEW_REQUIRED', 'The previous save is present with different content. Open it before editing.');
@@ -136,7 +138,102 @@ export function prepareWorkspacePersistedViewSave({
 export function workspaceSavedViewDataMatches(actual, expected) {
   return Boolean(actual && expected && actual.version === 1 && expected.version === 1
     && ['view_id', 'name', 'profile_id', 'logical_area_id', 'query']
-      .every((key) => Object.hasOwn(actual, key) && actual[key] === expected[key]));
+      .every((key) => Object.hasOwn(actual, key) && actual[key] === expected[key])
+    && (expected.presentation === undefined ? actual.presentation === undefined
+      : Boolean(parseWorkspaceViewPresentation(expected.presentation))
+        && workspaceViewPresentationMatches(actual.presentation, expected.presentation)));
+}
+
+// A presentation is only a set of revision-bound references to objects already
+// in this Workspace. It never contains business payloads or grants access.
+const VIEW_MODES = new Set(['browse', 'queues', 'compare', 'receipts']);
+const VIEW_SELECTION_LIMIT = 256;
+const OBJECT_ID = /^[A-Za-z0-9._:-]{1,128}$/u;
+
+function parseViewObjectRef(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+      || Object.keys(value).length !== 2 || typeof value.object_id !== 'string'
+      || !OBJECT_ID.test(value.object_id) || !Number.isSafeInteger(value.revision)
+      || value.revision < 1) return null;
+  return Object.freeze({ object_id: value.object_id, revision: value.revision });
+}
+
+export function parseWorkspaceViewPresentation(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+      || Object.keys(value).length !== 4 || value.version !== 1
+      || !VIEW_MODES.has(value.mode) || !Array.isArray(value.selected)
+      || value.selected.length > VIEW_SELECTION_LIMIT) return null;
+  const selected = [], ids = new Set();
+  for (const entry of value.selected) {
+    const ref = parseViewObjectRef(entry);
+    if (!ref || ids.has(ref.object_id)) return null;
+    selected.push(ref); ids.add(ref.object_id);
+  }
+  const detail = value.detail === null ? null : parseViewObjectRef(value.detail);
+  if (value.detail !== null && !detail) return null;
+  // The same selected object and detail cannot pin different revisions.
+  if (detail && selected.some((ref) => ref.object_id === detail.object_id && ref.revision !== detail.revision)) return null;
+  return Object.freeze({ version: 1, mode: value.mode, selected: Object.freeze(selected), detail });
+}
+
+export function workspaceViewPresentationMatches(actual, expected) {
+  if (actual == null || expected == null) return actual == null && expected == null;
+  const left = parseWorkspaceViewPresentation(actual), right = parseWorkspaceViewPresentation(expected);
+  if (!left || !right || left.mode !== right.mode || left.selected.length !== right.selected.length) return false;
+  const equalRef = (a, b) => a === null || b === null ? a === b
+    : a.object_id === b.object_id && a.revision === b.revision;
+  return equalRef(left.detail, right.detail) && left.selected.every((ref, i) => equalRef(ref, right.selected[i]));
+}
+
+function scopedViewObjectIndex(workspaceId, objects) {
+  const index = new Map();
+  if (!requireText(workspaceId) || !Array.isArray(objects)) throw new Error('VIEW_STATE_OBJECT_CATALOG_INVALID');
+  for (const object of objects) {
+    if (!object || object.workspace_id !== workspaceId || typeof object.object_id !== 'string'
+      || !OBJECT_ID.test(object.object_id)) continue;
+    const duplicate = index.has(object.object_id);
+    const business = isWorkspaceBusinessObjectRecord(object);
+    const ref = parseViewObjectRef({ object_id: object.object_id, revision: object.revision });
+    index.set(object.object_id, duplicate || !business || !ref ? null : ref);
+  }
+  return index;
+}
+
+/** Capture the current selection, not a second copy of the selected data. */
+export function captureWorkspaceViewPresentation({ workspaceId, objects, mode, selectedObjectIds, detailObjectId }) {
+  if (!VIEW_MODES.has(mode) || !Array.isArray(selectedObjectIds) || selectedObjectIds.length > VIEW_SELECTION_LIMIT
+      || new Set(selectedObjectIds).size !== selectedObjectIds.length) {
+    throw saveError('VIEW_STATE_PRESENTATION_INVALID', 'The view mode or selection is invalid.');
+  }
+  const index = scopedViewObjectIndex(workspaceId, objects);
+  const exact = (id) => {
+    const ref = index.get(id);
+    if (!ref) throw saveError('VIEW_STATE_SELECTION_CHANGED', 'A selected object is no longer uniquely available.');
+    return ref;
+  };
+  const selected = selectedObjectIds.map(exact);
+  const detail = detailObjectId === null ? null : exact(detailObjectId);
+  if (mode === 'browse' && selected.length === 0 && detail === null) return null;
+  return parseWorkspaceViewPresentation({ version: 1, mode, selected, detail });
+}
+
+/** Restore only exact, currently admitted object revisions. No writes or
+ * execution are implied by viewing the restored selection. */
+export function restoreWorkspaceViewPresentation({ workspaceId, objects, presentation }) {
+  const parsed = presentation == null ? null : parseWorkspaceViewPresentation(presentation);
+  if (presentation != null && !parsed) throw new Error('VIEW_STATE_PRESENTATION_INVALID');
+  const index = scopedViewObjectIndex(workspaceId, objects);
+  const changed = new Set(), unavailable = new Set();
+  const current = (ref) => {
+    const latest = index.get(ref.object_id);
+    if (!latest) { unavailable.add(ref.object_id); return null; }
+    if (latest.revision !== ref.revision) { changed.add(ref.object_id); return null; }
+    return latest.object_id;
+  };
+  const selected = parsed ? parsed.selected.map(current).filter((id) => id !== null) : [];
+  const detail = parsed?.detail ? current(parsed.detail) : null;
+  return Object.freeze({ mode: parsed?.mode ?? 'browse', selectedObjectIds: Object.freeze(selected),
+    detailObjectId: detail, changedCount: changed.size, unavailableCount: unavailable.size });
 }
 
 export function projectWorkspacePersistedViews({ workspaceId, profileId, objects }) {
@@ -162,6 +259,7 @@ export function projectWorkspacePersistedViews({ workspaceId, profileId, objects
     const payloadProfileId = requireText(data?.profile_id);
     const logicalAreaId = data?.logical_area_id === null ? null : requireText(data?.logical_area_id);
     const query = typeof data?.query === 'string' ? data.query : null;
+    const presentation = data?.presentation === undefined ? null : parseWorkspaceViewPresentation(data.presentation);
     const revision = Number.isInteger(object.revision) && object.revision > 0 ? object.revision : null;
     let canonicalObjectId = null;
     try { canonicalObjectId = viewId ? workspaceSavedViewObjectId(viewId) : null; } catch { canonicalObjectId = null; }
@@ -175,7 +273,8 @@ export function projectWorkspacePersistedViews({ workspaceId, profileId, objects
       revision == null ||
       canonicalObjectId == null ||
       object.object_id !== canonicalObjectId ||
-      (data?.logical_area_id !== null && !logicalAreaId)
+      (data?.logical_area_id !== null && !logicalAreaId) ||
+      (data?.presentation !== undefined && !presentation)
     ) {
       rejected += 1;
       continue;
@@ -193,6 +292,7 @@ export function projectWorkspacePersistedViews({ workspaceId, profileId, objects
       baseRevision: revision,
       persisted: true,
       source: 'WORKSPACE_VIEW_STATE_OWNER',
+      ...(presentation ? { presentation } : {}),
     }));
   }
 

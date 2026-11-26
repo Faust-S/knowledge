@@ -261,3 +261,61 @@ describe("Saved view identity and lifecycle", () => {
     expect(invoke).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("Revision-bound working view composition", () => {
+  const presentation = {
+    version: 1, mode: "compare", selected: [{object_id:"note-1",revision:1},{object_id:"task-1",revision:1}],
+    detail: {object_id:"note-1",revision:1},
+  };
+  function savedComparison(): ObjectRecord {
+    const record = savedViewFixture("view-compare", "Study comparison", 1, "");
+    return {...record, data: {...(record.data as Record<string, unknown>), logical_area_id:null, presentation}};
+  }
+  it("saves current selected objects and view mode with their exact revisions", async () => {
+    const invoke = vi.fn(async (_id: string, _args?: unknown) => ({ ok: true }));
+    const commands = { has: (id: string) => id === "workspace.view-state.save", invoke };
+    render(<RichWorkspaceReadModel workspace={workspace} objects={objects} events={events}
+      profileDefinition={profile} commands={commands} onOpenObject={() => {}} />);
+    fireEvent.click(screen.getByLabelText("Выбрать note-1"));
+    fireEvent.click(screen.getByLabelText("Выбрать task-1"));
+    fireEvent.click(screen.getByLabelText("Показать детали note-1"));
+    fireEvent.click(screen.getByRole("button", {name:"Сравнение"}));
+    fireEvent.change(screen.getByLabelText("Название рабочего вида"), {target:{value:"Study"}});
+    fireEvent.click(screen.getByRole("button", {name:"Сохранить в Workspace"}));
+    await waitFor(()=>expect(invoke).toHaveBeenCalledTimes(1));
+    expect(invoke.mock.calls[0][1]).toMatchObject({presentation});
+  });
+
+  it("restores saved comparison and removes a changed reference even after the view is opened", () => {
+    const record=savedComparison();
+    const props={workspace,events,profileDefinition:profile,onOpenObject:()=>{}};
+    const {rerender}=render(<RichWorkspaceReadModel {...props} objects={[...objects,record]} />);
+    fireEvent.click(screen.getByRole("button",{name:"Применить сохранённый вид Study comparison"}));
+    expect(screen.getByRole("button",{name:"Сравнение"}).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("rich-workspace-compare").querySelector("table")).toBeTruthy();
+    rerender(<RichWorkspaceReadModel {...props} objects={[{...objects[0],revision:2},objects[1],record]} />);
+    expect(screen.getByTestId("rich-workspace-view-restoration-warning").textContent).toContain("Изменилось материалов: 1");
+    expect(screen.getByTestId("rich-workspace-compare").querySelector("table")).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"Принять доступные материалы"}));
+    expect(screen.queryByTestId("rich-workspace-view-restoration-warning")).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"Объекты"}));
+    expect((screen.getByLabelText("Выбрать note-1") as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByLabelText("Выбрать task-1") as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("keeps a session-only working view composition without any owner mutation", () => {
+    const invoke=vi.fn(async (_id:string,_args?:unknown)=>({ok:true}));
+    const commands={has:()=>true,invoke};
+    render(<RichWorkspaceReadModel workspace={workspace} objects={objects} events={events}
+      profileDefinition={profile} commands={commands} onOpenObject={()=>{}} />);
+    fireEvent.click(screen.getByLabelText("Выбрать note-1"));
+    fireEvent.click(screen.getByLabelText("Выбрать task-1"));
+    fireEvent.click(screen.getByRole("button",{name:"Сравнение"}));
+    fireEvent.change(screen.getByLabelText("Название рабочего вида"),{target:{value:"Session comparison"}});
+    fireEvent.click(screen.getByRole("button",{name:"Вид на эту вкладку"}));
+    fireEvent.change(screen.getByLabelText("Поиск по ID и типу объекта"),{target:{value:"note"}});
+    fireEvent.click(screen.getByRole("button",{name:"Применить рабочий вид Session comparison"}));
+    expect(screen.getByTestId("rich-workspace-compare").querySelector("table")).toBeTruthy();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});

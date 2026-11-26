@@ -4,6 +4,7 @@ import {
 } from "@/workspace-contract";
 import { isSafeOpaqueId } from "@/shell/routing";
 import { workspaceSavedViewObjectId } from "../base/features/workspace/workspace-view-state-boundary.mjs";
+import { parseWorkspaceViewPresentation, type WorkspaceViewPresentation } from "../base/features/workspace/workspace-persisted-view-state.mjs";
 
 export { WORKSPACE_SAVED_VIEW_SCHEMA_ID, WORKSPACE_SAVED_VIEW_SCHEMA_VERSION };
 
@@ -14,6 +15,7 @@ export interface WorkspaceSavedViewData {
   profile_id: string;
   logical_area_id: string | null;
   query: string;
+  presentation?: WorkspaceViewPresentation;
 }
 
 export interface WorkspaceSavedViewValidationIssue {
@@ -49,6 +51,9 @@ export function validateWorkspaceSavedViewData(input: unknown): {
   }
   if (typeof value.query !== "string" || value.query.length > 1000) {
     issues.push({ path: "query", message: "query must be a string up to 1000 characters" });
+  }
+  if (value.presentation !== undefined && !parseWorkspaceViewPresentation(value.presentation)) {
+    issues.push({ path: "presentation", message: "presentation must contain revision-bound Workspace references" });
   }
   return issues.length > 0 ? { ok: false, issues } : { ok: true };
 }
