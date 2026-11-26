@@ -2780,3 +2780,44 @@ test('K167 K170 K171 K172 K174 K175 successor multipart backing, lost PUT, compl
   assert.deepEqual(counts(),beforeHistory);
   assert.equal(x.counts().networkGets,networkReads);
 });
+
+for(const multipart of [false,true])test('K178 capable recipient preserves signed successor Asset profile '+(multipart?'MULTIPART':'COMPACT'),async()=>{
+  const x=await controlFixture({indexed:true,multipartHandshake:true,realSourceHistory:true});await closeInitialAttempt(x);
+  const opts={...x.eligibilityOptions(),enableOriginalMultipartNegotiation:multipart};
+  const sourceFactory=(args,read)=>x.createReplacementPort(args,read,{enableOriginalMultipartNegotiation:multipart});
+  const head=await x.publishReplacement({enableOriginalMultipartNegotiation:multipart,createOriginalReplacementPublicationPort:sourceFactory}),c=head.candidate;
+  const createPhase=async({session,admission},readOriginalReplacementSourceAdmission)=>x.sourcePhase({
+    sessionRef:session.sessionRef,authorizeOriginalSourceSupersession:null,replacementSourceAdmission:admission,readOriginalReplacementSourceAdmission});
+  const a=await admitT4OriginalReplacementSourcePhase({...opts,createOriginalReplacementPublicationPort:sourceFactory,
+    createOriginalReplacementSourcePhasePort:createPhase});
+  const phase=await createPhase({session:c,admission:a.admission},async()=>true);
+  const automatic={enableOriginalMultipartNegotiation:true,acceptOriginalMultipartOffer:true};
+  const admitted=await readT4OriginalReplacementRecipientAdmission({...x.recipientAdmissionOptions(phase),...automatic});
+  assert.equal(Object.hasOwn(admitted.head.verifiedBody,'multipartOffer'),multipart);
+  const recipientFactory=(args,read)=>{
+    assert.equal(args.originalReplacementMultipartHandshakeRequired===true,multipart);
+    return x.createReplacementRecipientPort(args,read,{enableOriginalMultipartNegotiation:multipart});
+  };
+  const diff=await x.publishReplacementDiff(phase,{...automatic,createOriginalReplacementRecipientPublicationPort:recipientFactory});
+  const recipient=await x.createReplacementRecipientPort({session:c},
+    ()=>readT4OriginalReplacementRecipientAdmission({...x.recipientAdmissionOptions(phase),enableOriginalMultipartNegotiation:multipart}),
+    {enableOriginalMultipartNegotiation:multipart});
+  const source=await sourceFactory({session:c},()=>x.eligibility());
+  const slot=decodeT4CandidateFrame((await recipient.inspectOriginalPublication()).frames[0].wireBytes);
+  assert.equal(slot.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION),multipart);
+  assert.equal(Object.hasOwn(slot.body,'multipartSelection'),multipart);
+  if(multipart)assert.equal(slot.body.multipartSelection.headSha256,a.admission.headSha256);
+  const read=()=>discoverT4OriginalReplacementRecipientDiff({...opts,sourceAdmissionPhasePort:phase,
+    sourcePublicationPort:source,recipientPublicationPort:recipient,frameDiscoveryPort:x.transport(sourceNodeRef),
+    readOriginalReplacementRecipientAdmission:()=>readT4OriginalReplacementRecipientAdmission({...x.recipientAdmissionOptions(phase),enableOriginalMultipartNegotiation:multipart}),
+    authorizeOriginalReplacementDiffAcceptance:async()=>true});
+  const accepted=await read();
+  assert.equal(accepted.state,'ORIGINAL_REPLACEMENT_DIFF_VERIFIED');
+  assert.equal(Object.hasOwn(accepted,'originalMultipartAgreement'),multipart);
+  const stable={signs:x.signatureCount(),puts:x.counts().networkPuts,source:x.sourceStore.calls,recipient:x.f.kernel.calls};
+  x.f.restart();
+  const repeat=await x.publishReplacementDiff(phase,{...automatic,createOriginalReplacementRecipientPublicationPort:recipientFactory});
+  assert.equal(repeat.sha256,diff.sha256);assert.equal(repeat.publicationState,'ALREADY_PRESENT_VERIFIED');
+  assert.deepEqual(await read(),accepted);
+  assert.deepEqual({signs:x.signatureCount(),puts:x.counts().networkPuts,source:x.sourceStore.calls,recipient:x.f.kernel.calls},stable);
+});

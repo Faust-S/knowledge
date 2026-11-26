@@ -1389,7 +1389,7 @@ export function createT4OriginalNetworkPublicationPort({
   }
   function verifySessionEntries(entries){
     // Negotiation must never fall back to the old compact payload path.
-    if(replacement&&entries.length>1&&frameFor(entries[0]).criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION))
+    if(replacement&&source&&entries.length>1&&frameFor(entries[0]).criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION))
       fail('PUBLICATION_REPLACEMENT_MULTIPART_CONTENT_NOT_ENABLED');
     if(replacement&&source){
       if(frameFor(entries[0]).messageType!=='HEADS'||entries.length===2||
@@ -2440,7 +2440,7 @@ export function createT4OriginalNetworkPublicationPort({
       verifyOriginalHistoricalNodeSignature,authorizeOriginalControlPublication,readOriginalReplacementEligibility,
       readOriginalReplacementRecipientAdmission,readOriginalReplacementDiffAcceptance,readOriginalReplacementAppliedAckAdmission,historicalReadOnly,enableOriginalTechnicalObjectHistory,authorizeOriginalMultipartBacking,enableOriginalMultipartNegotiation,readOriginalMultipartAgreement,
       ...(!historicalReadOnly?{frameTransport:scopeOriginalHostPort(frameTransport,isHostActive,
-        ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
+        ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion','originalMultipartNegotiationEnabled'],
         'PUBLICATION_ORIGINAL_WIRE_LIFETIME_REQUIRED')}:{}),
     }),
     ...(control?{originalControlPublication:true,originalNewAttemptAdmissionStillRequired:true}:{}),

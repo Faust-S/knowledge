@@ -1008,7 +1008,8 @@ async function executeNativeReplacementRecipientStep(p,options){
     resolveOriginalSigningContext,signOriginalNodeBytes,retryMissing=false}=options;
   const multipart=readOriginalMultipartAgreement!==null;
   if(selection.schema!=='IWXA_T4_ORIGINAL_LOCAL_REPLACEMENT_SELECTION_V1'||selection.role!=='RECIPIENT'||
-    (multipart&&(c.changeKind!=='ASSET_PUT'||typeof readOriginalMultipartAgreement!=='function'||
+    (selection.originalLocalMultipartNegotiated===true)!==multipart||
+    (multipart&&(c.changeKind!=='ASSET_PUT'||!SHA(selection.originalLocalMultipartHeadSha256)||typeof readOriginalMultipartAgreement!=='function'||
       frameDiscoveryPort?.originalMultipartNegotiationEnabled!==true))||
     typeof enableOriginalReplacementApply!=='boolean'||typeof retryMissing!=='boolean'||
     !(enableOriginalReplacementApply?[null,'RECEIVED','VERIFIED','APPLY_INTENT']:[null,'RECEIVED']).includes(selection.originalLocalPhase)||
@@ -1034,16 +1035,23 @@ async function executeNativeReplacementRecipientStep(p,options){
   const initial=await guard('replacement-recipient-content-start');
   const live=(fn,name)=>async(...args)=>{await guard(name);const r=await fn(...args);await guard(name+'-readback');return r;};
   const scoped=(port,fields,code)=>scopeOriginalHostPort(port,p.isHostActive,fields,code);
-  const publication=scoped(rawPublication,['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler','originalReplacementRecipientDiffPublication'],
+  const publication=scoped(rawPublication,['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler',
+    'originalReplacementRecipientDiffPublication','originalReplacementMultipartHandshakeEnabled'],
     'RECIPIENT_NATIVE_REPLACEMENT_PUBLICATION_REQUIRED');
   const discovery=scoped(frameDiscoveryPort,['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion',
     'originalMultipartNegotiationEnabled'],'RECIPIENT_NATIVE_STEP_ORIGINAL_DISCOVERY_REQUIRED');
-  const readAgreement=multipart?live(readOriginalMultipartAgreement,'replacement-multipart-agreement'):null;
+  const readAgreement=multipart?live(async proof=>{
+    const a=await readOriginalMultipartAgreement(proof);
+    if(a?.headSha256!==selection.originalLocalMultipartHeadSha256)
+      fail('RECIPIENT_NATIVE_REPLACEMENT_CONTENT_SELECTION_CHANGED');
+    return a;
+  },'replacement-multipart-agreement'):null;
   const checkCursor=async()=>{await guard('replacement-recipient-frontier');
     if(!same(await p.originalRecipientCursorPort.readOriginalVerifiedCursor(),before))fail('RECIPIENT_NATIVE_REPLACEMENT_FRONTIER_CHANGED');};
   await checkCursor();
   const saved=await live(()=>publication.inspectOriginalPublication(),'replacement-recipient-publication')();
   if(publication.originalReplacementRecipientDiffPublication!==true||!same(publication.session,c)||
+    (publication.originalReplacementMultipartHandshakeEnabled===true)!==multipart||
     saved?.checkpointRef!==selection.originalLocalPublicationCheckpointRef||saved.revision!==selection.originalLocalPublicationRevision||
     saved.chainHash!==selection.originalLocalPublicationChainHash||saved.originalT3EventChainVerified!==true||
     !same(saved.frames?.map(({sequence,messageType,sha256,state})=>({sequence,messageType,sha256,state})),selection.originalLocalFrames)||
@@ -1112,9 +1120,11 @@ async function executeNativeReplacementRecipientStep(p,options){
       // additional ACK gate before permitting the first subject mutation.
       // The gate reads the result/intent independently, not its own ACK.
       ackPort=scoped(await createOriginalReplacementRecipientAckPublicationPort({session:c},readAckAdmission),
-        ['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler','originalReplacementRecipientAckPublication'],
+        ['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler',
+          'originalReplacementRecipientAckPublication','originalReplacementMultipartHandshakeEnabled'],
         'RECIPIENT_NATIVE_REPLACEMENT_ACK_PUBLICATION_REQUIRED');
       if(!same(ackPort.session,c)||ackPort.checkpointRef!==publication.checkpointRef||ackPort.originalReplacementRecipientAckPublication!==true||
+        (ackPort.originalReplacementMultipartHandshakeEnabled===true)!==multipart||
         phase.originalReplacementRecipientAckPublicationRequired!==true||!same(await ackPort.inspectOriginalPublication(),saved))
         fail('RECIPIENT_NATIVE_REPLACEMENT_ACK_PUBLICATION_REQUIRED');
       applyStarted=status.currentPhase==='VERIFIED';

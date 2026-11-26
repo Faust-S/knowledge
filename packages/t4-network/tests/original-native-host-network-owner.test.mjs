@@ -1040,3 +1040,13 @@ test('K156 multipart native profile is explicit and rejects incomplete original 
     assert.throws(()=>createT4OriginalNativeHostNetworkProfile(options),rejectProfile);
   }
 });
+
+test('K178 replacement multipart cannot implicitly activate or bypass complete original profile',()=>{
+  for(const role of ['SOURCE','RECIPIENT']){
+    for(const flag of [true,'true']){
+      const options={role,enableOriginalReplacementMultipartNegotiation:flag};
+      assert.throws(()=>createT4OriginalNativeHostNetworkOwner(options),{code:'NATIVE_NETWORK_OWNER_REPLACEMENT_MULTIPART_PROFILE_INVALID'});
+      assert.throws(()=>createT4OriginalNativeHostNetworkProfile(options),{code:'NATIVE_NETWORK_PROFILE_REPLACEMENT_MULTIPART_REQUIRED'});
+    }
+  }
+});
