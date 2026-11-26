@@ -130,7 +130,7 @@ import {createT4OriginalNetworkPublicationPort} from '../src/network/original-ne
 import {validateT4OriginalMultipartBackingPlan} from '../src/network/original-network-publication-multipart-backing.mjs';
 function journal(){
   const objects=new Map(),events=[],remote=new Map();
-  let writes=0,publishes=0,allow=true,lose=null,host='host:1';
+  let writes=0,publishes=0,allow=true,lose=null,loseNetwork=null,host='host:1';
   const kernel={
     hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.putObject'].includes(op),
     async getObject(w,id){return structuredClone(objects.get(id)??null);},
@@ -148,7 +148,10 @@ function journal(){
     },
   };
   const transport={
-    async publishSignedFrame({wireBytes}){publishes++;const sha256=hex(wireBytes),key=sha256+'.t4n';remote.set(key,wireBytes);
+    async publishSignedFrame({wireBytes,beforeNetworkWrite}){if(beforeNetworkWrite)await beforeNetworkWrite();publishes++;const sha256=hex(wireBytes),key=sha256+'.t4n';
+      if(loseNetwork==='before'){loseNetwork=null;throw Object.assign(Error('offline'),{code:'NETWORK_UNAVAILABLE'});}
+      remote.set(key,wireBytes);
+      if(loseNetwork==='after'){loseNetwork=null;throw Object.assign(Error('lost'),{code:'ACK_LOST'});}
       return {schema:'IWXA_T4_CANDIDATE_FRAME_PUBLISHED_V1',key,sha256,immutableTransportReadback:true,originalBusinessApplied:false};},
     async inspectUnknownPublication({key,expectedSha256}){if(!remote.has(key))throw Object.assign(Error('missing'),{code:'REMOTE_NOT_FOUND'});
       return {schema:'IWXA_T4_CANDIDATE_FRAME_PRESENT_V1',key,sha256:expectedSha256,exactBytesPresent:true,originalBusinessApplied:false};},
@@ -163,8 +166,8 @@ function journal(){
     ...(enabled?{authorizeOriginalMultipartBacking:async()=>allow}:{}),frameTransport:transport,...extra});
   const ready=async()=>{const p=port();await p.prepareSignedBatch({slots:[{sequence:1,messageType:'HEADS'}],
     createSignedFrames:async()=>[headWireBytes]});await p.publishPreparedFrame({sequence:1});return p;};
-  return {objects,events,port,ready,get writes(){return writes;},get publishes(){return publishes;},
-    lose:x=>{lose=x;},allow:x=>{allow=x;},restart:()=>{host='host:2';}};
+  return {objects,events,remote,port,ready,get writes(){return writes;},get publishes(){return publishes;},
+    lose:x=>{lose=x;},loseNetwork:x=>{loseNetwork=x;},allow:x=>{allow=x;},restart:()=>{host='host:2';}};
 }
 const reserve=p=>p.prepareOriginalMultipartBacking({wireBytes:small.wireBytes});
 test('K143 compact plan is validated without loading the segments',()=>{
@@ -240,4 +243,71 @@ test('K143 every multipart signed frame requires the original frame publication 
   const p=f.port(true,{authorizeOriginalFramePublish:async x=>x.frameMessageType!=='CHUNK'});
   await assert.rejects(reserve(p),code('PUBLICATION_ORIGINAL_AUTHORITY_DENIED'));
   assert.equal(f.writes,3);assert.equal(f.publishes,1);
+});
+
+test('K144 selected complete multipart backing enters the same PREPARE slot chain without copying wire payloads into the root',async()=>{
+  const f=journal(),p=await f.ready();await reserve(p);
+  const prepared=await p.prepareOriginalMultipartPublication();
+  assert.equal(prepared.originalPublicationPrepared,true);assert.equal(f.writes,7);assert.equal(f.publishes,1);
+  const root=f.objects.get(checkpointRef).object.data;
+  assert.equal(root.entries.length,67);assert.ok(root.entries.slice(1).every(e=>!Object.hasOwn(e,'wireText')));
+  assert.equal(f.events.at(-1).payload.action,'PREPARE');assert.equal(f.events.at(-1).payload.slots.length,66);
+  const inspected=await p.inspectOriginalPublication();assert.equal(inspected.frames.length,67);
+  assert.deepEqual(inspected.frames.slice(1).map(x=>x.wireBytes),small.wireBytes);
+  f.restart();await f.port().prepareOriginalMultipartPublication();assert.equal(f.writes,7);
+  await assert.rejects(f.port(false).inspectOriginalPublication(),code('PUBLICATION_MULTIPART_BACKING_PROFILE_REQUIRED'));
+});
+test('K144 original ATTEMPT and PRESENT transitions publish exact bytes and enforce sequence',async()=>{
+  const f=journal(),p=await f.ready();await reserve(p);await p.prepareOriginalMultipartPublication();
+  await assert.rejects(p.publishPreparedFrame({sequence:3}),code('PUBLICATION_PREDECESSOR_NOT_PRESENT'));
+  const r=await p.publishOriginalMultipartFrames({limit:2});
+  assert.equal(r.frames.length,2);assert.equal(r.remaining,64);assert.equal(f.publishes,3);
+  assert.deepEqual(f.events.slice(-4).map(e=>e.payload.action),['ATTEMPT','PRESENT','ATTEMPT','PRESENT']);
+  for(const frame of small.wireBytes.slice(0,2))assert.deepEqual(f.remote.get(hex(frame)+'.t4n'),frame);
+  const proof=await p.readOriginalPublishedFrame({sequence:3,includePresentEventAnchor:true});
+  assert.equal(proof.originalT3PublicationEventChainVerified,true);assert.equal(proof.verifiedSequence,3);
+  assert.equal(proof.originalBusinessApplied,false);assert.equal(proof.remoteReceiptProven,false);
+});
+test('K144 lost PREPARE response is restored from original root and Events',async()=>{
+  const f=journal(),p=await f.ready();await reserve(p);f.lose('PREPARE');
+  await assert.rejects(p.prepareOriginalMultipartPublication(),code('PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN'));
+  f.restart();const r=await f.port().prepareOriginalMultipartPublication();
+  assert.equal(r.originalPublicationPrepared,true);assert.equal(f.writes,7);assert.equal(f.publishes,1);
+});
+test('K144 lost physical PUT is recovered by exact immutable readback, no second PUT',async()=>{
+  const f=journal(),p=await f.ready();await reserve(p);await p.prepareOriginalMultipartPublication();f.loseNetwork('after');
+  await assert.rejects(p.publishPreparedFrame({sequence:2}),code('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  assert.equal(f.publishes,2);f.restart();const r=await f.port().publishOriginalMultipartFrames({limit:1});
+  assert.equal(r.frames[0].state,'REMOTE_READBACK_RECOVERED');assert.equal(f.publishes,2);
+  assert.equal(r.remaining,65);
+});
+test('K144 lost pre-PUT response requires explicit identical retry and never creates a new frame',async()=>{
+  const f=journal(),p=await f.ready();await reserve(p);await p.prepareOriginalMultipartPublication();f.loseNetwork('before');
+  await assert.rejects(p.publishPreparedFrame({sequence:2}),code('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  f.restart();const q=f.port();await assert.rejects(q.publishOriginalMultipartFrames({limit:1}),code('PUBLICATION_PRIOR_NETWORK_OUTCOME_UNRESOLVED'));
+  const r=await q.publishOriginalMultipartFrames({limit:1,retryMissing:true});
+  assert.equal(r.frames[0].state,'PUBLISHED_AND_READ_BACK');assert.equal(f.publishes,3);
+  assert.deepEqual(f.remote.get(hex(small.wireBytes[0])+'.t4n'),small.wireBytes[0]);
+  assert.deepEqual(f.events.slice(-2).map(e=>e.payload.action),['RETRY','PRESENT']);
+});
+test('K144 selected backing corruption prevents PREPARE and all subsequent physical writes',async()=>{
+  const f=journal(),p=await f.ready(),r=await reserve(p);
+  f.objects.delete(r.segmentEvents[0].objectId);
+  await assert.rejects(p.prepareOriginalMultipartPublication(),code('PUBLICATION_MULTIPART_SEGMENT_OBJECT_MISSING'));
+  assert.equal(f.publishes,1);
+});
+test('K144 access revocation during bounded wake does not publish any further frame',async()=>{
+  const f=journal(),p=await f.ready();await reserve(p);await p.prepareOriginalMultipartPublication();
+  const q=f.port(true,{authorizeOriginalMultipartBacking:async x=>x.purpose!=='before-multipart-network-write'});
+  await assert.rejects(q.publishPreparedFrame({sequence:2}),code('PUBLICATION_MULTIPART_ORIGINAL_AUTHORITY_DENIED'));
+  assert.equal(f.publishes,1);assert.equal(f.writes,7);
+});
+test('K144 complete 66-frame batch resumes in bounded wakes through original Event chain',async()=>{
+  const f=journal(),p=await f.ready();await reserve(p);await p.prepareOriginalMultipartPublication();
+  const a=await p.publishOriginalMultipartFrames({limit:64});assert.equal(a.remaining,2);f.restart();
+  const b=await f.port().publishOriginalMultipartFrames({limit:64});assert.equal(b.remaining,0);
+  assert.equal(b.originalAllFramesPresentRecorded,true);assert.equal(f.publishes,67);assert.equal(f.writes,139);
+  for(const frame of small.wireBytes)assert.deepEqual(f.remote.get(hex(frame)+'.t4n'),frame);
+  const final=await f.port().readOriginalMultipartBacking();assert.equal(final.originalAllFramesPresentRecorded,true);
+  assert.equal(final.originalBusinessApplied,false);
 });

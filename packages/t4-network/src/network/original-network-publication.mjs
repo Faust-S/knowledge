@@ -15,7 +15,7 @@ import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,verifyT4Candid
 import {t4OriginalDeletedSubjectRevision} from './original-deletion-delta.mjs';
 import {assembleT4CandidateOpaqueChunks}
   from './standard-network-opaque-chunks.mjs';
-import {T4_MULTIPART_OPAQUE_EXTENSION,assembleT4CandidateMultipartOpaqueChunks} from './standard-network-multipart-opaque-chunks.mjs';
+import {T4_MULTIPART_OPAQUE_EXTENSION,T4_MULTIPART_MAX_CHUNKS,assembleT4CandidateMultipartOpaqueChunks} from './standard-network-multipart-opaque-chunks.mjs';
 import {createT4OriginalMultipartBacking,readT4OriginalMultipartBacking,
   validateT4OriginalMultipartBackingPlan,
   T4_MULTIPART_BACKING_MAX_RECORD_BYTES} from './original-network-publication-multipart-backing.mjs';
@@ -68,6 +68,8 @@ const PUBLICATION_PREFIX='t4:net:publish:';
 const publicationRef=(sessionRef,localNodeRef,technicalWorkspaceId)=>PUBLICATION_PREFIX+
   digest('PUBLICATION-KEY',{sessionRef,localNodeRef,technicalWorkspaceId}).slice(7);
 const MAX_FRAMES=80,MAX_WIRE_BYTES=1024*1024;
+const MAX_MULTIPART_FRAMES=T4_MULTIPART_MAX_CHUNKS+2;
+const MAX_MULTIPART_PUBLISH_WAKE=64;
 const SOURCE_TYPES=new Set(['HELLO','CAPABILITIES','HEADS','CHANGE_REF','CHUNK','RESUME']);
 const RECIPIENT_TYPES=new Set(['HELLO','CAPABILITIES','DIFF_REQUEST','CHUNK_REQUEST',
   'RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK','RESUME']);
@@ -1322,9 +1324,9 @@ export function createT4OriginalNetworkPublicationPort({
       ...(multipartReservation===undefined?{}:{multipartReservation})};
     return {...data,chainHash:digest('PUBLICATION-CHAIN',{recordIdentity,...data})};
   }
-  function advance(states,event){
+  function advance(states,event,maxFrames=MAX_FRAMES){
     const {action,slots}=event;
-    if(!Array.isArray(slots)||!slots.length||slots.length>MAX_FRAMES)
+    if(!Array.isArray(slots)||!slots.length||slots.length>maxFrames)
       fail('PUBLICATION_ORIGINAL_EVENT_CHAIN_INVALID');
     if(action==='PREPARE'){
       for(const s of slots){
@@ -1376,9 +1378,9 @@ export function createT4OriginalNetworkPublicationPort({
       o.schema_id!==technicalSchemaId||o.schema_version!=='1.0.0'||o.deleted===true||
       d?.schema!==SCHEMA||d.checkpointRef!==checkpointRef||
       !same(d.identity,recordIdentity)||!Array.isArray(d.entries)||
-      !d.entries.length||d.entries.length>MAX_FRAMES||
+      !d.entries.length||d.entries.length>(Object.hasOwn(d,'multipartPlan')?MAX_MULTIPART_FRAMES:MAX_FRAMES)||
       !Number.isSafeInteger(o.revision)||o.revision<1||
-      o.revision!==events.length||events.length>MAX_FRAMES*18)
+      o.revision!==events.length||events.length>(Object.hasOwn(d,'multipartPlan')?MAX_MULTIPART_FRAMES*18+1:MAX_FRAMES*18))
       fail('PUBLICATION_ORIGINAL_CHECKPOINT_INVALID');
     let previous=genesis;
     const states=[],ids=new Set(),presentEvents=[];let reserved=null;
@@ -1389,15 +1391,23 @@ export function createT4OriginalNetworkPublicationPort({
         !same(p,eventRecord(i+1,previous,p.action,p.slots,p.action==='MULTIPART_RESERVE'?p.multipartReservation:undefined)))
         fail('PUBLICATION_ORIGINAL_EVENT_CHAIN_INVALID');
       if(p.action==='MULTIPART_RESERVE'){
-        // This candidate is a terminal reservation, not PREPARE or PRESENT.
-        // No legacy content transition may follow it.
-        if(reserved!==null||i!==events.length-1||!source||control||replacement||
+        // Selection binds the complete backing before the one content PREPARE.
+        if(reserved!==null||!source||control||replacement||
           identity.changeKind!=='ASSET_PUT'||states.length!==1||states[0].messageType!=='HEADS'||
           states[0].state!=='PRESENT'||!same(p.slots,[])||!DIG(p.multipartReservation?.planDigest)||
           !Array.isArray(p.multipartReservation.segmentEvents)||p.multipartReservation.segmentEvents.length<2||
           p.multipartReservation.segmentEvents.length>16)
           fail('PUBLICATION_MULTIPART_RESERVATION_INVALID');
         reserved=clone(p.multipartReservation);
+      }else if(reserved!==null){
+        if(p.action==='PREPARE'){
+          if(states.length!==1||!Array.isArray(p.slots)||p.slots.length!==d.multipartPlan?.frameCount||
+            p.slots[0]?.messageType!=='CHANGE_REF'||p.slots[0]?.sha256!==d.multipartPlan?.changeRef?.sha256||
+            p.slots.slice(1).some(s=>s?.messageType!=='CHUNK'))
+            fail('PUBLICATION_MULTIPART_PREPARE_INVALID');
+        }else if(states.length<2||p.slots?.[0]?.sequence<2)
+          fail('PUBLICATION_MULTIPART_PREPARE_INVALID');
+        advance(states,p,MAX_MULTIPART_FRAMES);
       }else advance(states,p);
       previous=p.chainHash;ids.add(ev.event_id);
       if(p.action==='PRESENT')presentEvents[p.slots[0].sequence-1]={eventId:ev.event_id,revision:ev.revision,chainHash:p.chainHash};
@@ -1407,15 +1417,20 @@ export function createT4OriginalNetworkPublicationPort({
       fail('PUBLICATION_ORIGINAL_EVENT_CHAIN_INVALID');
     if((reserved!==null)!==Object.hasOwn(d,'multipartPlan')||
       (reserved!==null&&d.multipartPlan?.planDigest!==reserved.planDigest))fail('PUBLICATION_MULTIPART_RESERVATION_INVALID');
+    const inline=reserved===null?d.entries:d.entries.slice(0,1);
     let total=0;
-    for(const entry of d.entries){
+    for(const entry of inline){
       frameFor(entry);total+=Buffer.byteLength(entry.wireText,'utf8');
     }
     if(total>MAX_WIRE_BYTES)fail('PUBLICATION_SIGNED_BYTES_LIMIT');
-    verifySessionEntries(d.entries);
-    // Original PREPARE events are also the exact batch boundaries.
+    verifySessionEntries(inline);
+    // Multipart payload bytes live only in original immutable backing
+    // Objects; PREPARE retains exact slot digests, not a second byte copy.
+    if(reserved!==null&&d.entries.slice(1).some(e=>Object.hasOwn(e,'wireText')))
+      fail('PUBLICATION_MULTIPART_INLINE_CONTENT_DENIED');
     for(const ev of events.filter(e=>e.payload.action==='PREPARE')){
       const slots=ev.payload.slots;
+      if(reserved!==null&&slots[0].sequence>1)continue;
       verifyBatch(d.entries.slice(slots[0].sequence-1,slots.at(-1).sequence));
     }
     await guard(ctx,'t1.getObject','publication-double-read');
@@ -1427,17 +1442,20 @@ export function createT4OriginalNetworkPublicationPort({
     if(reserved!==null){
       current.multipartPlan=validateT4OriginalMultipartBackingPlan({...multipartAnchor(current),plan:d.multipartPlan});
       current.multipartReservation=validateMultipartReservation(current.multipartPlan,reserved);
-      if(!same(d.multipartReservation,current.multipartReservation))fail('PUBLICATION_MULTIPART_RESERVATION_INVALID');
+      if(!same(d.multipartReservation,current.multipartReservation)||
+        (current.entries.length!==1&&current.entries.length!==current.multipartPlan.frameCount+1))
+        fail('PUBLICATION_MULTIPART_RESERVATION_INVALID');
     }else if(Object.hasOwn(d,'multipartReservation'))fail('PUBLICATION_MULTIPART_RESERVATION_INVALID');
     return current;
   }
-  async function commit(ctx,current,action,entries,slots,multipartPlan=null,multipartReservation=null){
-    if(current.multipartPlan||(action==='MULTIPART_RESERVE')!==(multipartPlan!==null)||
-      (multipartPlan===null)!==(multipartReservation===null))
-      fail('PUBLICATION_MULTIPART_RESERVATION_CONFLICT');
+  async function commit(ctx,current,action,entries,slots,newPlan=null,newReservation=null){
+    const reserving=action==='MULTIPART_RESERVE';
+    if(reserving!==(newPlan!==null)||(newPlan===null)!==(newReservation===null)||
+      (reserving&&current.multipartPlan))fail('PUBLICATION_MULTIPART_RESERVATION_CONFLICT');
+    const multipartPlan=newPlan??current.multipartPlan??null,multipartReservation=newReservation??current.multipartReservation??null;
     if(multipartPlan)validateMultipartReservation(multipartPlan,multipartReservation);
     const revision=current.revision+1;
-    const event=eventRecord(revision,current.chainHash,action,slots,multipartReservation??undefined);
+    const event=eventRecord(revision,current.chainHash,action,slots,reserving?multipartReservation:undefined);
     const input={workspace_id:technicalWorkspaceId,object_id:checkpointRef,
       schema_id:technicalSchemaId,schema_version:'1.0.0',base_revision:current.revision,
       data:{schema:SCHEMA,title:'Original T3 native publication',
@@ -1447,7 +1465,11 @@ export function createT4OriginalNetworkPublicationPort({
       event:{event_type:EVENT,payload:event}};
     const first=slots.length?entries[slots[0].sequence-1]:null;
     await guard(ctx,'t1.putObject',action,first&&((replacement&&isContent(first.messageType))||isReplacementAck(first.messageType))?first:null);
-    if(multipartPlan)await multipartAuthority(ctx,multipartPlan,'reserve-multipart-root-CAS');
+    if(multipartPlan){
+      if(Buffer.byteLength(JSON.stringify(sorted(input.data)),'utf8')>MAX_WIRE_BYTES)
+        fail('PUBLICATION_MULTIPART_ROOT_TOO_LARGE');
+      await multipartAuthority(ctx,multipartPlan,reserving?'reserve-multipart-root-CAS':'multipart-root-'+action);
+    }
     try{
       const receipt=await originalKernel.putObject(input);
       if(receipt?.object?.object_id!==checkpointRef||
@@ -1488,7 +1510,7 @@ export function createT4OriginalNetworkPublicationPort({
   }
   function multipartAnchor(current){
     const head=current.entries[0],present=current.presentEvents[0];
-    if(current.entries.length!==1||head?.messageType!=='HEADS'||head.state!=='PRESENT'||!present)
+    if((current.entries.length!==1&&!current.multipartPlan)||head?.messageType!=='HEADS'||head.state!=='PRESENT'||!present)
       fail('PUBLICATION_MULTIPART_HEAD_NOT_PRESENT');
     return {session:identity,technicalWorkspaceId,checkpointRef,
       rootAnchor:{revision:present.revision,chainHash:present.chainHash,presentEventId:present.eventId,headSha256:head.sha256},
@@ -1569,7 +1591,7 @@ export function createT4OriginalNetworkPublicationPort({
       encryptionContextRef:sealed.encryptionContextRef,ciphertext:new Uint8Array(sealed.ciphertext),
       originalPreparedCiphertextRequired:true}))!==true)fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_DENIED');
     await multipartAuthority(ctx,plan,'verified-multipart-sealed-content');
-    return Object.freeze({...checked,originalSignatureVerified:true});
+    return Object.freeze({...checked,originalSignatureVerified:true,sealed});
   }
   async function readSelectedMultipart(ctx,current){
     const plan=current.multipartPlan;
@@ -1587,16 +1609,25 @@ export function createT4OriginalNetworkPublicationPort({
     if(after.revision!==current.revision||after.chainHash!==current.chainHash||!same(after.multipartPlan,plan))
       fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
     await multipartAuthority(ctx,plan,'multipart-root-readback');
+    const entries=checked.wireBytes.map(w=>initialEntry(decodeT4CandidateFrame(w),Buffer.from(w).toString('utf8')));
+    if(current.entries.length>1&&!same(current.entries.slice(1).map(descriptor),entries.map(descriptor)))
+      fail('PUBLICATION_MULTIPART_PREPARED_BYTES_CHANGED');
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_MULTIPART_BACKING_READBACK_V1',
       checkpointRef,originalPublicationRevision:current.revision,originalPublicationChainHash:current.chainHash,
       planDigest:plan.planDigest,contentDigest:plan.contentDigest,wireBytes:checked.wireBytes,
       segmentEvents:current.multipartReservation.segmentEvents,
       originalRootReservationVerified:true,originalObjectEventReadbackVerified:true,originalSignatureVerified:true,
-      originalPublicationPrepared:false,networkPublished:false,originalBusinessApplied:false});
+      originalPublicationPrepared:current.entries.length>1,originalAllFramesPresentRecorded:current.entries.length>1&&
+        current.entries.every(e=>e.state==='PRESENT'),networkPublished:false,originalBusinessApplied:false,
+      // Internal only: public readback never exposes the cached sealed witness.
+      entries,sealed:checked.sealed,reservation:current.multipartReservation,context:ctx});
+  }
+  function publicMultipartReadback({entries,sealed,reservation,context,...proof}){
+    return Object.freeze(proof);
   }
   async function readOriginalMultipartBacking(){
     const ctx=await context(),current=await read(ctx);
-    return readSelectedMultipart(ctx,current);
+    return publicMultipartReadback(await readSelectedMultipart(ctx,current));
   }
   async function prepareOriginalMultipartBacking({wireBytes}={}){
     const ctx=await context(),current=await read(ctx);
@@ -1605,7 +1636,7 @@ export function createT4OriginalNetworkPublicationPort({
     await multipartAuthority(ctx,plan,'prepare-multipart-backing');
     if(current.multipartPlan){
       if(!same(current.multipartPlan,plan))fail('PUBLICATION_MULTIPART_RESERVATION_CONFLICT');
-      return readSelectedMultipart(ctx,current);
+      return publicMultipartReadback(await readSelectedMultipart(ctx,current));
     }
     await verifyMultipart(ctx,current,plan,segments);
     // Stage immutable blocks before selecting the root. A crash cannot
@@ -1654,16 +1685,80 @@ export function createT4OriginalNetworkPublicationPort({
     await confirmUnselected();
     await multipartAuthority(ctx,plan,'reserve-multipart-root');
     const selected=await commit(ctx,current,'MULTIPART_RESERVE',current.entries,[],plan,reservation);
-    return readSelectedMultipart(ctx,selected);
+    return publicMultipartReadback(await readSelectedMultipart(ctx,selected));
+  }
+  async function prepareOriginalMultipartPublication(){
+    const ctx=await context(),current=await read(ctx),witness=await readSelectedMultipart(ctx,current);
+    if(current.entries.length>1)return publicMultipartReadback(witness);
+    await guard(ctx,'t4.network.publish.prepare','prepare-multipart-publication');
+    const entries=[...current.entries,...witness.entries.map(({wireText,...metadata})=>metadata)];
+    const saved=await commit(ctx,current,'PREPARE',entries,witness.entries.map(descriptor));
+    return publicMultipartReadback({...witness,originalPublicationRevision:saved.revision,
+      originalPublicationChainHash:saved.chainHash,originalPublicationPrepared:true});
+  }
+  function multipartEntry(ctx,current,sequence,witness){
+    if(!multipartBackingEnabled||!witness||!same(witness.context,ctx)||
+      current.multipartPlan?.planDigest!==witness.planDigest||
+      !same(current.multipartReservation,witness.reservation))
+      fail('PUBLICATION_MULTIPART_BACKING_PROFILE_REQUIRED');
+    const at=current.entries[sequence-1],exact=witness.entries[sequence-2];
+    if(!at||!exact||!same(descriptor(at),descriptor(exact)))
+      fail('PUBLICATION_MULTIPART_PREPARED_BYTES_CHANGED');
+    return {...at,wireText:exact.wireText};
+  }
+  function multipartWriteGuard(ctx,current,entry,witness){
+    const plan=current.multipartPlan;
+    return async()=>{
+      await multipartAuthority(ctx,plan,'before-multipart-network-write');
+      await verifyFrame(ctx,entry,'before-multipart-network-write',true);
+      // Read the exact selected part again at the physical write fence. The
+      // complete sealed witness was assembled once for this bounded wake.
+      const desc=plan.segments.find(x=>entry.sequence>=x.firstSequence&&entry.sequence<=x.lastSequence);
+      if(desc){
+        const saved=await readSegment(ctx,plan,desc),expected=current.multipartReservation.segmentEvents[desc.partIndex];
+        const exact=saved?.segment?.entries?.find(x=>x.sequence===entry.sequence);
+        if(!saved||saved.eventId!==expected.eventId||!exact||exact.sha256!==entry.sha256||
+          exact.wireText!==entry.wireText)fail('PUBLICATION_MULTIPART_SELECTED_EVENT_CHANGED');
+      }else if(entry.sequence!==2||!same(descriptor(entry),descriptor(plan.changeRef))||entry.wireText!==plan.changeRef.wireText)
+        fail('PUBLICATION_MULTIPART_PREPARED_BYTES_CHANGED');
+      const sealed=witness.sealed;
+      if(await authorizeOriginalSealedPublication(Object.freeze({session:identity,contentDigest:sealed.contentDigest,
+        encryptionContextRef:sealed.encryptionContextRef,ciphertext:new Uint8Array(sealed.ciphertext),
+        originalPreparedCiphertextRequired:true}))!==true)fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_DENIED');
+      await verifyFrame(ctx,entry,'after-multipart-sealed-authorization',true);
+      await multipartAuthority(ctx,plan,'authorized-multipart-network-write');
+      return true;
+    };
+  }
+  async function publishOriginalMultipartFrames({limit=MAX_MULTIPART_PUBLISH_WAKE,retryMissing=false}={}){
+    if(!Number.isSafeInteger(limit)||limit<1||limit>MAX_MULTIPART_PUBLISH_WAKE||typeof retryMissing!=='boolean')
+      fail('PUBLICATION_MULTIPART_WAKE_LIMIT_INVALID');
+    const ctx=await context(),current=await read(ctx);
+    if(current.entries.length<2||!current.multipartPlan)fail('PUBLICATION_MULTIPART_PREPARE_REQUIRED');
+    const witness=await readSelectedMultipart(ctx,current),results=[];
+    const first=current.entries.find(e=>e.state!=='PRESENT')?.sequence??current.entries.length+1;
+    for(let sequence=first;sequence<=current.entries.length&&results.length<limit;sequence++){
+      results.push(await publishPreparedFrameInternal({sequence,retryMissing},witness));
+    }
+    const after=await read(ctx);
+    if(after.multipartPlan?.planDigest!==witness.planDigest||!same(after.multipartReservation,witness.reservation))
+      fail('PUBLICATION_MULTIPART_RESERVATION_CONFLICT');
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_MULTIPART_PUBLICATION_WAKE_V1',checkpointRef,
+      planDigest:witness.planDigest,frames:Object.freeze(results),originalPublicationRevision:after.revision,
+      remaining:after.entries.filter(e=>e.state!=='PRESENT').length,
+      originalAllFramesPresentRecorded:after.entries.every(e=>e.state==='PRESENT'),
+      originalBusinessApplied:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false});
   }
 
   async function inspectOriginalPublication(){
     const ctx=await context(),current=await read(ctx);
+    const witness=current.multipartPlan&&current.entries.length>1?await readSelectedMultipart(ctx,current):null;
+    const entries=witness?current.entries.map(e=>e.sequence===1?e:multipartEntry(ctx,current,e.sequence,witness)):current.entries;
     return Object.freeze({schema:SCHEMA,session:identity,checkpointRef,
       revision:current.revision,chainHash:current.chainHash,
       ...(current.multipartPlan?{multipartBackingReserved:true,multipartPlanDigest:current.multipartPlan.planDigest,
-        multipartPublicationPrepared:false}:{}),
-      frames:current.entries.map(e=>Object.freeze({...descriptor(e),
+        multipartPublicationPrepared:current.entries.length>1}:{}),
+      frames:entries.map(e=>Object.freeze({...descriptor(e),
         state:e.state,attempts:e.attempts,key:e.sha256+'.t4n',
         // Exact original signed bytes; no re-signing/re-sealing on recovery.
         wireBytes:new Uint8Array(Buffer.from(e.wireText,'utf8'))})),
@@ -1676,30 +1771,33 @@ export function createT4OriginalNetworkPublicationPort({
   // publication ledger and immutable remote readback after a cold restart.
   // This proves neither receipt nor application by the other peer.
   async function readOriginalPublishedFrame({sequence,includePresentEventAnchor=false}={}){
-    if(typeof includePresentEventAnchor!=='boolean'||!Number.isSafeInteger(sequence)||sequence<1||sequence>MAX_FRAMES)
+    if(typeof includePresentEventAnchor!=='boolean'||!Number.isSafeInteger(sequence)||sequence<1||sequence>(multipartBackingEnabled?MAX_MULTIPART_FRAMES:MAX_FRAMES))
       fail('PUBLICATION_SEQUENCE_INVALID');
-    const ctx=await context(),current=await read(ctx),entry=current.entries[sequence-1];
+    const ctx=await context(),current=await read(ctx),multipart=!!current.multipartPlan&&sequence>1;
+    let entry=current.entries[sequence-1];
     if(entry?.state!=='PRESENT')fail('PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT');
+    if(multipart)entry=multipartEntry(ctx,current,sequence,await readSelectedMultipart(ctx,current));
     if(replacement&&isContent(entry.messageType))await requireReplacementContent(ctx);
     if(isReplacementAck(entry.messageType))await requireReplacementAck(ctx,entry);
-    const proof=await readPublishedProof(ctx,current,entry,includePresentEventAnchor);
+    const proof=await readPublishedProof(ctx,current,entry,includePresentEventAnchor,multipart);
     if(isReplacementAck(entry.messageType))await requireReplacementAck(ctx,entry);
     if(replacement&&isContent(entry.messageType))await requireReplacementContent(ctx);
     const after=await read(ctx);
     if(after.revision!==current.revision||after.chainHash!==current.chainHash||
-      !same(after.entries[sequence-1],entry)||
+      !same(after.entries[sequence-1],current.entries[sequence-1])||
       !same(after.presentEvents[sequence-1],current.presentEvents[sequence-1]))fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
     return proof;
   }
-  async function readPublishedProof(ctx,current,entry,includePresentEventAnchor){
-    const frame=await verifyFrame(ctx,entry,'outbound-proof');
+  async function readPublishedProof(ctx,current,entry,includePresentEventAnchor,multipart=false){
+    const frame=await verifyFrame(ctx,entry,'outbound-proof',multipart);
     const key=entry.sha256+'.t4n';
-    await guard(ctx,'t4.network.publish.'+frame.messageType,'outbound-proof-network-readback',entry);
+    await guard(ctx,'t4.network.publish.'+frame.messageType,'outbound-proof-network-readback',entry,null,multipart);
     const network=await frameTransport.inspectUnknownPublication({key,expectedSha256:entry.sha256});
     if(network?.schema!=='IWXA_T4_CANDIDATE_FRAME_PRESENT_V1'||network.key!==key||
       network.sha256!==entry.sha256||network.exactBytesPresent!==true||network.originalBusinessApplied!==false)
       fail('PUBLICATION_NETWORK_READBACK_NOT_PROVEN');
-    await verifyFrame(ctx,entry,'outbound-proof-after-network');
+    await verifyFrame(ctx,entry,'outbound-proof-after-network',multipart);
+    if(multipart)await multipartAuthority(ctx,current.multipartPlan,'outbound-proof-after-network');
     const anchor=current.presentEvents[entry.sequence-1];
     if(!anchor)fail('PUBLICATION_ORIGINAL_PRESENT_EVENT_REQUIRED');
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1',
@@ -1762,6 +1860,7 @@ export function createT4OriginalNetworkPublicationPort({
     if(typeof includePresentEventAnchor!=='boolean'||!Number.isSafeInteger(sequence)||sequence<1||sequence>MAX_FRAMES||
       verifyOriginalHistoricalNodeSignature===null)fail('PUBLICATION_ORIGINAL_HISTORY_PORT_REQUIRED');
     const ctx=await context(),current=await read(ctx),entry=current.entries[sequence-1];
+    if(current.multipartPlan&&sequence>1)fail('PUBLICATION_MULTIPART_HISTORICAL_PROFILE_REQUIRED');
     const proof=await historicalPublishedProof(current,entry,includePresentEventAnchor);
     const after=await read(ctx);
     if(after.revision!==current.revision||after.chainHash!==current.chainHash||
@@ -1802,6 +1901,7 @@ export function createT4OriginalNetworkPublicationPort({
       new Set(requested).size!==requested.length)
       fail('PUBLICATION_INDEX_MIGRATION_SEQUENCE_INVALID');
     const ctx=await context(),current=await read(ctx);
+    if(current.multipartPlan)fail('PUBLICATION_MULTIPART_INDEX_MIGRATION_PROFILE_REQUIRED');
     const entries=requested.map(sequence=>current.entries[sequence-1]);
     if(entries.some(e=>e?.state!=='PRESENT'))fail('PUBLICATION_INDEX_MIGRATION_PRESENT_REQUIRED');
     // Validate every selected original signed frame and migration decision
@@ -1861,6 +1961,7 @@ export function createT4OriginalNetworkPublicationPort({
   async function prepareSignedBatch({slots,createSignedFrames}={}){
     const requested=slotList(slots,writeTypes),ctx=await context();
     const current=await read(ctx),start=requested[0].sequence;
+    if(current.multipartPlan&&requested.some(s=>s.sequence>1))fail('PUBLICATION_MULTIPART_RESERVATION_CONFLICT');
     if(start<=current.entries.length){
       const exact=current.entries.slice(start-1,start-1+requested.length);
       if(exact.length!==requested.length||!same(requested,exact.map(
@@ -1925,23 +2026,31 @@ export function createT4OriginalNetworkPublicationPort({
       frames:appended.map(descriptor),originalT3EventChainVerified:true,
       networkPublished:false,originalBusinessApplied:false});
   }
-  async function publishPreparedFrame({sequence,retryMissing=false}={}){
+  async function publishPreparedFrame(options={}){
+    return publishPreparedFrameInternal(options,null);
+  }
+  async function publishPreparedFrameInternal({sequence,retryMissing=false}={},witness=null){
     if(!Number.isSafeInteger(sequence)||sequence<1||
       typeof retryMissing!=='boolean')fail('PUBLICATION_SEQUENCE_INVALID');
     const ctx=await context();
     let current=await read(ctx),entry=current.entries[sequence-1];
+    const multipart=!!current.multipartPlan&&sequence>1;
     if(!entry||current.entries.slice(0,sequence-1).some(e=>e.state!=='PRESENT'))
       fail('PUBLICATION_PREDECESSOR_NOT_PRESENT');
-    await verifyFrame(ctx,entry,'publish-prepared');
+    if(multipart){
+      witness??=await readSelectedMultipart(ctx,current);
+      entry=multipartEntry(ctx,current,sequence,witness);
+    }
+    await verifyFrame(ctx,entry,'publish-prepared',multipart);
     if(replacement&&isContent(entry.messageType))await requireReplacementContent(ctx);
     if(isReplacementAck(entry.messageType))await requireReplacementAck(ctx,entry);
     const address={key:entry.sha256+'.t4n',expectedSha256:entry.sha256};
-    const checkContent=contentWriteGuard(ctx,current.entries,entry);
+    const checkContent=multipart?multipartWriteGuard(ctx,current,entry,witness):contentWriteGuard(ctx,current.entries,entry);
     let newAttempt=entry.state==='PREPARED',recovered=false;
     if(!newAttempt){
       try{
         if(entry.state==='ATTEMPTED'&&frameTransport.nativeFrameIndexVersion===1)
-          await guard(ctx,'t4.network.publish.index.repair','repair-original-index',entry);
+          await guard(ctx,'t4.network.publish.index.repair','repair-original-index',entry,null,multipart);
         const seen=await frameTransport.inspectUnknownPublication({...address,
           ...(entry.state==='ATTEMPTED'&&frameTransport.nativeFrameIndexVersion===1?{repairMissingFrameIndex:true,
             ...(checkContent?{beforeNetworkWrite:checkContent}:{})}:{})});
@@ -1960,12 +2069,13 @@ export function createT4OriginalNetworkPublicationPort({
             attemptLimitReached:entry.attempts>=16,
             automaticRetryAllowed:false,exactSignedBytesRetained:true,
           },error);
-        await guard(ctx,'t4.network.publish.retry-missing','explicit-identical-retry',entry);
+        await guard(ctx,'t4.network.publish.retry-missing','explicit-identical-retry',entry,null,multipart);
         newAttempt=true;
       }
     }
     if(entry.state==='PRESENT'&&recovered){
-      await verifyFrame(ctx,entry,'confirmed-remote-readback');
+      await verifyFrame(ctx,entry,'confirmed-remote-readback',multipart);
+      if(multipart)await multipartAuthority(ctx,current.multipartPlan,'confirmed-multipart-remote-readback');
       return result(entry,'ALREADY_PRESENT_VERIFIED',current.revision);
     }
     if(newAttempt){
@@ -1974,9 +2084,9 @@ export function createT4OriginalNetworkPublicationPort({
       const action=entry.state==='PREPARED'?'ATTEMPT':'RETRY';
       at.state='ATTEMPTED';at.attempts++;
       current=await commit(ctx,current,action,entries,[descriptor(entry)]);
-      entry=current.entries[sequence-1];
+      entry=multipart?multipartEntry(ctx,current,sequence,witness):current.entries[sequence-1];
       try{
-        await verifyFrame(ctx,entry,'before-network');
+        await verifyFrame(ctx,entry,'before-network',multipart);
         const receipt=await frameTransport.publishSignedFrame({
           wireBytes:new Uint8Array(Buffer.from(entry.wireText,'utf8')),
           ...(checkContent?{beforeNetworkWrite:checkContent}:{})
@@ -1986,7 +2096,7 @@ export function createT4OriginalNetworkPublicationPort({
           receipt.immutableTransportReadback!==true||
           receipt.originalBusinessApplied!==false)
           fail('PUBLICATION_NETWORK_READBACK_INVALID');
-        await verifyFrame(ctx,entry,'after-network');
+        await verifyFrame(ctx,entry,'after-network',multipart);
       }catch(error){
         fail('PUBLICATION_NETWORK_OUTCOME_UNKNOWN',{
           originalCode:error?.code??null,sequence,
@@ -1994,7 +2104,8 @@ export function createT4OriginalNetworkPublicationPort({
         },error);
       }
     }
-    await verifyFrame(ctx,entry,'confirm-present');
+    await verifyFrame(ctx,entry,'confirm-present',multipart);
+    if(multipart)await multipartAuthority(ctx,current.multipartPlan,'confirm-multipart-present');
     const entries=clone(current.entries);entries[sequence-1].state='PRESENT';
     const saved=await commit(ctx,current,'PRESENT',entries,[descriptor(entry)]);
     return result(entry,recovered?'REMOTE_READBACK_RECOVERED':
@@ -2003,7 +2114,8 @@ export function createT4OriginalNetworkPublicationPort({
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1',
     session:identity,checkpointRef,inspectOriginalPublication,
     ...(historicalReadOnly?{originalHistoricalReadOnly:true}:{prepareSignedBatch,publishPreparedFrame,readOriginalPublishedFrame,reconcileOriginalPublishedFrameIndexes}),
-    ...(multipartBackingEnabled?{prepareOriginalMultipartBacking,readOriginalMultipartBacking}:{}),
+    ...(multipartBackingEnabled?{prepareOriginalMultipartBacking,readOriginalMultipartBacking,
+      prepareOriginalMultipartPublication,publishOriginalMultipartFrames}:{}),
     ...(verifyOriginalHistoricalNodeSignature!==null?{readOriginalHistoricalPublishedFrame,readOriginalHistoricalPublishedBatch}:{}),
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkPublicationPort({
       technicalSchemaId,
