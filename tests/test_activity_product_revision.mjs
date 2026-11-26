@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {preparePersonalTechnologyProduct,prepareD05TechnologyProduct} from '../modules/activity-base-anonymizer/technology-product.mjs';
+import {preparePersonalTechnologyProduct,prepareD05TechnologyProduct,prepareD05RecipientInputs,validateTechnologyProduct} from '../modules/activity-base-anonymizer/technology-product.mjs';
 import {editableProductTexts,reviseTechnologyProductText,reviewTechnologyTextChange,reviewTechnologyTransferContent} from '../modules/activity-base-anonymizer/technology-product-revision.mjs';
 import {suggestD05ParameterDecisions} from '../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
 import {buildD05RouteQualityComparisonExample,reviewD05ResultSelection,prepareD05DisclosureCandidate} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
-import {personalRows,personalProposal,d05Candidate} from './activity_technology_product_fixture.mjs';
+import {personalRows,personalProposal,d05Candidate,d05Binding} from './activity_technology_product_fixture.mjs';
 const revision=(p,row,replacement)=>({base_product_sha256:p.product_sha256,edits:[{path:row.path,previous:row.text,replacement,reason:'Remove identifying reference'}]});
 test('personal disclosure corrections are new revisions and never approve publication',async()=>{
  const p=await preparePersonalTechnologyProduct(personalRows(),'routine_001',{...personalProposal(),title:'Weekly review by private@example.com'});
@@ -236,4 +236,32 @@ test('source functional mappings remain explicit contextual suggestions and pres
  const conflict=await prepareProductGeneralization(p,[],'ru',[ref,{...ref,replacement:'другой класс оборудования'}]);
  assert.equal(conflict.groups[0].suggested_replacement,null);
  assert.equal(conflict.groups[0].reference_alternatives.length,2);
+});
+
+test('native D05 duration is positive and a retained duration always keeps its original unit',async()=>{
+ const records=buildD05RouteQualityComparisonExample();
+ const source=records.find(r=>r.object.schema_id.endsWith('.operation-route')).object.data.value.data.inputs.operations[0];
+ source.duration='0';source.unit='hours';
+ const r=reviewD05ResultSelection(records,{includeTechnologyDraft:true}),g=r.groups[0],profile=r.technology_draft.groups[0].profiles[0];
+ const op=g.operations.find(o=>o.name===source.name);
+ const decisions=suggestD05ParameterDecisions(r,g.id,1).decisions;
+ assert.equal(decisions[op.id+'.duration'].mode,'PARAMETERIZE');
+ assert.equal(decisions[op.id+'.unit'].mode,'RETAIN_DECLARATION');
+ const invalid=prepareD05DisclosureCandidate(r,g.id,1,{}, {...decisions,[op.id+'.duration']:{mode:'RETAIN_DECLARATION'}});
+ assert.ok(invalid.pending_parameter_decisions.some(p=>p.key===op.id+'.duration'));
+ const candidate=d05Candidate(),target=candidate.technology.operations[0];
+ const duration=target.parameters.find(p=>p.field==='duration'),unit=target.parameters.find(p=>p.field==='unit');
+ assert.equal(duration.mode,'RETAIN_DECLARATION');
+ Object.assign(unit,{mode:'PARAMETERIZE',value:null,guidance:'Choose local unit'});
+ await assert.rejects(()=>prepareD05TechnologyProduct(candidate,'Part'),{code:'TECHNOLOGY_D05_DURATION_REQUIRES_FIXED_UNIT'});
+ const legacy=validateTechnologyProduct({title:'Part',target:'D05_OPERATION_ROUTE_QUALITY',technology:candidate.technology});
+ assert.throws(()=>prepareD05RecipientInputs(legacy,d05Binding(legacy)),{code:'TECHNOLOGY_D05_DURATION_REQUIRES_FIXED_UNIT'});
+ Object.assign(duration,{mode:'PARAMETERIZE',value:null,guidance:'Set positive duration with matching time unit'});
+ const p=await prepareD05TechnologyProduct(candidate,'Part');
+ const binding=d05Binding(p.object_data);
+ binding.operations[target.operation_id].parameters.duration='0';
+ assert.throws(()=>prepareD05RecipientInputs(p.object_data,binding),{code:'TECHNOLOGY_D05_RECIPIENT_PARAMETER_VALUE'});
+ binding.operations[target.operation_id].parameters.duration='2';
+ assert.equal(prepareD05RecipientInputs(p.object_data,binding).route_inputs.operations[0].duration,'2');
+ assert.equal(prepareD05RecipientInputs(p.object_data,binding).quality_plan_inputs.checks[0].upper_limit,'100.2');
 });

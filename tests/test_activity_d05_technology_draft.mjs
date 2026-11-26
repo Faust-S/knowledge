@@ -478,6 +478,19 @@ test('compatible route experience aligns actual controls across differing plan o
  const out=await extractD05PracticalLessons(r,group.id,1,options);
  assert.deepEqual(out.source_model_numbers,[1,2]);
  assert.equal(out.source_report_count,2);
+ const request=await prepareD05ExtractionRequest(r,group.id,1,options);
+ assert.equal(request.document.comparison.recorded_report_count,2);
+ const controls=request.document.evidence.filter(e=>e.field==='recorded_quality_report').map(e=>({scope:e.scope,...JSON.parse(e.text)}));
+ assert.equal(new Set(controls.map(c=>c.check_id)).size,1);
+ assert.ok(controls.every(c=>c.scope===c.check_id&&c.control_number===a.canonical_control_number));
+ const defects=request.document.evidence.filter(e=>e.field==='recorded_defect_report');
+ assert.equal(defects.length,2);assert.ok(defects.every(e=>e.scope===controls[0].check_id));
+ assert.ok(request.document.evidence.every(e=>['DECLARED','GAP'].includes(e.kind)));
+ const unaligned=structuredClone(r);
+ unaligned.recorded_execution_review.profiles[1].reports[0].quality[0].canonical_control_number=null;
+ const scoped=await prepareD05ExtractionRequest(unaligned,group.id,1,options);
+ assert.equal(scoped.document.comparison.recorded_scope.excluded_unaligned_controls,1);
+ assert.equal(scoped.document.comparison.recorded_scope.excluded_unaligned_defects,1);
  assert.equal(out.lessons.length,1);
  assert.equal(out.lessons[0].order_count,2);
  assert.equal(out.lessons[0].rechecked_order_count,2);
@@ -495,6 +508,7 @@ test('compatible route experience aligns actual controls across differing plan o
  assert.equal(selected.lessons[0].order_count,1);
  const other=await extractionCase({recurring:true,recorded:true,peerReports:true,peerContextChanged:true});
  assert.deepEqual((await extractD05PracticalLessons(other.review,other.group.id,1,options)).source_model_numbers,[1]);
+ assert.equal((await prepareD05ExtractionRequest(other.review,other.group.id,1,options)).document.comparison.recorded_report_count,1);
  const repeated=structuredClone(r);
  const reports=repeated.recorded_execution_review.profiles;
  reports[1].reports[0].source_refs=reports[0].reports[0].source_refs;
@@ -502,6 +516,10 @@ test('compatible route experience aligns actual controls across differing plan o
  assert.equal(duplicate.excluded_duplicate_order_count,1);
  assert.equal(duplicate.source_report_count,0);
  assert.equal(duplicate.lessons.length,0);
+ const duplicatedRequest=await prepareD05ExtractionRequest(repeated,group.id,1,options);
+ assert.equal(duplicatedRequest.document.comparison.recorded_report_count,0);
+ assert.equal(duplicatedRequest.document.comparison.recorded_scope.excluded_duplicate_orders,1);
+ assert.ok(!duplicatedRequest.document.evidence.some(e=>e.field==='recorded_defect_report'));
 });
 
 import {reviewD05FunctionalMappings,collectD05FunctionalReferences,suggestD05ParameterDecisions} from '../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
@@ -526,6 +544,13 @@ test('functional review reads exact optional context, retains declared controls 
  assert.ok(local.profiles[0].entries.some(e=>e.field==='comment'&&e.value===input.operations[0].comment));
  const plainRequest=await prepareD05ExtractionRequest(plain,g.id,1),detailRequest=await prepareD05ExtractionRequest(r,g.id,1);
  assert.equal(detailRequest.request_sha256,plainRequest.request_sha256);
+ const withNotes=await prepareD05ExtractionRequest(r,g.id,1,{includeLocalInstructions:true});
+ assert.notEqual(withNotes.request_sha256,detailRequest.request_sha256);
+ assert.equal(withNotes.document.comparison.local_instruction_count,1);
+ assert.ok(withNotes.document.evidence.some(e=>e.field==='source_note_instruction'&&e.scope===cut(r)&&e.text==='Проверить положение упора перед запуском.'));
+ assert.doesNotMatch(withNotes.document_text,/PRIVATE_DRAWING_A|PRIVATE_ORDER_ALPHA|PRIVATE_MATERIAL_A|Не подтверждено наличие оснастки/);
+ assert.ok(withNotes.document.evidence.some(e=>e.field==='recorded_operation_report'&&e.scope===cut(r)&&JSON.parse(e.text).declared_responsible_role==='Оператор лазерной резки'));
+ await assert.rejects(()=>prepareD05ExtractionRequest(plain,g.id,1,{includeLocalInstructions:true}),{code:'TECHNOLOGY_D05_EXTRACTION_LOCAL_CONTEXT_REQUIRED'});
  assert.doesNotMatch(detailRequest.document_text,/PRIVATE_DRAWING_A|PRIVATE_ORDER_ALPHA|PRIVATE_MATERIAL_A/);
  const m=reviewD05FunctionalMappings(r,g.id,1),op=cut(r),role=m.rows.find(x=>x.scope===op&&x.field==='role');
  assert.equal(role.suggested_requirement,'Оператор лазерной резки');

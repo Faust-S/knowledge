@@ -43,6 +43,10 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
  const check=profile.checks.find(c=>c.id===checkId);
  const scopeLabel=(id:string)=>id==='technology'?'Технология':
   operations.find(o=>o.id===id)?.name??profile.checks.find(c=>c.id===id)?.title??'Контрольная точка';
+ const portableScopeLabel=(id:string)=>{
+  const label=form.operations?.[id]?.label?.trim().replace(/\s+/g,' ');
+  return id.startsWith('op_')?'Операция '+id+(label?' ('+label+')':''):'Контрольная точка '+id;
+ };
  const proposalOp=preview?.operations.find(o=>o.operation_id===opId);
  const mappedRows=(mapping?.rows??[]).map(r=>({...r,current_requirement:(r.field==='responsible_role'?form.quality_roles?.[r.scope]:form.operations?.[r.scope]?.[r.field])?.trim()||null}));
  const operationMapping=mappedRows.filter(r=>r.scope===opId);
@@ -71,7 +75,7 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
     <h4>Функциональные требования к среде получателя</h4>
     <p>Сопоставьте исходные обозначения с действительными функциями и связанными контрольными условиями. Исходное описание можно перенести в рабочий черновик, но оно само по себе не подтверждает пригодность ресурса и может содержать частные сведения.</p>
     <button disabled={!missingSuggestions.length} onClick={fillFromSource}>Заполнить пустые поля исходными формулировками ({missingSuggestions.length})</button>
-    <D05LocalContextPanel review={mapping} scopeLabel={scopeLabel} portableScopeLabel={id=>id.startsWith('op_')?'Операция '+id+(form.operations?.[id]?.label?.trim()?' ('+form.operations[id].label!.trim()+')':''):'Контрольная точка '+id} guidance={form.local_context_guidance??''} mappings={contextMappings}
+    <D05LocalContextPanel review={mapping} scopeLabel={scopeLabel} portableScopeLabel={portableScopeLabel} guidance={form.local_context_guidance??''} mappings={contextMappings}
      onApply={(guidance,mappings)=>{update({...form,local_context_guidance:guidance});onContextMappings(mappings);}}/>
    </div>:<p role="status">Функциональное сопоставление текущей выборки недоступно.</p>}
    <div className="activity-domain-proposal-fields">
