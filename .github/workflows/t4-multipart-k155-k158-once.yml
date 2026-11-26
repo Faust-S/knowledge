@@ -1,0 +1,38 @@
+name: T4 K155 K158 cumulative native multipart qualification
+on:
+  push:
+    branches: ['ci/once/t4-multipart-k155-k158/ba84cd73e7fd1e8a9d84c6b92eedb0c672b60416']
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public source and locked dependencies
+        run: |
+          test "$(git rev-parse HEAD^)" = "ba84cd73e7fd1e8a9d84c6b92eedb0c672b60416"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Check changed source and original contracts
+        working-directory: packages/t4-network
+        run: |
+          npm run check
+          node --check src/network/original-network-multipart-agreement.mjs
+          node --check tests/original-network-multipart-agreement.test.mjs
+          node --check tests/original-network-key-lifecycle.test.mjs
+      - name: New binding, cold recovery, signed native profile and Vault gates
+        working-directory: packages/t4-network
+        run: |
+          node --experimental-strip-types --test --test-name-pattern='K15[3-8]|K90|K148|K150 negotiated|K116 top-level|K125 exact' tests/original-network-multipart-agreement.test.mjs tests/original-network-key-lifecycle.test.mjs tests/original-native-host-network-owner.test.mjs
+      - name: Existing task-level multipart integration and compact compatibility
+        working-directory: packages/t4-network
+        run: |
+          node --experimental-strip-types --test --test-name-pattern='K151|K152' tests/original-network-multipart-agreement.test.mjs
