@@ -1,6 +1,10 @@
 import {validT4NativeSubjectRevision,
   validT4NativeOriginalEventRevision,matchesT4NativeSubjectCriticalExtensions}
   from './standard-network-wire-candidate.mjs';
+import {T4_MULTIPART_OPAQUE_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,
+  validateT4CandidateMultipartManifest} from './standard-network-multipart-opaque-chunks.mjs';
+import {readT4OriginalNativeMultipartAgreement} from './original-network-multipart-agreement.mjs';
+import {validateT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
 import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest,selectT4OriginalLocalEventReadPorts} from './original-event-window.mjs';
 
 /**
@@ -44,8 +48,16 @@ export async function verifyT4OriginalSourceHeadCausality({
   sourceCursorBefore=null,capturedWindowDigest=null,getMode,readOriginalHostContext,
   authorizeOriginalRead,readOriginalEvents,readOriginalWindow=null,
   readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize,
-  verifyOriginalSourceSubject,
+  verifyOriginalSourceSubject,originalMultipartCaptureSession=null,
 }={}){
+  const multipart=verifiedChangeRef?.verifiedCriticalExtensions?.includes(T4_MULTIPART_OPAQUE_EXTENSION)===true;
+  if(multipart?(originalMultipartCaptureSession===null):originalMultipartCaptureSession!==null)
+    fail('HEAD_MULTIPART_AGREEMENT_REQUIRED');
+  if(multipart){
+    verifiedHeads=structuredClone(verifiedHeads);verifiedDiffRequest=structuredClone(verifiedDiffRequest);
+    verifiedChangeRef=structuredClone(verifiedChangeRef);
+    originalMultipartCaptureSession=validateT4OriginalNativeCaptureSession(structuredClone(originalMultipartCaptureSession));
+  }
   const commit=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
   const history=readOriginalWindow===null?selectT4OriginalLocalEventReadPorts({readOriginalEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize}):
     (!commit&&typeof readOriginalWindow==='function'&&readOriginalEvents===undefined&&capturedWindowDigest!==null&&sourceCursorBefore!==null?{readOriginalWindow}:null);
@@ -108,6 +120,28 @@ export async function verifyT4OriginalSourceHeadCausality({
     !Array.isArray(diff.fromHeads)||
     !Array.isArray(change.parents))
     fail('HEAD_ORIGINAL_SOURCE_SCOPE_INVALID');
+  let multipartAgreement=null;
+  if(multipart){
+    const s=originalMultipartCaptureSession;
+    if(!outbound&&!recipientOutbound)fail('HEAD_MULTIPART_LOCAL_PUBLICATION_REQUIRED');
+    if(s.workspaceId!==workspaceId||s.originalWriteOwnerRef!==originalWriteOwnerRef||s.sessionRef!==sessionRef||
+      s.changeId!==change.changeId||s.sourceEventId!==change.eventRef||s.sourceRevision!==change.sourceRevision||
+      s.capturedWindowDigest!==capturedWindowDigest||s.sourceNodeRef!==sourceNodeRef||s.recipientNodeRef!==recipientNodeRef||
+      s.scopeRef!==scopeRef||s.ownerEpoch!==ownerEpoch||
+      verifiedChangeRef.verifiedSequence!==2||!Array.isArray(verifiedChangeRef.verifiedCriticalExtensions)||
+      verifiedChangeRef.verifiedCriticalExtensions.length!==1||!SHA(verifiedChangeRef.sha256)||
+      verifiedChangeRef.key!==verifiedChangeRef.sha256+'.t4n')
+      fail('HEAD_MULTIPART_AGREEMENT_MISMATCH');
+    multipartAgreement=readT4OriginalNativeMultipartAgreement({session:s,sourceHead:verifiedHeads,
+      recipientDiff:verifiedDiffRequest,localRole:outbound?'SOURCE':'RECIPIENT',requiredCryptoSuite:verifiedChangeRef.verifiedCryptoSuite});
+    const manifest=validateT4CandidateMultipartManifest(change.multipartManifest);
+    if(manifest.changeId!==s.changeId||manifest.contentDigest!==change.contentDigest||
+      (!outbound&&(verifiedChangeRef.originalMultipartAgreementDigest!==multipartAgreement.agreementDigest||
+        verifiedChangeRef.originalMultipartHeadSha256!==multipartAgreement.headSha256||
+        verifiedChangeRef.originalMultipartDiffSha256!==multipartAgreement.diffSha256)))
+      fail('HEAD_MULTIPART_AGREEMENT_MISMATCH');
+  }else if([verifiedHeads,verifiedDiffRequest].some(r=>r.verifiedCriticalExtensions?.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION)))
+    fail('HEAD_MULTIPART_AGREEMENT_REQUIRED');
   async function stableContext(){
     if(getMode()!=='T4_NETWORK')
       fail('HEAD_NETWORK_MODE_OFF');
@@ -224,6 +258,8 @@ export async function verifyT4OriginalSourceHeadCausality({
     signedHeadMatchesOriginalT3EventPrefix:true,
     signedDiffMatchesOriginalT3Frontier:true,
     originalSourceSubjectIndependentlyRead:true,
+    ...(multipart?{originalMultipartAgreementDigest:multipartAgreement.agreementDigest,
+      originalMultipartHeadSha256:multipartAgreement.headSha256,originalMultipartDiffSha256:multipartAgreement.diffSha256}:{}),
     ...(outbound?{signedSourceFramesLocalPublicationVerified:true,
       originalSourcePublicationCheckpointRef:verifiedHeads.checkpointRef,
       sourceFramesRemoteReceiptProven:false}:{}),
