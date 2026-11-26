@@ -7,6 +7,7 @@ import {suggestD05ParameterDecisions} from './d05-adaptation-suggestions.mjs';
 import {prepareD05TechnologyProduct} from './technology-product.mjs';
 import {reviewD05RecurringTechnologies} from './d05-recurring-technology.mjs';
 import {selectD05PracticalExperience} from './d05-practical-lessons.mjs';
+import {explicitPracticalInstructions} from './practical-rule-wording.mjs';
 export const REQUEST='IWXA_ACTIVITY_D05_EXTRACTION_REQUEST_V1';
 export const PROPOSAL='IWXA_ACTIVITY_D05_EXTRACTION_PROPOSAL_V1';
 const TERMS=['purpose','inputs','outputs','applicability','adaptation_guidance','local_context_guidance'];
@@ -18,9 +19,9 @@ const HINTS={
  outputs:'Tangible deliverable and acceptance conditions.',
  applicability:'Known applicability and limits; do not invent product ranges.',
  adaptation_guidance:'How recipient adapts order quantity, calendar and resources without changing technical requirements.',
- local_context_guidance:'Which missing local requirements must be established by recipient; no invented facts.',
+ local_context_guidance:'Which missing local requirements must be established by recipient. Preserve applicable source note instructions and their operation or check scope, using the supplied symbolic operation/check IDs; no invented facts.',
  label:'Generalized operation name that preserves its actual subject and function.',
- role:'Functional performer responsibility and competence, not personal identity.',
+ role:'Functional performer responsibility and competence, not personal identity. A declared role in a recorded operation report is not proof of qualification.',
  equipment:'Required equipment function, characteristics or limits; unknown is not no requirement.',
  material:'Functional material requirements; unknown is not no requirement.',
  responsible_role:'Functional responsibility for the actual quality check.',
@@ -33,8 +34,8 @@ const canonical=v=>Array.isArray(v)?v.map(canonical):v!==null&&typeof v==='objec
  Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
 const serial=v=>JSON.stringify(canonical(v));
 const fieldId=(scope,field)=>scope+'.'+field;
-export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{includeCompatibleDeclarations=false,includeRecordedReports=true}={}){
- need(typeof includeCompatibleDeclarations==='boolean'&&typeof includeRecordedReports==='boolean','TECHNOLOGY_D05_EXTRACTION_SCOPE_INVALID');
+export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{includeCompatibleDeclarations=false,includeRecordedReports=true,includeLocalInstructions=false}={}){
+ need(typeof includeCompatibleDeclarations==='boolean'&&typeof includeRecordedReports==='boolean'&&typeof includeLocalInstructions==='boolean','TECHNOLOGY_D05_EXTRACTION_SCOPE_INVALID');
  const initial=prepareD05TechnologyProposal(review,groupId,modelNumber,{});
  const group=review.groups.find(g=>g.id===groupId);
  const draft=review.technology_draft.groups.find(g=>g.group_id===groupId);
@@ -95,11 +96,24 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
   excluded_unaligned_controls:excludedControls,excluded_unaligned_defects:excludedDefects,
   meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED'
  }:null;
+
+ // Only explicit instructions from the selected profile's opt-in local note
+ // view are available to this request. Do not include unrelated document IDs,
+ // full private comments, order names, dates or material references.
+ const local=includeLocalInstructions&&review.local_context_details?.status==='LOCAL_D05_CONTEXT_DETAILS'?
+  review.local_context_details.profiles.find(p=>p.model_number===modelNumber):null;
+ need(!includeLocalInstructions||local,'TECHNOLOGY_D05_EXTRACTION_LOCAL_CONTEXT_REQUIRED');
+ const validScopes=new Set(['technology',...group.operations.map(o=>o.id),...profile.checks.map(c=>c.id)]);
+ const notes=[];
+ for(const e of local?.entries??[]){
+  if(e.field!=='comment'||e.status!=='DECLARED_LOCAL_VALUE'||typeof e.value!=='string'||!validScopes.has(e.scope))continue;
+  for(const value of new Set(explicitPracticalInstructions(e.value)))notes.push({scope:e.scope,value});
+ }
  const source={group:{basis:group.basis,operations:group.operations,model_count:group.model_count},
   profile,shared_condition_keys:draft.shared_condition_keys,differing_condition_keys:draft.differing_condition_keys,
   unresolved_condition_keys:draft.unresolved_condition_keys,shared_check_count:draft.shared_check_count,
   ...(compatible?{compatible_declarations:compatible}:{}),...(recordedScope?{recorded_scope:recordedScope,recorded_reports:recorded,
-   original_report_references:selectedReports.reports.map(s=>s.report.source_refs??[])}:{})};
+   original_report_references:selectedReports.reports.map(s=>s.report.source_refs??[])}:{}),...(includeLocalInstructions?{local_note_instructions:notes}:{})};
  const source_sha256=await sha256Canonical(source);
  const evidence=[],fields=[];
  const add=(scope,field,value,kind='DECLARED')=>{
@@ -114,16 +128,17 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
 
  if(recordedScope){
   add('technology','recorded_report_scope',{...recordedScope,
-   interpretation:'Reported practical experience; actual durations and measurements are not normative limits, independent observation or final acceptance. Unaligned control reports and duplicate orders are excluded.'},'REPORTED');
+   interpretation:'Reported practical experience; actual durations and measurements are not normative limits, independent observation or final acceptance. Unaligned control reports and duplicate orders are excluded.'});
   let reportNumber=0;
   for(const report of recorded){
    reportNumber++;
-   for(const op of report.operations)add(op.operation_id,'recorded_operation_report',{report_number:reportNumber,...op},'REPORTED');
-   for(const row of report.actuals)add('technology','recorded_actuals_report',{report_number:reportNumber,...row},'REPORTED');
-   for(const row of report.quality)add(row.check_id??'technology','recorded_quality_report',{report_number:reportNumber,...row},'REPORTED');
-   for(const row of report.defects)add(row.check_id,'recorded_defect_report',{report_number:reportNumber,...row},'REPORTED');
+   for(const op of report.operations)add(op.operation_id,'recorded_operation_report',{report_number:reportNumber,meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED',...op});
+   for(const row of report.actuals)add('technology','recorded_actuals_report',{report_number:reportNumber,meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED',...row});
+   for(const row of report.quality)add(row.check_id??'technology','recorded_quality_report',{report_number:reportNumber,meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED',...row});
+   for(const row of report.defects)add(row.check_id,'recorded_defect_report',{report_number:reportNumber,meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED',...row});
   }
  }
+ for(const note of notes)add(note.scope,'source_note_instruction',note.value);
  for(const c of profile.conditions)add(c.scope,c.field,c.value);
  for(const op of group.operations){
   for(const k of OP)field(op.id,k);
@@ -140,7 +155,7 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
  const document={profile:REQUEST,source_sha256,source_semantics:'DECLARED_CONDITIONS_NOT_EXECUTION',
   comparison:{model_count:group.model_count,shared_condition_keys:draft.shared_condition_keys,
    differing_condition_keys:draft.differing_condition_keys,unresolved_condition_keys:draft.unresolved_condition_keys,
-   ...(compatible?{compatible_declarations:compatible}:{}),...(recordedScope?{recorded_report_count:recordedCount,recorded_scope:recordedScope}:{})},
+   ...(compatible?{compatible_declarations:compatible}:{}),...(recordedScope?{recorded_report_count:recordedCount,recorded_scope:recordedScope}:{}),...(includeLocalInstructions?{local_instruction_count:notes.length}:{})},
   fields,evidence,quality_links:profile.checks.map(c=>({scope:c.id,operation:c.operation_id}))};
  const document_text=serial(document);
  need(new TextEncoder().encode(document_text).byteLength<=42000,'TECHNOLOGY_D05_EXTRACTION_MODEL_INPUT_LIMIT');
@@ -151,7 +166,7 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
   'Every field is {value:string or null,basis:"SOURCE_SUPPORTED" or "PROPOSED" or "MISSING",refs:[{ref:"evidence_0001",quote:"exact substring"}],note:string}. '+
   'Use SOURCE_SUPPORTED only when the cited source supports the content, PROPOSED for explicit functional suggestions with an explanation, MISSING with null and reason when necessary. '+
   'For an operation or quality role cite that scope, or its linked check or operation. Preserve all original technical controls; the existing domain engine supplies numeric conditions and dependencies. '+
-  'REPORTED evidence describes recorded practice, not a new normative requirement. Compare reported conditions only within their linked check or operation and report number. '+
+  'Evidence fields recorded_* describe recorded practice, not a new normative requirement. Compare reported conditions only within their linked check or operation and report number. Source note instructions require review; keep their applicable conditions and scope. '+
   'Never claim physical execution, approval, anonymity or permission to export. No other fields or external actions.';
  return {document,document_text,request_sha256,source_sha256,objective,field_count:fields.length,
   export_allowed:false,iwxa_package:null};

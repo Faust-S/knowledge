@@ -1,7 +1,7 @@
 import {useLayoutEffect,useRef,useState,type ChangeEvent} from 'react';
 import {prepareD05ExtractionRequest,reviewD05ExtractionProposal,type D05ExtractionRequest,type D05ExtractionReview}
  from '../../modules/activity-base-anonymizer/d05-technology-extraction.mjs';
-import type {D05TechnologyProposalForm,D05ParameterDecision} from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
+import type {D05TechnologyProposalForm,D05ParameterDecision,D05RouteReview} from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 
 function saveLocalRequest(request:D05ExtractionRequest){
  const blob=new Blob([JSON.stringify(request)],{type:'application/json'});
@@ -22,11 +22,13 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
  const [request,setRequest]=useState<D05ExtractionRequest|null>(null),[result,setResult]=useState<D05ExtractionReview|null>(null);
  const [busy,setBusy]=useState(false),[problem,setProblem]=useState(''),[page,setPage]=useState(0);
  const [includeCompatibleDeclarations,setCompatible]=useState(true),[includeRecordedReports,setRecorded]=useState(true);
+ const [includeLocalInstructions,setLocalInstructions]=useState(false);
+ const localAvailable=(review as D05RouteReview)?.local_context_details?.profiles.some(p=>p.model_number===modelNumber)===true;
  useLayoutEffect(()=>{generation.current++;setRequest(null);setResult(null);setProblem('');setBusy(false);setPage(0);
-  return()=>{generation.current++;};},[review,groupId,modelNumber,includeCompatibleDeclarations,includeRecordedReports]);
+  return()=>{generation.current++;};},[review,groupId,modelNumber,includeCompatibleDeclarations,includeRecordedReports,includeLocalInstructions,localAvailable]);
  async function prepare(){
   const token=++generation.current;setBusy(true);setProblem('');setResult(null);setRequest(null);
-  try{const value=await prepareD05ExtractionRequest(review,groupId,modelNumber,{includeCompatibleDeclarations,includeRecordedReports});
+  try{const value=await prepareD05ExtractionRequest(review,groupId,modelNumber,{includeCompatibleDeclarations,includeRecordedReports,includeLocalInstructions:includeLocalInstructions&&localAvailable});
    if(token===generation.current)setRequest(value);}
   catch{if(token===generation.current)setProblem('Для извлечения нужен однозначный маршрут с исходной картой качества. Большие выборки необходимо разделить по технологиям.');}
   finally{if(token===generation.current)setBusy(false);}
@@ -37,7 +39,7 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
   try{
    if(!selected.size||selected.size>2*1024*1024)throw Error('size');
    const raw=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await selected.arrayBuffer()));
-   const value=await reviewD05ExtractionProposal(review,groupId,modelNumber,raw,{includeCompatibleDeclarations,includeRecordedReports});
+   const value=await reviewD05ExtractionProposal(review,groupId,modelNumber,raw,{includeCompatibleDeclarations,includeRecordedReports,includeLocalInstructions:includeLocalInstructions&&localAvailable});
    if(token===generation.current)setResult(value);
   }catch{if(token===generation.current)setProblem('Ответ не соответствует точной редакции источника, полям предложения или указанным основаниям. Проверьте задачу в Agent.');}
   finally{if(token===generation.current)setBusy(false);}
@@ -70,6 +72,8 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
    </select>
   </label>
   <label><input type="checkbox" disabled={busy} checked={includeRecordedReports} onChange={e=>setRecorded(e.target.checked)}/> Учитывать связанные зарегистрированные результаты, отклонения и устранение дефектов</label>
+  <label><input type="checkbox" disabled={busy||!localAvailable} checked={includeLocalInstructions&&localAvailable} onChange={e=>setLocalInstructions(e.target.checked)}/> Включить явные указания из исходных примечаний в локальное модельное задание</label>
+  {localAvailable?<p>Включаются отдельные указания с областью операции или контроля. Они могут содержать частные обозначения; обобщение выполняется только разрешённой локальной моделью.</p>:<p>Для использования примечаний включите их локальный просмотр перед чтением исходных маршрутов.</p>}
   <p>Сходные маршруты с различными технологическими условиями или допусками остаются отдельными. Объём партии и календарь получателя не считаются техническими пределами.</p>
   <div className="activity-v7-actions"><button disabled={busy} onClick={()=>void prepare()}>Подготовить задание для локальной модели</button>
    {request?<button disabled={busy} onClick={()=>saveLocalRequest(request)}>Сохранить локальное задание Agent</button>:null}
@@ -80,6 +84,7 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
    <div><strong>{family.control_count}</strong><span>Совпадающих контрольных точек</span></div></div>:null}
   {recordedCount>0?<p>Включено {recordedCount} связанных отчётов. Их фактические результаты помогают обобщать практику и не меняют нормативные допуски.</p>:null}
   {recordedScope?<p>Отчёты включены из {recordedScope.model_count} нормативно совместимых исходных вариантов. Исключены повторные заказы: {recordedScope.excluded_duplicate_orders}; несопоставленные проверки: {recordedScope.excluded_unaligned_controls}; связанные отклонения: {recordedScope.excluded_unaligned_defects}.</p>:null}
+  {request?.document.comparison.local_instruction_count!==undefined?<p>Включено явных указаний из исходных примечаний: {request.document.comparison.local_instruction_count}.</p>:null}
   {request?<p role="status">Подготовлено {request.field_count} предметных полей. {family?'Повторение заявленных условий не подтверждает фактическое исполнение.':'Включён один исходный вариант.'} Откройте локальное задание в Agent. Используйте только разрешённую локальную модель и отдельную рабочую область; файл содержит частные сведения, не отправляйте его в облако.</p>:null}
   {busy?<p role="status">Проверяется выбранная редакция…</p>:null}
   {problem?<p role="alert" className="activity-v7-note hold">{problem}</p>:null}

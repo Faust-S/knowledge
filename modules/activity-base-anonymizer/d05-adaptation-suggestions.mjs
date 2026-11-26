@@ -106,7 +106,7 @@ export function reviewD05FunctionalMappings(review,groupId,modelNumber,form={}){
  }
  for(const c of proposal.quality_checks){
   if(c.declared_fields.some(f=>f.field==='related_material_id'&&f.status==='LOCAL_REFERENCE_REVIEW_REQUIRED'))
-   context.push({code:'CONTROL_MATERIAL_MAPPING',scope:c.check_id,suggested_requirement:'Для контроля «'+c.title+'» сопоставить материал получателя с требованиями контрольной точки и подтвердить его соответствие до применения.'});
+   context.push({code:'CONTROL_MATERIAL_MAPPING',scope:c.check_id,suggested_requirement:'Сопоставить материал получателя с требованиями контрольной точки и подтвердить его соответствие до применения.'});
   if(c.declared_fields.some(f=>f.field==='comment'&&f.status==='LOCAL_REFERENCE_REVIEW_REQUIRED'))
    context.push({code:'CONTROL_NOTE_REVIEW',scope:c.check_id,suggested_requirement:null});
  }
@@ -142,7 +142,7 @@ export function collectD05FunctionalReferences(review,groupId,modelNumber,form,c
  const current=new Set((form.local_context_guidance??'').split(/\r?\n/).map(v=>v.trim()));
  need(Array.isArray(contextMappings)&&contextMappings.length<=512,'TECHNOLOGY_D05_CONTEXT_MAPPING_LIMIT');
  for(const m of contextMappings){
-  if(!m||typeof m.requirement!=='string'||!current.has(m.requirement))continue;
+  if(!m||typeof m.requirement!=='string'||!current.has(m.guidance_line??m.requirement))continue;
   const row=mapping.local_context_entries.find(e=>e.scope===m.scope&&e.field===m.field&&e.status==='DECLARED_LOCAL_VALUE');
   if(row&&typeof row.value==='string')add(row.value.trim(),m.requirement);
  }

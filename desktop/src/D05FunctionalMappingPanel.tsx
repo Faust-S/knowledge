@@ -20,8 +20,8 @@ export function LinkedControlRequirements({controls}:{controls:D05FunctionalMapp
    {c.requirements.map(r=><p key={r.field}>{labels[r.field]??r.field}: {valueLabel(r.value)}</p>)}</div>)}
  </details>;
 }
-export function D05LocalContextPanel({review,scopeLabel,guidance,mappings,onApply}:{
- review:D05FunctionalMappingReview;scopeLabel:(scope:string)=>string;guidance:string;mappings:D05ContextMapping[];
+export function D05LocalContextPanel({review,scopeLabel,portableScopeLabel,guidance,mappings,onApply}:{
+ review:D05FunctionalMappingReview;scopeLabel:(scope:string)=>string;portableScopeLabel:(scope:string)=>string;guidance:string;mappings:D05ContextMapping[];
  onApply:(guidance:string,mappings:D05ContextMapping[])=>void;
 }){
  const [page,setPage]=useState(0),[contextPage,setContextPage]=useState(0),[selected,setSelected]=useState(''),[requirement,setRequirement]=useState('');
@@ -29,33 +29,36 @@ export function D05LocalContextPanel({review,scopeLabel,guidance,mappings,onAppl
  const current=review.local_context_entries.find(e=>key(e)===selected);
  const lines=guidance.split(/\r?\n/).map(v=>v.trim()).filter(Boolean);
  const append=(v:string)=>lines.includes(v)?guidance:[guidance.trim(),v].filter(Boolean).join('\n');
+ const scoped=(scope:string,value:string)=>scope==='technology'?value:portableScopeLabel(scope)+': '+value;
  const prior=mappings.find(m=>key(m)===selected);
+ const priorLine=prior?.guidance_line??prior?.requirement;
  const nextGuidance=(v:string)=>{
-  if(prior&&prior.requirement!==v&&!mappings.some(m=>key(m)!==selected&&m.requirement===prior.requirement)){
-   const original=guidance.split(/\r?\n/);const index=original.findIndex(line=>line.trim()===prior.requirement);
+  if(priorLine&&priorLine!==v&&!mappings.some(m=>key(m)!==selected&&(m.guidance_line??m.requirement)===priorLine)){
+   const original=guidance.split(/\r?\n/);const index=original.findIndex(line=>line.trim()===priorLine);
    if(index>=0){if(lines.includes(v))original.splice(index,1);else original[index]=v;return original.join('\n');}
   }
   return append(v);
  };
- const valid=!!requirement.trim()&&!/[\r\n]/.test(requirement.trim())&&nextGuidance(requirement.trim()).length<=4096;
- const suggestions=review.context_requirements.filter(r=>r.suggested_requirement&&!lines.includes(r.suggested_requirement));
- const all=[...new Set(suggestions.filter(r=>r.code!=='SOURCE_NOTE_INSTRUCTION').map(r=>r.suggested_requirement!))];
+ const scopedValue=current?scoped(current.scope,requirement.trim()):requirement.trim();
+ const valid=!!requirement.trim()&&!/[\r\n]/.test(requirement.trim())&&nextGuidance(scopedValue).length<=4096;
+ const suggestions=review.context_requirements.filter(r=>r.suggested_requirement&&!lines.includes(scoped(r.scope,r.suggested_requirement)));
+ const all=[...new Set(suggestions.filter(r=>r.code!=='SOURCE_NOTE_INSTRUCTION').map(r=>scoped(r.scope,r.suggested_requirement!)))];
  const suggestedText=[guidance.trim(),...all].filter(Boolean).join('\n');
  function adopt(){
   if(!current||!valid)return;
-  const text=requirement.trim(),item={scope:current.scope,field:current.field,requirement:text};
+  const text=requirement.trim(),item={scope:current.scope,field:current.field,requirement:text,guidance_line:scopedValue};
   // Only retain the exact association to this reviewed local source entry.
   // No copy of the source value is put into the technological product.
   const next=[...mappings.filter(m=>key(m)!==key(item)),item];
   if(next.length>512)return;
-  onApply(nextGuidance(text),next);setRequirement('');setSelected('');
+  onApply(nextGuidance(scopedValue),next);setRequirement('');setSelected('');
  }
  return <details className="activity-domain-group">
   <summary>Обобщить локальные условия и документы</summary>
   <p>Правила получателя выводятся из известных видов исходных условий. Неизвестное содержание примечания или документа не восстанавливается автоматически.</p>
   {review.context_requirements.slice(contextPage*6,(contextPage+1)*6).map((r,i)=><div key={r.scope+':'+r.code+':'+i} className="activity-domain-op">
    <strong>{contextLabels[r.code]??r.code} · {scopeLabel(r.scope)}</strong>
-   {r.suggested_requirement?<><p>{r.suggested_requirement}</p>{r.code==='SOURCE_NOTE_INSTRUCTION'?<p>Сначала проверьте применимость и частные обозначения. Это исходное указание, не новый норматив.</p>:null}<button disabled={lines.includes(r.suggested_requirement)||append(r.suggested_requirement).length>4096} onClick={()=>onApply(append(r.suggested_requirement!),mappings)}>Добавить к условиям получателя</button></>:<p>Требуется содержательное уточнение исходной записи.</p>}
+   {r.suggested_requirement?<><p>{r.suggested_requirement}</p>{r.code==='SOURCE_NOTE_INSTRUCTION'?<p>Сначала проверьте применимость и частные обозначения. Это исходное указание, не новый норматив.</p>:null}<button disabled={lines.includes(scoped(r.scope,r.suggested_requirement))||append(scoped(r.scope,r.suggested_requirement)).length>4096} onClick={()=>onApply(append(scoped(r.scope,r.suggested_requirement!)),mappings)}>Добавить к условиям получателя</button></>:<p>Требуется содержательное уточнение исходной записи.</p>}
   </div>)}
   {review.context_requirements.length>6?<div className="activity-v7-actions"><button disabled={!contextPage} onClick={()=>setContextPage(p=>p-1)}>Назад</button><span>{contextPage+1} / {Math.ceil(review.context_requirements.length/6)}</span><button disabled={(contextPage+1)*6>=review.context_requirements.length} onClick={()=>setContextPage(p=>p+1)}>Далее</button></div>:null}
   {all.length>1?<button disabled={suggestedText.length>4096} onClick={()=>onApply(suggestedText,mappings)}>Добавить предложенные правила ({all.length})</button>:null}
@@ -64,14 +67,15 @@ export function D05LocalContextPanel({review,scopeLabel,guidance,mappings,onAppl
   {review.local_context_entries.slice(page*6,(page+1)*6).map(e=><div className="activity-domain-op" key={key(e)}>
    <strong>{scopeLabel(e.scope)} · {labels[e.field]??e.field}</strong><p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{valueLabel(e.value)}</p>
    {e.status==='DECLARED_LOCAL_VALUE'?<button onClick={()=>{setSelected(key(e));setRequirement(mappings.find(m=>key(m)===key(e))?.requirement??'');}}>Сформулировать переносимое условие</button>:null}
-   {mappings.some(m=>key(m)===key(e)&&lines.includes(m.requirement))?<p>Связанное условие: {mappings.find(m=>key(m)===key(e))?.requirement}</p>:null}
+   {mappings.some(m=>key(m)===key(e)&&lines.includes(m.guidance_line??m.requirement))?<p>Связанное условие: {mappings.find(m=>key(m)===key(e))?.requirement}</p>:null}
   </div>)}
   {review.local_context_entries.length>6?<div className="activity-v7-actions"><button disabled={!page} onClick={()=>setPage(p=>p-1)}>Назад</button><span>{page+1} / {Math.ceil(review.local_context_entries.length/6)}</span><button disabled={(page+1)*6>=review.local_context_entries.length} onClick={()=>setPage(p=>p+1)}>Далее</button></div>:null}
   {current?<div className="activity-domain-op">
    <strong>{scopeLabel(current.scope)} · {labels[current.field]??current.field}</strong><p style={{whiteSpace:'pre-wrap'}}>{valueLabel(current.value)}</p>
    <label className="activity-domain-label">Что должен сделать или обеспечить получатель
     <textarea rows={3} maxLength={4096} value={requirement} onChange={e=>setRequirement(e.target.value)} placeholder="Сохраните функциональный смысл, обязательные условия и исключения без частных обозначений."/></label>
-   <p>Условие добавляется одной строкой. Короткое исходное обозначение будет доступно для проверки совпадений в конечном продукте.</p>
+   <p>Условие добавляется одной строкой с областью применения. Короткое исходное обозначение будет доступно для проверки совпадений в конечном продукте.</p>
+   {requirement.trim()?<p>В переносимой технологии: {scopedValue}</p>:null}
    <button disabled={!valid||mappings.length>=512&&!mappings.some(m=>key(m)===selected)} onClick={adopt}>Добавить обобщённое условие</button>
    <button onClick={()=>{setSelected('');setRequirement('');}}>Отмена</button>
   </div>:null}

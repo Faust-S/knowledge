@@ -8,7 +8,7 @@ export type D05RouteGroup={
 export type D05RecordedExecutionReview={status:'LOCAL_D05_RECORDED_EXECUTION_REVIEW';
  profiles:Array<{model_number:number;matching_normative_models?:number[];source_references?:Array<{value:string;replacement:string;kind:'CUSTOMER'|'PERFORMER'|'CONTRACTOR'}>;reports:Array<{report_number:number;source_refs:Array<{object_id:string;revision:number;schema_id:string}>;
  operations:Array<{operation_id:string;status:string;duration_minutes:number|null;labor_minutes:number|null;quantity_output:number|null;
- quantity_accepted:number|null;quantity_rejected:number|null;accepted_with_deviation:boolean|null;previous_cycle_count:number|null;result_note:string|null;pause_reason:string|null}>;
+ quantity_accepted:number|null;quantity_rejected:number|null;accepted_with_deviation:boolean|null;previous_cycle_count:number|null;result_note:string|null;pause_reason:string|null;declared_responsible_role?:string|null}>;
  actuals:Array<Record<string,unknown>>;quality:Array<Record<string,unknown>>;defects:Array<Record<string,unknown>>;
  semantics:'RECORDED_REPORTS_NOT_VERIFIED_FINAL_ACCEPTANCE'}>;issues:string[]}>;
  report_count:number;source_record_count:number;unused_record_count:number;

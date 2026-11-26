@@ -100,7 +100,8 @@ export function projectD05RecordedExecution(entries,plans,templates,details,work
      quantity_output:number(op.quantityOutput,issues),quantity_accepted:number(op.quantityAccepted,issues),
      quantity_rejected:number(op.quantityRejected,issues),accepted_with_deviation:typeof op.acceptedWithDeviation==='boolean'?op.acceptedWithDeviation:null,
      previous_cycle_count:Array.isArray(op.previousCycles)?op.previousCycles.length:null,
-     result_note:localText(op.resultComment),pause_reason:localText(op.pauseReason)});
+     result_note:localText(op.resultComment),pause_reason:localText(op.pauseReason),
+     declared_responsible_role:localText(op.responsibleRole)});
    }
    if(invalid){issues.add('EXECUTION_OPERATION_MAPPING_INVALID');continue;}
    remember(order.body.plan_snapshot?.request?.customer,'заказчик получателя','CUSTOMER');

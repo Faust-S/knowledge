@@ -14,5 +14,5 @@ export type D05FunctionalMappingReview={status:'LOCAL_D05_FUNCTIONAL_MAPPING_REV
  local_context_entries:import('./d05-route-comparison.mjs').D05LocalContextEntry[];
  source_semantics:'DECLARED_RESOURCES_NOT_VERIFIED_CAPABILITIES';review_required:true;export_allowed:false;iwxa_package:null};
 export function reviewD05FunctionalMappings(review:unknown,groupId:string,modelNumber:number,form?:import('./d05-route-comparison.mjs').D05TechnologyProposalForm):D05FunctionalMappingReview;
-export type D05ContextMapping={scope:string;field:string;requirement:string};
+export type D05ContextMapping={scope:string;field:string;requirement:string;guidance_line?:string};
 export function collectD05FunctionalReferences(review:unknown,groupId:string,modelNumber:number,form:import('./d05-route-comparison.mjs').D05TechnologyProposalForm,contextMappings?:D05ContextMapping[]):import('./technology-disclosure-generalization.mjs').SourceReference[];
