@@ -1,213 +1,31 @@
-name: t4-network-qualification
+name: T4 multipart K145-K146 and compatibility
 on:
-  workflow_dispatch:
-
+  push:
+    branches:
+      - 'ci/once/t4-multipart/b13fb200e0cc8abf3a16fc9d99f0a625202372d2'
 permissions:
   contents: read
-
 concurrency:
-  # Coalesce pending qualifications on the same branch without interrupting
-  # the full matrix that is already running.
-  group: t4-network-${{ github.ref }}
+  group: t4-multipart-b13fb200e0cc8abf3a16fc9d99f0a625202372d2
   cancel-in-progress: false
-
 jobs:
-  candidate:
-    # One batched, Linux-only development checkpoint. Full qualification is
-    # still the default for an explicit normal marker or workflow_dispatch.
-    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'T4 candidate qualification:') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Preserve exact public source for local continuation
-        if: ${{ github.ref != 'refs/heads/work/2026-11-25-t4-k104-compatibility' }}
-        run: git archive --format=zip --output="$RUNNER_TEMP/t4-source-$GITHUB_SHA.zip" "$GITHUB_SHA" packages/t4-network packages/t3-core
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install locked public transport dependencies once
-        run: |
-          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
-          if [ "$GITHUB_REF" != "refs/heads/work/2026-11-25-t4-k104-compatibility" ]; then
-            tar -czf "$RUNNER_TEMP/t4-locked-node-modules.tar.gz" -C packages/t4-network node_modules
-          fi
-      - uses: actions/upload-artifact@v4
-        if: ${{ always() && github.ref != 'refs/heads/work/2026-11-25-t4-k104-compatibility' }}
-        with:
-          name: t4-candidate-revision
-          path: |
-            ${{ runner.temp }}/t4-source-*.zip
-            ${{ runner.temp }}/t4-locked-node-modules.tar.gz
-          compression-level: 0
-          retention-days: 3
-          if-no-files-found: error
-      - name: Check cumulative changed source
-        working-directory: packages/t4-network
-        run: npm run check
-      - name: Qualify cumulative K72-K91 recovery and native profile changes
-        if: ${{ github.ref != 'refs/heads/work/2026-11-25-t4-k104-compatibility' }}
-        working-directory: packages/t4-network
-        run: |
-          node --experimental-strip-types --test --test-name-pattern='^K(7[2-9]|8[0-9]|9[01])\b' tests/original-network-key-lifecycle.test.mjs tests/original-network-session-phases.test.mjs tests/original-network-committed-recipient-results.test.mjs tests/original-network-publication.test.mjs tests/original-native-signed-kernel-relay.test.mjs
-      - name: Existing recipient frontier and publication regression
-        if: ${{ github.ref != 'refs/heads/work/2026-11-25-t4-k104-compatibility' }}
-        working-directory: packages/t4-network
-        run: node --experimental-strip-types --test --test-skip-pattern='^K91\b' tests/original-network-committed-recipient-results.test.mjs tests/original-network-publication.test.mjs tests/original-network-host-cursor.test.mjs
-
-      - name: Cumulative compatibility and original capture regression
-        if: ${{ github.ref == 'refs/heads/work/2026-11-25-t4-k104-compatibility' }}
-        working-directory: packages/t4-network
-        run: node scripts/run_contract_shard.mjs core
-
-  contract:
-    if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'T4 candidate qualification:')) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Preserve exact public source revision for independent local qualification
-        run: git archive --format=zip --output="$RUNNER_TEMP/t4-source-$GITHUB_SHA.zip" "$GITHUB_SHA" packages/t4-network packages/t3-core
-      - uses: actions/upload-artifact@v4
-        with:
-          name: t4-source-revision
-          path: ${{ runner.temp }}/t4-source-*.zip
-          compression-level: 0
-          retention-days: 3
-          if-no-files-found: error
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install locked T4 transport dependency
-        run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
-      - name: Verify network and placement contracts
-        working-directory: packages/t4-network
-        run: |
-          npm run check
-          node scripts/run_contract_shard.mjs core
-      - name: Existing original T3 Control and D3 regression
-        run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-subject-kernel-scope.test.mjs packages/t3-core/tests/t3-signed-access-host-port.test.mjs packages/t3-core/tests/t3-d1-real-ed25519-personal.test.mjs packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs
-
-  webdav:
-    if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'T4 candidate qualification:')) }}
+  targeted:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install locked T4 transport dependency
-        run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
-      - name: Install isolated WebDAV test dependencies
+      - name: Verify exact source tree
         run: |
-          sudo apt-get update
-          sudo apt-get install -y apache2 apache2-utils openssl
-      - name: Qualify real Apache HTTPS/WebDAV transport
-        working-directory: packages/t4-network
-        env:
-          T4_TEST_OUTPUT_DIR: ${{ runner.temp }}/iwxa-t4-network-qualification
-        run: npm run test:network
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: t4-network-qualification
-          path: ${{ runner.temp }}/iwxa-t4-network-qualification/
-          if-no-files-found: ignore
-
-  windows-contract:
-    if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'T4 candidate qualification:')) }}
-    runs-on: windows-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install locked T4 transport dependency
+          test "$(git rev-parse HEAD^)" = 'b13fb200e0cc8abf3a16fc9d99f0a625202372d2'
+          test "$(git rev-parse HEAD:packages/t4-network)" = "$(git rev-parse b13fb200e0cc8abf3a16fc9d99f0a625202372d2:packages/t4-network)"
+      - name: Install locked dependencies
         run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
-      - name: Verify T4 network contracts on Windows
+      - name: Native agreement and indexed recovery with prior publication and wire regression
         working-directory: packages/t4-network
         run: |
-          node --check src/network/webdav-package-transfer.mjs
-          node --check src/network/original-exchange-handoff.mjs
-          node --check src/network/operator-connection.mjs
-          node scripts/run_contract_shard.mjs core
-      - name: Existing original T3 Control and D3 regression
-        run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-subject-kernel-scope.test.mjs packages/t3-core/tests/t3-signed-access-host-port.test.mjs packages/t3-core/tests/t3-d1-real-ed25519-personal.test.mjs packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs
-
-  native-contract:
-    if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'T4 candidate qualification:')) }}
-    name: native-contract (${{ matrix.os }}, ${{ matrix.shard }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        shard: [native-base, native-recovery-write, native-recovery-other, native-migration, native-resume, native-topology]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install locked T4 transport dependency
-        run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
-      - name: Verify original signed native relay contract shard
-        working-directory: packages/t4-network
-        run: node scripts/run_contract_shard.mjs "${{ matrix.shard }}"
-
-  original-kernel-webdav:
-    if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'T4 candidate qualification:')) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install locked T4 transport dependency
-        run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
-      - name: Install original T3 browser-test dependencies
-        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
-      - name: Typecheck original T3 trusted Kernel realm
-        working-directory: packages/t3-core
-        run: npx --no-install tsc --noEmit
-      - name: Qualify original signed KernelFacade capture binding
-        working-directory: packages/t3-core
-        run: npx --no-install vitest run tests/module-kernel-facade.test.ts
-      - name: Verify and stage original qualified T2 Kernel 0.3.6
-        working-directory: packages/t3-core
-        env:
-          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t4-original-kernel
-        run: |
-          set -eu
-          archive=qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
-          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $archive" | sha256sum -c -
-          mkdir -p "$IWXA_T2_QUALIFIED_KERNEL_DIST"
-          unzip -q "$archive" -d "$IWXA_T2_QUALIFIED_KERNEL_DIST"
-          node --input-type=module -e 'import {assertQualifiedKernelArtifact} from "./src/factory2/products/domain-completion/independent-browser-witness.mjs";assertQualifiedKernelArtifact(process.env.IWXA_T2_QUALIFIED_KERNEL_DIST,{kernel:"0.3.6",contract:"1.3.0",artifactId:"iwxa-kernel-k036-same-store-history-20261019-qualified.1"});'
-      - name: Install original browser
-        working-directory: packages/t3-core
-        run: npx --no-install playwright install chromium
-      - name: Focused original Kernel graph and capture inventory qualification
-        working-directory: packages/t3-core
-        env:
-          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t4-original-kernel
-        run: node --experimental-strip-types --test ../t4-network/tests/real-original-t3-graph-focus.browser.mjs
-      - name: Install ephemeral HTTPS/WebDAV dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y apache2 apache2-utils openssl
-      - name: Real original T2 Kernel to T4 WebDAV to independent recipient and two cold reads
-        working-directory: packages/t4-network
-        env:
-          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t4-original-kernel
-          T4_TEST_OUTPUT_DIR: ${{ runner.temp }}/t4-original-kernel-webdav
-        run: python3 scripts/qualify_webdav.py
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: t4-original-kernel-webdav
-          path: ${{ runner.temp }}/t4-original-kernel-webdav/
-          if-no-files-found: ignore
+          node --experimental-strip-types --test tests/original-network-multipart-agreement.test.mjs tests/original-network-publication-multipart-backing.test.mjs tests/original-network-publication.test.mjs tests/standard-network-multipart-opaque-chunks.test.mjs tests/standard-network-wire-candidate.test.mjs tests/standard-network-multipart-wire.test.mjs tests/standard-network-wire-independent-vectors.test.mjs
