@@ -17,7 +17,7 @@ import {assembleT4CandidateOpaqueChunks}
   from './standard-network-opaque-chunks.mjs';
 import {T4_MULTIPART_OPAQUE_EXTENSION,T4_MULTIPART_MAX_CHUNKS,assembleT4CandidateMultipartOpaqueChunks,
   T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,createT4NativeMultipartOffer,validateT4NativeMultipartOffer,
-  createT4NativeMultipartSelection}
+  createT4NativeMultipartSelection,t4CandidateMultipartChunkSequence}
   from './standard-network-multipart-opaque-chunks.mjs';
 import {validateT4OriginalNativeMultipartAgreement} from './original-network-multipart-agreement.mjs';
 import {createT4OriginalMultipartBacking,readT4OriginalMultipartBacking,
@@ -828,10 +828,13 @@ export function validateT4OriginalReplacementPublishedContent(value,identity){
   const v=clone(value),c=validateT4OriginalReplacementSessionCandidate(identity);
   if(v?.schema!=='IWXA_T4_ORIGINAL_REPLACEMENT_PUBLISHED_CONTENT_V1'||!same(v.session,c)||
     !ID(v.checkpointRef)||!Number.isSafeInteger(v.originalPublicationRevision)||v.originalPublicationRevision<1||
-    !DIG(v.originalPublicationChainHash)||!Array.isArray(v.frames)||v.frames.length<3||v.frames.length>66||
+    !DIG(v.originalPublicationChainHash)||!Array.isArray(v.frames)||v.frames.length<3||
+    v.frames.length>(Object.hasOwn(v.agreement??{},'originalMultipartAgreement')?MAX_MULTIPART_FRAMES:66)||
     v.originalBusinessApplied!==false||v.sourceCursorAdvanced!==false)
     fail('PUBLICATION_ORIGINAL_REPLACEMENT_BATCH_PROOF_REQUIRED');
-  const a=validateT4OriginalReplacementDiffAcceptance(v.agreement,c),head=v.frames[0],change=v.frames[1],last=v.frames.at(-1);
+  const multipart=Object.hasOwn(v.agreement??{},'originalMultipartAgreement');
+  const a=validateT4OriginalReplacementDiffAcceptance(v.agreement,c,{enableOriginalMultipartNegotiation:multipart}),
+    head=v.frames[0],change=v.frames[1],last=v.frames.at(-1);
   if(v.checkpointRef===a.originalSourceAdmissionCheckpointRef||v.checkpointRef===a.originalRecipientPublicationCheckpointRef||
     head?.key!==a.originalSourceHeadKey||head.originalPresentEventId!==a.originalSourceHeadPresentEventId||
     head.originalPresentRevision!==a.originalSourceHeadPresentRevision||head.originalPresentChainHash!==a.originalSourceHeadPresentChainHash||
@@ -857,18 +860,33 @@ export function validateT4OriginalReplacementPublishedContent(value,identity){
       fail('PUBLICATION_ORIGINAL_REPLACEMENT_BATCH_FRAME_MISMATCH');
     events.add(f.originalPresentEventId);keys.add(f.key);messages.add(f.verifiedMessageId);
   }
-  if(!same(head.verifiedCriticalExtensions,[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]))
+  if(!multipart&&!same(head.verifiedCriticalExtensions,[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]))
     fail('PUBLICATION_ORIGINAL_REPLACEMENT_BATCH_FRAME_MISMATCH');
-  readT4OriginalReplacementSourceHead({identity:c.originalCaptureSession,body:head.verifiedBody,
-    sessionRef:c.sessionRef,expectedCandidate:c});
+  readT4OriginalReplacementHandshakeProfile({candidate:c,headBody:head.verifiedBody,headSha256:head.sha256,
+    headExtensions:head.verifiedCriticalExtensions,enableOriginalMultipartNegotiation:multipart});
   const b=change.verifiedBody;
   if(b?.changeId!==c.changeId||b.changeKind!==c.changeKind||b.eventRef!==c.sourceEventId||
     b.ownerRef!==c.originalWriteOwnerRef||b.sourceRevision!==c.sourceRevision||!DIG(b.contentDigest)||
-    !same(b.parents,[c.sourcePrefixDigestBefore])||!matchesT4NativeSubjectCriticalExtensions(c.changeKind,change.verifiedCriticalExtensions)||
-    v.frames.slice(2).some((f,i)=>f.verifiedBody?.chunkIndex!==i||!same(f.verifiedCriticalExtensions,[])))
+    !same(b.parents,[c.sourcePrefixDigestBefore]))
     fail('PUBLICATION_ORIGINAL_REPLACEMENT_BATCH_FRAME_MISMATCH');
-  assembleT4CandidateOpaqueChunks({bodies:v.frames.slice(2).map(f=>f.verifiedBody),expectedChangeId:c.changeId,
-    expectedContentDigest:b.contentDigest,expectedEncryptionContextRef:v.frames[2].verifiedBody.encryptionContextRef});
+  if(multipart){
+    const agreement=a.originalMultipartAgreement,manifest=b.multipartManifest;
+    if(c.changeKind!=='ASSET_PUT'||head.verifiedCryptoSuite!==agreement.cryptoSuite||
+      !same(change.verifiedCriticalExtensions,[T4_MULTIPART_OPAQUE_EXTENSION])||
+      manifest?.changeId!==c.changeId||manifest?.contentDigest!==b.contentDigest||
+      v.frames.slice(2).some(f=>!same(f.verifiedCriticalExtensions,[T4_MULTIPART_OPAQUE_EXTENSION])))
+      fail('PUBLICATION_ORIGINAL_REPLACEMENT_BATCH_FRAME_MISMATCH');
+    const assembled=assembleT4CandidateMultipartOpaqueChunks({manifest,bodies:v.frames.slice(2).map(f=>f.verifiedBody)});
+    if(assembled.chunkCount!==v.frames.length-2||v.frames.slice(2).some(f=>
+      t4CandidateMultipartChunkSequence(f.verifiedBody)!==f.verifiedSequence))
+      fail('PUBLICATION_ORIGINAL_REPLACEMENT_BATCH_FRAME_MISMATCH');
+  }else{
+    if(Object.hasOwn(b,'multipartManifest')||!matchesT4NativeSubjectCriticalExtensions(c.changeKind,change.verifiedCriticalExtensions)||
+      v.frames.slice(2).some((f,i)=>f.verifiedBody?.chunkIndex!==i||!same(f.verifiedCriticalExtensions,[])))
+      fail('PUBLICATION_ORIGINAL_REPLACEMENT_BATCH_FRAME_MISMATCH');
+    assembleT4CandidateOpaqueChunks({bodies:v.frames.slice(2).map(f=>f.verifiedBody),expectedChangeId:c.changeId,
+      expectedContentDigest:b.contentDigest,expectedEncryptionContextRef:v.frames[2].verifiedBody.encryptionContextRef});
+  }
   return deepFreeze(v);
 }
 
@@ -1964,8 +1982,15 @@ export function createT4OriginalNetworkPublicationPort({
     const ctx=await context(),before=await requireReplacementContent(ctx),current=await read(ctx);
     if(current.entries.length<3||current.entries.some(e=>e.state!=='PRESENT'))
       fail('PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT');
+    if(replacementMultipartContent!==!!current.multipartPlan)
+      fail('PUBLICATION_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH');
+    const backing=replacementMultipartContent?await readSelectedMultipart(ctx,current):null;
     const frames=[];
-    for(const entry of current.entries)frames.push(await readPublishedProof(ctx,current,entry,true));
+    for(const entry of current.entries){
+      const multipart=!!backing&&entry.sequence>1;
+      const exact=multipart?multipartEntry(ctx,current,entry.sequence,backing):entry;
+      frames.push(await readPublishedProof(ctx,current,exact,true,multipart));
+    }
     if(!same(before,await requireReplacementContent(ctx)))
       fail('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_CHANGED');
     const after=await read(ctx);
@@ -2387,7 +2412,7 @@ export function createT4OriginalNetworkPublicationPort({
     ...(replacement?{...(enableOriginalMultipartNegotiation?{originalReplacementMultipartHandshakeEnabled:true}:{}),
       ...(source?{originalReplacementAnnouncementPublication:true}:
       {originalReplacementRecipientDiffPublication:true}),originalNewAttemptAdmissionStillRequired:true,
-      ...(replacementMultipartContent?{originalReplacementMultipartContentPublication:true}:
+      ...(replacementMultipartContent?{originalReplacementMultipartContentPublication:true,readOriginalReplacementPublishedContent}:
         replacementContent?{originalReplacementSourceContentPublication:true,readOriginalReplacementPublishedContent}:{}),
       ...(replacementAck?{originalReplacementRecipientAckPublication:true}:{})}:{}),
     originalT3OnlyStore:true,createsScheduler:false,createsTaskEngine:false});

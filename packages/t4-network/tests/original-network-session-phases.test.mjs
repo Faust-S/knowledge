@@ -2381,7 +2381,8 @@ test('K86 K87 K88 K89 original tasks recover one business write, confirm ACK and
   assert.equal(subjectWrites,1);assert.equal(x.signatureCount(),beforeTerminal.signs);assert.equal(x.counts().networkPuts,beforeTerminal.puts);
 });
 
-import {validateT4OriginalReplacementDiffAcceptance,readT4OriginalReplacementHandshakeProfile}
+import {validateT4OriginalReplacementDiffAcceptance,readT4OriginalReplacementHandshakeProfile,
+  validateT4OriginalReplacementPublishedContent}
   from '../src/network/original-network-publication.mjs';
 import {T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION} from '../src/network/standard-network-wire-candidate.mjs';
 
@@ -2556,6 +2557,7 @@ test('K167 successor multipart original backing CAS, explicit bilateral gate, lo
   const p=await port();
   assert.equal(p.originalReplacementMultipartContentPublication,true);
   assert.equal(p.originalReplacementSourceContentPublication,undefined);
+  assert.equal(typeof p.readOriginalReplacementPublishedContent,'function');
   const chunks=await prepareT4CandidateMultipartOpaqueChunks({changeId:c.changeId,ownerRef:c.originalWriteOwnerRef,
     sourceContentRef:'asset:k167:one',getMode:opts.getMode,authorizeOriginalSealedContent:async()=>true,
     readOriginalSealedContent:async()=>({ciphertext,encryptionContextRef:sealedRef})});
@@ -2587,6 +2589,14 @@ test('K167 successor multipart original backing CAS, explicit bilateral gate, lo
   x.f.restart();let cold=await port();
   const prepared=await cold.prepareOriginalMultipartPublication();
   assert.equal(prepared.originalPublicationPrepared,true);
+  const phaseFor=()=>x.sourcePhase({sessionRef:c.sessionRef,authorizeOriginalSourceSupersession:null,
+    replacementSourceAdmission:a.admission,readOriginalReplacementSourceAdmission:async()=>assert.fail('INTENT must not be rewritten'),
+    readOriginalReplacementSourceContentPublication:()=>cold.readOriginalReplacementPublishedContent()});
+  const confirm=()=>confirmT4OriginalReplacementSourcePublication({sourceAdmissionPhasePort:phaseFor(),
+    sourcePublicationPort:cold,getMode:opts.getMode});
+  const phaseWrites=x.sourcePhaseWrites();
+  await assert.rejects(confirm(),isCode('PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT'));
+  assert.equal(x.sourcePhaseWrites(),phaseWrites);
   const metadata=await source.inspectOriginalPublication({metadataOnly:true});
   assert.equal(metadata.frames.length,wireBytes.length+1);
   assert.ok(metadata.frames.slice(1).every(f=>f.wireBytes===undefined));
@@ -2613,4 +2623,29 @@ test('K167 successor multipart original backing CAS, explicit bilateral gate, lo
   assert.equal((await phase.inspectOriginalSession()).currentPhase,'INTENT');
   assert.ok(agreementReads>wireBytes.length&&admissionReads>wireBytes.length);
   assert.deepEqual(await discover(),accepted);
+  const proof=await cold.readOriginalReplacementPublishedContent();
+  assert.equal(proof.frames.length,wireBytes.length+1);
+  assert.deepEqual(proof.agreement.originalMultipartAgreement,agreement);
+  assert.deepEqual(validateT4OriginalReplacementPublishedContent(proof,c),proof);
+  for(const alter of [
+    p=>p.frames.pop(),
+    p=>{delete p.agreement.originalMultipartAgreement;},
+    p=>{p.frames[2].verifiedCriticalExtensions=[];},
+    p=>{p.frames[2].verifiedBody=structuredClone(p.frames[3].verifiedBody);},
+  ]){
+    const bad=structuredClone(proof);alter(bad);
+    assert.throws(()=>validateT4OriginalReplacementPublishedContent(bad,c));
+  }
+  allow=false;
+  await assert.rejects(confirm(),isCode('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'));
+  assert.equal(x.sourcePhaseWrites(),phaseWrites);allow=true;
+  const phaseResult=await confirm();
+  assert.equal(phaseResult.state,'ORIGINAL_REPLACEMENT_SOURCE_PUBLISHED');
+  assert.equal((await phaseFor().inspectOriginalSession()).currentPhase,'PUBLISHED');
+  assert.equal(x.sourcePhaseWrites(),phaseWrites+1);
+  x.f.restart();cold=await port();
+  assert.equal((await confirm()).status,'ALREADY_CONFIRMED');
+  assert.equal(x.sourcePhaseWrites(),phaseWrites+1);
+  assert.equal(x.signatureCount(),initial.signs);
+  assert.equal(x.counts().networkPuts,initial.puts+wireBytes.length);
 });

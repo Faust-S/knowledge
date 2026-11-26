@@ -1519,7 +1519,9 @@ export async function publishT4OriginalReplacementSourceContent({
 export async function confirmT4OriginalReplacementSourcePublication({sourceAdmissionPhasePort,sourcePublicationPort,getMode}={}){
   mode(getMode);
   const port=sourcePublicationPort,phase=sourceAdmissionPhasePort;
-  if(port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||port.originalReplacementSourceContentPublication!==true||
+  const multipart=port?.originalReplacementMultipartContentPublication===true;
+  if(port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
+    (port.originalReplacementSourceContentPublication===true)===multipart||
     port.originalT3OnlyStore!==true||typeof port.readOriginalReplacementPublishedContent!=='function'||
     phase?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||phase.role!=='SOURCE'||
     phase.originalT3TechnicalWorkspaceOnly!==true||phase.createsSecondStore!==false||
@@ -1528,6 +1530,8 @@ export async function confirmT4OriginalReplacementSourcePublication({sourceAdmis
     fail('REPLACEMENT_SOURCE_PUBLICATION_PHASE_PORT_REQUIRED');
   const c=port.session;
   const batch=validateT4OriginalReplacementPublishedContent(await port.readOriginalReplacementPublishedContent(),c);mode(getMode);
+  if(Object.hasOwn(batch.agreement,'originalMultipartAgreement')!==multipart)
+    fail('REPLACEMENT_SOURCE_PUBLICATION_PHASE_MISMATCH');
   const a=batch.agreement,change=batch.frames[1],evidence={evidenceRef:change.key,evidenceDigest:'sha256:'+change.sha256};
   const inspect=async()=>{
     const status=validateT4OriginalReplacementSourceIntentStatus(await phase.inspectOriginalSession(),c);mode(getMode);
@@ -1563,6 +1567,7 @@ export async function advanceT4OriginalReplacementSourceContent({selection,task,
   createOriginalReplacementContentPublicationPort,resolveOriginalSigningContext,signOriginalNodeBytes,
   authorizeOriginalSealedContent,readOriginalSealedContent,retryMissing=false,...handshakePorts}={}){
   const {getMode,sourceAdmissionPhasePort,sourcePublicationPort}=handshakePorts;
+  const multipart=handshakePorts.enableOriginalMultipartNegotiation??false;
   mode(getMode);
   const local=clone(selection),c=validateT4OriginalReplacementSessionCandidate(local?.session),root=deriveT4OriginalNativeCaptureSession(task);
   if(local.schema!=='IWXA_T4_ORIGINAL_LOCAL_REPLACEMENT_SELECTION_V1'||local.role!=='SOURCE'||
@@ -1574,7 +1579,7 @@ export async function advanceT4OriginalReplacementSourceContent({selection,task,
     local.sourceCursorAdvanced!==false||local.recipientCursorAdvanced!==false||
     ![createOriginalReplacementSourceContentPhasePort,createOriginalReplacementContentPublicationPort,
       resolveOriginalSigningContext,signOriginalNodeBytes,authorizeOriginalSealedContent,readOriginalSealedContent].every(f=>typeof f==='function')||
-    typeof retryMissing!=='boolean'||typeof sourceAdmissionPhasePort?.inspectOriginalSession!=='function'||
+    typeof retryMissing!=='boolean'||typeof multipart!=='boolean'||typeof sourceAdmissionPhasePort?.inspectOriginalSession!=='function'||
     typeof sourcePublicationPort?.inspectOriginalPublication!=='function')fail('REPLACEMENT_HOST_SOURCE_CONTENT_SELECTION_INVALID');
   const result=(state,extra={})=>freeze({schema:'IWXA_T4_ORIGINAL_HOST_REPLACEMENT_SOURCE_CONTENT_V1',state,
     replacementSessionRef:c.sessionRef,originalSupersessionEventId:c.replacement.sourcePhaseEventId,
@@ -1583,7 +1588,7 @@ export async function advanceT4OriginalReplacementSourceContent({selection,task,
   const waiting=()=>result('WAITING_FOR_REPLACEMENT_CONTENT_AGREEMENT',{automaticRetryAllowed:false,replacementWake:{
     session:{sessionRef:c.sessionRef},originalLocalPhase:local.originalLocalPhase,originalLocalPublicationRevision:local.originalLocalPublicationRevision}});
   const phase=validateT4OriginalReplacementSourceIntentStatus(await sourceAdmissionPhasePort.inspectOriginalSession(),c);mode(getMode);
-  const saved=await sourcePublicationPort.inspectOriginalPublication();mode(getMode);
+  const saved=await sourcePublicationPort.inspectOriginalPublication({metadataOnly:multipart});mode(getMode);
   if(phase.currentPhase!=='INTENT'||phase.checkpointRef!==local.originalLocalPhaseCheckpointRef||
     saved?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1'||!same(saved.session,c)||saved.checkpointRef!==local.originalLocalPublicationCheckpointRef||
     saved.revision!==local.originalLocalPublicationRevision||saved.chainHash!==local.originalLocalPublicationChainHash||
@@ -1592,18 +1597,21 @@ export async function advanceT4OriginalReplacementSourceContent({selection,task,
     fail('REPLACEMENT_HOST_SOURCE_CONTENT_SELECTION_CHANGED');
   try{
     if(saved.frames.length>=3&&saved.frames.every(f=>f.state==='PRESENT')){
+      if(multipart?(saved.multipartBackingReserved!==true||saved.multipartPublicationPrepared!==true||
+        saved.originalMultipartRootMetadataOnly!==true):saved.multipartBackingReserved===true)
+        fail('REPLACEMENT_HOST_SOURCE_CONTENT_PORT_CHANGED');
       const first=await discoverT4OriginalReplacementRecipientDiff(handshakePorts);mode(getMode);
       if(['WAITING_FOR_REPLACEMENT_DIFF','WAITING_FOR_REPLACEMENT_RECIPIENT_PUBLICATION'].includes(first.state))return waiting();
-      const witness=validateT4OriginalReplacementDiffAcceptance(first,c);
+      const witness=validateT4OriginalReplacementDiffAcceptance(first,c,{enableOriginalMultipartNegotiation:multipart});
       const read=async()=>{
         const observed=await discoverT4OriginalReplacementRecipientDiff(handshakePorts);mode(getMode);
         if(['WAITING_FOR_REPLACEMENT_DIFF','WAITING_FOR_REPLACEMENT_RECIPIENT_PUBLICATION'].includes(observed.state))
           fail('REPLACEMENT_CONTENT_AGREEMENT_NOT_READY');
-        const next=validateT4OriginalReplacementDiffAcceptance(observed,c);
+        const next=validateT4OriginalReplacementDiffAcceptance(observed,c,{enableOriginalMultipartNegotiation:multipart});
         if(!same(witness,next))fail('REPLACEMENT_CONTENT_DIFF_ACCEPTANCE_CHANGED');return next;
       };
       const publication=await createOriginalReplacementContentPublicationPort(freeze({session:c,originalReplacementContentRequired:true,
-        originalNewAttemptAdmissionStillRequired:true}),read);mode(getMode);
+        originalNewAttemptAdmissionStillRequired:true,...(multipart?{originalReplacementMultipartContentRequired:true}:{})}),read);mode(getMode);
       const advance=await createOriginalReplacementSourceContentPhasePort(freeze({session:c,admission:phase.originalReplacementSourceAdmission}),
         ()=>publication.readOriginalReplacementPublishedContent());mode(getMode);
       if(publication?.checkpointRef!==saved.checkpointRef||advance?.checkpointRef!==phase.checkpointRef||
@@ -1615,8 +1623,13 @@ export async function advanceT4OriginalReplacementSourceContent({selection,task,
     const published=await publishT4OriginalReplacementSourceContent({task,createOriginalReplacementContentPublicationPort,
       resolveOriginalSigningContext,signOriginalNodeBytes,authorizeOriginalSealedContent,readOriginalSealedContent,retryMissing,...handshakePorts});
     if(['WAITING_FOR_REPLACEMENT_DIFF','WAITING_FOR_REPLACEMENT_RECIPIENT_PUBLICATION'].includes(published.state))return waiting();
-    if(published.state!=='ORIGINAL_REPLACEMENT_CONTENT_PRESENT'||!same(published.candidate,c))fail('REPLACEMENT_HOST_SOURCE_CONTENT_RESULT_INVALID');
+    if(!same(published.candidate,c)||!(published.state==='ORIGINAL_REPLACEMENT_CONTENT_PRESENT'||
+      (multipart&&published.state==='ORIGINAL_REPLACEMENT_CONTENT_PARTIAL'))||
+      (multipart&&(!DIG(published.originalMultipartAgreementDigest)||!Number.isSafeInteger(published.remainingFrames)||
+        published.remainingFrames<0||(published.state==='ORIGINAL_REPLACEMENT_CONTENT_PRESENT')!==(published.remainingFrames===0))))
+      fail('REPLACEMENT_HOST_SOURCE_CONTENT_RESULT_INVALID');
     return result(published.state,{originalSignedBatchReused:published.originalSignedBatchReused,
+      ...(multipart?{remainingFrames:published.remainingFrames,originalMultipartAgreementDigest:published.originalMultipartAgreementDigest}:{}),
       originalSourcePhaseAdvanceStillRequired:true,originalRecipientApplyStillRequired:true});
   }catch(error){
     // These are read gates, not uncertain write wrappers. A later wake
