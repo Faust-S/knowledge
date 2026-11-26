@@ -76,8 +76,8 @@ test('oversized evidence is refused, not silently clipped',async()=>{
 
 test('Activity alone extracts recurring explicit review criteria and context limitations from the accepted source',async()=>{
  const data=source();
- data.accepted_results[0].review_notes+='\\nKeep deadlines distinct from preferences\\nGood result';
- data.accepted_results[1].review_notes+='\\nGood result';
+ data.accepted_results[0].review_notes+='\nKeep deadlines distinct from preferences\nGood result';
+ data.accepted_results[1].review_notes+='\nGood result';
  const view=await reviewPersonalPracticalExperience(data);
  assert.equal(view.occurrence_count,2);assert.equal(view.rules.length,2);
  const criterion=view.rules.find(r=>r.kind==='HUMAN_REVIEW_CRITERION');
