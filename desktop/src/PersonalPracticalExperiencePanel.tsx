@@ -53,7 +53,7 @@ export function PersonalPracticalExperiencePanel({experience,coverage,requiremen
      {Object.hasOwn(combined,id)?<textarea rows={3} maxLength={1000} aria-label="Согласованное общее правило" value={combined[id]} onChange={e=>setCombined(v=>({...v,[id]:e.target.value}))}/>:null}</div>;})}
    {experience.related_candidates.length>4?<div className="activity-v7-actions"><button disabled={!relatedPage} onClick={()=>setRelatedPage(p=>p-1)}>Назад</button><span>{relatedPage+1} / {Math.ceil(experience.related_candidates.length/4)}</span><button disabled={(relatedPage+1)*4>=experience.related_candidates.length} onClick={()=>setRelatedPage(p=>p+1)}>Далее</button></div>:null}
   </details>:null}
-  {experience.related_comparison_limited?<p>Сравнение близких формулировок ограничено объёмом выборки. Дословно повторяющиеся правила сохранены.</p>:null}
+  {experience.related_comparison_limited?<p>Сравнение близких формулировок ограничено объёмом выборки. Отдельные указания и повторяющиеся правила сохранены.</p>:null}
   {experience.rules.length||Object.keys(selected).length||Object.keys(combined).length?<button className="activity-v7-primary" disabled={!valid||(nextRequirements===requirements&&nextContexts===contexts)}
     onClick={()=>onApply(nextRequirements,nextContexts)}>Добавить выбранные критерии и локальные условия</button>:null}
   {!valid?<p>Уточните объём критериев или контекста, чтобы сохранить допустимый состав продукта.</p>:null}
