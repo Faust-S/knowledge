@@ -1065,13 +1065,7 @@ async function executeNativeReplacementRecipientStep(p,options){
     liveNetworkAuthorityGranted:false,originalLocalReadbackRequired:true,...extra});
   const wait=()=>done('WAITING_FOR_REPLACEMENT_RECIPIENT_CONTENT',{automaticRetryAllowed:false,replacementWake:{
     session:{sessionRef:c.sessionRef},originalLocalPhase:selection.originalLocalPhase,originalLocalPublicationRevision:selection.originalLocalPublicationRevision}});
-  if(multipart&&typeof discovery.createOriginalReplacementMultipartObservation!=='function')
-    fail('RECIPIENT_NATIVE_REPLACEMENT_MULTIPART_OBSERVATION_REQUIRED');
-  const observation=multipart?discovery.createOriginalReplacementMultipartObservation({
-    selector:{sourceNodeRef:c.sourceNodeRef,sessionRef:c.sessionRef,ownerEpoch:c.ownerEpoch},requiredCryptoSuite}):null;
-  const observedDiscovery=observation===null?discovery:Object.freeze({...discovery,
-    discoverOriginalMultipartContentPage:observation.readPage});
-  const observe=async()=>{await checkCursor();return discoverT4OriginalNetworkSessionContent({session:c,frameDiscoveryPort:observedDiscovery,requiredCryptoSuite,
+  const observe=async()=>{await checkCursor();return discoverT4OriginalNetworkSessionContent({session:c,frameDiscoveryPort:discovery,requiredCryptoSuite,
     requireSourceAnnouncement:true,sourceCursorBefore:before,originalReplacementRecipientPublicationPort:publication,
     readOriginalSourceContentHistory:live(readOriginalSourceContentHistory,'replacement-source-content'),
     readOriginalOwnerEligibility:live(readOriginalOwnerEligibility,'replacement-owner-eligibility'),
@@ -1167,7 +1161,7 @@ async function executeNativeReplacementRecipientStep(p,options){
     if(applyStarted||!['REPLACEMENT_ORIGINAL_OWNER_ELIGIBILITY_NOT_READY','REPLACEMENT_RECIPIENT_HEAD_NOT_PRESENT',
       'REPLACEMENT_RECIPIENT_SOURCE_ADMISSION_NOT_READY','SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_NOT_READY'].includes(error?.code))throw error;
     mode(p);return wait();
-  }finally{observation?.dispose();}
+  }
 }
 
 /** One bounded wake from the existing recipient owner. Selection starts at

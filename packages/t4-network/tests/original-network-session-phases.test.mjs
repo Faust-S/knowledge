@@ -513,7 +513,7 @@ async function controlFixture({indexed=false,realSourceHistory=false,canonicalCa
     return {schema:'IWXA_T4_ORIGINAL_HISTORICAL_SIGNATURE_V1',frameDigest:p.frameDigest,signerRef:p.signerRef,
       direction:p.sourceNodeRef===node?'LOCAL':'PEER',originalHistoricalSignatureVerified:true,originalHistoricalAcceptanceProven:false,
       liveNetworkAuthorityGranted:false,trustedSigningTimeProven:false,originalBusinessApplied:false};};
-  const frames=new Map(),indexes=new Map();let networkPuts=0,networkGets=0,signatures=0,loseControlWrite=false,controlPublicationAllowed=true;
+  const frames=new Map(),indexes=new Map();let networkPuts=0,networkGets=0,signatures=0,loseControlWrite=false,controlPublicationAllowed=true,blockedFrameRead=null;
   const wire={wireKind:'T4_NETWORK_CANDIDATE',forOriginalHostLifetime(){return this;},
     async putSnapshot({key,bytes,expectedSha256}){assert.equal(sha(bytes),expectedSha256);
       if(frames.has(key)){assert.deepEqual(frames.get(key),new Uint8Array(bytes));
@@ -522,7 +522,9 @@ async function controlFixture({indexed=false,realSourceHistory=false,canonicalCa
       if(loseControlWrite){loseControlWrite=false;throw Object.assign(Error('lost control response'),{code:'OUTCOME_UNKNOWN'});}
       return {key,sha256:expectedSha256,state:'PUBLISHED_AND_READ_BACK'};},
     async getSnapshot({key,expectedSha256}){networkGets++;if(!networkAvailable)throw Error('network offline');
-      const bytes=frames.get(key);assert.ok(bytes);assert.equal(sha(bytes),expectedSha256);return {bytes:new Uint8Array(bytes)};},
+      if(blockedFrameRead===key)throw Object.assign(Error('frame read revoked'),{code:'REMOTE_AUTHORIZATION_DENIED'});
+      const bytes=frames.get(key);if(!bytes)throw Object.assign(Error('frame missing'),{code:'REMOTE_NOT_FOUND'});
+      assert.equal(sha(bytes),expectedSha256);return {bytes:new Uint8Array(bytes)};},
     async inspectOutcome({key,expectedSha256}){if(!networkAvailable)throw Error('network offline');assert.equal(sha(frames.get(key)),expectedSha256);
       return {key,sha256:expectedSha256,state:'EXPECTED_BYTES_PRESENT'};}};
   if(indexed){
@@ -712,7 +714,7 @@ async function controlFixture({indexed=false,realSourceHistory=false,canonicalCa
     recipientSigner:()=>({permissionRef:'permission:k47:'+recipientNodeRef,signerRef:recipientKey.id}),
     resolveSourceContentSigner:async()=>({permissionRef:'permission:k47:'+sourceNodeRef,signerRef:sourceKey.id}),
     durableRetire,signatureCount:()=>signatures,loseControlWrite:()=>{loseControlWrite=true;},
-    eligibility,eligibilityOptions,sourceCursorBefore,sourceCursorAfter,transport,indexes,
+    eligibility,eligibilityOptions,sourceCursorBefore,sourceCursorAfter,transport,indexes,frames,setBlockedFrameRead:key=>{blockedFrameRead=key;},
     realSourceCursor,realRecipientCursor,setFrontierWriteAllowed:v=>{frontierWriteAllowed=v;},
     historicalReadOptions:node=>{
       const technicalWorkspaceId=node===sourceNodeRef?technical:workspace,kernel=node===sourceNodeRef?sourceStore.kernel:f.kernel.kernel;
@@ -2686,37 +2688,29 @@ test('K167 K170 K171 K172 K174 K175 successor multipart backing, lost PUT, compl
   await assert.rejects(recipientTransport.discoverOriginalMultipartContentPage({selector:{sourceNodeRef,sessionRef:c.sessionRef,ownerEpoch:c.ownerEpoch},
     requiredCryptoSuite:opts.requiredCryptoSuite,replacementFrameAnchors:wrongAnchors}),isCode('WIRE_REPLACEMENT_CONTENT_PUBLICATION_ANCHOR_MISMATCH'));
   assert.equal(x.phaseWrites(),recipientPhaseWrites);
-  // K179: exact immutable bytes can be reused only within one observation.
-  // Live Access, selected agreement, index lookup and replay are still checked.
+  // RC: index permission is distinct from permission to read a frame.
+  // The first release deliberately re-observes physical bytes each time,
+  // even within one wake. An existing signed receipt cannot authorize a
+  // future download or claim that missing remote bytes are still present.
   const anchors=history.publication.frames.map(({sequence,messageType,sha256})=>({sequence,messageType,sha256}));
   const selector={sourceNodeRef,sessionRef:c.sessionRef,ownerEpoch:c.ownerEpoch};
-  let liveAccess=true,accessChecks=0;
-  const revalidate=x.transport(recipientNodeRef,{readOriginalMultipartAgreement,
-    authorizeOriginalNetwork:async()=>{accessChecks++;return liveAccess;}});
-  const reader=revalidate.createOriginalReplacementMultipartObservation({selector,requiredCryptoSuite:opts.requiredCryptoSuite});
-  const page=()=>reader.readPage({selector,requiredCryptoSuite:opts.requiredCryptoSuite,replacementFrameAnchors:anchors});
-  const readCount=x.counts().networkGets;
-  const firstPage=await page();
-  assert.equal(firstPage.state,'PAGE_COMPLETE');
-  const afterPage=x.counts().networkGets,afterAccess=accessChecks;
-  assert.equal(afterPage-readCount,66);
-  const firstStats=reader.inspect();assert.equal(firstStats.originalVerifiedDownloads,66);
-  assert.equal(firstStats.originalRetainedByteReuses,0);
-  const repeatPage=await page();
-  assert.equal(repeatPage.manifestDigest,firstPage.manifestDigest);
-  assert.deepEqual(repeatPage.receipts.map(r=>r.sha256),firstPage.receipts.map(r=>r.sha256));
-  assert.equal(x.counts().networkGets,afterPage);assert.ok(accessChecks>afterAccess);
-  assert.equal(reader.inspect().originalRetainedByteReuses,66);
-  liveAccess=false;await assert.rejects(page());assert.equal(reader.inspect().closed,true);
-  assert.equal(reader.inspect().retainedBytes,0);liveAccess=true;
-  const changed=revalidate.createOriginalReplacementMultipartObservation({selector,requiredCryptoSuite:opts.requiredCryptoSuite});
-  await changed.readPage({selector,requiredCryptoSuite:opts.requiredCryptoSuite,limit:1,replacementFrameAnchors:anchors});
-  await assert.rejects(changed.readPage({selector,requiredCryptoSuite:opts.requiredCryptoSuite,limit:1,replacementFrameAnchors:wrongAnchors}),
-    isCode('WIRE_REPLACEMENT_CONTENT_OBSERVATION_CHANGED'));
-  assert.equal(changed.inspect().retainedFrameCount,0);
-  changed.dispose();reader.dispose();
-  await assert.rejects(reader.readPage({selector,requiredCryptoSuite:opts.requiredCryptoSuite,replacementFrameAnchors:anchors}),
-    isCode('WIRE_REPLACEMENT_CONTENT_OBSERVATION_ENDED'));
+  const page=()=>recipientTransport.discoverOriginalMultipartContentPage({selector,
+    requiredCryptoSuite:opts.requiredCryptoSuite,replacementFrameAnchors:anchors,limit:1});
+  const firstPage=await page();assert.equal(firstPage.state,'PAGE_COMPLETE');
+  const afterFirst=x.counts().networkGets;
+  assert.equal((await page()).manifestDigest,firstPage.manifestDigest);
+  assert.equal(x.counts().networkGets,afterFirst+3);
+  const chunkKey=anchors[2].sha256+'.t4n',savedBytes=x.frames.get(chunkKey);
+  assert.ok(savedBytes);
+  const beforeDenied={signs:x.signatureCount(),puts:x.counts().networkPuts,phase:x.phaseWrites()};
+  x.setBlockedFrameRead(chunkKey);
+  await assert.rejects(page(),isCode('REMOTE_AUTHORIZATION_DENIED'));
+  x.setBlockedFrameRead(null);
+  x.frames.delete(chunkKey);
+  try{await assert.rejects(page(),isCode('REMOTE_NOT_FOUND'));}
+  finally{x.frames.set(chunkKey,savedBytes);}
+  assert.deepEqual({signs:x.signatureCount(),puts:x.counts().networkPuts,phase:x.phaseWrites()},beforeDenied);
+  assert.equal((await page()).state,'PAGE_COMPLETE');
   // K174: exercise the original phase and ACK ports; the subject Result is
   // deliberately modeled here, not claimed as a real Asset mutation.
   const e=found.originalReplacementContentEvidence,actualEvent='event:k174:asset:result';
