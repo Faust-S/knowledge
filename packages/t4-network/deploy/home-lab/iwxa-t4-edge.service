@@ -1,0 +1,17 @@
+[Unit]
+Description=IWXA T4 TEST isolated HTTPS edge
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/var/lib/iwxa-t4-test/config/active.conf
+
+[Service]
+Type=simple
+ExecStartPre=/usr/sbin/apache2 -t -f /var/lib/iwxa-t4-test/config/active.conf
+ExecStart=/usr/sbin/apache2 -f /var/lib/iwxa-t4-test/config/active.conf -DFOREGROUND
+Restart=on-failure
+RestartSec=5s
+UMask=0027
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

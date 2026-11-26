@@ -1,0 +1,55 @@
+name: iwxa-t4-test
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?Run stand.py lock-images first}
+    platform: linux/amd64
+    restart: unless-stopped
+    mem_limit: 2g
+    shm_size: 256m
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?Missing DB admin password}
+      POSTGRES_DB: postgres
+      IWXA_DB_PASSWORD: ${DB_PASSWORD:?Missing identity DB password}
+    volumes:
+      - identity-db:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/01-identity.sh:ro
+    healthcheck:
+      test: [CMD, pg_isready, -h, 127.0.0.1, -U, postgres, -d, postgres]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+    networks: [identity]
+  keycloak:
+    image: ${KEYCLOAK_IMAGE:?Run stand.py lock-images first}
+    platform: linux/amd64
+    restart: unless-stopped
+    mem_limit: 3g
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: [start, --import-realm]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/identity_test
+      KC_DB_USERNAME: iwxa_identity
+      KC_DB_PASSWORD: ${DB_PASSWORD:?Missing identity DB password}
+      KC_HTTP_ENABLED: 'true'
+      KC_HOSTNAME: https://id.iwxa.test
+      KC_PROXY_HEADERS: xforwarded
+      KC_CACHE: local
+      KC_HEALTH_ENABLED: 'true'
+      KC_METRICS_ENABLED: 'false'
+      IWXA_MARKETOPS_CLIENT_SECRET: ${MARKETOPS_CLIENT_SECRET:?Missing client secret}
+      IWXA_ARTBAZI_CLIENT_SECRET: ${ARTBAZI_CLIENT_SECRET:?Missing client secret}
+    ports:
+      - '127.0.0.1:18080:8080'
+    volumes:
+      - ${STATE_DIR:?Missing state directory}/config/iwxa-test-realm.json:/opt/keycloak/data/import/iwxa-test-realm.json:ro
+    networks: [identity]
+networks:
+  identity:
+    driver: bridge
+volumes:
+  identity-db:

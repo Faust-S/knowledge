@@ -1,0 +1,6 @@
+# Use only for first startup; remove temporary user in Keycloak and recreate without this file.
+services:
+  keycloak:
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: temp-admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_PASSWORD:?No temporary bootstrap password}
