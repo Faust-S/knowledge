@@ -129,7 +129,7 @@ async function qualifyWorkspaceMethodWithOriginalOwner(owner){
   const historicalReadback=canonicalStringify(historical.draft)===canonicalStringify(draft)
     &&historical.historicalRead===true&&historical.currentHeadVerified===false
     &&historical.executionAuthority===false&&historical.writeAuthorized===false;
-  const compute=base.workRefs.find(ref=>ref.objectId===projectId+'.compute');
+  const compute=base.workRefs.find(ref=>ref.objectId.endsWith('.compute'));
   await owner.release('work',{workspaceId,objectId:projectId+'.compute',
     recordId:'method-compute-release',baseRevisionId:compute.recordId,
     knowledgeAt:'2026-11-26T18:06:00Z'});
