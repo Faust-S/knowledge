@@ -35,12 +35,12 @@ const history={workspaceId:family.workspaceId,originalWriteOwnerRef:family.origi
   authorizeOriginalRead:async()=>true,readOriginalEvents:async()=>structuredClone(originalEvents)};
 const before=(await readT4OriginalEventWindow(history)).nextCursor;
 const capture=await readT4OriginalEventWindow({...history,cursor:before}),after=capture.nextCursor;
-const assetBytes=Buffer.alloc(450000,37);
+const assetBytes=Buffer.alloc(900000,37);
 const asset=verifyT4OriginalAssetDelta({schema:'IWXA_T4_ORIGINAL_ASSET_DELTA_V1',
   workspaceId:family.workspaceId,originalWriteOwnerRef:family.originalWriteOwnerRef,assetId:'asset:1',objectId:'object:1',
   mime:'application/octet-stream',baseRevision:1,sourceRevision:2,sourceEventId:key.sourceEventId,
   sourceEventDigest:capture.window.eventRefs[0].eventDigest,windowDigest:capture.window.windowDigest,
-  originalEventType:originalEvents[1].event_type,bytesBase64:assetBytes.toString('base64'),assetBytesSha256:hex(assetBytes),assetSize:assetBytes.length});
+  originalEventType:originalEvents[1].event_type,bytesBase64:assetBytes.toString('base64'),assetBytesSha256:hex(assetBytes),assetSize:assetBytes.length},{enableMultipart:true});
 const session={schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SESSION_V1',...key,sourceRevision:2,sourceEventDigest:asset.delta.sourceEventDigest,
   sourcePrefixDigestBefore:before.sourcePrefixDigest,sourcePrefixDigestAfter:after.sourcePrefixDigest,capturedWindowDigest:asset.delta.windowDigest,
   capturedSha256:asset.sha256,changeKind:'ASSET_PUT',familyRef:'family:t4:'+identityDigest('NATIVE-FAMILY',family),
@@ -268,11 +268,12 @@ function seal(bytes){
 async function openedFixture({differentCapture=false}={}){
   const f=fixture(),{sp,rd,sa}=await f.negotiate();
   const original= differentCapture?verifyT4OriginalAssetDelta({...asset.delta,bytesBase64:Buffer.alloc(assetBytes.length,21).toString('base64'),
-    assetBytesSha256:hex(Buffer.alloc(assetBytes.length,21))}):asset;
+    assetBytesSha256:hex(Buffer.alloc(assetBytes.length,21))},{enableMultipart:true}):asset;
   const plan=await contentPlan(17,seal(original.bytes));await f.prepare(sp,plan);
-  let pending=await sp.publishOriginalMultipartFrames({limit:64});while(pending.remainingFrames>0)pending=await sp.publishOriginalMultipartFrames({limit:64});
-  // Explicitly recover from the original publication journal, not a saved in-memory plan.
-  await f.port(source).publishOriginalMultipartFrames({limit:64});
+  let pending=await sp.publishOriginalMultipartFrames({limit:64});
+  f.restart();
+  for(let i=0;i<16&&pending.remaining>0;i++)pending=await f.port(source).publishOriginalMultipartFrames({limit:64});
+  assert.equal(pending.remaining,0);
   const discovered=await discoverT4OriginalNetworkSessionContent(discoveryArgs(f));
   assert.equal(discovered.state,'CONTENT_VERIFIED');
   const headArgs={verifiedHeads:discovered.verifiedHeads,verifiedDiffRequest:rd,verifiedChangeRef:discovered.verifiedChangeRef,

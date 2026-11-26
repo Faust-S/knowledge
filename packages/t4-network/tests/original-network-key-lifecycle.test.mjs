@@ -1638,3 +1638,23 @@ test('K148 selected multipart profile preserves the old cap for ordinary session
   await assert.rejects(source.readOriginalSealedContent({...object.input,multipartProfile:T4_MULTIPART_OPAQUE_EXTENSION,
     originalMultipartAgreementDigest:selected.agreementDigest}),{code:'SEALED_CONTENT_MULTIPART_AGREEMENT_REQUIRED'});
 });
+
+test('K150 negotiated envelope crosses the exact legacy reservation boundary using only minimal authenticated header padding', {timeout:60000},async()=>{
+  const {T4_NATIVE_MAX_CAPTURE_PLAINTEXT_BYTES:legacy,T4_NATIVE_MAX_CIPHERTEXT_BYTES:cap,
+    T4_NATIVE_SEALED_HEADER_MAX_BYTES:maxHeader}=await import('../src/network/original-native-content-limits.mjs');
+  const q=await sealedFixture(),c=captured(Buffer.alloc(legacy+1,73),'event:k150:boundary','ASSET_PUT');
+  const a=selectedMultipartFor(c.session),digest=a.agreementDigest,callback=async()=>a;
+  const source=createT4OriginalVaultSealedContentPort({...q.common,role:'SOURCE',readOriginalMultipartAgreement:callback});
+  const r=await source.readOriginalSealedContent({...c.input,multipartProfile:T4_MULTIPART_OPAQUE_EXTENSION,
+    originalMultipartAgreementDigest:digest});
+  const raw=Buffer.from(r.ciphertext),length=raw.readUInt16BE(4),header=JSON.parse(raw.subarray(6,6+length));
+  assert.equal(raw.length,cap+1);assert.equal(length,maxHeader);assert.match(header.multipartPadding,/^0+$/);
+  const recipient=q.recipient({readOriginalMultipartAgreement:callback});
+  const opened=await recipient.openOriginalSealedContent({...q.openInput(c.session,r),originalMultipartAgreementDigest:digest});
+  assert.deepEqual(Buffer.from(opened.plaintext),c.content);
+  const wrong=Buffer.from(raw);const start=raw.indexOf(Buffer.from('"multipartPadding":"'))+'"multipartPadding":"'.length;
+  wrong[start]=49;
+  await assert.rejects(recipient.openOriginalSealedContent({...q.openInput(c.session,{...r,ciphertext:wrong}),
+    originalMultipartAgreementDigest:digest}));
+  assert.equal(q.unlocks,1);
+});

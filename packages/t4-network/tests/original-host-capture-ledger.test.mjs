@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {verifyT4OriginalAssetDelta} from '../src/network/original-asset-delta.mjs';
+import {readT4OriginalHostCapturedSubject,publishT4OriginalHostOutbox,readT4OriginalHostLocalCaptureEvidence}
+  from '../src/network/original-host-outbox-delivery.mjs';
+import {readT4OriginalHostCaptureFrontier} from '../src/network/original-host-capture-frontier.mjs';
+import {T4_NATIVE_MULTIPART_PROFILE} from '../src/network/original-native-content-limits.mjs';
 import {createHash} from 'node:crypto';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {createT4OriginalHostCaptureAdapter} from '../src/network/original-host-capture-adapter.mjs';
@@ -669,4 +673,93 @@ test('K149 selected large backing is rechecked after second original catalog obs
     return result;
   };
   await assert.rejects(p.readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_BACKING_INVALID'});
+});
+
+async function largeCaptureHost(){
+  const f=backingFixture(),rows=sourceRows(),source=sourcePorts(rows),permits=[];
+  const first=(await readT4OriginalEventWindow({...scope,...source,maxEvents:1})).nextCursor;
+  let current=null,mutations=0,lost=false,allow=true;
+  const kernel={...f.params.originalKernel,
+    async getAsset(){return structuredClone(current);},
+    async putAsset(input){
+      mutations++;
+      const revision=(current?.asset.revision??0)+1;
+      assert.equal(input.base_revision,revision-1);
+      const event={event_id:'event:asset:'+revision,event_type:input.event.event_type,workspace_id:scope.workspaceId,
+        object_id:input.object_id,service_id:'service:owner',revision,occurred_at:'2026-11-26T00:00:01Z',
+        payload:structuredClone(input.event.payload),idempotency_key:input.event.idempotency_key};
+      current={asset:{workspace_id:input.workspace_id,asset_id:input.asset_id,object_id:input.object_id,mime:input.mime,
+        revision,size:input.bytes.length},bytes:new Uint8Array(input.bytes)};
+      rows.push(event);
+      if(lost){lost=false;throw Error('original put response lost');}
+      return {asset:current.asset,event};
+    }};
+  const port=()=>{
+    const ledger=f.port();
+    return {...ledger,...source,originalKernel:kernel,originalWriteOwnerRef:scope.originalWriteOwnerRef,
+      getMode:()=> 'T4_NETWORK',authorizeOriginalWrite:async()=>true,readOriginalEvents:async()=>structuredClone(rows),
+      withOriginalSubjectMutation:async(_,action)=>action(),authorizeOriginalCaptureRecovery:async()=>true,
+      beforeOriginalMutationDispatch:cmd=>ledger.admitOriginalCaptureDispatch(cmd),
+      enableOriginalMultipartAssetCapture:true,authorizeOriginalMultipartAssetCapture:async proof=>{
+        permits.push(proof);return allow;
+      },authorizeNetworkPublish:async()=>true};
+  };
+  const host=(patch={})=>createT4OriginalHostCaptureAdapter({...port(),...patch});
+  const input=(size=900000)=>({workspace_id:scope.workspaceId,asset_id:'asset:large',object_id:'object:1',
+    mime:'application/octet-stream',base_revision:0,bytes:new Uint8Array(size).fill(51),event:{event_type:'source.asset',payload:{}}});
+  const scopeOf={...query,kind:'ASSET_PUT',subjectId:'asset:large'};
+  return {f,rows,first,port,host,input,scopeOf,permits,get mutations(){return mutations;},
+    lose:()=>{lost=true;},allow:x=>{allow=x;}};
+}
+test('K150 actual capture adapter and original segmented ledger recover >1 MiB canonical Asset without a second original mutation',async()=>{
+  const q=await largeCaptureHost(),original=q.input();q.lose();
+  await assert.rejects(q.host().putAsset({mutationInput:original,sourceCursor:q.first,captureRef:query.captureRef}),
+    {code:'SUBJECT_CAPTURE_SOURCE_WRITE_OUTCOME_UNKNOWN'});
+  assert.equal(q.mutations,1);
+  const root=rootOf(q.f,'intent');
+  assert.equal(root.data.payload.originalAssetCaptureProfile,T4_NATIVE_MULTIPART_PROFILE);
+  assert.ok(root.data.captureBacking.segments.length>1);
+  assert.equal((await q.f.port().inspectOriginalCaptureDispatch(query)).decision,'ADMITTED');
+  assert.equal(await q.f.port().readOriginalOutbox(query),null);
+  q.f.restart();q.allow(false);
+  // Revoked network admission must not prevent original recovery of a committed mutation.
+  const r=await q.host().reconcileAssetMutation({captureRef:query.captureRef,workspaceId:scope.workspaceId,assetId:original.asset_id});
+  assert.equal(r.originalMutationRetried,false);assert.ok(r.prepared.bytes.length>1024*1024);
+  assert.deepEqual(r.prepared.assetBytes,Buffer.from(original.bytes));assert.equal(q.mutations,1);
+  assert.equal(q.permits.length,2);
+  const args={...q.port(),...q.scopeOf};
+  const captured=await readT4OriginalHostCapturedSubject(args);
+  assert.equal(captured.originalAssetCaptureProfile,T4_NATIVE_MULTIPART_PROFILE);
+  assert.equal(captured.prepared.sha256,r.prepared.sha256);
+  const evidence=await readT4OriginalHostLocalCaptureEvidence(args);
+  assert.equal(evidence.networkPublicationAuthorized,false);
+  const frontier=await readT4OriginalHostCaptureFrontier({...q.port(),...scope,readOriginalAdmittedBaseline:async()=>({
+    schema:'IWXA_T4_ORIGINAL_SOURCE_BASELINE_V1',originalBaselineRef:'baseline:1',
+    originalBaselineDigest:'sha256:'+'a'.repeat(64),identity:{sourceWorkspaceId:scope.workspaceId,
+      originalWriteOwnerRef:scope.originalWriteOwnerRef},sourceCursor:q.first})});
+  assert.equal(frontier.sourceCursor.lastEventId,q.rows.at(-1).event_id);assert.equal(frontier.verifiedCaptureCount,1);
+  await assert.rejects(readT4OriginalHostCapturedSubject({...args,enableOriginalMultipartAssetCapture:false}),
+    {code:'OUTBOX_MULTIPART_PROFILE_REQUIRED'});
+  await assert.rejects(publishT4OriginalHostOutbox({...args,transport:{putSnapshot:async()=>assert.fail('legacy unsigned send')}}),
+    {code:'OUTBOX_MULTIPART_REQUIRES_NATIVE_NETWORK'});
+});
+test('K150 large capture gate denies unavailable backing/dispatch or revoked profile before original write',async()=>{
+  const q=await largeCaptureHost();
+  assert.throws(()=>q.host({originalCaptureBackingEnabled:false}),{code:'ORIGINAL_HOST_CAPTURE_MULTIPART_PORTS_REQUIRED'});
+  assert.throws(()=>q.host({authorizeOriginalMultipartAssetCapture:undefined}),{code:'ORIGINAL_HOST_CAPTURE_MULTIPART_PORTS_REQUIRED'});
+  const args={mutationInput:q.input(),sourceCursor:q.first,captureRef:query.captureRef};
+  q.allow(false);await assert.rejects(q.host().putAsset(args),{code:'SUBJECT_CAPTURE_MULTIPART_AUTHORITY_DENIED'});
+  assert.equal(q.f.writes,0);assert.equal(q.mutations,0);
+  q.allow(true);
+  await assert.rejects(q.host({authorizeOriginalMultipartAssetCapture:async p=>p.purpose==='before-intent'}).putAsset(args),
+    {code:'SUBJECT_CAPTURE_MULTIPART_AUTHORITY_DENIED'});
+  assert.equal(q.mutations,0);assert.equal((await q.f.port().inspectOriginalCaptureDispatch(query)).decision,null);
+});
+test('K150 selected source profile leaves small legacy capture records unchanged',async()=>{
+  const a=await largeCaptureHost(),b=await largeCaptureHost(),args={mutationInput:a.input(120),sourceCursor:a.first,captureRef:query.captureRef};
+  const enabled=await a.host().putAsset(args),legacy=await b.host({enableOriginalMultipartAssetCapture:false}).putAsset(args);
+  assert.equal(enabled.capture.prepared.sha256,legacy.capture.prepared.sha256);
+  assert.deepEqual(await a.f.port().readOriginalIntent(query),await b.f.port().readOriginalIntent(query));
+  assert.deepEqual(await a.f.port().readOriginalOutbox(query),await b.f.port().readOriginalOutbox(query));
+  assert.equal(a.permits.length,0);
 });

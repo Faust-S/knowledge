@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
+import {T4_NATIVE_MULTIPART_MAX_CAPTURE_PLAINTEXT_BYTES,T4_NATIVE_MULTIPART_MAX_RAW_ASSET_BYTES} from '../src/network/original-native-content-limits.mjs';
 import {packageSha256} from '../src/network/webdav-package-transfer.mjs';
 import {
   prepareT4OriginalAssetDelta,publishT4OriginalAssetDelta,
   fetchT4OriginalAssetDelta,applyT4OriginalAssetDelta,
-  advanceT4OriginalAssetCursor,
+  advanceT4OriginalAssetCursor,verifyT4OriginalAssetDelta,decodeT4OriginalAssetDeltaBytes,preflightT4OriginalAssetNativeCapacity,
 } from '../src/network/original-asset-delta.mjs';
 
 const ws='workspace:original',assetId='asset-example-1',objectId='object:one',
@@ -213,3 +214,33 @@ for(const mime of ['image/svg+xml','application/ld+json','x'.repeat(255),'text/p
     assert.deepEqual(r.read().bytes,data);
   });
 }
+
+test('K150 multi-MiB canonical Asset codec stays opt-in, rejects old unsigned delivery and preserves exact bytes',async()=>{
+  const {prepared:small}=await prepared(),raw=Buffer.alloc(2*1024*1024,173);
+  const delta={...small.delta,bytesBase64:raw.toString('base64'),assetSize:raw.length,assetBytesSha256:packageSha256(raw)};
+  assert.throws(()=>verifyT4OriginalAssetDelta(delta),{code:'ASSET_DELTA_CONTRACT_INVALID'});
+  const p=verifyT4OriginalAssetDelta(delta,{enableMultipart:true});
+  assert.ok(p.bytes.length>1024*1024);
+  assert.deepEqual(decodeT4OriginalAssetDeltaBytes(p.bytes,{enableMultipart:true}).assetBytes,raw);
+  assert.throws(()=>decodeT4OriginalAssetDeltaBytes(p.bytes),{code:'ASSET_DELTA_WIRE_MALFORMED'});
+  const transportPort=transport();
+  await assert.rejects(publishT4OriginalAssetDelta({prepared:p,transport:transportPort}),{code:'ASSET_DELTA_CONTRACT_INVALID'});
+  assert.equal(transportPort.files.size,0);
+  const r=recipient();
+  await assert.rejects(apply(p,r,{enableMultipart:true}),{code:'ASSET_DELTA_CAPTURE_PROFILE_INVALID'});
+  assert.equal(r.calls.length,0);
+  await apply(p,r,{enableMultipart:true,nativeNetworkEvidence:true,authorizeOriginalRead:async()=>true});
+  assert.equal(r.calls.length,1);assert.deepEqual(r.read().bytes,raw);
+});
+test('K150 exact future Event reservation bounds raw Asset after canonical base64 expansion',async()=>{
+  const {prepared:p}=await prepared(),d=p.delta;
+  const op={asset_id:d.assetId,object_id:d.objectId,mime:d.mime,base_revision:d.baseRevision,event:{event_type:d.originalEventType}};
+  const reserve=raw=>preflightT4OriginalAssetNativeCapacity({workspaceId:ws,originalWriteOwnerRef:owner,
+    operation:{...op,bytesBase64:Buffer.alloc(raw,1).toString('base64')},enableMultipart:true});
+  const small=reserve(0);
+  // Use the maximum whole base64 group that fits the exact reserved canonical metadata.
+  const groups=Math.floor((T4_NATIVE_MULTIPART_MAX_CAPTURE_PLAINTEXT_BYTES-small)/4),n=groups*3;
+  assert.ok(n<T4_NATIVE_MULTIPART_MAX_RAW_ASSET_BYTES);
+  assert.ok(reserve(n)<=T4_NATIVE_MULTIPART_MAX_CAPTURE_PLAINTEXT_BYTES);
+  assert.throws(()=>reserve(n+1),e=>e.code==='ASSET_DELTA_WIRE_TOO_LARGE'||e.code==='T4_NATIVE_MULTIPART_CONTENT_LIMIT_EXCEEDED');
+});
