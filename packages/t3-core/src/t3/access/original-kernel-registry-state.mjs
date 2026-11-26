@@ -370,7 +370,11 @@ function corporateRegistryPort({kernel,workspaceId,objectId,trustedPolicy,clock,
   const scope={organizationId:corporateScope?.organizationId,
     authorityId:corporateScope?.authorityId,workspaceId};
   const storageId=originalEmployeeRegistryWorkspaceId(scope);
-  check(storageId!==workspaceId&&trustedPolicy?.environment==="PRODUCTION"&&
+  // Installed network admission uses the SAME corporate wrapper and
+  // deterministic address, but its scoped relay is not an onboarding port.
+  // Never probe or adopt the legacy business Registry in this mode.
+  const existingOnly=corporateScope.existingSeparateStorageOnly??false;
+  check(typeof existingOnly==="boolean"&&storageId!==workspaceId&&trustedPolicy?.environment==="PRODUCTION"&&
     trustedPolicy.authorities?.[scope.authorityId]?.principalId===scope.organizationId&&
     typeof kernel.getWorkspace==="function"&&kernel.hasOperation("t1.getWorkspace"),
     "T3_ACCESS_REGISTRY_STORAGE_SCOPE_INVALID");
@@ -402,11 +406,20 @@ function corporateRegistryPort({kernel,workspaceId,objectId,trustedPolicy,clock,
         // An empty private Workspace must not reset an existing legacy
         // registry. Once the private registry actually exists, a registry-
         // shaped business object can never replace its authority.
-        const current=await kernel.getObject(storageId,objectId);
+        let current;
+        try{current=await kernel.getObject(storageId,objectId);}
+        catch(error){
+          if(existingOnly&&error?.code==="OBJECT_NOT_FOUND")return null;
+          throw error;
+        }
+        // Existence of the Workspace alone is not existence of the
+        // Registry. An empty scoped partition cannot become an initializer.
+        if(existingOnly)return current==null?null:select(storageId,"SEPARATE");
         if(current==null&&await kernel.getObject(workspaceId,objectId)!=null)
           no("T3_ACCESS_REGISTRY_STORAGE_LEGACY_CONFLICT");
         return select(storageId,"SEPARATE");
       }
+      if(existingOnly)return null;
       const business=await readWorkspace(workspaceId);
       if(!business)return null;
       const old=await kernel.getObject(workspaceId,objectId);
@@ -424,6 +437,7 @@ function corporateRegistryPort({kernel,workspaceId,objectId,trustedPolicy,clock,
   });
   const initializeStorage=async({confirmed=false}={})=>{
     check(confirmed===true,"T3_ACCESS_REGISTRY_STORAGE_HUMAN_REQUIRED");
+    check(!existingOnly,"T3_ACCESS_REGISTRY_EXISTING_STORAGE_REQUIRED");
     const prior=await locate();
     if(prior)return placement(prior);
     if(creation)return creation;

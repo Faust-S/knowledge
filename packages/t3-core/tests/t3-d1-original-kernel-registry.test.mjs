@@ -366,3 +366,75 @@ test("one original corporate Registry replays employee proof, seat policy and ne
   assert.throws(()=>prepareOriginalEmployeeRegistryRefresh({...s.scope,previousState:initial,delivery:corrupt,now:NOW}),
     {code:"T3_ACCESS_REGISTRY_POLICY_ADMISSION_CONFLICT"});
 });
+
+
+test("installed scoped corporate Registry never provisions, probes legacy, or adopts an empty partition",async()=>{
+  for(const options of [{},{legacy:true},{legacy:true,emptyPartition:true},{emptyPartition:true}]){
+    const s=productionRegistryFixture(options);await s.prepareLegacy();
+    const before=s.original.calls.length,reads=[];
+    const k={...s.kernel,
+      async getWorkspace(id){reads.push(["workspace",id]);assert.equal(id,s.storageId);return s.kernel.getWorkspace(id);},
+      async getObject(ws,id){reads.push(["object",ws,id]);assert.equal(ws,s.storageId);return s.kernel.getObject(ws,id);}};
+    const p=createOriginalKernelRegistryStatePort({...s.opts,kernel:k,corporateScope:{
+      organizationId:s.scope.organizationId,authorityId:s.scope.authorityId,existingSeparateStorageOnly:true}});
+    assert.equal((await p.readStoragePlacement()).mode,"NOT_CREATED");
+    assert.equal(await resolveOriginalKernelRegistryStatePortForKernel(p,k,{workspaceId:s.storageId}),false);
+    await assert.rejects(p.readState(),{code:"T3_ACCESS_REGISTRY_STATE_UNAVAILABLE"});
+    await assert.rejects(p.commitSignedState(s.state),{code:"T3_ACCESS_REGISTRY_STATE_UNAVAILABLE"});
+    await assert.rejects(p.initializeStorage({confirmed:true}),{code:"T3_ACCESS_REGISTRY_EXISTING_STORAGE_REQUIRED"});
+    assert.equal(s.creates.length,0);assert.equal(s.original.calls.length,before);
+    assert.ok(reads.every(row=>row[1]===s.storageId));
+  }
+  const s=productionRegistryFixture({denyRead:true});
+  const p=createOriginalKernelRegistryStatePort({...s.opts,corporateScope:{
+    organizationId:s.scope.organizationId,authorityId:s.scope.authorityId,existingSeparateStorageOnly:true}});
+  await assert.rejects(p.readStoragePlacement(),{code:"DENIED"});
+  await assert.rejects(p.initializeStorage({confirmed:true}),{code:"T3_ACCESS_REGISTRY_EXISTING_STORAGE_REQUIRED"});
+});
+
+import {createOriginalKernelNativeRelay} from "../src/t3/original-kernel-native-relay.mjs";
+test("actual scoped Relay attaches the ONE existing corporate Registry and reads its genuine signed state",async()=>{
+  const s=productionRegistryFixture(),ordinary=s.port();
+  await ordinary.initializeStorage({confirmed:true});await ordinary.commitSignedState(s.state);
+  let ownerRegistry,binding;
+  const relay=createOriginalKernelNativeRelay({currentEpoch:()=>1,
+    originalRegistryScope:{workspaceId:s.storageId,objectId:"t3.access.signed-registry"},
+    onAttach(raw,b){
+      binding=b;assert.notEqual(raw,b.registryKernel);
+      ownerRegistry=createOriginalKernelRegistryStatePort({...s.opts,kernel:b.registryKernel,corporateScope:{
+        organizationId:s.scope.organizationId,authorityId:s.scope.authorityId,existingSeparateStorageOnly:true}});
+      assert.equal(ownerRegistry.expectedStorageWorkspaceId,b.workspaceId);
+      return true;
+    },timeoutMs:2000});
+  const serviced=[];
+  try{
+    const session=await relay.exchange({verb:"attach",payload:{sessionInfo:{
+      contract_version:"1.3.0",runtime_version:"0.3.6",service_id:"iwxa.admin-center.workspace",
+      granted_operations:["t1.getWorkspace","t1.getObject","t1.listEventsSince","t1.commitObjectGraph"]}}},1);
+    assert.equal(binding.registryKernel,relay.nativeRegistryKernel);
+    const ex=(verb,rest={})=>relay.exchange({verb,payload:{sessionId:session.sessionId,...rest}},1);
+    const run=async(promise,expected)=>{
+      promise.catch(()=>{});
+      // Service the known exact original read sequence, without leaving
+      // a long-poll pending when the last command has completed.
+      for(const method of expected){
+        const next=await ex("next");
+        assert.equal(next.kind,"COMMAND");assert.equal(next.method,method);
+        const [ws]=next.args;assert.equal(ws,s.storageId);
+        serviced.push(next.method);
+        const result=await s.kernel[next.method](...next.args);
+        await ex("result",{id:next.id,ok:true,result});
+      }
+      return promise;
+    };
+    assert.equal(await run(resolveOriginalKernelRegistryStatePortForKernel(ownerRegistry,binding.registryKernel,{workspaceId:s.storageId}),["getWorkspace","getObject"]),true);
+    const state=await run(ownerRegistry.readState(),["getObject","listEventsSince"]);
+    assert.deepEqual(state.grants,s.state.grants);
+    assert.equal(state.statusFloor[s.scope.authorityId],s.state.statusFloor[s.scope.authorityId]);
+    assert.equal(s.creates.length,1);assert.equal(s.original.calls.length,1);
+    assert.ok(serviced.includes("getWorkspace")&&serviced.includes("listEventsSince"));
+    await assert.rejects(ownerRegistry.initializeStorage({confirmed:true}),{code:"T3_ACCESS_REGISTRY_EXISTING_STORAGE_REQUIRED"});
+    relay.invalidate();assert.equal(binding.isHostActive(),false);
+    await assert.rejects(ownerRegistry.readState(),{code:"T3_ORIGINAL_REGISTRY_RELAY_NOT_CONNECTED"});
+  }finally{relay.close();}
+});
