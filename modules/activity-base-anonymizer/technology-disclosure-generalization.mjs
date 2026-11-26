@@ -351,6 +351,12 @@ function rewriteBlock(product,row,value){
  if(product.target===D05_TARGET&&row.path===termPath){
   const t=product.technology,old=partitionD05Guidance(t),next=partitionD05Guidance({...t,terms:{...t.terms,local_context_guidance:value}});
   if(old.unresolved.length||next.unresolved.length||serial(scopedCounts(old))!==serial(scopedCounts(next)))return 'PRACTICAL_SCOPE_CHANGED';
+  // Comparing only the aggregate markers and the number of lines per
+  // scope misses two scoped rules exchanging their technical conditions.
+  for(const bucket of ['operations','quality'])for(const [id,lines] of Object.entries(old[bucket])){
+   if(lines.some((line,i)=>reviewTechnologyTextChange(line,next[bucket][id][i]).changed_markers.some(m=>
+    ['UNITS','COMPARISONS','CONDITIONS','OBLIGATIONS'].includes(m.kind))))return 'PRACTICAL_SCOPE_CHANGED';
+  }
  }
  return null;
 }

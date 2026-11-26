@@ -403,4 +403,11 @@ test('whole D05 plan retains oversized fields as unresolved and merges compatibl
  assert.equal(oversized.planned_field_count+oversized.unplanned.length,oversized.editable_field_count);
  const incomplete=await reviewContextualGeneralizationPlan(large,[],'ru',[],oversized.plan_sha256,[],[]);
  assert.equal(incomplete.coverage_complete,false);assert.ok(incomplete.unplanned_field_count>0);
+ const swapped=d05Candidate(),a=swapped.technology.operations[0].operation_id,b=swapped.technology.operations[1].operation_id;
+ swapped.technology.terms.local_context_guidance='Операция '+a+': Проверить зазор 2 мм.\nОперация '+b+': Проверить зазор 5 мм.';
+ const source=await prepareD05TechnologyProduct(swapped,'Part');
+ const scopedRequest=await prepareContextualGeneralizationRequest(source,[],'ru',[],[scope]);
+ const exchanged=await reviewContextualGeneralizationProposal(source,[],'ru',[],[scope],contextualReply(scopedRequest,{
+  [scope]:{decision:'REWRITE',value:'Операция '+b+': Проверить зазор 2 мм.\nОперация '+a+': Проверить зазор 5 мм.',reason:'Exchange scope without changing global marker order'}}));
+ assert.equal(exchanged.fields[0].block,'PRACTICAL_SCOPE_CHANGED');
 });

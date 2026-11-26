@@ -4,6 +4,7 @@ import {prepareContextualGeneralizationRequest,reviewContextualGeneralizationPro
 import {editableProductTexts,reviseTechnologyProductText,reviewTechnologyTransferContent} from '../../modules/activity-base-anonymizer/technology-product-revision.mjs';
 import type {ProductPreview} from '../../modules/activity-base-anonymizer/technology-product.mjs';
 import {ProductRevisionComparison} from './ProductRevisionComparison';
+import {ProductContextualPlanPanel} from './ProductContextualPlanPanel';
 
 const names:Record<string,string>={title:'Название',technology:'Технология',terms:'Общие условия',purpose:'Назначение',inputs:'Входы',outputs:'Результат',
  applicability:'Применимость',instructions:'Инструкция',result_requirements:'Критерии результата',context_requirements:'Контекст получателя',
@@ -14,7 +15,7 @@ const label=(path:string)=>path.split('.').slice(1).map(k=>names[k]??(/^\d+$/.te
 const blockLabels={TECHNICAL_MARKERS_CHANGED:'Изменены физические единицы или сравнения',CONTROL_NUMBERS_CHANGED:'Изменены числовые условия контроля',PRACTICAL_SCOPE_CHANGED:'Изменена или не распознана область практического правила'};
 const LIMIT=16,PAGE=8;
 
-export function ProductContextualGeneralizationPanel({product,reports,references,language,plan,disabled,onRevision}:{
+function SelectedFieldsGeneralizationPanel({product,reports,references,language,plan,disabled,onRevision}:{
  product:ProductPreview;reports:Partial<Record<'en'|'ru',unknown>>;references:SourceReference[];language:'ru'|'en';
  plan:GeneralizationPlan|null;disabled:boolean;onRevision:(value:ProductPreview)=>void;
 }){
@@ -85,7 +86,7 @@ export function ProductContextualGeneralizationPanel({product,reports,references
   finally{running.current=false;if(token===generation.current)setBusy(false);}
  }
  return <details className="activity-domain-group">
-  <summary>Контекстное обезличивание технологии</summary>
+  <summary>Обобщить отдельные выбранные поля</summary>
   <p>Локальная модель анализирует целые поля, а не только обнаруженные имена. Она предлагает переносимые формулировки, сохраняет технические условия или указывает, что требуется уточнение владельца. Это не автоматическая публикация.</p>
   <p>Выбрано {paths.length} из {inventory.length} текстовых полей. За один запрос можно обработать до {LIMIT} полей. Остальные поля не считаются проверенными.</p>
   <div className="activity-v7-actions"><button disabled={blocked||!priority.size} onClick={()=>choose(ordered.filter(f=>priority.has(f.path)).slice(0,LIMIT).map(f=>f.path))}>Выбрать приоритетные поля</button>
@@ -122,5 +123,14 @@ export function ProductContextualGeneralizationPanel({product,reports,references
    {current?<ProductRevisionComparison key={signature} review={current.local_review} disabled={blocked}
     onConfirm={()=>{if(!blocked&&current.local_review.base_product_sha256===product.product_sha256){setPending(null);onRevision(current.preview);}}} onCancel={()=>setPending(null)}/>:null}
   </>:null}
+ </details>;
+}
+
+export function ProductContextualGeneralizationPanel(props:Parameters<typeof SelectedFieldsGeneralizationPanel>[0]){
+ return <details className="activity-domain-group">
+  <summary>Контекстное обезличивание технологии</summary>
+  <ProductContextualPlanPanel product={props.product} reports={props.reports} references={props.references} language={props.language}
+   disabled={props.disabled} onRevision={props.onRevision}/>
+  <SelectedFieldsGeneralizationPanel {...props}/>
  </details>;
 }
