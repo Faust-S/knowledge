@@ -7,6 +7,11 @@ import {confirmT4OriginalNetworkSourceAcknowledgement,confirmT4OriginalHistorica
 import {verifyT4OriginalSourceHeadCausality} from './original-network-source-head-proof.mjs';
 import {selectT4OriginalLocalEventReadPorts} from './original-event-window.mjs';
 import {prepareT4CandidateOpaqueChunks} from './standard-network-opaque-chunks.mjs';
+import {prepareT4CandidateMultipartOpaqueChunks,t4CandidateMultipartChunkSequence,
+  T4_MULTIPART_OPAQUE_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION} from './standard-network-multipart-opaque-chunks.mjs';
+import {selectT4NativeAssetContentProfile,T4_NATIVE_MULTIPART_PROFILE,T4_NATIVE_MAX_CAPTURE_PLAINTEXT_BYTES}
+  from './original-native-content-limits.mjs';
+import {readT4OriginalNativeMultipartAgreement} from './original-network-multipart-agreement.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,t4NativeSubjectCriticalExtensions,
   decodeT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION}
   from './standard-network-wire-candidate.mjs';
@@ -370,6 +375,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize,
     retryMissing=false,announceOriginalSourceSession=false,recoverNextOriginalCapture=null,
     authorizeOriginalHistoricalCursorRecovery=null,historicalOnly=false,
+    enableOriginalMultipartNegotiation=false,
   }={}){
     const schema='IWXA_T4_ORIGINAL_HOST_NATIVE_SOURCE_STEP_V1';
     if(mode()==='LOCAL_T3')return Object.freeze({schema,state:'LOCAL_T3',
@@ -380,6 +386,8 @@ export function createT4OriginalHostDispatchTaskBinding({
       verifyOriginalSourceSubject,createOriginalNativePublicationPort]
       .every(f=>typeof f==='function')||!ID(requiredCryptoSuite)||typeof retryMissing!=='boolean'||
       typeof announceOriginalSourceSession!=='boolean'||typeof historicalOnly!=='boolean'||
+      typeof enableOriginalMultipartNegotiation!=='boolean'||
+      (enableOriginalMultipartNegotiation&&!announceOriginalSourceSession)||
       (historicalOnly&&(authorizeOriginalHistoricalCursorRecovery===null||retryMissing))||
       (authorizeOriginalHistoricalCursorRecovery!==null&&
         (!announceOriginalSourceSession||typeof authorizeOriginalHistoricalCursorRecovery!=='function'))||
@@ -442,14 +450,31 @@ export function createT4OriginalHostDispatchTaskBinding({
       return result('NO_NEXT_ORIGINAL_EVENT');
     }
     const task=tick.result,session=deriveT4OriginalNativeCaptureSession(task);
+    // The immutable Intent reserves a conservative size before the Event
+    // exists. Choose the wire profile from exact captured canonical bytes,
+    // not that reservation: the final Event identifier may be shorter.
+    const captureProfile=c=>c?.originalAssetCaptureProfile;
+    const selectProfile=c=>{
+      const marked=captureProfile(c),bytes=c?.prepared?.bytes;
+      if(marked!==undefined&&(marked!==T4_NATIVE_MULTIPART_PROFILE||session.changeKind!=='ASSET_PUT'||
+        !enableOriginalMultipartNegotiation||!(bytes instanceof Uint8Array)))
+        fail('HOST_TASK_NATIVE_MULTIPART_CAPTURE_REQUIRED');
+      if(session.changeKind!=='ASSET_PUT'||!(bytes instanceof Uint8Array))return false;
+      if(bytes.length>T4_NATIVE_MAX_CAPTURE_PLAINTEXT_BYTES&&marked!==T4_NATIVE_MULTIPART_PROFILE)
+        fail('HOST_TASK_NATIVE_MULTIPART_CAPTURE_REQUIRED');
+      return selectT4NativeAssetContentProfile(bytes.length,{enableMultipart:enableOriginalMultipartNegotiation})===T4_NATIVE_MULTIPART_PROFILE;
+    };
+    const multipart=selectProfile(task.capture);
     const expected={initial,session,frontierRevision:task.originalHostFrontierRevision};
     const extensions=t4NativeSubjectCriticalExtensions(session.changeKind);
+    const inboundExtensions=multipart?[...extensions,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:extensions;
     const sameJSON=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
     const refresh=async()=>{
       await verify(initial);
       const fresh=await prepareNative();
       if(!fresh.prepared||!sameJSON(deriveT4OriginalNativeCaptureSession(fresh.result),session)||
-        fresh.result.originalHostFrontierRevision!==expected.frontierRevision)
+        fresh.result.originalHostFrontierRevision!==expected.frontierRevision||
+        captureProfile(fresh.result.capture)!==captureProfile(task.capture)||selectProfile(fresh.result.capture)!==multipart)
         fail('HOST_TASK_NATIVE_ORIGINAL_FRONTIER_CHANGED',{automaticRetryAllowed:false});
       await verify(initial);
     };
@@ -495,6 +520,10 @@ export function createT4OriginalHostDispatchTaskBinding({
         .every(k=>typeof rawPublication[k]==='function'))
       fail('HOST_TASK_ORIGINAL_NATIVE_PUBLICATION_PORT_INVALID');
     expected.publicationCheckpointRef=rawPublication.checkpointRef;
+    if(multipart&&(!['prepareOriginalMultipartBacking','readOriginalMultipartBacking','prepareOriginalMultipartPublication',
+      'publishOriginalMultipartFrames'].every(k=>typeof rawPublication[k]==='function')||
+      frameDiscoveryPort?.originalMultipartNegotiationEnabled!==true))
+      fail('HOST_TASK_NATIVE_MULTIPART_PORTS_REQUIRED');
     const publication=scopeOriginalHostPort(rawPublication,lifetime,
       ['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler'],
       'HOST_TASK_ORIGINAL_NATIVE_PUBLICATION_PORT_INVALID');
@@ -518,7 +547,8 @@ export function createT4OriginalHostDispatchTaskBinding({
     const frames=saved.frames;
     if(frames.length&&(announceOriginalSourceSession||frames[0].wireBytes instanceof Uint8Array)){
       const head=decodeT4CandidateFrame(frames[0].wireBytes);
-      if(head.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)!==announceOriginalSourceSession)
+      if(head.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)!==announceOriginalSourceSession||
+        head.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION)!==multipart)
         fail('HOST_TASK_NATIVE_SOURCE_ANNOUNCEMENT_PROFILE_CHANGED');
       if(announceOriginalSourceSession)
         readT4OriginalSourceSessionHead({identity:session,body:head.body,sessionRef:head.sessionRef,
@@ -530,6 +560,8 @@ export function createT4OriginalHostDispatchTaskBinding({
       f.messageType!==(i===0?'HEADS':i===1?'CHANGE_REF':'CHUNK')||
       !['PREPARED','ATTEMPTED','PRESENT'].includes(f.state))||
       (frames.length===2)||(stage===0&&frames.length!==0)||
+      (!multipart&&saved.multipartBackingReserved===true)||
+      (multipart&&frames.length>1&&saved.multipartPublicationPrepared!==true)||
       (stage>=2&&(frames.length<3||frames.some(f=>f.state!=='PRESENT'))))
       fail('HOST_TASK_NATIVE_SOURCE_PROFILE_OR_STATE_CONFLICT');
     const done=(state,extra={})=>result(state,{sessionRef:session.sessionRef,
@@ -545,12 +577,12 @@ export function createT4OriginalHostDispatchTaskBinding({
       if(!phaseMatches(after)||after.currentPhase!==next||!evidenceMatches(after.currentEvidence,evidence))
         fail('HOST_TASK_NATIVE_SOURCE_PHASE_READBACK_MISMATCH');
     };
-    if(historicalOnly&&stage<2)return done('NO_ORIGINAL_HISTORICAL_RECOVERY');
+    if(historicalOnly&&(stage<2||multipart))return done('NO_ORIGINAL_HISTORICAL_RECOVERY');
     if(stage===0){
       await advance('INTENT',intent);
       return done('INTENT_RECORDED');
     }
-    if(stage===2&&authorizeOriginalHistoricalCursorRecovery!==null){
+    if(stage===2&&!multipart&&authorizeOriginalHistoricalCursorRecovery!==null){
       if(typeof discovery.readOriginalHistoricalAppliedAck!=='function'||
         typeof publication.readOriginalHistoricalPublishedFrame!=='function')
         fail('HOST_TASK_NATIVE_HISTORICAL_RECOVERY_PORTS_REQUIRED');
@@ -580,7 +612,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       // Only proven absence of an earlier accepted slot permits the
       // ordinary live receipt path below.
     }
-    if(stage===3&&authorizeOriginalHistoricalCursorRecovery!==null){
+    if(stage===3&&!multipart&&authorizeOriginalHistoricalCursorRecovery!==null){
       // The original result was independently confirmed before rotation.
       // Recover only the missing original source frontier.
       if(typeof sourceCursorPort?.commitHistoricallyConfirmedCursor!=='function'||
@@ -616,12 +648,15 @@ export function createT4OriginalHostDispatchTaskBinding({
     const specsFor=async specs=>{
       const signed=[];
       for(const spec of specs){
-        await refresh();
+        // The captured session and bounded batch are rechecked before
+        // reservation. Every signature still crosses the original live
+        // authority fence; do not decode multi-MiB Outbox for each chunk.
+        if(multipart)await verify(initial);else await refresh();
         const signing=await resolveOriginalSigningContext(Object.freeze({
           session,sequence:spec.sequence,messageType:spec.messageType,
           originalNodeSigningAuthorityRequired:true,
         }));
-        await refresh();
+        if(multipart)await verify(initial);else await refresh();
         if(!ID(signing?.permissionRef)||!ID(signing?.signerRef))
           fail('HOST_TASK_NATIVE_SOURCE_SIGNING_CONTEXT_INVALID');
         const unsignedFrame=createT4CandidateUnsignedFrame({
@@ -631,8 +666,10 @@ export function createT4OriginalHostDispatchTaskBinding({
           sessionRef:session.sessionRef,scopeRef:session.scopeRef,ownerEpoch:session.ownerEpoch,
           permissionRef:signing.permissionRef,signerRef:signing.signerRef,
           cryptoSuite:requiredCryptoSuite,body:spec.body,
-          criticalExtensions:spec.messageType==='CHANGE_REF'?extensions:
-            spec.messageType==='HEADS'&&announceOriginalSourceSession?[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]:[],
+          criticalExtensions:multipart&&['CHANGE_REF','CHUNK'].includes(spec.messageType)?[T4_MULTIPART_OPAQUE_EXTENSION]:
+            spec.messageType==='CHANGE_REF'?extensions:
+            spec.messageType==='HEADS'&&announceOriginalSourceSession?[T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
+              ...(multipart?[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:[])]:[],
         });
         signed.push(await signT4CandidateFrame({unsignedFrame,signOriginalNodeBytes:live(signOriginalNodeBytes)}));
       }
@@ -643,7 +680,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     if(!frames.length||frames[0].state!=='PRESENT'){
       const spec={sequence:1,messageType:'HEADS',
         body:announceOriginalSourceSession?createT4OriginalSourceSessionHead({
-          session,sourceCursorBefore:task.sourceCursorBefore,sourceCursorAfter:task.sourceCursorAfter}):
+          session,sourceCursorBefore:task.sourceCursorBefore,sourceCursorAfter:task.sourceCursorAfter,offerMultipart:multipart}):
           {familyRef:session.familyRef,ownerEpoch:session.ownerEpoch,heads:[session.sourcePrefixDigestAfter]}};
       const sent=await send([{sequence:1,messageType:'HEADS'}],frames.length?null:[spec]);
       return done('HEADS_PRESENT',{publications:sent.publications});
@@ -653,7 +690,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       const found=await discovery.discoverUniqueSignedFrame({selector:{
         sourceNodeRef:session.recipientNodeRef,sessionRef:session.sessionRef,
         ownerEpoch:session.ownerEpoch,messageType,sequence},
-        requiredCryptoSuite,supportedCriticalExtensions:extensions});
+        requiredCryptoSuite,supportedCriticalExtensions:inboundExtensions});
       await refresh();
       if(found?.schema!=='IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1'||
         !['FOUND','NOT_FOUND','RESTART_SCAN'].includes(found.state)||
@@ -679,7 +716,51 @@ export function createT4OriginalHostDispatchTaskBinding({
     if(diff.receipt.verifiedBody?.familyRef!==session.familyRef||
       !sameJSON(diff.receipt.verifiedBody?.fromHeads,[session.sourcePrefixDigestBefore]))
       fail('HOST_TASK_NATIVE_SOURCE_DIFF_FRONTIER_MISMATCH');
-    if(frames.length===1){
+    if(multipart){
+      const sourceHead=await publication.readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
+      const agreement=readT4OriginalNativeMultipartAgreement({session,sourceHead,recipientDiff:diff.receipt,
+        localRole:'SOURCE',requiredCryptoSuite});
+      await refresh();
+      if(frames.length===1){
+        if(saved.multipartBackingReserved!==true){
+          const plan=await prepareT4CandidateMultipartOpaqueChunks({
+            changeId:session.changeId,ownerRef:session.originalWriteOwnerRef,
+            sourceContentRef:task.capture.captureRef,getMode:mode,
+            authorizeOriginalSealedContent:live(authorizeOriginalSealedContent),
+            readOriginalSealedContent:live(p=>readOriginalSealedContent(Object.freeze({...p,session,
+              originalCapture:task.capture,exactCapturedCanonicalBytesRequired:true,
+              multipartProfile:T4_MULTIPART_OPAQUE_EXTENSION,originalMultipartAgreementDigest:agreement.agreementDigest}))),
+          });
+          const specs=[{sequence:2,messageType:'CHANGE_REF',body:{
+            changeId:session.changeId,changeKind:session.changeKind,eventRef:session.sourceEventId,
+            ownerRef:session.originalWriteOwnerRef,sourceRevision:session.sourceRevision,
+            contentDigest:plan.manifest.contentDigest,parents:[session.sourcePrefixDigestBefore],multipartManifest:plan.manifest,
+          }},...plan.bodies.map(body=>({sequence:t4CandidateMultipartChunkSequence(body),messageType:'CHUNK',body}))];
+          const wireBytes=await specsFor(specs);
+          await refresh();
+          await publication.prepareOriginalMultipartBacking({wireBytes});
+          await refresh();
+        }
+        const backing=await publication.readOriginalMultipartBacking();
+        if(backing.originalMultipartAgreementDigest!==agreement.agreementDigest)
+          fail('HOST_TASK_NATIVE_MULTIPART_AGREEMENT_CHANGED');
+        await publication.prepareOriginalMultipartPublication();
+        await refresh();
+      }
+      if(frames.length===1||frames.some(f=>f.state!=='PRESENT')){
+        const wake=await publication.publishOriginalMultipartFrames({limit:64,retryMissing});
+        await refresh();
+        if(wake?.schema!=='IWXA_T4_ORIGINAL_MULTIPART_PUBLICATION_WAKE_V1'||wake.checkpointRef!==publication.checkpointRef||
+          wake.originalBusinessApplied!==false||wake.sourceCursorAdvanced!==false||wake.recipientCursorAdvanced!==false||
+          !Number.isSafeInteger(wake.remaining)||wake.remaining<0||!Array.isArray(wake.frames)||wake.frames.length>64||
+          wake.originalAllFramesPresentRecorded!==(wake.remaining===0))
+          fail('HOST_TASK_NATIVE_MULTIPART_WAKE_INVALID');
+        return done(wake.remaining===0?'CONTENT_PRESENT':'CONTENT_PARTIAL',{
+          originalMultipartAgreementDigest:agreement.agreementDigest,remainingFrames:wake.remaining,
+          originalSignedBatchReused:saved.multipartBackingReserved===true,publications:wake.frames});
+      }
+    }
+    if(!multipart&&frames.length===1){
       const chunks=await prepareT4CandidateOpaqueChunks({
         changeId:session.changeId,ownerRef:session.originalWriteOwnerRef,
         sourceContentRef:task.capture.captureRef,getMode:mode,
@@ -704,7 +785,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     }
     // Source reconstructs its own signed publication, not a fabricated
     // receiver's receipt, and checks exact original history before ACK.
-    const heads=await publication.readOriginalPublishedFrame({sequence:1});
+    const heads=await publication.readOriginalPublishedFrame({sequence:1,...(multipart?{includePresentEventAnchor:true}:{})});
     const change=await publication.readOriginalPublishedFrame({sequence:2});
     await refresh();
     const published={evidenceRef:change.key,evidenceDigest:'sha256:'+change.sha256};
@@ -720,6 +801,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       },
       authorizeOriginalRead:live(authorizeOriginalRead),...liveHistory(),
       verifyOriginalSourceSubject:live(verifyOriginalSourceSubject),
+      ...(multipart?{originalMultipartCaptureSession:session}:{}),
     });
     await refresh();
     if(stage===1){
