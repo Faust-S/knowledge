@@ -1588,6 +1588,7 @@ export async function advanceT4OriginalReplacementSourceContent({selection,task,
   const local=clone(selection),c=validateT4OriginalReplacementSessionCandidate(local?.session),root=deriveT4OriginalNativeCaptureSession(task);
   if(local.schema!=='IWXA_T4_ORIGINAL_LOCAL_REPLACEMENT_SELECTION_V1'||local.role!=='SOURCE'||
     local.originalLocalPhase!=='INTENT'||local.originalLocalPhaseRevision!==1||!same(root,c.originalCaptureSession)||
+    (local.originalLocalMultipartNegotiated===true)!==multipart||
     !same(task.sourceCursorBefore,local.sourceCursorBefore)||!same(handshakePorts.sourceCursorBefore,local.sourceCursorBefore)||
     local.originalLocalPublicationChainVerified!==true||local.originalLocalRetirementEventVerified!==true||
     local.originalLocalHistoricalSignaturesVerified!==true||local.originalPeerOwnerReadStillRequired!==true||
@@ -1815,7 +1816,10 @@ export async function advanceT4OriginalReplacementSourceAck({selection,createOri
     typeof readPhase?.inspectOriginalSession!=='function'||typeof publication?.inspectOriginalPublication!=='function')
     fail('REPLACEMENT_HOST_SOURCE_ACK_SELECTION_INVALID');
   const status=validateT4OriginalReplacementSourceIntentStatus(await readPhase.inspectOriginalSession(),c);mode(getMode);
-  const saved=await publication.inspectOriginalPublication();mode(getMode);
+  const multipart=local.originalLocalMultipartNegotiated===true;
+  if(multipart!==(publication.originalReplacementMultipartContentPublication===true))
+    fail('REPLACEMENT_HOST_SOURCE_ACK_SELECTION_INVALID');
+  const saved=await publication.inspectOriginalPublication({metadataOnly:multipart});mode(getMode);
   if(status.currentPhase!=='PUBLISHED'||status.checkpointRef!==local.originalLocalPhaseCheckpointRef||
     saved?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1'||!same(saved.session,c)||saved.checkpointRef!==local.originalLocalPublicationCheckpointRef||
     saved.revision!==local.originalLocalPublicationRevision||saved.chainHash!==local.originalLocalPublicationChainHash||

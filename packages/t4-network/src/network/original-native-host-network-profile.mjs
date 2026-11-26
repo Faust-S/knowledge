@@ -23,8 +23,11 @@ export function createT4OriginalNativeHostNetworkProfile({
   originalAccess,originalVault,originalTopology,originalPeerHistory,originalPorts,
   readOriginalBaselineAdmissionInput,readOriginalNetworkResumeInput,onStep,monotonicNow,enableSourceEventWindowRead=false,enableSourceCaptureBinding=false,enableRecipientResultRead=false,
   enableOriginalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,enableOriginalObjectCatalogWindow=false,enableOriginalRecipientFrontierCommitOrder=false,enableOriginalDispatchEvidence=false,
-  enableOriginalMultipartNegotiation=false,
+  enableOriginalMultipartNegotiation=false,enableOriginalReplacementMultipartNegotiation=false,
 }={}){
+  if(typeof enableOriginalReplacementMultipartNegotiation!=='boolean'||
+    (enableOriginalReplacementMultipartNegotiation&&!enableOriginalMultipartNegotiation))
+    fail('NATIVE_NETWORK_PROFILE_REPLACEMENT_MULTIPART_REQUIRED');
   if(typeof enableOriginalMultipartNegotiation!=='boolean'||(enableOriginalMultipartNegotiation&&
     (!['SOURCE','RECIPIENT'].includes(role)||!enableOriginalTechnicalObjectHistory||!enableSourceEventWindowRead||
       !enableSourceCaptureBinding||!enableRecipientResultRead||
@@ -94,7 +97,7 @@ export function createT4OriginalNativeHostNetworkProfile({
       requireSignedTopologyAccess:true,requireOriginalVaultNodeSignature:true,requireDurableNetworkKeyBinding:true,
       requireOriginalVaultSealedContent:true,enablePublicationIndexMigration:true,enableExplicitNetworkResume:true,
       enableLocalSourceCapture:source,enableLocalRecipientResultVerification:!source,enableRecipientResultRead,enableHistoricalAcknowledgementRecovery:source,enableLocalRetiredRecipientRecovery:!source,
-      enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:true,enableSourceEventWindowRead,enableSourceCaptureBinding,enableOriginalCommitOrder,enableOriginalTechnicalObjectHistory,enableOriginalObjectCatalogWindow,enableOriginalRecipientFrontierCommitOrder,enableOriginalDispatchEvidence,enableOriginalMultipartNegotiation,
+      enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:true,enableSourceEventWindowRead,enableSourceCaptureBinding,enableOriginalCommitOrder,enableOriginalTechnicalObjectHistory,enableOriginalObjectCatalogWindow,enableOriginalRecipientFrontierCommitOrder,enableOriginalDispatchEvidence,enableOriginalMultipartNegotiation,enableOriginalReplacementMultipartNegotiation,
       enableReplacementSourceAdmission:source,enableReplacementSourceContent:source,enableReplacementSourceAckConfirmation:source,
       enableReplacementRecipientAdmission:!source,enableReplacementRecipientContent:!source,enableReplacementRecipientApply:!source});
     const close=()=>{if(closed)return;closed=true;try{transport.close();}finally{tlsBinding?.close();}};

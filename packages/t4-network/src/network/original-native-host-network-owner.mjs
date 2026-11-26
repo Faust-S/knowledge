@@ -10,13 +10,14 @@ import {createT4OriginalHostCaptureAdapter} from './original-host-capture-adapte
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort}
   from './original-network-host-cursor.mjs';
 import {createT4OriginalNetworkSessionPhasePort,createT4OriginalReplacementHistoricalPhasePort,requireT4OriginalRetiredAttemptStatus,readT4OriginalLocalReplacementSelection} from './original-network-session-phases.mjs';
-import {createT4OriginalNetworkPublicationPort,validateT4OriginalReplacementDiffAcceptance,isT4RecoverablePublicationWakeError,createT4OriginalPublicationIndexMigrationStepper,readT4OriginalLocalRetiredRecipientSession} from './original-network-publication.mjs';
+import {createT4OriginalNetworkPublicationPort,deriveT4OriginalNativeCaptureSession,validateT4OriginalReplacementDiffAcceptance,isT4RecoverablePublicationWakeError,createT4OriginalPublicationIndexMigrationStepper,readT4OriginalLocalRetiredRecipientSession} from './original-network-publication.mjs';
 import {createT4OriginalNetworkReplayPort} from './original-network-replay-checkpoint.mjs';
 import {isT4NativeTopologyTransport} from './network-topology.mjs';
 import {isT4OriginalVaultNodeSignaturePort} from './original-vault-node-signature.mjs';
 import {isT4OriginalVaultSealedContentPort} from './original-vault-sealed-content.mjs';
 import {createT4CandidateFrameTransport} from './standard-network-wire-transport.mjs';
 import {createT4OriginalNativeMultipartAgreementBinding,T4OriginalMultipartPeerAgreementUnavailable} from './original-network-multipart-agreement.mjs';
+import {selectT4NativeAssetContentProfile} from './original-native-content-limits.mjs';
 import {createT4OriginalHostOutboxDispatcher,readT4OriginalNativeCaptureSessionAtCursor} from './original-host-outbox-dispatcher.mjs';
 import {createT4OriginalHostDispatchTaskBinding} from './original-host-dispatch-task-binding.mjs';
 import {createT4OriginalHostRecipientDispatcher} from './original-host-recipient-dispatcher.mjs';
@@ -79,7 +80,7 @@ export function createT4OriginalNativeHostNetworkOwner({
   originalSignedReplacementHistoryAccess=null,originalReplacementHistoryClient=null,
   originalVaultNodeSignaturePort=null,requireOriginalVaultNodeSignature=false,requireDurableNetworkKeyBinding=false,
   originalVaultSealedContentPort=null,requireOriginalVaultSealedContent=false,
-  enableOriginalMultipartNegotiation=false,
+  enableOriginalMultipartNegotiation=false,enableOriginalReplacementMultipartNegotiation=false,
   monotonicNow=()=>performance.now(),
 }={}){
   // Multipart is an explicit native profile, not a transport-size setting.
@@ -99,6 +100,11 @@ export function createT4OriginalNativeHostNetworkOwner({
     (!enableOriginalMultipartNegotiation&&originalVaultSealedContentPort?.originalMultipartBindingEnabled===true)||
     originalVaultSealedContentPort?.originalMultipartAgreementBound===true)
     fail('NATIVE_NETWORK_OWNER_MULTIPART_PROFILE_INVALID');
+  if(typeof enableOriginalReplacementMultipartNegotiation!=='boolean'||(enableOriginalReplacementMultipartNegotiation&&
+    (!enableOriginalMultipartNegotiation||!enableReplacementTerminalRecovery||
+      (role==='SOURCE'?(!enableReplacementSourceContent||!enableReplacementSourceAckConfirmation):
+        (!enableReplacementRecipientContent||!enableReplacementRecipientApply)))))
+    fail('NATIVE_NETWORK_OWNER_REPLACEMENT_MULTIPART_PROFILE_INVALID');
   // Enable only on the source using the existing signed source-window
   // protocol, with the original Host exclusion boundary. Legacy peers must
   // not independently reinterpret the source order by wall-clock time.
@@ -698,13 +704,23 @@ export function createT4OriginalNativeHostNetworkOwner({
             capture.session.changeId!==stopped.changeId)fail('NATIVE_REPLACEMENT_SOURCE_CAPTURE_CHANGED');
           originalCaptureSession=capture.session;retired=stopped;
         }
+        let multipart=selection?.originalLocalMultipartNegotiated===true;
+        if(multipart&&!enableOriginalReplacementMultipartNegotiation)fail('NATIVE_REPLACEMENT_MULTIPART_NOT_ENABLED');
+        if(selection===null&&enableOriginalReplacementMultipartNegotiation&&originalCaptureSession.changeKind==='ASSET_PUT'){
+          const captured=await dispatcher.prepareNextNativeObject({isHostActive});
+          if(captured?.state!=='ORIGINAL_NATIVE_CAPTURE_READY'||
+            JSON.stringify(deriveT4OriginalNativeCaptureSession(captured))!==JSON.stringify(originalCaptureSession))
+            fail('NATIVE_REPLACEMENT_SOURCE_CAPTURE_CHANGED');
+          multipart=selectT4NativeAssetContentProfile(captured.capture.prepared.bytes.length,{enableMultipart:true})!==null;
+        }
         return advanceT4OriginalReplacementSourceHandshake({originalCaptureSession,sourceCursorBefore,retired,selection,
-          getMode,requiredCryptoSuite,retryMissing,readOriginalOwnerEligibility,
+          getMode,requiredCryptoSuite,retryMissing,readOriginalOwnerEligibility,enableOriginalMultipartNegotiation:multipart,
           authorizeOriginalReplacement:authorizeReplacement,resolveOriginalSigningContext:signing.resolveOriginalSigningContext,signOriginalNodeBytes:signing.signOriginalNodeBytes,
           createOriginalReplacementPublicationPort:async({session},readOriginalReplacementEligibility)=>
             createT4OriginalNetworkPublicationPort({...tech,session,localNodeRef:nodeRef,frameTransport:frameDiscoveryPort,
               authorizeOriginalFramePublish:callback('authorizeOriginalFramePublish'),verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature'),
-              verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),readOriginalReplacementEligibility}),
+              verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),readOriginalReplacementEligibility,
+              enableOriginalMultipartNegotiation:multipart}),
           createOriginalReplacementSourcePhasePort:async({session,admission},readOriginalReplacementSourceAdmission)=>
             createT4OriginalNetworkSessionPhasePort({...tech,localNodeRef:nodeRef,sessionRef:session.sessionRef,changeId:session.changeId,
               changeKind:session.changeKind,replacementSourceAdmission:admission,readOriginalReplacementSourceAdmission,
@@ -714,6 +730,8 @@ export function createT4OriginalNativeHostNetworkOwner({
         const confirming=selection.originalLocalPhase==='PUBLISHED';
         const captured=confirming?null:await dispatcher.prepareNextNativeObject({isHostActive});
         const c=selection.session,sourceCursorBefore=selection.sourceCursorBefore;
+        const multipart=selection.originalLocalMultipartNegotiated===true;
+        if(multipart&&!enableOriginalReplacementMultipartNegotiation)fail('NATIVE_REPLACEMENT_MULTIPART_NOT_ENABLED');
         if(!confirming&&(captured?.state!=='ORIGINAL_NATIVE_CAPTURE_READY'||JSON.stringify(captured.sourceCursorBefore)!==JSON.stringify(sourceCursorBefore)))
           fail('NATIVE_REPLACEMENT_SOURCE_CAPTURE_CHANGED');
         const eligibility={originalCaptureSession:c.originalCaptureSession,sourceCursorBefore,requesterNodeRef:nodeRef,
@@ -721,13 +739,18 @@ export function createT4OriginalNativeHostNetworkOwner({
         const readEligibility=()=>recoverT4OriginalReplacementEligibility(eligibility);
         const makePublication=extra=>createT4OriginalNetworkPublicationPort({...tech,session:c,localNodeRef:nodeRef,frameTransport:frameDiscoveryPort,
           authorizeOriginalFramePublish:callback('authorizeOriginalFramePublish'),verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature'),
-          verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),readOriginalReplacementEligibility:readEligibility,...extra});
+          verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),readOriginalReplacementEligibility:readEligibility,
+          enableOriginalMultipartNegotiation:multipart,...extra});
         // Reopen the INTENT from the original phase Object, not a former
         // process closure. The handshake publication port cannot write content.
         const sourceAdmissionPhasePort=createT4OriginalReplacementHistoricalPhasePort({technicalSchemaId,technicalWorkspaceId,
           localNodeRef:nodeRef,originalKernel,getMode,readOriginalHostContext:tech.readOriginalHostContext,
           authorizeOriginalTechnicalRead:tech.authorizeOriginalTechnicalRead,verifyOriginalRecipientApplied:callback('verifyOriginalRecipientApplied'),session:c,enableOriginalTechnicalObjectHistory});
-        const handshake={...eligibility,sourceAdmissionPhasePort,sourcePublicationPort:makePublication({}),frameDiscoveryPort,
+        const sourcePublicationPort=makePublication({});
+        if(multipart)multipartBinding.bindOriginalPublication({session:c,publication:sourcePublicationPort,
+          expectedHeadSha256:selection.originalLocalMultipartHeadSha256});
+        const handshake={...eligibility,sourceAdmissionPhasePort,sourcePublicationPort,frameDiscoveryPort,
+          enableOriginalMultipartNegotiation:multipart,
           readOriginalRecipientDiffHistory:request=>{
             if(request.schema!==T4_REPLACEMENT_RECIPIENT_DIFF_REQUEST)fail('NATIVE_REPLACEMENT_ELIGIBILITY_ROUTE_INVALID');
             return readPeerHistory(request);
@@ -737,18 +760,20 @@ export function createT4OriginalNativeHostNetworkOwner({
           const observed=await discoverT4OriginalReplacementRecipientDiff(handshake);
           if(['WAITING_FOR_REPLACEMENT_DIFF','WAITING_FOR_REPLACEMENT_RECIPIENT_PUBLICATION'].includes(observed.state))
             fail('REPLACEMENT_CONTENT_AGREEMENT_NOT_READY');
-          return validateT4OriginalReplacementDiffAcceptance(observed,c);
+          return validateT4OriginalReplacementDiffAcceptance(observed,c,{enableOriginalMultipartNegotiation:multipart});
         };
         const sealed=scopedSealed.bindOriginalReplacementDiffAcceptance(readDiff);
         const sealCall=name=>async proof=>{
           await requireBinding(state,name);const value=await sealed[name](proof);await requireBinding(state,name+'-readback');return value;
         };
+        const multipartBacking= multipart?{authorizeOriginalMultipartBacking:callback('authorizeOriginalMultipartBacking'),
+          readOriginalMultipartAgreement:multipartBinding.readOriginalMultipartAgreement}:{};
         if(confirming){
           // The same original live publication verifier rechecks bilateral
           // eligibility. Only read the recipient's own terminal history;
           // never make it call the source while this native slot is held.
           const publication=makePublication({readOriginalReplacementDiffAcceptance:readDiff,
-            authorizeOriginalSealedPublication:sealCall('authorizeOriginalSealedPublication')});
+            authorizeOriginalSealedPublication:sealCall('authorizeOriginalSealedPublication'),...multipartBacking});
           return advanceT4OriginalReplacementSourceAck({selection,sourceAdmissionPhasePort,sourcePublicationPort:publication,
             frameDiscoveryPort,requiredCryptoSuite,getMode,readOriginalRecipientTerminalHistory:readPeerHistory,
             authorizeOriginalReplacementSourceAckConfirmation:callback('authorizeOriginalReplacementSourceAckConfirmation'),
@@ -763,7 +788,7 @@ export function createT4OriginalNativeHostNetworkOwner({
           authorizeOriginalSealedContent:callback('authorizeOriginalSealedContent'),readOriginalSealedContent:sealCall('readOriginalSealedContent'),
           createOriginalReplacementContentPublicationPort:async({session},readOriginalReplacementDiffAcceptance)=>{
             if(JSON.stringify(session)!==JSON.stringify(c))fail('NATIVE_REPLACEMENT_SOURCE_CAPTURE_CHANGED');
-            return makePublication({readOriginalReplacementDiffAcceptance,authorizeOriginalSealedPublication:sealCall('authorizeOriginalSealedPublication')});
+            return makePublication({readOriginalReplacementDiffAcceptance,authorizeOriginalSealedPublication:sealCall('authorizeOriginalSealedPublication'),...multipartBacking});
           },createOriginalReplacementSourceContentPhasePort:async({session,admission},readOriginalReplacementSourceContentPublication)=>
             createT4OriginalNetworkSessionPhasePort({...tech,localNodeRef:nodeRef,sessionRef:session.sessionRef,changeId:session.changeId,
               changeKind:session.changeKind,replacementSourceAdmission:admission,readOriginalReplacementSourceContentPublication,
@@ -824,32 +849,43 @@ export function createT4OriginalNativeHostNetworkOwner({
           fail('NATIVE_REPLACEMENT_RECIPIENT_STOP_NOT_PROVEN');
         originalCaptureSession=stopped.originalCaptureSession;retired=stopped;
       }
+      const multipart=selection?.originalLocalMultipartNegotiated===true;
+      if(multipart&&!enableOriginalReplacementMultipartNegotiation)fail('NATIVE_REPLACEMENT_MULTIPART_NOT_ENABLED');
+      const auto=selection===null&&enableOriginalReplacementMultipartNegotiation&&originalCaptureSession.changeKind==='ASSET_PUT';
       return advanceT4OriginalReplacementRecipientHandshake({originalCaptureSession,sourceCursorBefore,retired,selection,
         getMode,requiredCryptoSuite,retryMissing,readOriginalOwnerEligibility:readOwnerEligibility(cursor),
+        enableOriginalMultipartNegotiation:multipart||auto,acceptOriginalMultipartOffer:auto,
         readOriginalSourceAdmission:request=>{
           if(request.schema!==T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST)fail('NATIVE_REPLACEMENT_ELIGIBILITY_ROUTE_INVALID');
           return readPeerHistory(request);
         },authorizeOriginalReplacement:authorizeReplacement,
         authorizeOriginalReplacementRecipientAdmission:callback('authorizeOriginalReplacementRecipientAdmission'),
         resolveOriginalSigningContext:signing.resolveOriginalSigningContext,signOriginalNodeBytes:signing.signOriginalNodeBytes,frameDiscoveryPort,
-        createOriginalReplacementRecipientPublicationPort:async({session},readOriginalReplacementRecipientAdmission)=>
+        createOriginalReplacementRecipientPublicationPort:async({session,originalReplacementMultipartHandshakeRequired},readOriginalReplacementRecipientAdmission)=>
           createT4OriginalNetworkPublicationPort({...tech,session,localNodeRef:nodeRef,frameTransport:frameDiscoveryPort,
             authorizeOriginalFramePublish:callback('authorizeOriginalFramePublish'),verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature'),
-            verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),readOriginalReplacementRecipientAdmission})});
+            verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),readOriginalReplacementRecipientAdmission,
+            enableOriginalMultipartNegotiation:originalReplacementMultipartHandshakeRequired===true})});
     };
     const continueReplacementRecipientContent=async(selection,retryMissing=false)=>{
-      const c=selection.session,sourceCursorBefore=selection.sourceCursorBefore;
+      const c=selection.session,sourceCursorBefore=selection.sourceCursorBefore,multipart=selection.originalLocalMultipartNegotiated===true;
+      if(multipart&&!enableOriginalReplacementMultipartNegotiation)fail('NATIVE_REPLACEMENT_MULTIPART_NOT_ENABLED');
       const eligibility={originalCaptureSession:c.originalCaptureSession,sourceCursorBefore,requesterNodeRef:nodeRef,getMode,requiredCryptoSuite,
         readOriginalOwnerEligibility:readOwnerEligibility(cursor),authorizeOriginalReplacement:authorizeReplacement};
       const readAdmission=()=>readT4OriginalReplacementRecipientAdmission({...eligibility,frameDiscoveryPort,
+        enableOriginalMultipartNegotiation:multipart,
         readOriginalSourceAdmission:request=>{
           if(request.schema!==T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST)fail('NATIVE_REPLACEMENT_ELIGIBILITY_ROUTE_INVALID');
           return readPeerHistory(request);
         },authorizeOriginalReplacementRecipientAdmission:callback('authorizeOriginalReplacementRecipientAdmission')});
       const recipientPublicationPort=createT4OriginalNetworkPublicationPort({...tech,session:c,localNodeRef:nodeRef,frameTransport:frameDiscoveryPort,
         authorizeOriginalFramePublish:callback('authorizeOriginalFramePublish'),verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature'),
-        verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),readOriginalReplacementRecipientAdmission:readAdmission});
+        verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),readOriginalReplacementRecipientAdmission:readAdmission,
+        enableOriginalMultipartNegotiation:multipart});
+      if(multipart)multipartBinding.bindOriginalPublication({session:c,publication:recipientPublicationPort,
+        expectedHeadSha256:selection.originalLocalMultipartHeadSha256});
       return task.runNativeReplacementStep({selection,requiredCryptoSuite,frameDiscoveryPort,recipientPublicationPort,
+        ...(multipart?{readOriginalMultipartAgreement:multipartBinding.readOriginalMultipartAgreement}:{}),
         authorizeOriginalRecipientSession:callback('authorizeOriginalRecipientSession'),readOriginalSourceContentHistory:request=>{
           if(request.schema!==T4_REPLACEMENT_SOURCE_CONTENT_REQUEST)fail('NATIVE_REPLACEMENT_ELIGIBILITY_ROUTE_INVALID');
           return readPeerHistory(request);
@@ -866,7 +902,7 @@ export function createT4OriginalNativeHostNetworkOwner({
             createT4OriginalNetworkPublicationPort({...tech,session,localNodeRef:nodeRef,frameTransport:frameDiscoveryPort,
               authorizeOriginalFramePublish:callback('authorizeOriginalFramePublish'),verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature'),
               verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),readOriginalReplacementRecipientAdmission:readAdmission,
-              readOriginalReplacementAppliedAckAdmission})}:{}),
+              readOriginalReplacementAppliedAckAdmission,enableOriginalMultipartNegotiation:multipart})}:{}),
         createOriginalReplacementRecipientPhasePort:async({session,admission,received},readOriginalReplacementRecipientApplyAdmission,readOriginalReplacementRecipientAckPublication)=>
           createT4OriginalNetworkSessionPhasePort({...tech,localNodeRef:nodeRef,sessionRef:session.sessionRef,changeId:session.changeId,
             changeKind:session.changeKind,recipientApplyIntentRequired:true,replacementRecipientAdmission:admission,
@@ -1031,6 +1067,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     ...(enableOriginalObjectCatalogWindow?{originalObjectCatalogWindowEnabled:true}:{}),
     ...(enableOriginalDispatchEvidence?{originalDispatchEvidenceEnabled:true}:{}),
     ...(enableOriginalMultipartNegotiation?{originalMultipartNegotiationEnabled:true}:{}),
+    ...(enableOriginalReplacementMultipartNegotiation?{originalReplacementMultipartNegotiationEnabled:true}:{}),
     ...(enableOriginalRecipientFrontierCommitOrder?{originalRecipientFrontierCommitOrderEnabled:true}:{}),
     ...(enableSourceCaptureBinding?{originalSourceCaptureBindingEnabled:true}:{}),
     ...(enableLocalRecipientResultVerification?{originalLocalRecipientResultVerificationEnabled:true}:{}),
@@ -1212,7 +1249,7 @@ export function createT4OriginalNativeHostNetworkOwner({
             originalLocalReplacementSelected:true,originalPeerOwnerReadStillRequired:true,
             originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false,
             ...(state.replacementHistoryWait?{retryAfterMs:state.replacementHistoryWait.retryAfterMs}:{})}:{}),
-          ...(['WAITING_FOR_REPLACEMENT_ELIGIBILITY','ORIGINAL_REPLACEMENT_HEAD_PUBLISHED','ORIGINAL_REPLACEMENT_SOURCE_INTENT_RECORDED','ORIGINAL_REPLACEMENT_RECIPIENT_DIFF_PUBLISHED','WAITING_FOR_REPLACEMENT_CONTENT_AGREEMENT','ORIGINAL_REPLACEMENT_CONTENT_PRESENT','ORIGINAL_REPLACEMENT_SOURCE_PUBLISHED','WAITING_FOR_REPLACEMENT_RECIPIENT_CONTENT','ORIGINAL_REPLACEMENT_RECIPIENT_RECEIVED','ORIGINAL_REPLACEMENT_RECIPIENT_VERIFIED','ORIGINAL_REPLACEMENT_RECIPIENT_RESULT_VERIFIED','ORIGINAL_REPLACEMENT_RECIPIENT_APPLIED','WAITING_FOR_REPLACEMENT_SOURCE_ACK','ORIGINAL_REPLACEMENT_SOURCE_ACK_CONFIRMED'].includes(result.state)?{
+          ...(['WAITING_FOR_REPLACEMENT_ELIGIBILITY','ORIGINAL_REPLACEMENT_HEAD_PUBLISHED','ORIGINAL_REPLACEMENT_SOURCE_INTENT_RECORDED','ORIGINAL_REPLACEMENT_RECIPIENT_DIFF_PUBLISHED','WAITING_FOR_REPLACEMENT_CONTENT_AGREEMENT','ORIGINAL_REPLACEMENT_CONTENT_PARTIAL','ORIGINAL_REPLACEMENT_CONTENT_PRESENT','ORIGINAL_REPLACEMENT_SOURCE_PUBLISHED','WAITING_FOR_REPLACEMENT_RECIPIENT_CONTENT','ORIGINAL_REPLACEMENT_RECIPIENT_RECEIVED','ORIGINAL_REPLACEMENT_RECIPIENT_VERIFIED','ORIGINAL_REPLACEMENT_RECIPIENT_RESULT_VERIFIED','ORIGINAL_REPLACEMENT_RECIPIENT_APPLIED','WAITING_FOR_REPLACEMENT_SOURCE_ACK','ORIGINAL_REPLACEMENT_SOURCE_ACK_CONFIRMED'].includes(result.state)?{
             replacementSessionRef:result.replacementSessionRef,originalSupersessionEventId:result.originalSupersessionEventId,
             originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false,originalLocalReadbackRequired:true,
             ...(state.replacementHistoryWait?{retryAfterMs:state.replacementHistoryWait.retryAfterMs}:{})}:{}),
@@ -1220,6 +1257,7 @@ export function createT4OriginalNativeHostNetworkOwner({
             originalSupersessionEventId:(result.step??result).originalSupersessionEventId,
             replacementSessionRef:(result.step??result).replacementSessionRef,
             originalNewAttemptAdmissionStillRequired:true}:{}),
+          ...(result.state==='ORIGINAL_REPLACEMENT_CONTENT_PARTIAL'?{originalReplacementRemainingFrames:result.remainingFrames}:{}),
           ...(result.originalMultipartIndexRecovery?{
             originalMultipartCheckedFrameCount:result.originalMultipartIndexRecovery.checkedFrameCount,
             originalMultipartRepairedIndexCount:result.originalMultipartIndexRecovery.repairedIndexCount,
