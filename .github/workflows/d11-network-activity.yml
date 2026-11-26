@@ -20,7 +20,7 @@ jobs:
           persist-credentials: false
       - name: Admit one exact request
         run: |
-          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-network-activity --profile source-build --revision domain=a0eb9270b4de4f4a0dd60f789bb2a5aa2105cee0 --revision site=fdc9640aefd4baf4be96c0f3f9e4623ef2f7b4a2 --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-network-activity --profile source-build --revision domain=a0eb9270b4de4f4a0dd60f789bb2a5aa2105cee0 --revision site=d67ffb919120b036b36cc6f9a62742c294fe0d38 --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17
       - name: Verify existing approved read scope
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: fdc9640aefd4baf4be96c0f3f9e4623ef2f7b4a2
+          ref: d67ffb919120b036b36cc6f9a62742c294fe0d38
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -58,7 +58,7 @@ jobs:
       - name: Exact source pins and canonical mirrors
         run: |
           test "$(git -C domain rev-parse HEAD)" = "a0eb9270b4de4f4a0dd60f789bb2a5aa2105cee0"
-          test "$(git -C site rev-parse HEAD)" = "fdc9640aefd4baf4be96c0f3f9e4623ef2f7b4a2"
+          test "$(git -C site rev-parse HEAD)" = "d67ffb919120b036b36cc6f9a62742c294fe0d38"
           test "$(git -C t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
