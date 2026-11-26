@@ -604,3 +604,28 @@ test('revision preview rejects stale, incomplete, foreign or changed material ba
   await assert.rejects(revisionPreview(owner,base),code('METHOD_REVISION_BASE_CHANGED'));
   assert.equal((await owner.audit()).length,6);
 });
+
+
+test('new stage preview refuses a previously used logical Work identity',async()=>{
+  const {owner,base}=await revisionFixture();
+  const plan=prepare();
+  const project=await owner.load('project',workspaceId,'project-a');
+  const oldWork=inputFor(plan,'analyse');
+  const oldRef=base.workRefs.find(ref=>ref.recordId===creationIds().works[oldWork.workId]);
+  // Original historical Work remains, even after removing it from the active plan.
+  const reduced=fixture();
+  reduced.steps=reduced.steps.filter(step=>step.id!=='analyse');
+  reduced.steps.find(step=>step.id==='review').dependsOn=['compute'];
+  const prepared=prepare(reduced);
+  await owner.revise('project',{...prepared.projectInput,methodology:{...prepared.projectInput.methodology,creation:project.value.methodology.creation},
+    recordId:'reduced@2',baseRevisionId:base.projectRef.recordId,knowledgeAt});
+  for(const id of prepared.writeOrder){
+    const item=prepared.workInputs.find(value=>value.workId===id);
+    await owner.revise('work',{...item,recordId:id+'@reduced',baseRevisionId:creationIds().works[id],knowledgeAt});
+  }
+  const current=await read(owner),before=(await owner.audit()).length;
+  await assert.rejects(revisionPreview(owner,current,fixture()),code('METHOD_REVISION_STAGE_ID_USED'));
+  await owner.release('work',{workspaceId,objectId:oldWork.workId,recordId:'removed@2',baseRevisionId:oldRef.recordId,knowledgeAt});
+  await assert.rejects(revisionPreview(owner,current,fixture()),code('METHOD_REVISION_STAGE_ID_USED'));
+  assert.equal((await owner.audit()).length,before+1);
+});

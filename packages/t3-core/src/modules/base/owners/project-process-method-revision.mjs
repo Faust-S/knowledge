@@ -71,6 +71,19 @@ export async function previewWorkspaceMethodRevision({owner,workspaceId,projectI
 
   const oldWorks=new Map(before.workInputs.map(input=>[input.workId,normalizeWork(input)]));
   const newWorks=new Map(after.workInputs.map(input=>[input.workId,input]));
+  // A removed historical Work identity is not a new unused identity.
+  // A new stage needs a never-used logical ID, or an explicit restoration
+  // operation under the original owner, not an inferred create.
+  const added=[...newWorks.keys()].filter(id=>!oldWorks.has(id));
+  if(added.length && typeof owner.history!=='function') fail('METHOD_REVISION_HISTORY_REQUIRED','Original Work history required for new stages');
+  const checkAdded=async()=>{
+    for(const id of added){
+      if(await owner.load('work',workspaceId,id)||(await owner.history('work',workspaceId,id)).length){
+        fail('METHOD_REVISION_STAGE_ID_USED','A proposed new stage already has original source history');
+      }
+    }
+  };
+  await checkAdded();
   const byId=new Map();
   for(const workId of after.writeOrder){
     const input=newWorks.get(workId),next=normalizeWork(input),old=oldWorks.get(workId);
@@ -106,6 +119,7 @@ export async function previewWorkspaceMethodRevision({owner,workspaceId,projectI
   // Detect observed concurrent edits after reading the creation snapshot.
   const latest=await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId});
   assertExpectedRevisionSet(current,latest);
+  await checkAdded();
   return Object.freeze({
     state:projectChanged||counts.create||counts.revise||counts.releaseReview?'CHANGES_PROPOSED':'UNCHANGED',
     workspaceId,projectId,projectIntentChanged,
