@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FUNCTIONALLY_QUALIFIED_PUBLICATION_BLOCKED_MISSING_RETAINED_HOST_AND_CI_WRITE",
+  "status": "FUNCTIONALLY_QUALIFIED_OWNER_AUTHORIZED_LOCAL_HOSTING_ASSEMBLY",
   "scope": "1.6.0",
   "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -548,24 +548,41 @@
     }
   ],
   "assemblyHandoff": {
-    "status": "BLOCKED_DO_NOT_ISSUE_CODEX_PROMPT",
+    "status": "LOCAL_ASSEMBLY_AUTHORIZED_FROM_EXACT_QUALIFIED_SOURCE_PINS",
     "sourceRepository": "Faust-S/cehovod.ru",
     "retainedBranch": "work/2026-11-25-d05-t3-retained-inputs",
     "expectedParent": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
-    "qualificationRun": null,
+    "qualificationRun": 45780282826,
     "retainedCommit": null,
     "retainedTree": null,
     "nodeVersion": "22.16.0",
-    "npmVersion": "10.9.4",
+    "npmVersion": "10.9.2",
     "origin": "https://cehovod.ru",
     "toolchainSetup": "npm ci --no-audit --no-fund",
     "buildCommand": "npm run build:product:t3",
     "defaultBuildStillT2": true,
     "archiveContents": "dist/ contents at archive root, including .htaccess; no source, dependencies, logs, models or development output",
-    "allowedCodexWork": "assemble from qualified retained tree and package resulting dist; record archive SHA-256",
-    "forbiddenCodexWork": "source changes, rebuilding original platform inputs, independent product tests, production activation",
-    "releaseGate": "PASS all grouped release stages, exact remote source tree readback and byte-identical private reproduction",
-    "browserBuildPrerequisite": "Existing compatible system Chrome/Edge resolved by scripts/lib/resolve-browser-executable.ts for the product's own prerender; no separately initiated Codex browser acceptance."
+    "allowedCodexWork": "Reconstruct the already qualified generated Host with the exact original build commands and pinned sources, retain inputs locally, check Git tree identity, build product once and package dist. No new tests or development.",
+    "forbiddenCodexWork": "Source changes, new product tests, changing pins, GitHub Actions, private publication, deployment, or proceeding after a retained tree mismatch.",
+    "releaseGate": "Owner authorized local assembly instead of remote publication; verify exact local retained tree against previously qualified tree before assembling the hosting archive. Do not mark remote publication verified or final product acceptance until actual delivery.",
+    "browserBuildPrerequisite": "Existing compatible system Chrome/Edge resolved by scripts/lib/resolve-browser-executable.ts for the product's own prerender; no separately initiated Codex browser acceptance.",
+    "previousRemotePublicationGate": {
+      "status": "BLOCKED_DO_NOT_ISSUE_CODEX_PROMPT",
+      "releaseGate": "PASS all grouped release stages, exact remote source tree readback and byte-identical private reproduction",
+      "publicationStillUnverified": true
+    },
+    "mode": "LOCAL_RECONSTRUCTION_OF_IDENTICAL_RETAINED_TREE_THEN_HOSTING_BUILD",
+    "npmVersionEvidence": "Actual setup-node log of job 139773898412; package.json declares npm@10.9.4, but CI actually used 10.9.2.",
+    "expectedLocalRetainedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+    "originalPlatformArtifact": 14920233669,
+    "originalPlatformArchiveSha256": "b778474d011b34a77cd60b945f02295fb24654c833f3ab12ff36bd3c0bdd8863",
+    "sourcePins": {
+      "site": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+      "assistant": "e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f",
+      "oneCore": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+      "subject": "547148d8cd74838e0dd384c9da2f196e3595bf9d"
+    },
+    "environment": "Linux or WSL matching the qualified Linux build; existing compatible Chrome for the build's required prerender only."
   },
   "functionalQualification": {
     "receipt": "qualification/d05/receipts/45780282826-linux.json",
@@ -674,7 +691,7 @@
       "automaticCredentialFallback": false,
       "repeatedProductTests": false,
       "receipt": "qualification/d05/receipts/45783259434-publication.json",
-      "nextDispatch": "HOLD_UNTIL_AUTHORIZED_WRITE_ACCESS_OR_OWNER_APPROVED_PRIVATE_TRANSFER",
+      "nextDispatch": "NOT_REQUIRED_FOR_OWNER_AUTHORIZED_LOCAL_HOSTING_ASSEMBLY",
       "primaryRateLimitExhausted": false,
       "exactTokenConfigurationCause": "UNKNOWN"
     },
