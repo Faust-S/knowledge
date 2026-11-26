@@ -1,0 +1,61 @@
+name: T3 T4 native pilot exact source and original Runtime
+on:
+  push:
+    branches: ['ci/once/t3-t4-pilot-source/3c38288c59cb']
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 3c38288c59cba9256fbfdbfc7fa4f0728a5ff3b8
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public source and locked dependencies
+        id: deps
+        run: |
+          test "$(git rev-parse HEAD)" = "3c38288c59cba9256fbfdbfc7fa4f0728a5ff3b8"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+          npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Changed original Registry and native network composition
+        if: ${{ always() && steps.deps.outcome == 'success' }}
+        run: |
+          npm --prefix packages/t4-network run check
+          timeout 240s node --experimental-strip-types --test --test-timeout=180000 --test-concurrency=2 \
+            packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs \
+            packages/t3-core/tests/t3-d1-original-control-http.test.mjs \
+            packages/t3-core/tests/t3-d1-signed-control-dist.test.mjs \
+            packages/t4-network/tests/original-native-kernel-relay.test.mjs \
+            packages/t4-network/tests/original-native-network-product-activation.test.mjs \
+            packages/t4-network/tests/original-installed-control-factories.test.mjs \
+            packages/t4-network/tests/original-installed-control-http.test.mjs \
+            packages/t4-network/tests/original-product-network-selection.test.mjs \
+            packages/t4-network/tests/original-installed-product-passport.test.mjs
+      - name: TypeScript contract and complete One Core build
+        id: build
+        if: ${{ always() && steps.deps.outcome == 'success' }}
+        working-directory: packages/t3-core
+        run: |
+          timeout 180s npm run typecheck
+          timeout 240s npm run build
+      - name: Original immutable Kernel, complete Exchange and both pilot passports
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP=packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
+          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $ZIP" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/qualified-t2"
+          unzip -q "$ZIP" -d "$RUNNER_TEMP/qualified-t2"
+          test -f "$RUNNER_TEMP/qualified-t2/_iwxa/runtime/0.3.6/runtime.js"
+          npm install --prefix "$RUNNER_TEMP/t4-platform" --ignore-scripts --no-audit --no-fund --save-exact fake-indexeddb@6.2.4
+          export IWXA_COMPANY_TEST_QUALIFIED_T2="$RUNNER_TEMP/qualified-t2"
+          export IWXA_COMPANY_TEST_IDB_MODULE="$RUNNER_TEMP/t4-platform/node_modules/fake-indexeddb/build/esm/index.js"
+          export IWXA_COMPANY_TEST_COMPILED_T3="$GITHUB_WORKSPACE/packages/t3-core/dist"
+          test -f "$IWXA_COMPANY_TEST_IDB_MODULE"
+          timeout 240s node --experimental-strip-types --test --test-timeout=180000 packages/t3-core/tests/t3-company-original-runtime-roundtrip.test.mjs
