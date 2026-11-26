@@ -1,0 +1,28 @@
+name: T4 installed product Access one-shot
+on:
+  push:
+    branches: ['ci/once/t4-product-access/896515f36161']
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 896515f361611e311b0df22dbcfebfefa8e58fa0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public candidate and locked transport dependencies
+        run: |
+          test "$(git rev-parse HEAD)" = "896515f361611e311b0df22dbcfebfefa8e58fa0"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: One grouped original Access and installed Control qualification
+        run: |
+          node --experimental-strip-types --test packages/t4-network/tests/original-product-network-access.test.mjs packages/t4-network/tests/original-installed-control-http.test.mjs packages/t4-network/tests/original-installed-control-factories.test.mjs packages/t4-network/tests/original-product-network-selection.test.mjs packages/t4-network/tests/original-native-network-product-activation.test.mjs packages/t4-network/tests/original-native-kernel-relay.test.mjs packages/t4-network/tests/original-native-signed-kernel-relay.test.mjs packages/t4-network/tests/original-signed-route-access.test.mjs packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-signed-access-host-port.test.mjs
+      - name: Actual RC1 native profile construction through product composition
+        if: ${{ always() }}
+        run: node --experimental-strip-types --test --test-name-pattern='^K(90|158)\b' packages/t4-network/tests/original-network-key-lifecycle.test.mjs
