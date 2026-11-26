@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 852e68ee996cac598269489f0602e2c1db5445ae
+          ref: c3835f6cad1f9aff81b74afc02d4208311220534
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -131,6 +131,7 @@ jobs:
           done
           exit "$failed"
       - name: Reproduce integrated T2 site in one dist
+        id: d10_dist
         shell: bash
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
@@ -159,6 +160,7 @@ jobs:
             exit 1
           fi
       - name: Verify hosting candidate is the original T2 static product
+        id: d10_hosting
         shell: bash
         run: |
           set -e
@@ -181,6 +183,8 @@ jobs:
           done
           echo "D10_HOSTING_RELEASE_STATIC_GATES=PASS"
       - name: Real browser case and public service smoke
+        id: case004
+        if: ${{ !cancelled() && steps.d10_dist.outcome == 'success' && steps.d10_hosting.outcome == 'success' }}
         shell: bash
         run: |
           set +e
@@ -197,6 +201,8 @@ jobs:
           fi
           exit "$result"
       - name: All 23 public services real input result and T2 handoff review
+        id: public23
+        if: ${{ !cancelled() && steps.d10_dist.outcome == 'success' && steps.d10_hosting.outcome == 'success' }}
         shell: bash
         run: |
           set +e
@@ -212,6 +218,8 @@ jobs:
           fi
           exit "$result"
       - name: Real browser delayed attribution and native payback case
+        id: case005
+        if: ${{ !cancelled() && steps.d10_dist.outcome == 'success' && steps.d10_hosting.outcome == 'success' }}
         shell: bash
         run: |
           set +e
@@ -229,6 +237,8 @@ jobs:
           fi
           exit "$result"
       - name: Real browser seasonal budget and ad-load case
+        id: case006
+        if: ${{ !cancelled() && steps.d10_dist.outcome == 'success' && steps.d10_hosting.outcome == 'success' }}
         shell: bash
         run: |
           set +e
@@ -244,6 +254,8 @@ jobs:
           fi
           exit "$result"
       - name: Real browser Rebel Aromas retention and repeat payback case
+        id: case007
+        if: ${{ !cancelled() && steps.d10_dist.outcome == 'success' && steps.d10_hosting.outcome == 'success' }}
         shell: bash
         run: |
           set +e
@@ -259,6 +271,8 @@ jobs:
           fi
           exit "$result"
       - name: Real CASE-008 geo-experiment and native CPL browser journey
+        id: case008
+        if: ${{ !cancelled() && steps.d10_dist.outcome == 'success' && steps.d10_hosting.outcome == 'success' }}
         shell: bash
         run: |
           set +e
@@ -274,6 +288,8 @@ jobs:
           fi
           exit "$result"
       - name: Real CASE-009 B2B sales discipline article and funnel service
+        id: case009
+        if: ${{ !cancelled() && steps.d10_dist.outcome == 'success' && steps.d10_hosting.outcome == 'success' }}
         shell: bash
         run: |
           set +e
@@ -289,6 +305,8 @@ jobs:
           fi
           exit "$result"
       - name: Real CASE-010 Vesper quote economics and native CPL browser journey
+        id: case010
+        if: ${{ !cancelled() && steps.d10_dist.outcome == 'success' && steps.d10_hosting.outcome == 'success' }}
         shell: bash
         run: |
           set +e
@@ -303,7 +321,9 @@ jobs:
             grep -E '^(Error|AssertionError|SyntaxError|TypeError|TimeoutError):' "$RUNNER_TEMP/d10-case010-browser.log" | head -n 3 || true
           fi
           exit "$result"
-      - name: Mounted T2 Workspace commercial review scoping
+      - name: Prepare exact original T2 loopback build
+        id: d10_loopback_build
+        if: ${{ !cancelled() && steps.d10_dist.outcome == 'success' && steps.d10_hosting.outcome == 'success' }}
         shell: bash
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
@@ -333,6 +353,13 @@ jobs:
             exit "$build_result"
           fi
           echo "D10_REVIEW_LOCAL_PREVIEW_BUILD=PASS"
+      - name: Mounted T2 Workspace commercial review scoping
+        id: review
+        if: ${{ !cancelled() && steps.d10_loopback_build.outcome == 'success' }}
+        shell: bash
+        run: |
+          set +e
+          cd "$RUNNER_TEMP/d10-host-loopback" || exit 1
           node scripts/tests/d10-commercial-review-browser-smoke.mjs > "$RUNNER_TEMP/d10-review-browser.log" 2>&1
           result=$?
           grep -E '^D10_REVIEW_' "$RUNNER_TEMP/d10-review-browser.log" || true
@@ -344,6 +371,8 @@ jobs:
           fi
           exit "$result"
       - name: Real CASE-008 native Promotion Kernel campaign and read-only experiment
+        id: promotion
+        if: ${{ !cancelled() && steps.d10_loopback_build.outcome == 'success' }}
         shell: bash
         run: |
           set +e
@@ -359,6 +388,8 @@ jobs:
           fi
           exit "$result"
       - name: Real CASE-009 Kernel client deal task and RevOps pipeline review
+        id: pipeline
+        if: ${{ !cancelled() && steps.d10_loopback_build.outcome == 'success' }}
         shell: bash
         run: |
           set +e
@@ -374,6 +405,8 @@ jobs:
           fi
           exit "$result"
       - name: Real CASE-010 original T2 CRM deal quote and RevOps continuity
+        id: quotes
+        if: ${{ !cancelled() && steps.d10_loopback_build.outcome == 'success' }}
         shell: bash
         run: |
           set +e
@@ -389,6 +422,8 @@ jobs:
           fi
           exit "$result"
       - name: Real RevOps decision to saved Kernel action and cold readback
+        id: revops
+        if: ${{ !cancelled() && steps.d10_loopback_build.outcome == 'success' }}
         shell: bash
         run: |
           set +e
@@ -404,6 +439,8 @@ jobs:
           fi
           exit "$result"
       - name: Real public Result and independent native Exchange archive import into clean T2 profile
+        id: transfer
+        if: ${{ !cancelled() && steps.d10_loopback_build.outcome == 'success' }}
         shell: bash
         run: |
           set +e
@@ -420,6 +457,7 @@ jobs:
           exit "$result"
       - name: Physical cold restart of original T2 browser Host and origin
         id: cold
+        if: ${{ !cancelled() && steps.d10_loopback_build.outcome == 'success' }}
         continue-on-error: true
         shell: bash
         run: |
@@ -437,6 +475,7 @@ jobs:
           exit "$result"
       - name: Independent multi-family CRM quote receipt and refund IWXA import
         id: multi
+        if: ${{ !cancelled() && steps.d10_loopback_build.outcome == 'success' }}
         continue-on-error: true
         shell: bash
         run: |
@@ -452,16 +491,35 @@ jobs:
             grep -E '^(Error|AssertionError|TypeError|TimeoutError):' "$RUNNER_TEMP/d10-multi-iwxa.log" | head -n 3 || true
           fi
           exit "$result"
-      - name: Require both independent qualifications
-        if: always()
+      - name: Require every independent product qualification
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
-          if [ "${{ steps.cold.outcome }}" != "success" ] ||
-             [ "${{ steps.multi.outcome }}" != "success" ]; then
-            echo "::error::D10_HOST_OR_EXCHANGE_QUALIFICATION_INCOMPLETE"
+          failed=0
+          if [ "${{ steps.d10_dist.outcome }}" != "success" ]; then echo "D10_GATE_d10_dist=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.d10_hosting.outcome }}" != "success" ]; then echo "D10_GATE_d10_hosting=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.d10_loopback_build.outcome }}" != "success" ]; then echo "D10_GATE_d10_loopback_build=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.case004.outcome }}" != "success" ]; then echo "D10_GATE_case004=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.public23.outcome }}" != "success" ]; then echo "D10_GATE_public23=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.case005.outcome }}" != "success" ]; then echo "D10_GATE_case005=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.case006.outcome }}" != "success" ]; then echo "D10_GATE_case006=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.case007.outcome }}" != "success" ]; then echo "D10_GATE_case007=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.case008.outcome }}" != "success" ]; then echo "D10_GATE_case008=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.case009.outcome }}" != "success" ]; then echo "D10_GATE_case009=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.case010.outcome }}" != "success" ]; then echo "D10_GATE_case010=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.review.outcome }}" != "success" ]; then echo "D10_GATE_review=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.promotion.outcome }}" != "success" ]; then echo "D10_GATE_promotion=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.pipeline.outcome }}" != "success" ]; then echo "D10_GATE_pipeline=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.quotes.outcome }}" != "success" ]; then echo "D10_GATE_quotes=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.revops.outcome }}" != "success" ]; then echo "D10_GATE_revops=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.transfer.outcome }}" != "success" ]; then echo "D10_GATE_transfer=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.cold.outcome }}" != "success" ]; then echo "D10_GATE_cold=INCOMPLETE"; failed=1; fi
+          if [ "${{ steps.multi.outcome }}" != "success" ]; then echo "D10_GATE_multi=INCOMPLETE"; failed=1; fi
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::D10_PRODUCT_QUALIFICATION_INCOMPLETE"
             exit 1
           fi
-          echo "D10_HOST_AND_MULTI_IWXA=PASS"
+          echo "D10_ALL_BROWSER_AND_EXCHANGE_QUALIFICATIONS=PASS"
       - name: Inspect artifact without publishing private bytes
         shell: bash
         run: |
