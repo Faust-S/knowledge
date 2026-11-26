@@ -19,6 +19,8 @@ import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {T4_NATIVE_MAX_CIPHERTEXT_BYTES as MAX,T4_NATIVE_SEALED_HEADER_MAX_BYTES as MAX_HEADER,
   T4_NATIVE_SEALED_TAG_BYTES as TAG,T4_NATIVE_SEALED_PREFIX_BYTES as PREFIX}
   from './original-native-content-limits.mjs';
+import {T4_MULTIPART_OPAQUE_EXTENSION,T4_MULTIPART_MAX_CIPHERTEXT_BYTES} from './standard-network-multipart-opaque-chunks.mjs';
+import {validateT4OriginalNativeMultipartAgreement} from './original-network-multipart-agreement.mjs';
 
 const MAGIC=Buffer.from('T4S2');
 const SCHEMA='IWXA_T4_SEALED_CONTENT_CANDIDATE_V2',SUITE='X25519_HKDF_SHA256_AES256GCM';
@@ -26,6 +28,7 @@ const replacementSession=value=>value?.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_SE
 const KDF_DOMAIN=Buffer.from('IWXA-T4-SEALED-CONTENT-V2\0','utf8');
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const SHA=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
+const DIG=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
 const fail=code=>{throw Object.assign(Error(code),{code,outcome:'DENIED'});};
 const hash=x=>createHash('sha256').update(x).digest('hex');
 const equal=(a,b)=>canonical(a)===canonical(b);
@@ -65,8 +68,10 @@ function encodeHeader(header){
   return Buffer.concat([prefix,raw]);
 }
 function contextRef(aad){return 'sealed:sha256:'+hash(aad);}
-function parseEnvelope(input,session,recipientKeyRef,publicKey){
-  if(!(input instanceof Uint8Array)||input.length<PREFIX+TAG+1||input.length>MAX)
+function parseEnvelope(input,session,recipientKeyRef,publicKey,agreementDigest=null){
+  const max=agreementDigest===null?MAX:T4_MULTIPART_MAX_CIPHERTEXT_BYTES;
+  if(!(input instanceof Uint8Array)||input.length<PREFIX+TAG+1||input.length>max||
+    (agreementDigest!==null&&input.length<=MAX))
     fail('SEALED_CONTENT_TRANSPORT_LIMIT_EXCEEDED');
   const bytes=Buffer.from(input),length=bytes.readUInt16BE(4),end=PREFIX+length;
   if(!bytes.subarray(0,4).equals(MAGIC)||length<1||length>MAX_HEADER||end+TAG>=bytes.length)
@@ -76,8 +81,9 @@ function parseEnvelope(input,session,recipientKeyRef,publicKey){
   catch{fail('SEALED_CONTENT_ENVELOPE_INVALID');}
   try{
     fields(header,['schema','suite','session','recipientKeyRef','recipientKeyFingerprint','ephemeralPublicKey',
-      'salt','nonce','plaintextLength']);
+      'salt','nonce','plaintextLength',...(agreementDigest===null?[]:['multipartAgreementDigest'])]);
     if(header.schema!==SCHEMA||header.suite!==SUITE||!equal(header.session,session)||
+      (agreementDigest!==null&&header.multipartAgreementDigest!==agreementDigest)||
       header.recipientKeyRef!==recipientKeyRef||!SHA(header.recipientKeyFingerprint)||
       header.recipientKeyFingerprint!==fingerprint(publicKey)||
       !Number.isSafeInteger(header.plaintextLength)||header.plaintextLength<1||
@@ -91,16 +97,19 @@ function parseEnvelope(input,session,recipientKeyRef,publicKey){
       ciphertext:bytes.subarray(end,bytes.length-TAG),tag:bytes.subarray(bytes.length-TAG),encryptionContextRef:contextRef(aad)};
   }catch(error){if(error?.code?.startsWith('SEALED_CONTENT_'))throw error;fail('SEALED_CONTENT_ENVELOPE_INVALID');}
 }
-function sealBytes(plaintext,session,recipientKeyRef,publicKey){
+function sealBytes(plaintext,session,recipientKeyRef,publicKey,agreementDigest=null){
   const {publicKey:ephemeralPublicKey,privateKey}=generateKeyPairSync('x25519');
   const salt=randomBytes(32),nonce=randomBytes(12);
   const header={schema:SCHEMA,suite:SUITE,session,recipientKeyRef,recipientKeyFingerprint:fingerprint(publicKey),
     ephemeralPublicKey:pubDer(ephemeralPublicKey).toString('base64url'),salt:salt.toString('base64url'),
-    nonce:nonce.toString('base64url'),plaintextLength:plaintext.length};
+    nonce:nonce.toString('base64url'),plaintextLength:plaintext.length,
+    ...(agreementDigest===null?{}:{multipartAgreementDigest:agreementDigest})};
   const aad=encodeHeader(header);
-  // The existing 64 x 8192 wire capacity includes the entire envelope.
-  // Reject oversized content before any publication; no truncation.
-  if(aad.length+plaintext.length+TAG>MAX)fail('SEALED_CONTENT_TRANSPORT_LIMIT_EXCEEDED');
+  // The old V2 envelope and cap remain byte-for-byte unchanged. Only
+  // the selected multipart profile authenticates the extra agreement field.
+  const length=aad.length+plaintext.length+TAG;
+  if(length>(agreementDigest===null?MAX:T4_MULTIPART_MAX_CIPHERTEXT_BYTES)||
+    (agreementDigest!==null&&length<=MAX))fail('SEALED_CONTENT_TRANSPORT_LIMIT_EXCEEDED');
   const key=keyFor(privateKey,publicKey,salt,aad.subarray(PREFIX));
   try{
     const cipher=createCipheriv('aes-256-gcm',key,nonce,{authTagLength:TAG});
@@ -126,8 +135,10 @@ export function createT4OriginalVaultSealedContentPort({
   requiredCryptoSuite,recipientKeyRef,registry,access,originalEvaluator,expectedContext,
   readEncryptedVault=null,unlockPassphrase=null,getMode,clock=Date.now,
   readOriginalReplacementDiffAcceptance=null,readOriginalReplacementRecipientContentEvidence=null,enableOriginalReplacementBinding=false,
+  readOriginalMultipartAgreement=null,
 }={}){
   if(typeof enableOriginalReplacementBinding!=='boolean'||(enableOriginalReplacementBinding&&(readOriginalReplacementDiffAcceptance!==null||readOriginalReplacementRecipientContentEvidence!==null))||
+    (readOriginalMultipartAgreement!==null&&typeof readOriginalMultipartAgreement!=='function')||
     !['SOURCE','RECIPIENT'].includes(role)||
     ![workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,recipientKeyRef].every(ID)||
     sourceNodeRef===recipientNodeRef||!Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
@@ -155,6 +166,28 @@ export function createT4OriginalVaultSealedContentPort({
     if(!['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch']
       .every(k=>session[k]===identity[k]))fail('SEALED_CONTENT_SESSION_SCOPE_MISMATCH');
     return session;
+  }
+  function multipartDigest(input,session,requireProfile=false){
+    const value=input.originalMultipartAgreementDigest;
+    if(value===undefined){
+      if(input.multipartProfile!==undefined)fail('SEALED_CONTENT_MULTIPART_AGREEMENT_REQUIRED');
+      return null;
+    }
+    if(!DIG(value)||readOriginalMultipartAgreement===null||replacementSession(session)||session.changeKind!=='ASSET_PUT'||
+      (requireProfile?input.multipartProfile!==T4_MULTIPART_OPAQUE_EXTENSION:
+        input.multipartProfile!==undefined&&input.multipartProfile!==T4_MULTIPART_OPAQUE_EXTENSION))
+      fail('SEALED_CONTENT_MULTIPART_AGREEMENT_REQUIRED');
+    return value;
+  }
+  async function multipartGate(session,agreementDigest,extra){
+    if(agreementDigest===null)return null;
+    current();
+    const a=validateT4OriginalNativeMultipartAgreement({session,agreement:await readOriginalMultipartAgreement(Object.freeze({
+      session,operation,originalMultipartAgreementDigest:agreementDigest,...extra,originalSubjectAuthorityGranted:false}))});
+    current();
+    if(a.agreementDigest!==agreementDigest||a.cryptoSuite!==requiredCryptoSuite)
+      fail('SEALED_CONTENT_MULTIPART_AGREEMENT_CHANGED');
+    return a;
   }
   async function recipientKey(){
     current();
@@ -190,6 +223,7 @@ export function createT4OriginalVaultSealedContentPort({
   async function permit(entry,session,extra){
     current();
     const before=await replacementGate(session,extra);
+    const multipart=await multipartGate(session,extra.originalMultipartAgreementDigest??null,extra);
     await signed.authorize({operation,input:{...identity,session,...extra,
       originalRecipientKeyFingerprint:fingerprint(entry.publicKey),
       originalRecipientBindingDigest:digest(entry.binding),originalRecipientKeyRecordDigest:entry.keyDigest,
@@ -197,33 +231,38 @@ export function createT4OriginalVaultSealedContentPort({
     current();
     if(before!==null&&!equal(before,await replacementGate(session,extra)))
       fail('SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_CHANGED');
+    if(multipart!==null&&!equal(multipart,await multipartGate(session,extra.originalMultipartAgreementDigest,extra)))
+      fail('SEALED_CONTENT_MULTIPART_AGREEMENT_CHANGED');
     current();
   }
   async function readOriginalSealedContent(input={}){
     current();
     if(role!=='SOURCE'||input.exactCapturedCanonicalBytesRequired!==true)fail('SEALED_CONTENT_SOURCE_CAPTURE_REQUIRED');
     const session=sessionFor(input.session),c=input.originalCapture,sourceContentRef=input.sourceContentRef;
+    const agreementDigest=multipartDigest(input,session,true),max=agreementDigest===null?MAX:T4_MULTIPART_MAX_CIPHERTEXT_BYTES;
     if(input.changeId!==session.changeId||input.ownerRef!==originalWriteOwnerRef||!ID(sourceContentRef)||sourceContentRef!==c?.captureRef||
       c?.originalIntentEventAndCanonicalBytesVerified!==true||c.capturedWindowDigestVerified!==true||
       c.workspaceId!==workspaceId||c.originalWriteOwnerRef!==originalWriteOwnerRef||c.sourceEventId!==session.sourceEventId||
       (c.kind??'OBJECT_PUT')!==session.changeKind||c.sourceRevision!==session.sourceRevision||
       c.sourceWindow?.windowDigest!==session.capturedWindowDigest||c.prepared?.delta?.sourceEventDigest!==session.sourceEventDigest||
       !(c.prepared?.bytes instanceof Uint8Array)||c.prepared.sha256!==session.capturedSha256||
-      c.prepared.bytes.length<1||c.prepared.bytes.length>MAX)
+      c.prepared.bytes.length<1||c.prepared.bytes.length>max)
       fail('SEALED_CONTENT_SOURCE_CAPTURE_REQUIRED');
     const plaintext=Buffer.from(c.prepared.bytes);
     try{
       if(hash(plaintext)!==session.capturedSha256)fail('SEALED_CONTENT_SOURCE_CAPTURE_DIGEST_MISMATCH');
-      const proof={sourceContentRef,plaintextSha256:session.capturedSha256},entry=await recipientKey();
+      const proof={sourceContentRef,plaintextSha256:session.capturedSha256,
+        ...(agreementDigest===null?{}:{originalMultipartAgreementDigest:agreementDigest})},entry=await recipientKey();
       await permit(entry,session,proof);
       sameKey(entry,await recipientKey());current();
-      const sealed=sealBytes(plaintext,session,recipientKeyRef,entry.publicKey);
+      const sealed=sealBytes(plaintext,session,recipientKeyRef,entry.publicKey,agreementDigest);
       sameKey(entry,await recipientKey());
       await permit(entry,session,{...proof,contentDigest:'sha256:'+hash(sealed.ciphertext),
         encryptionContextRef:sealed.encryptionContextRef});
       current();
       return Object.freeze({ciphertext:new Uint8Array(sealed.ciphertext),encryptionContextRef:sealed.encryptionContextRef,
-        originalCapturedBytesSealed:true,recipientKeyAgreementVerified:true,originalBusinessApplied:false});
+        originalCapturedBytesSealed:true,recipientKeyAgreementVerified:true,originalBusinessApplied:false,
+        ...(agreementDigest===null?{}:{originalMultipartAgreementDigest:agreementDigest})});
     }finally{plaintext.fill(0);}
   }
   // An original PREPARE event can outlive an agreement key. Revalidate
@@ -231,16 +270,18 @@ export function createT4OriginalVaultSealedContentPort({
   // repair. This is public-key admission, not recipient AEAD verification.
   async function authorizeOriginalSealedPublication(input={}){
     current();
-    if(role!=='SOURCE'||input.originalPreparedCiphertextRequired!==true||
-      !(input.ciphertext instanceof Uint8Array)||input.ciphertext.length>MAX)
+    if(role!=='SOURCE'||input.originalPreparedCiphertextRequired!==true||!(input.ciphertext instanceof Uint8Array))
       fail('SEALED_CONTENT_PUBLICATION_INPUT_REQUIRED');
-    const session=sessionFor(input.session),raw=new Uint8Array(input.ciphertext);
+    const session=sessionFor(input.session),agreementDigest=multipartDigest(input,session);
+    if(input.ciphertext.length>(agreementDigest===null?MAX:T4_MULTIPART_MAX_CIPHERTEXT_BYTES))
+      fail('SEALED_CONTENT_PUBLICATION_INPUT_REQUIRED');
+    const raw=new Uint8Array(input.ciphertext);
     const contentDigest='sha256:'+hash(raw),encryptionContextRef=input.encryptionContextRef;
     if(contentDigest!==input.contentDigest)fail('SEALED_CONTENT_CIPHERTEXT_DIGEST_MISMATCH');
-    const entry=await recipientKey(),parsed=parseEnvelope(raw,session,recipientKeyRef,entry.publicKey);
+    const entry=await recipientKey(),parsed=parseEnvelope(raw,session,recipientKeyRef,entry.publicKey,agreementDigest);
     if(parsed.encryptionContextRef!==encryptionContextRef)fail('SEALED_CONTENT_ENCRYPTION_CONTEXT_MISMATCH');
     const proof={contentDigest,encryptionContextRef,plaintextSha256:session.capturedSha256,
-      originalPreparedCiphertextRequired:true};
+      originalPreparedCiphertextRequired:true,...(agreementDigest===null?{}:{originalMultipartAgreementDigest:agreementDigest})};
     await permit(entry,session,proof);
     sameKey(entry,await recipientKey());current();
     return true;
@@ -258,18 +299,19 @@ export function createT4OriginalVaultSealedContentPort({
     current();
     if(role!=='RECIPIENT'||input.originalHostAuthenticatedDecryptionRequired!==true)
       fail('SEALED_CONTENT_RECIPIENT_INPUT_REQUIRED');
-    const session=sessionFor(input.session);
+    const session=sessionFor(input.session),agreementDigest=multipartDigest(input,session);
     if(input.sourceNodeRef!==sourceNodeRef||input.recipientNodeRef!==recipientNodeRef||input.scopeRef!==scopeRef||
       input.sessionRef!==session.sessionRef||input.changeId!==session.changeId||input.changeKind!==session.changeKind||
       input.sourceEventId!==session.sourceEventId||input.originalEventDigest!==session.sourceEventDigest||
       input.ownerRef!==originalWriteOwnerRef||input.sourcePrefixDigestAfter!==session.sourcePrefixDigestAfter||
-      !(input.ciphertext instanceof Uint8Array)||input.ciphertext.length>MAX)
+      !(input.ciphertext instanceof Uint8Array)||input.ciphertext.length>(agreementDigest===null?MAX:T4_MULTIPART_MAX_CIPHERTEXT_BYTES))
       fail('SEALED_CONTENT_RECIPIENT_INPUT_REQUIRED');
     const raw=new Uint8Array(input.ciphertext),contentDigest='sha256:'+hash(raw),encryptionContextRef=input.encryptionContextRef;
     if(contentDigest!==input.contentDigest)fail('SEALED_CONTENT_CIPHERTEXT_DIGEST_MISMATCH');
-    const entry=await recipientKey(),parsed=parseEnvelope(raw,session,recipientKeyRef,entry.publicKey);
+    const entry=await recipientKey(),parsed=parseEnvelope(raw,session,recipientKeyRef,entry.publicKey,agreementDigest);
     if(parsed.encryptionContextRef!==encryptionContextRef)fail('SEALED_CONTENT_ENCRYPTION_CONTEXT_MISMATCH');
-    const proof={contentDigest,encryptionContextRef,plaintextSha256:session.capturedSha256};
+    const proof={contentDigest,encryptionContextRef,plaintextSha256:session.capturedSha256,
+      ...(agreementDigest===null?{}:{originalMultipartAgreementDigest:agreementDigest})};
     await permit(entry,session,proof);
     let encrypted=null,passphrase=null,plaintext=null;
     try{
@@ -285,7 +327,8 @@ export function createT4OriginalVaultSealedContentPort({
         fail('SEALED_CONTENT_AUTHENTICATED_CAPTURE_MISMATCH');
       sameKey(entry,await recipientKey());await permit(entry,session,proof);current();
       return Object.freeze({authenticated:true,plaintext:new Uint8Array(plaintext),originalVaultUsed:true,
-        originalCapturedBytesVerified:true,originalBusinessApplied:false});
+        originalCapturedBytesVerified:true,originalBusinessApplied:false,
+        ...(agreementDigest===null?{}:{originalMultipartAgreementDigest:agreementDigest})});
     }finally{passphrase=null;encrypted=null;plaintext?.fill(0);}
   }
   const port=Object.freeze({schema:'IWXA_T4_ORIGINAL_VAULT_SEALED_CONTENT_V1',identity,
@@ -296,16 +339,17 @@ export function createT4OriginalVaultSealedContentPort({
       bindOriginalReplacementDiffAcceptance:read=>{
         current();if(typeof read!=='function')fail('SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED');
         return createT4OriginalVaultSealedContentPort({...identity,registry,access,originalEvaluator,expectedContext:signed.subject,
-          readEncryptedVault,unlockPassphrase,getMode,clock,readOriginalReplacementDiffAcceptance:read});
+          readEncryptedVault,unlockPassphrase,getMode,clock,readOriginalReplacementDiffAcceptance:read,readOriginalMultipartAgreement});
       }}:{bindOriginalReplacementRecipientContentEvidence:read=>{
         current();if(typeof read!=='function')fail('SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED');
         return createT4OriginalVaultSealedContentPort({...identity,registry,access,originalEvaluator,expectedContext:signed.subject,
-          readEncryptedVault,unlockPassphrase,getMode,clock,readOriginalReplacementRecipientContentEvidence:read});
+          readEncryptedVault,unlockPassphrase,getMode,clock,readOriginalReplacementRecipientContentEvidence:read,readOriginalMultipartAgreement});
       }})}:{}),
     ...(readOriginalReplacementRecipientContentEvidence!==null?{originalReplacementRecipientContentAdmission:true}:{}),
+    ...(readOriginalMultipartAgreement!==null?{originalMultipartAgreementBound:true}:{}),
     ...(role==='SOURCE'?{readOriginalSealedContent,authorizeOriginalSealedPublication}:{openOriginalSealedContent}),
     forOriginalHostLifetime:isHostActive=>createT4OriginalVaultSealedContentPort({...identity,registry,access,originalEvaluator,
       expectedContext:signed.subject,readEncryptedVault,unlockPassphrase,getMode:originalHostLifetimeMode(getMode,isHostActive),clock,
-      readOriginalReplacementDiffAcceptance,readOriginalReplacementRecipientContentEvidence,enableOriginalReplacementBinding})});
+      readOriginalReplacementDiffAcceptance,readOriginalReplacementRecipientContentEvidence,enableOriginalReplacementBinding,readOriginalMultipartAgreement})});
   assembled.add(port);return port;
 }

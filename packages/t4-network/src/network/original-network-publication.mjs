@@ -1625,9 +1625,12 @@ export function createT4OriginalNetworkPublicationPort({
     const sealed=assembleT4CandidateMultipartOpaqueChunks({
       manifest:frames[0].body.multipartManifest,bodies:frames.slice(1).map(f=>f.body)});
     await multipartAuthority(ctx,plan,'verify-multipart-sealed-content');
+    const agreement=enableOriginalMultipartNegotiation?await currentMultipartAgreement(ctx,plan,'verify-multipart-sealed-content',
+      current.multipartReservation?.agreementDigest??null):null;
     if(await authorizeOriginalSealedPublication(Object.freeze({session:identity,contentDigest:sealed.contentDigest,
       encryptionContextRef:sealed.encryptionContextRef,ciphertext:new Uint8Array(sealed.ciphertext),
-      originalPreparedCiphertextRequired:true}))!==true)fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_DENIED');
+      originalPreparedCiphertextRequired:true,...(agreement?{originalMultipartAgreementDigest:agreement.agreementDigest}:{})}))!==true)
+      fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_DENIED');
     await multipartAuthority(ctx,plan,'verified-multipart-sealed-content');
     return Object.freeze({...checked,originalSignatureVerified:true,sealed});
   }
@@ -1774,7 +1777,9 @@ export function createT4OriginalNetworkPublicationPort({
       const sealed=witness.sealed;
       if(await authorizeOriginalSealedPublication(Object.freeze({session:identity,contentDigest:sealed.contentDigest,
         encryptionContextRef:sealed.encryptionContextRef,ciphertext:new Uint8Array(sealed.ciphertext),
-        originalPreparedCiphertextRequired:true}))!==true)fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_DENIED');
+        originalPreparedCiphertextRequired:true,...(current.multipartReservation.agreementDigest?
+          {originalMultipartAgreementDigest:current.multipartReservation.agreementDigest}:{})}))!==true)
+        fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_DENIED');
       await verifyFrame(ctx,entry,'after-multipart-sealed-authorization',true);
       await multipartAuthority(ctx,plan,'authorized-multipart-network-write');
       return true;
