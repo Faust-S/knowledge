@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {T4_ORIGINAL_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
 import {T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,T4_MULTIPART_OPAQUE_EXTENSION,
-  T4_MULTIPART_MAX_CIPHERTEXT_BYTES,validateT4NativeMultipartOffer,createT4NativeMultipartSelection}
+  T4_MULTIPART_MAX_CIPHERTEXT_BYTES,validateT4NativeMultipartOffer,createT4NativeMultipartOffer,createT4NativeMultipartSelection}
   from './standard-network-multipart-opaque-chunks.mjs';
 
 const SCHEMA='IWXA_T4_ORIGINAL_NATIVE_MULTIPART_AGREEMENT_V1';
@@ -17,7 +17,9 @@ const fail=code=>{throw Object.assign(Error(code),{code});};
 const fields=['sessionRef','changeId','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch','sourceEventId',
   'sourcePrefixDigestBefore','sourcePrefixDigestAfter'];
 function checkIdentity(s){
-  if(!s||s.changeKind!=='ASSET_PUT'||!['sessionRef','changeId','sourceNodeRef','recipientNodeRef','scopeRef','sourceEventId'].every(k=>ID(s[k]))||
+  if(!s||s.changeKind!=='ASSET_PUT'||!['sessionRef','changeId','sourceNodeRef','recipientNodeRef','scopeRef','sourceEventId','familyRef'].every(k=>ID(s[k]))||
+    !Number.isSafeInteger(s.sourceRevision)||s.sourceRevision<1||
+    !DIG(s.sourceEventDigest)||!DIG(s.capturedWindowDigest)||!SHA(s.capturedSha256)||
     s.sourceNodeRef===s.recipientNodeRef||!Number.isSafeInteger(s.ownerEpoch)||s.ownerEpoch<1||
     !DIG(s.sourcePrefixDigestBefore)||!DIG(s.sourcePrefixDigestAfter)||s.sourcePrefixDigestBefore===s.sourcePrefixDigestAfter)
     fail('MULTIPART_AGREEMENT_SESSION_INVALID');
@@ -84,8 +86,8 @@ export function validateT4OriginalNativeMultipartAgreement({agreement,session=nu
   if(Object.keys(core).length!==fields.length+7||digest(core)!==agreementDigest)
     fail('MULTIPART_AGREEMENT_WITNESS_INVALID');
   // Require the one exact profile offer, not a different suite or limit.
-  validateT4NativeMultipartOffer({profile:a.profile,maxCiphertextBytes:a.maxCiphertextBytes,
-    partBytes:524288,chunkBytes:8192,maxParts:16,offerDigest:a.offerDigest});
+  validateT4NativeMultipartOffer({...createT4NativeMultipartOffer(),profile:a.profile,
+    maxCiphertextBytes:a.maxCiphertextBytes,offerDigest:a.offerDigest});
   if(session!==null){
     checkIdentity(session);
     if(!fields.every(k=>a[k]===session[k]))fail('MULTIPART_AGREEMENT_SESSION_MISMATCH');

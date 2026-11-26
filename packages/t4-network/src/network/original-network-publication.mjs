@@ -1557,7 +1557,8 @@ export function createT4OriginalNetworkPublicationPort({
     const proof=validateT4OriginalNativeMultipartAgreement({agreement:await readOriginalMultipartAgreement(Object.freeze({
       session:identity,headSha256:plan.binding.rootAnchor.headSha256,checkpointRef,technicalWorkspaceId,purpose,
       originalHeadAndDiffReadbackRequired:true,originalSubjectAuthorityGranted:false})),session:identity,
-      headSha256:plan.binding.rootAnchor.headSha256});
+      headSha256:plan.binding.rootAnchor.headSha256,
+      frame:decodeT4CandidateFrame(Buffer.from(plan.changeRef.wireText,'utf8'))});
     if(expected!==null&&proof.agreementDigest!==expected)fail('PUBLICATION_NATIVE_MULTIPART_AGREEMENT_CHANGED');
     if(!same(await context(),ctx))fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED');
     return proof;
@@ -1641,7 +1642,8 @@ export function createT4OriginalNetworkPublicationPort({
       if(!found)fail('PUBLICATION_MULTIPART_SELECTED_SEGMENT_MISSING');
       saved.push(found);
     }
-    const observed={planDigest:plan.planDigest,segmentEvents:saved.map((x,i)=>({objectId:plan.segments[i].objectId,eventId:x.eventId}))};
+    const observed={planDigest:plan.planDigest,segmentEvents:saved.map((x,i)=>({objectId:plan.segments[i].objectId,eventId:x.eventId})),
+      ...(current.multipartReservation.agreementDigest?{agreementDigest:current.multipartReservation.agreementDigest}:{})};
     if(!same(current.multipartReservation,observed))fail('PUBLICATION_MULTIPART_SELECTED_EVENT_CHANGED');
     const checked=await verifyMultipart(ctx,current,plan,saved.map(x=>x.segment));
     const after=await read(ctx);

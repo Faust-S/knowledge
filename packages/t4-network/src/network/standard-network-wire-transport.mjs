@@ -3,8 +3,11 @@ import {isT4RecoverableWebDavError} from './webdav-package-transfer.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {
   decodeT4CandidateFrame,verifyT4CandidateWireFrame,verifyT4CandidateHistoricalReceivedFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
-  T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,
+  T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,T4_MULTIPART_OPAQUE_EXTENSION,
 } from './standard-network-wire-candidate.mjs';
+import {validateT4OriginalNativeMultipartAgreement} from './original-network-multipart-agreement.mjs';
+import {validateT4CandidateMultipartManifest,validateT4CandidateMultipartChunkBody,
+  T4_MULTIPART_MAX_CHUNKS} from './standard-network-multipart-opaque-chunks.mjs';
 import {t4NativeSessionFrameIndexKey,t4NativeSourceHeadIndexKey,t4NativeReplacementHeadIndexKey,t4NativeFrameIndexKeys}
   from './original-network-frame-address.mjs';
 
@@ -44,6 +47,7 @@ export function createT4CandidateFrameTransport({
   verifyOriginalNodeSignature,authorizeOriginalNetwork,
   persistOriginalReplayDecision,verifyOriginalHistoricalNodeSignature=null,readOriginalHistoricalReplayEvidence=null,
   readOriginalHistoricalAppliedAckSlot=null,historicalReadOnly=false,
+  enableOriginalMultipartNegotiation=false,readOriginalMultipartAgreement=null,
 }={}){
   if(typeof historicalReadOnly!=='boolean'||![getMode,readOriginalHostContext,authorizeOriginalHostWire].every(f=>typeof f==='function')||
     (historicalReadOnly?([wireTransport,verifyOriginalNodeSignature,authorizeOriginalNetwork,persistOriginalReplayDecision].some(x=>x!==undefined)||
@@ -62,6 +66,10 @@ export function createT4CandidateFrameTransport({
   if((wireTransport?.nativeFrameIndexVersion!==undefined&&![0,1].includes(wireTransport.nativeFrameIndexVersion))||
     (indexed&&![wireTransport.getNativeFrameIndex,wireTransport.putNativeFrameIndex].every(f=>typeof f==='function')))
     fail('WIRE_NATIVE_INDEX_PROFILE_INVALID');
+  if(typeof enableOriginalMultipartNegotiation!=='boolean'||
+    (enableOriginalMultipartNegotiation&&(historicalReadOnly||!indexed||typeof readOriginalMultipartAgreement!=='function'))||
+    (!enableOriginalMultipartNegotiation&&readOriginalMultipartAgreement!==null))
+    fail('WIRE_NATIVE_MULTIPART_ORIGINAL_PORTS_REQUIRED');
   const mode=()=>{
     if(getMode()!=='T4_NETWORK')
       fail('WIRE_HOST_NETWORK_MODE_OFF');
@@ -109,6 +117,24 @@ export function createT4CandidateFrameTransport({
       fail('WIRE_HOST_CONTEXT_CHANGED',{
         phase,automaticRetryAllowed:false,
       });
+  }
+  async function multipartAgreement(ctx,frame,sha256,purpose,expected=null){
+    if(frame.criticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION)&&!enableOriginalMultipartNegotiation)
+      fail('WIRE_NATIVE_MULTIPART_NEGOTIATION_REQUIRED');
+    if(!frame.criticalExtensions.includes(T4_MULTIPART_OPAQUE_EXTENSION)||frame.messageType==='CAPABILITIES')return null;
+    if(!enableOriginalMultipartNegotiation)fail('WIRE_MULTIPART_SESSION_NOT_SELECTED');
+    await hostGuard('multipart-agreement',ctx,frame,sha256);
+    const proof=await readOriginalMultipartAgreement(deepFreeze({
+      purpose,originalHostNodeRef,originalHostScopeRef,originalHostSessionRef:ctx.hostSessionRef,
+      sourceNodeRef:frame.sourceNodeRef,recipientNodeRef:frame.recipientNodeRef,scopeRef:frame.scopeRef,
+      ownerEpoch:frame.ownerEpoch,sessionRef:frame.sessionRef,cryptoSuite:frame.cryptoSuite,
+      messageType:frame.messageType,changeId:frame.body.changeId,
+      originalSignedHeadAndDiffProofRequired:true,originalSubjectAuthorityGranted:false,
+    }));
+    const selected=validateT4OriginalNativeMultipartAgreement({agreement:proof,frame});
+    if(expected!==null&&selected.agreementDigest!==expected)fail('WIRE_MULTIPART_AGREEMENT_CHANGED');
+    await hostGuard('multipart-agreement-readback',ctx,frame,sha256);
+    return selected;
   }
   function checkIndexRead(value,key){
     if(value?.schema!=='IWXA_T4_NATIVE_FRAME_INDEX_READ_V1'||value.key!==key||!SHA(value.frameSha256)||
@@ -159,7 +185,13 @@ export function createT4CandidateFrameTransport({
     const key=sha256+'.t4n';
     const ctx=await hostSnapshot();
     await hostGuard('publish',ctx,frame,sha256);
-    if(beforeNetworkWrite!==null)await beforeWrite(beforeNetworkWrite);
+    const selected=await multipartAgreement(ctx,frame,sha256,'publish');
+    const check=selected?async()=>{
+      if(beforeNetworkWrite!==null)await beforeWrite(beforeNetworkWrite);
+      await multipartAgreement(ctx,frame,sha256,'physical-write',selected.agreementDigest);
+      return true;
+    }:beforeNetworkWrite;
+    if(check!==null)await beforeWrite(check);
     mode();
     let receipt;
     try{
@@ -180,7 +212,7 @@ export function createT4CandidateFrameTransport({
       fail('WIRE_NETWORK_READBACK_NOT_PROVEN',{
         automaticRetryAllowed:false,
       });
-    try{await ensureIndexes(ctx,frame,sha256,true,beforeNetworkWrite);}
+    try{await ensureIndexes(ctx,frame,sha256,true,check);}
     catch(error){fail('WIRE_NETWORK_PUBLICATION_OUTCOME_UNKNOWN',{
       originalCode:error?.code??null,originalWriteMayHaveCommitted:true,
       exactFrameReadbackVerified:true,automaticRetryAllowed:false},error);}
@@ -215,7 +247,13 @@ export function createT4CandidateFrameTransport({
     if(inspection?.state!=='EXPECTED_BYTES_PRESENT'||
       inspection.sha256!==expectedSha256)
       fail('WIRE_NETWORK_READBACK_NOT_PROVEN');
-    await ensureIndexes(ctx,frame,expectedSha256,repairMissingFrameIndex,beforeNetworkWrite);
+    const selected=await multipartAgreement(ctx,frame,expectedSha256,'inspect');
+    const check=selected?async()=>{
+      if(beforeNetworkWrite!==null)await beforeWrite(beforeNetworkWrite);
+      await multipartAgreement(ctx,frame,expectedSha256,'index-repair',selected.agreementDigest);
+      return true;
+    }:beforeNetworkWrite;
+    await ensureIndexes(ctx,frame,expectedSha256,repairMissingFrameIndex,check);
     return frozen({
       schema:'IWXA_T4_CANDIDATE_FRAME_PRESENT_V1',
       key,sha256:expectedSha256,exactBytesPresent:true,
@@ -329,15 +367,27 @@ export function createT4CandidateFrameTransport({
     await hostGuard('history-slot-verified',ctx,null,sha256,exactSelector);
     return verdict;
   }
-  async function verifyDownloaded({ctx,key,expectedSha256,downloaded,requiredCryptoSuite,supportedCriticalExtensions}){
+  async function verifyDownloaded({ctx,key,expectedSha256,downloaded,requiredCryptoSuite,supportedCriticalExtensions,
+    expectedMultipartChange=null}){
     mode();
     if(!(downloaded?.bytes instanceof Uint8Array)||hash(downloaded.bytes)!==expectedSha256)
       fail('WIRE_NETWORK_READBACK_NOT_PROVEN');
-    const frame=decodeT4CandidateFrame(downloaded.bytes);
+    const exact=new Uint8Array(downloaded.bytes),frame=decodeT4CandidateFrame(exact);
     if(frame.recipientNodeRef!==originalHostNodeRef||
       frame.scopeRef!==originalHostScopeRef)
       fail('WIRE_WRONG_RECIPIENT_OR_SCOPE');
     await hostGuard('receive',ctx,frame,expectedSha256);
+    const selected=await multipartAgreement(ctx,frame,expectedSha256,'receive');
+    if(selected&&['CHUNK','CHUNK_REQUEST'].includes(frame.messageType)){
+      const c=expectedMultipartChange;
+      // Only the internal exact indexed content reader supplies this
+      // independently accepted CHANGE_REF, never a caller's manifest.
+      if(frame.messageType!=='CHUNK'||c?.signedMessageType!=='CHANGE_REF'||
+        c.originalMultipartAgreementDigest!==selected.agreementDigest||
+        c.verifiedSessionRef!==frame.sessionRef||c.verifiedSourceNodeRef!==frame.sourceNodeRef||
+        c.originalReplayCheckpointRecorded!==true)fail('WIRE_MULTIPART_MANIFEST_PROOF_REQUIRED');
+      validateT4CandidateMultipartChunkBody(frame.body,c.verifiedBody.multipartManifest);
+    }
     // Every independently awaited authority callback is tied to the same
     // original Host lifetime, including the durable replay CAS.
     const live=fn=>async proof=>{
@@ -346,13 +396,16 @@ export function createT4CandidateFrameTransport({
       mode();return result;
     };
     const verdict=await verifyT4CandidateWireFrame({
-      wireBytes:downloaded.bytes,
+      wireBytes:exact,
       recipientNodeRef:originalHostNodeRef,
       scopeRef:originalHostScopeRef,requiredCryptoSuite,
-      supportedCriticalExtensions,
+      supportedCriticalExtensions,selectedCriticalExtensions:selected?[T4_MULTIPART_OPAQUE_EXTENSION]:[],
       verifyOriginalNodeSignature:live(verifyOriginalNodeSignature),
       authorizeOriginalNetwork:live(authorizeOriginalNetwork),
-      persistOriginalReplayDecision:live(persistOriginalReplayDecision),
+      persistOriginalReplayDecision:live(async proof=>{
+        if(selected)await multipartAgreement(ctx,frame,expectedSha256,'replay-CAS',selected.agreementDigest);
+        return persistOriginalReplayDecision(proof);
+      }),
     });
     // A forged or revoked Host session must be rejected even after
     // signature and durable replay CAS succeed.
@@ -375,6 +428,8 @@ export function createT4CandidateFrameTransport({
       originalAccessVerified:verdict.originalAccessVerified,
       originalReplayCheckpointRecorded:
         verdict.originalReplayCheckpointRecorded,
+      ...(selected?{originalMultipartAgreementDigest:selected.agreementDigest,
+        originalMultipartHeadSha256:selected.headSha256,originalMultipartDiffSha256:selected.diffSha256}:{}),
       exactPreviouslyVerifiedReplay:
         verdict.exactPreviouslyVerifiedReplay,
       networkBytesVerified:true,
@@ -510,7 +565,8 @@ export function createT4CandidateFrameTransport({
     }while(continuation!==null);
     return finish(receipts.length?'FOUND':'NOT_FOUND');
   }
-  async function indexedRead({selector,requiredCryptoSuite,supportedCriticalExtensions=[],head=false,replacementHead=false},ctx){
+  async function indexedRead({selector,requiredCryptoSuite,supportedCriticalExtensions=[],head=false,replacementHead=false,
+    expectedMultipartChange=null},ctx){
     if(!selector||!ID(selector.sourceNodeRef)||selector.sourceNodeRef===originalHostNodeRef||
       !Number.isSafeInteger(selector.ownerEpoch)||selector.ownerEpoch<1||!ID(requiredCryptoSuite)||
       !Array.isArray(supportedCriticalExtensions)||supportedCriticalExtensions.length>16||
@@ -540,7 +596,7 @@ export function createT4CandidateFrameTransport({
         (frame.sessionRef!==selector.sessionRef||frame.sequence!==selector.sequence||frame.messageType!==selector.messageType))||
       !t4NativeFrameIndexKeys(frame).includes(key))fail('WIRE_NATIVE_INDEX_TARGET_MISMATCH');
     return verifyDownloaded({ctx,key:frameKey,expectedSha256:sha256,downloaded:{bytes},
-      requiredCryptoSuite,supportedCriticalExtensions});
+      requiredCryptoSuite,supportedCriticalExtensions,expectedMultipartChange});
   }
   const indexedResult=(receipts,lookups)=>frozen({state:receipts.length?'FOUND':'NOT_FOUND',
     receipts:frozen(receipts),pages:0,candidatesExamined:lookups,listingDigest:null,
@@ -576,7 +632,10 @@ export function createT4CandidateFrameTransport({
         const frame=await indexedRead({selector:{...input,messageType,sequence},requiredCryptoSuite,supportedCriticalExtensions:extensions},ctx);
         if(frame)receipts.push(frame);return frame;};
       const head=await get('HEADS',1);
-      if(head&&await get('CHANGE_REF',2)){
+      const change=head?await get('CHANGE_REF',2):null;
+      if(change?.verifiedCriticalExtensions.includes(T4_MULTIPART_OPAQUE_EXTENSION))
+        fail('WIRE_MULTIPART_PAGED_DISCOVERY_REQUIRED');
+      if(head&&change){
         const first=await get('CHUNK',3);
         if(first){const count=first.verifiedBody.chunkCount;
           if(!Number.isSafeInteger(count)||count<1||count>64||first.verifiedBody.chunkIndex!==0)
@@ -592,12 +651,60 @@ export function createT4CandidateFrameTransport({
     return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_SESSION_CONTENT_V1',...r,
       createsStore:false,createsScheduler:false});
   }
+  async function discoverOriginalMultipartContentPage({selector,requiredCryptoSuite,startSequence=3,limit=64,
+    expectedManifestDigest=null}={}){
+    if(!enableOriginalMultipartNegotiation||!indexed)fail('WIRE_NATIVE_MULTIPART_ORIGINAL_PORTS_REQUIRED');
+    if(!selector||Object.keys(selector).sort().join(',')!=='ownerEpoch,sessionRef,sourceNodeRef'||
+      !ID(selector.sessionRef)||!Number.isSafeInteger(startSequence)||startSequence<3||
+      startSequence>T4_MULTIPART_MAX_CHUNKS+2||!Number.isSafeInteger(limit)||limit<1||limit>64||
+      (expectedManifestDigest!==null&&!/^sha256:[a-f0-9]{64}$/.test(expectedManifestDigest)))
+      fail('WIRE_MULTIPART_DISCOVERY_PAGE_INVALID');
+    const input=Object.freeze({...selector}),ctx=await hostSnapshot(),receipts=[],missing=[];
+    const extensions=Object.freeze([T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,T4_MULTIPART_OPAQUE_EXTENSION]);
+    let lookups=0;
+    const get=async(messageType,sequence,expectedMultipartChange=null)=>{
+      lookups++;return indexedRead({selector:{...input,messageType,sequence},
+        requiredCryptoSuite,supportedCriticalExtensions:extensions,expectedMultipartChange},ctx);
+    };
+    const head=await get('HEADS',1);
+    const result=(state,extra={})=>frozen({schema:'IWXA_T4_ORIGINAL_MULTIPART_CONTENT_PAGE_V1',state,
+      selector:input,startSequence,limit,head,receipts:frozen(receipts),missing:frozen(missing),lookups,
+      originalCompleteContentProven:false,originalBusinessApplied:false,sourceCursorAdvanced:false,
+      recipientCursorAdvanced:false,createsStore:false,createsScheduler:false,...extra});
+    if(!head)return result('WAITING_FOR_HEADS');
+    if(!head.verifiedCriticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION))
+      fail('WIRE_NATIVE_MULTIPART_NEGOTIATION_REQUIRED');
+    const change=await get('CHANGE_REF',2);
+    if(!change)return result('WAITING_FOR_CHANGE_REF');
+    if(!change.verifiedCriticalExtensions.includes(T4_MULTIPART_OPAQUE_EXTENSION)||
+      change.originalMultipartHeadSha256!==head.sha256)fail('WIRE_MULTIPART_AGREEMENT_CHANGED');
+    const manifest=validateT4CandidateMultipartManifest(change.verifiedBody.multipartManifest);
+    if(expectedManifestDigest!==null&&manifest.manifestDigest!==expectedManifestDigest)
+      fail('WIRE_MULTIPART_DISCOVERY_MANIFEST_CHANGED');
+    const total=manifest.parts.reduce((n,p)=>n+p.chunkCount,0),last=total+2;
+    if(startSequence>last)fail('WIRE_MULTIPART_DISCOVERY_PAGE_INVALID');
+    const end=Math.min(last,startSequence+limit-1);
+    for(let sequence=startSequence;sequence<=end;sequence++){
+      const partIndex=Math.floor((sequence-3)/64),chunkIndex=(sequence-3)%64,p=manifest.parts[partIndex];
+      const found=await get('CHUNK',sequence,change);
+      if(found){
+        if(found.originalMultipartAgreementDigest!==change.originalMultipartAgreementDigest)
+          fail('WIRE_MULTIPART_AGREEMENT_CHANGED');
+        receipts.push(found);
+      }else missing.push(Object.freeze({sequence,changeId:manifest.changeId,contentDigest:manifest.contentDigest,
+        manifestDigest:manifest.manifestDigest,partIndex,partCount:manifest.partCount,partDigest:p.partDigest,
+        chunkIndex,chunkCount:p.chunkCount}));
+    }
+    return result(missing.length?'PAGE_INCOMPLETE':'PAGE_COMPLETE',{change,manifestDigest:manifest.manifestDigest,
+      originalMultipartAgreementDigest:change.originalMultipartAgreementDigest,totalChunks:total,
+      endSequence:end,nextSequence:end<last?end+1:null});
+  }
   async function discoverSourceSessionHeads({selector,requiredCryptoSuite}={}){
     if(indexed){
       if(!selector||Object.keys(selector).some(k=>!['sourceNodeRef','ownerEpoch','familyRef','predecessorEventCount'].includes(k)))
         fail('WIRE_DISCOVERY_SOURCE_ANNOUNCEMENT_SELECTOR_INVALID');
       const found=await indexedRead({selector:{...selector,messageType:'HEADS'},requiredCryptoSuite,head:true,
-        supportedCriticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]},await hostSnapshot());
+        supportedCriticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION,...(enableOriginalMultipartNegotiation?[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:[])]},await hostSnapshot());
       return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_SOURCE_HEADS_V1',...indexedResult(found?[found]:[],1),
         createsStore:false,createsScheduler:false});
     }
@@ -629,7 +736,8 @@ export function createT4CandidateFrameTransport({
     ...(historicalReadOnly?{originalHistoricalReadOnly:true}:{publishSignedFrame,inspectUnknownPublication,
       ...(historical?{readOriginalHistoricalReceivedFrame}:{}),
       readAndVerifySignedFrame,discoverAndVerifySignedFrames,discoverUniqueSignedFrame,discoverSessionContent,
-      discoverSourceSessionHeads,discoverReplacementSourceHead}),
+      discoverSourceSessionHeads,discoverReplacementSourceHead,
+      ...(enableOriginalMultipartNegotiation?{discoverOriginalMultipartContentPage,originalMultipartNegotiationEnabled:true}:{})}),
     ...(historicalAck?{readOriginalHistoricalAppliedAck}:{}),
     forOriginalHostLifetime:isHostActive=>createT4CandidateFrameTransport({
       ...(!historicalReadOnly?{wireTransport:scopeOriginalHostPort(wireTransport,isHostActive,['wireKind','nativeFrameIndexVersion'],
@@ -639,6 +747,7 @@ export function createT4CandidateFrameTransport({
       originalHostNodeRef,originalHostScopeRef,verifyOriginalNodeSignature,
       authorizeOriginalNetwork,persistOriginalReplayDecision,
       verifyOriginalHistoricalNodeSignature,readOriginalHistoricalReplayEvidence,readOriginalHistoricalAppliedAckSlot,historicalReadOnly,
+      enableOriginalMultipartNegotiation,readOriginalMultipartAgreement,
     }),
     originalT3ExchangeDependency:false,
     createsSubjectStore:false,createsSubjectIAM:false,

@@ -1,6 +1,6 @@
 import {originalSourceSessionFamilyRef,readT4OriginalSourceSessionHead}
   from './original-network-publication.mjs';
-import {T4_ORIGINAL_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
+import {T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION} from './standard-network-wire-candidate.mjs';
 
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const HASH=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
@@ -16,6 +16,7 @@ const fail=code=>{throw Object.assign(Error(code),{code});};
 // original recipient admission, source proof and applied receipt gates remain.
 export async function discoverT4OriginalSourceSessionAnnouncement({
   identity,sourceCursorBefore,frameDiscoveryPort,requiredCryptoSuite,authorizeOriginalDiscovery,
+  enableOriginalMultipartNegotiation=false,
 }={}){
   const familyRef=originalSourceSessionFamilyRef(identity),scope=Object.freeze({
     workspaceId:identity.workspaceId,originalWriteOwnerRef:identity.originalWriteOwnerRef,
@@ -28,6 +29,8 @@ export async function discoverT4OriginalSourceSessionAnnouncement({
     !HASH(before.sourcePrefixDigest)||!Number.isSafeInteger(before.seenEventCount)||
     before.seenEventCount<1||before.seenEventCount>=Number.MAX_SAFE_INTEGER||
     before.originalPermissionProof!==false||!Number.isSafeInteger(scope.ownerEpoch)||scope.ownerEpoch<1||
+    typeof enableOriginalMultipartNegotiation!=='boolean'||
+    (enableOriginalMultipartNegotiation&&frameDiscoveryPort?.originalMultipartNegotiationEnabled!==true)||
     !ID(requiredCryptoSuite)||typeof authorizeOriginalDiscovery!=='function'||
     frameDiscoveryPort?.schema!=='IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1'||
     typeof frameDiscoveryPort.discoverSourceSessionHeads!=='function')
@@ -55,6 +58,7 @@ export async function discoverT4OriginalSourceSessionAnnouncement({
     originalCaptureEvidenceVerified:false,originalSourceCursorAdvanced:false,
     originalNetworkPublished:false,originalSubjectMutationInvoked:false,capturedPlaintextReturned:false,
     createsStore:false,createsScheduler:false,mustRescanOnNextHostWake:match===null,
+    ...(match?.multipartOffer?{multipartOffer:match.multipartOffer,sourceHeadSha256:match.sourceHeadSha256}:{}),
   });
   if(found.state==='RESTART_SCAN')return result('WAITING_FOR_STABLE_DISCOVERY');
   const matches=[],sessions=new Set();
@@ -69,15 +73,18 @@ export async function discoverT4OriginalSourceSessionAnnouncement({
       r.originalBusinessApplied!==false||r.originalT3ExchangeCalled!==false||sessions.has(r.verifiedSessionRef))
       fail('SOURCE_ANNOUNCEMENT_DISCOVERY_INVALID');
     sessions.add(r.verifiedSessionRef);
+    const multipart=r.verifiedCriticalExtensions?.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION);
     if(r.verifiedBody?.familyRef!==familyRef||
-      !same(r.verifiedCriticalExtensions,[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]))continue;
+      !(same(r.verifiedCriticalExtensions,[T4_ORIGINAL_SOURCE_SESSION_EXTENSION])||
+        (enableOriginalMultipartNegotiation&&multipart&&r.verifiedCriticalExtensions.length===2&&
+          r.verifiedCriticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION))))continue;
     const claim=readT4OriginalSourceSessionHead({identity:scope,body:r.verifiedBody,sessionRef:r.verifiedSessionRef});
     // A stale announcement is a normal result of immutable transport.
     // An announcement claiming the SAME position with different history
     // is a conflict, not permission to skip/rewind the admitted cursor.
     if(claim.sourceCursorBefore.seenEventCount!==before.seenEventCount)continue;
     if(!same(claim.sourceCursorBefore,before))fail('SOURCE_ANNOUNCEMENT_PREDECESSOR_CONFLICT');
-    matches.push(claim);
+    matches.push({...claim,...(multipart?{multipartOffer:structuredClone(r.verifiedBody.multipartOffer),sourceHeadSha256:r.sha256}:{})});
   }
   if(matches.length>1)fail('SOURCE_ANNOUNCEMENT_SUCCESSOR_CONFLICT');
   await guard();
