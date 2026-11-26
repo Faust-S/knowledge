@@ -19,7 +19,10 @@ import {discoverT4OriginalSourceSessionAnnouncement} from './original-network-so
 import {verifyT4OriginalSourceHeadCausality,isT4OriginalOutboundFrameProof}
   from './original-network-source-head-proof.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,
-  t4NativeSubjectCriticalExtensions,T4_ORIGINAL_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
+  t4NativeSubjectCriticalExtensions,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
+  T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION} from './standard-network-wire-candidate.mjs';
+import {createT4NativeMultipartOffer,createT4NativeMultipartSelection} from './standard-network-multipart-opaque-chunks.mjs';
+import {readT4OriginalNativeMultipartAgreement} from './original-network-multipart-agreement.mjs';
 
 /** Recipient-side coordination, using ONLY the existing original T3 Kernel/Host.
  * The source Host supplies the event window and its own scope/authorization.
@@ -631,7 +634,8 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     createOriginalRecipientPhasePort,resolveOriginalSigningContext,signOriginalNodeBytes,
     readOriginalSourceHostContext,authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalSourceWindow=null,
     verifyOriginalSourceSubject,authorizeOriginalSealedOpen,openOriginalSealedContent,
-    verifyOriginalSourceBinding,retryMissing=false,requireSourceAnnouncement=false}=options;
+    verifyOriginalSourceBinding,retryMissing=false,requireSourceAnnouncement=false,
+    enableOriginalMultipartNegotiation=false,expectedMultipartHeadSha256=null}=options;
   if(!['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef',
     'scopeRef','ownerEpoch'].every(k=>session[k]===p[k]))
     fail('RECIPIENT_NATIVE_ORIGINAL_SESSION_SCOPE_MISMATCH');
@@ -641,6 +645,10 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     sourceCursorBefore.sourcePrefixDigest!==session.sourcePrefixDigestBefore)
     fail('RECIPIENT_NATIVE_ORIGINAL_PREDECESSOR_REQUIRED');
   if(!ID(requiredCryptoSuite)||typeof retryMissing!=='boolean'||typeof requireSourceAnnouncement!=='boolean'||
+    typeof enableOriginalMultipartNegotiation!=='boolean'||
+    (enableOriginalMultipartNegotiation&&(!requireSourceAnnouncement||frameDiscoveryPort?.nativeFrameIndexVersion!==1||
+      frameDiscoveryPort?.originalMultipartNegotiationEnabled!==true||typeof frameDiscoveryPort.discoverOriginalMultipartContentPage!=='function'))||
+    (expectedMultipartHeadSha256!==null&&(!enableOriginalMultipartNegotiation||session.changeKind!=='ASSET_PUT'||!SHA(expectedMultipartHeadSha256)))||
     ![authorizeOriginalRecipientSession,createOriginalRecipientPhasePort,
       resolveOriginalSigningContext,signOriginalNodeBytes,readOriginalSourceHostContext,
       authorizeOriginalSourceRead,verifyOriginalSourceSubject,
@@ -668,18 +676,34 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
       .every(k=>typeof rawPublication[k]==='function'))
     fail('RECIPIENT_NATIVE_STEP_ORIGINAL_PORTS_REQUIRED');
   const discovery=scoped(frameDiscoveryPort,
-    ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
+    ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion','originalMultipartNegotiationEnabled'],
     'RECIPIENT_NATIVE_STEP_ORIGINAL_DISCOVERY_REQUIRED');
   const publication=scoped(rawPublication,
     ['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler'],
     'RECIPIENT_NATIVE_STEP_ORIGINAL_PUBLICATION_REQUIRED');
+  const canMultipart=enableOriginalMultipartNegotiation&&session.changeKind==='ASSET_PUT';
   const extensions=[...t4NativeSubjectCriticalExtensions(session.changeKind),
-    ...(requireSourceAnnouncement?[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]:[])];
-  const exactHead=requireSourceAnnouncement?createT4OriginalSourceSessionHead({session,sourceCursorBefore:predecessor,
+    ...(requireSourceAnnouncement?[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]:[]),
+    ...(canMultipart?[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:[])];
+  const exactHead=offerMultipart=>requireSourceAnnouncement?createT4OriginalSourceSessionHead({session,sourceCursorBefore:predecessor,
     sourceCursorAfter:{...predecessor,lastEventId:session.sourceEventId,
-      sourcePrefixDigest:session.sourcePrefixDigestAfter,seenEventCount:predecessor.seenEventCount+1}}):
+      sourcePrefixDigest:session.sourcePrefixDigestAfter,seenEventCount:predecessor.seenEventCount+1},offerMultipart}):
     {familyRef:session.familyRef,ownerEpoch:session.ownerEpoch,heads:[session.sourcePrefixDigestAfter]};
-  const exactDiff={familyRef:session.familyRef,fromHeads:[session.sourcePrefixDigestBefore]};
+  const legacyDiff={familyRef:session.familyRef,fromHeads:[session.sourcePrefixDigestBefore]};
+  // Neither an offer nor a locally stored selection alone is an agreement.
+  // Reconstruct the exact selection from a live verified HEADS receipt.
+  const multipartDiff=headSha256=>({...legacyDiff,multipartSelection:createT4NativeMultipartSelection({
+    offer:createT4NativeMultipartOffer(),headSha256})});
+  const sameExtensions=(actual,expected)=>Array.isArray(actual)&&actual.length===expected.length&&
+    expected.every(value=>actual.includes(value));
+  function diffProfile(body,criticalExtensions){
+    if(sameExtensions(criticalExtensions,[])&&same(body,legacyDiff))return {multipart:false,headSha256:null,body:legacyDiff,extensions:[]};
+    const headSha256=body?.multipartSelection?.headSha256;
+    if(canMultipart&&sameExtensions(criticalExtensions,[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION])&&SHA(headSha256)&&
+      same(body,multipartDiff(headSha256))&&(expectedMultipartHeadSha256===null||headSha256===expectedMultipartHeadSha256))
+      return {multipart:true,headSha256,body:multipartDiff(headSha256),extensions:[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]};
+    fail('RECIPIENT_NATIVE_STEP_ORIGINAL_DIFF_MISMATCH');
+  }
   const result=(state,extra={})=>done(state,{dispatched:true,
     sessionRef:session.sessionRef,changeId:session.changeId,
     originalHostSessionRef:initial.hostSessionRef,originalHostTaskOwnerVerified:true,...extra});
@@ -705,9 +729,9 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
       if(diff.messageType!=='DIFF_REQUEST'||diff.sequence!==1||
         diff.sourceNodeRef!==session.recipientNodeRef||diff.recipientNodeRef!==session.sourceNodeRef||
         diff.sessionRef!==session.sessionRef||diff.scopeRef!==session.scopeRef||
-        diff.ownerEpoch!==session.ownerEpoch||diff.cryptoSuite!==requiredCryptoSuite||
-        !same(diff.criticalExtensions,[])||!same(diff.body,exactDiff))
+        diff.ownerEpoch!==session.ownerEpoch||diff.cryptoSuite!==requiredCryptoSuite)
         fail('RECIPIENT_NATIVE_STEP_ORIGINAL_DIFF_MISMATCH');
+      diffProfile(diff.body,diff.criticalExtensions);
     }
     return saved;
   }
@@ -762,8 +786,30 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     r.originalReplayCheckpointRecorded===true&&r.networkBytesVerified===true&&
     r.originalBusinessApplied===false&&r.originalT3ExchangeCalled===false&&
     SHA(r.sha256)&&r.key===r.sha256+'.t4n'&&ID(r.verifiedSignerRef)&&
-    same(r.verifiedCriticalExtensions,requireSourceAnnouncement?[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]:[])&&
-    same(r.verifiedBody,exactHead);
+    (sameExtensions(r.verifiedCriticalExtensions,requireSourceAnnouncement?[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]:[])&&
+      expectedMultipartHeadSha256===null&&same(r.verifiedBody,exactHead(false))||
+      canMultipart&&sameExtensions(r.verifiedCriticalExtensions,[T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION])&&
+      (expectedMultipartHeadSha256===null||r.sha256===expectedMultipartHeadSha256)&&same(r.verifiedBody,exactHead(true)));
+  function headProfile(r){
+    if(!validHead(r))fail('RECIPIENT_NATIVE_STEP_ORIGINAL_HEADS_MISMATCH');
+    const multipart=r.verifiedCriticalExtensions.includes(T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION);
+    return multipart?{multipart:true,headSha256:r.sha256,body:multipartDiff(r.sha256),
+      extensions:[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]}:
+      {multipart:false,headSha256:null,body:legacyDiff,extensions:[]};
+  }
+  async function discoverHead(){
+    const found=await live(a=>discovery.discoverUniqueSignedFrame(a),'discover-heads')({
+      selector:{sourceNodeRef:session.sourceNodeRef,ownerEpoch:session.ownerEpoch,
+        sessionRef:session.sessionRef,messageType:'HEADS',sequence:1},
+      requiredCryptoSuite,supportedCriticalExtensions:extensions});
+    if(found?.schema!=='IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1'||
+      !['FOUND','NOT_FOUND','RESTART_SCAN'].includes(found.state)||
+      found.originalBusinessApplied!==false||found.sourceCursorAdvanced!==false||
+      (found.state==='FOUND'?!validHead(found.receipt):found.receipt!==null))
+      fail('RECIPIENT_NATIVE_STEP_ORIGINAL_HEADS_MISMATCH');
+    return found;
+  }
+  const waitingHead=found=>result(found.state==='RESTART_SCAN'?'WAITING_FOR_STABLE_DISCOVERY':'WAITING_FOR_HEADS');
   async function signFrame(messageType,sequence,body,criticalExtensions=[]){
     const signing=await live(resolveOriginalSigningContext,'resolve-recipient-signing')(
       frozen({session,sequence,messageType,originalNodeSigningAuthorityRequired:true}));
@@ -778,15 +824,17 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     });
     return signT4CandidateFrame({unsignedFrame,signOriginalNodeBytes:live(signOriginalNodeBytes,'sign-recipient-frame')});
   }
-  async function localDiff(){
-    const r=await live(a=>publication.readOriginalPublishedFrame(a),'read-original-diff')({sequence:1});
+  async function localDiff(expected=null){
+    const r=await live(a=>publication.readOriginalPublishedFrame(a),'read-original-diff')({sequence:1,
+      ...(expected?.multipart?{includePresentEventAnchor:true}:{})});
     if(!isT4OriginalOutboundFrameProof(r)||r.checkpointRef!==publication.checkpointRef||
       r.signedMessageType!=='DIFF_REQUEST'||r.verifiedSequence!==1||
       r.verifiedSourceNodeRef!==session.recipientNodeRef||r.verifiedRecipientNodeRef!==session.sourceNodeRef||
       r.verifiedScopeRef!==session.scopeRef||r.verifiedSessionRef!==session.sessionRef||
-      r.verifiedOwnerEpoch!==session.ownerEpoch||r.verifiedCryptoSuite!==requiredCryptoSuite||
-      !same(r.verifiedCriticalExtensions,[])||!same(r.verifiedBody,exactDiff))
+      r.verifiedOwnerEpoch!==session.ownerEpoch||r.verifiedCryptoSuite!==requiredCryptoSuite)
       fail('RECIPIENT_NATIVE_STEP_ORIGINAL_DIFF_MISMATCH');
+    const actual=diffProfile(r.verifiedBody,r.verifiedCriticalExtensions);
+    if(expected!==null&&!same(actual,expected))fail('RECIPIENT_NATIVE_STEP_ORIGINAL_DIFF_MISMATCH');
     return r;
   }
   const saved=await inspectPublication();
@@ -795,32 +843,31 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     const first=await phase.inspect();
     if(first.retired)return result('WAITING_FOR_REPLACEMENT_ADMISSION',first.retired);
     if(first.stage!==0)fail('RECIPIENT_NATIVE_STEP_PHASE_WITHOUT_DIFF');
-    const found=await live(a=>discovery.discoverUniqueSignedFrame(a),'discover-heads')({
-      selector:{sourceNodeRef:session.sourceNodeRef,ownerEpoch:session.ownerEpoch,
-        sessionRef:session.sessionRef,messageType:'HEADS',sequence:1},
-      requiredCryptoSuite,supportedCriticalExtensions:extensions});
-    if(found?.schema!=='IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1'||
-      !['FOUND','NOT_FOUND','RESTART_SCAN'].includes(found.state)||
-      found.originalBusinessApplied!==false||found.sourceCursorAdvanced!==false||
-      (found.state==='FOUND'?!validHead(found.receipt):found.receipt!==null))
-      fail('RECIPIENT_NATIVE_STEP_ORIGINAL_HEADS_MISMATCH');
-    if(found.state!=='FOUND')return result(found.state==='RESTART_SCAN'?
-      'WAITING_FOR_STABLE_DISCOVERY':'WAITING_FOR_HEADS');
+    const found=await discoverHead();
+    if(found.state!=='FOUND')return waitingHead(found);
+    const profile=headProfile(found.receipt);
     if(!saved.frames.length){
       await live(a=>publication.prepareSignedBatch(a),'prepare-original-diff')({
         slots:[{sequence:1,messageType:'DIFF_REQUEST'}],
-        createSignedFrames:async()=>[await signFrame('DIFF_REQUEST',1,exactDiff)],
+        createSignedFrames:async()=>[await signFrame('DIFF_REQUEST',1,profile.body,profile.extensions)],
       });
     }
     const prepared=await inspectPublication();
     if(prepared.frames.length!==1)fail('RECIPIENT_NATIVE_STEP_ORIGINAL_DIFF_MISMATCH');
+    const reserved=decodeT4CandidateFrame(prepared.frames[0].wireBytes);
+    if(!same(diffProfile(reserved.body,reserved.criticalExtensions),profile))
+      fail('RECIPIENT_NATIVE_STEP_ORIGINAL_DIFF_MISMATCH');
     const sent=await live(a=>publication.publishPreparedFrame(a),'publish-original-diff')({sequence:1,retryMissing});
-    const diff=await localDiff();
+    const diff=await localDiff(profile);
     if(sent?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_RESULT_V1'||
       sent.key!==diff.key||sent.sha256!==diff.sha256||sent.messageType!=='DIFF_REQUEST'||
       sent.immutableTransportReadback!==true||sent.sourceCursorAdvanced!==false)
       fail('RECIPIENT_NATIVE_STEP_ORIGINAL_DIFF_READBACK_MISMATCH');
+    const agreement=profile.multipart?readT4OriginalNativeMultipartAgreement({session,sourceHead:found.receipt,
+      recipientDiff:diff,localRole:'RECIPIENT',requiredCryptoSuite}):null;
+    await guard('recipient-diff-confirmed');
     return result('DIFF_PRESENT',{originalSignedDiffReused:saved.frames.length===1,
+      ...(agreement?{originalMultipartAgreementDigest:agreement.agreementDigest}:{}),
       publication:sent,recipientDiffRemoteReceiptProven:false});
   }
   // A retired original attempt must stop before old DIFF/HEADS signature
@@ -831,14 +878,41 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     const retired=await early.inspectRetirement();
     if(retired)return result('WAITING_FOR_REPLACEMENT_ADMISSION',retired);
   }
-  const diff=await localDiff();
+  // Once a DIFF is durable its profile is immutable. For a new-profile
+  // recipient independently re-read the signed offer before discovery;
+  // a changed or absent agreement cannot silently fall back to compact.
+  const reservedDiff=decodeT4CandidateFrame(saved.frames[0].wireBytes);
+  const profile=diffProfile(reservedDiff.body,reservedDiff.criticalExtensions);
+  const diff=await localDiff(profile);
+  let initialAgreement=null;
+  async function readOriginalMultipartAgreement(){
+    const found=await discoverHead();
+    if(found.state!=='FOUND'||!same(headProfile(found.receipt),profile))
+      fail('RECIPIENT_NATIVE_STEP_ORIGINAL_MULTIPART_AGREEMENT_CHANGED');
+    const agreement=readT4OriginalNativeMultipartAgreement({session,sourceHead:found.receipt,
+      recipientDiff:await localDiff(profile),localRole:'RECIPIENT',requiredCryptoSuite});
+    if(initialAgreement!==null&&!same(agreement,initialAgreement))
+      fail('RECIPIENT_NATIVE_STEP_ORIGINAL_MULTIPART_AGREEMENT_CHANGED');
+    await guard('recipient-multipart-agreement-readback');
+    return agreement;
+  }
+  if(profile.multipart)initialAgreement=await readOriginalMultipartAgreement();
+  else if(canMultipart){
+    const found=await discoverHead();
+    if(found.state!=='FOUND')return waitingHead(found);
+    if(!same(headProfile(found.receipt),profile))fail('RECIPIENT_NATIVE_STEP_ORIGINAL_DIFF_MISMATCH');
+  }
   const content=await discoverT4OriginalNetworkSessionContent({session,
     frameDiscoveryPort:discovery,requiredCryptoSuite,requireSourceAnnouncement,sourceCursorBefore:predecessor,
+    ...(profile.multipart?{readOriginalMultipartAgreement}:{}),
     authorizeOriginalRecipientSession:async()=>{await guard('discover-session-content');return true;}});
   await guard('after-session-content');
   if(content.state!=='CONTENT_VERIFIED')
-    return result(content.state,{missingChunkIndexes:content.missingChunkIndexes});
-  if(!validHead(content.verifiedHeads))
+    return result(content.state,{missingChunkIndexes:content.missingChunkIndexes,
+      ...(profile.multipart?{originalMultipartAgreementDigest:initialAgreement.agreementDigest,
+        ...(content.missingMultipartChunks?{missingMultipartChunks:content.missingMultipartChunks}:{})}:{})});
+  if(!same(headProfile(content.verifiedHeads),profile)||
+    (profile.multipart&&content.originalMultipartAgreementDigest!==initialAgreement.agreementDigest))
     fail('RECIPIENT_NATIVE_STEP_ORIGINAL_HEADS_MISMATCH');
   const sourceHeadProof=await verifyT4OriginalSourceHeadCausality({
     verifiedHeads:content.verifiedHeads,verifiedDiffRequest:diff,verifiedChangeRef:content.verifiedChangeRef,
@@ -851,6 +925,7 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     ...(readOriginalSourceWindow===null?{readOriginalEvents:live(readOriginalSourceEvents,'read-original-source-events')}:
       {readOriginalWindow:live(()=>readOriginalSourceWindow({session,sourceCursorBefore:predecessor}),'read-original-source-window')}),
     verifyOriginalSourceSubject:live(verifyOriginalSourceSubject,'verify-original-source-subject'),
+    ...(profile.multipart?{originalMultipartCaptureSession:session}:{}),
   });
   if(sourceHeadProof.originalEventDigest!==session.sourceEventDigest||
     sourceHeadProof.originalSourceEventId!==session.sourceEventId||
@@ -860,7 +935,8 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     sourceHeadProof.sourcePrefixDigestAfter!==session.sourcePrefixDigestAfter||
     sourceHeadProof.sourceEventWindowDigest!==session.capturedWindowDigest||
     sourceHeadProof.signedRecipientDiffLocalPublicationVerified!==true||
-    sourceHeadProof.recipientDiffRemoteReceiptProven!==false)
+    sourceHeadProof.recipientDiffRemoteReceiptProven!==false||
+    (profile.multipart&&sourceHeadProof.originalMultipartAgreementDigest!==initialAgreement.agreementDigest))
     fail('RECIPIENT_NATIVE_STEP_ORIGINAL_SOURCE_WITNESS_MISMATCH');
   const received=await openT4OriginalNetworkSubjectChange({
     verifiedChangeRef:content.verifiedChangeRef,verifiedChunks:content.verifiedChunks,
@@ -870,10 +946,12 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     authorizeOriginalSealedOpen:live(authorizeOriginalSealedOpen,'authorize-original-sealed-open'),
     openOriginalSealedContent:live(openOriginalSealedContent,'open-original-sealed-content'),
     verifyOriginalSourceBinding:live(verifyOriginalSourceBinding,'verify-original-source-binding'),
+    ...(profile.multipart?{readOriginalMultipartAgreement}:{}),
   });
   if(received.sha256!==session.capturedSha256||received.originalEventDigest!==session.sourceEventDigest||
     received.delta.windowDigest!==session.capturedWindowDigest||received.changeId!==session.changeId||
-    received.sourceChangeFrameKey!==content.verifiedChangeRef.key)
+    received.sourceChangeFrameKey!==content.verifiedChangeRef.key||
+    (profile.multipart&&received.originalMultipartAgreementDigest!==initialAgreement.agreementDigest))
     fail('RECIPIENT_NATIVE_STEP_ORIGINAL_CAPTURE_MISMATCH');
   const phase=await makePhase({received,verifiedContent:content,sourceHeadProof});
   const {status,stage,retired}=await phase.inspect();
@@ -1084,7 +1162,8 @@ async function executeNativeRecipientOwnerStep(p,options){
   const {readOriginalNativeSessionAtCursor,createOriginalRecipientPublicationPort,
     authorizeOriginalRecipientSession,useSignedSourceAnnouncement=false,
     readOriginalLocalRetiredRecipientSession=null,...stepOptions}=options;
-  if(['session','sourceCursorBefore','recipientPublicationPort'].some(k=>Object.hasOwn(options,k))||
+  if(['session','sourceCursorBefore','recipientPublicationPort','expectedMultipartHeadSha256'].some(k=>Object.hasOwn(options,k))||
+    (stepOptions.enableOriginalMultipartNegotiation===true&&!useSignedSourceAnnouncement)||
     typeof useSignedSourceAnnouncement!=='boolean'||
     (readOriginalLocalRetiredRecipientSession!==null&&(!useSignedSourceAnnouncement||
       typeof readOriginalLocalRetiredRecipientSession!=='function'))||
@@ -1180,8 +1259,9 @@ async function executeNativeRecipientOwnerStep(p,options){
   const selected=structuredClone(useSignedSourceAnnouncement?await discoverT4OriginalSourceSessionAnnouncement({
     identity,sourceCursorBefore:before,requiredCryptoSuite:stepOptions.requiredCryptoSuite,
     frameDiscoveryPort:scopeOriginalHostPort(stepOptions.frameDiscoveryPort,p.isHostActive,
-      ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
+      ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion','originalMultipartNegotiationEnabled'],
       'RECIPIENT_NATIVE_STEP_ORIGINAL_DISCOVERY_REQUIRED'),
+    enableOriginalMultipartNegotiation:stepOptions.enableOriginalMultipartNegotiation??false,
     authorizeOriginalDiscovery:async()=>{await requireCurrent('recipient-owner-announcement-discovery');return true;},
   }):await readOriginalNativeSessionAtCursor(scopedProof(
     't4.network.original.source.session.select','recipient-owner-select',{
@@ -1243,11 +1323,18 @@ async function executeNativeRecipientOwnerStep(p,options){
     networkMetadataDoesNotGrantOriginalSubjectRights:true,
   })));
   await guard('before-recipient-publication-port');
+  const multipartOffer=selected.multipartOffer??null;
+  if(multipartOffer!==null&&(!useSignedSourceAnnouncement||stepOptions.enableOriginalMultipartNegotiation!==true||
+    session.changeKind!=='ASSET_PUT'||!SHA(selected.sourceHeadSha256)||!same(multipartOffer,createT4NativeMultipartOffer())))
+    fail('RECIPIENT_NATIVE_OWNER_SELECTION_INVALID');
+  if(multipartOffer===null&&selected.sourceHeadSha256!==undefined)fail('RECIPIENT_NATIVE_OWNER_SELECTION_INVALID');
   const publication=await createOriginalRecipientPublicationPort(frozen({
-    ...identity,session,sourceCursorBefore:before,originalHostSessionRef:initial.hostSessionRef}));
+    ...identity,session,sourceCursorBefore:before,originalHostSessionRef:initial.hostSessionRef,
+    ...(multipartOffer!==null?{originalMultipartOffer:multipartOffer,sourceHeadSha256:selected.sourceHeadSha256}:{})}));
   await guard('after-recipient-publication-port');
   let appliedWitness=null;
   const tick=await executeNativeRecipientStep(p,{...stepOptions,session,sourceCursorBefore:before,
+    ...(multipartOffer!==null?{expectedMultipartHeadSha256:selected.sourceHeadSha256}:{}),
     requireSourceAnnouncement:useSignedSourceAnnouncement||stepOptions.requireSourceAnnouncement===true,
     recipientPublicationPort:publication,authorizeOriginalRecipientSession:admission},
     originalCursor?w=>{appliedWitness=w;}:null);
