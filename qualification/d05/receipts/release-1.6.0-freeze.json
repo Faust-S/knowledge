@@ -593,7 +593,13 @@
     "independentHostIdentityProbe": {
       "workflow": "d05-t3-host-identity",
       "profile": "1.6.0-linux-host-identity",
-      "request": null,
+      "request": {
+        "runId": 45790502240,
+        "preparedCommit": "38c268114e438219764f28ffe0c01292ebeafec3",
+        "requestCommit": "90683232adec6027e1946eae7d39bb37a8e7705e",
+        "requestBranch": "ci/once/d05-t3-host-identity/38c268114e438219764f28ffe0c01292ebeafec3",
+        "runAttempt": 1
+      },
       "sourcePins": {
         "site": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
         "subject": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -607,7 +613,8 @@
         "passed": 3,
         "total": 3
       },
-      "state": "PREPARED"
+      "state": "REQUESTED",
+      "runStatusAtRecording": "in_progress"
     }
   },
   "functionalQualification": {
