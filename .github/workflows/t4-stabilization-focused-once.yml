@@ -1,0 +1,30 @@
+name: T4 stabilization focused qualification
+on:
+  push:
+    branches:
+      - 'ci/once/t4-stabilization-focused/cf923d3c9f250c0bfcc6c674dbd55bbacf810a21'
+permissions:
+  contents: read
+concurrency:
+  group: t4-stabilization-focused-cf923d3c9f250c0bfcc6c674dbd55bbacf810a21
+  cancel-in-progress: false
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact candidate source
+        run: |
+          test "$(git rev-parse HEAD^)" = "cf923d3c9f250c0bfcc6c674dbd55bbacf810a21"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+      - name: Install locked dependencies
+        run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Direct regression of the three changed test suites
+        run: node --experimental-strip-types --test --test-concurrency=3 packages/t4-network/tests/network-topology.test.mjs packages/t4-network/tests/original-host-capture-ledger.test.mjs packages/t4-network/tests/original-host-outbox-dispatcher.test.mjs
