@@ -1,0 +1,29 @@
+name: T4 topology and selected capture stabilization
+on:
+  push:
+    branches: ['ci/once/t4-stabilization/cf923d3c9f250c0bfcc6c674dbd55bbacf810a21']
+permissions:
+  contents: read
+concurrency:
+  group: t4-stabilization-cf923d3c9f250c0bfcc6c674dbd55bbacf810a21
+  cancel-in-progress: false
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact candidate source tree
+        run: |
+          test "$(git rev-parse HEAD^)" = "cf923d3c9f250c0bfcc6c674dbd55bbacf810a21"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse cf923d3c9f250c0bfcc6c674dbd55bbacf810a21:packages)"
+      - name: Install locked dependencies
+        run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Combined topology, capture, task, native owner and original grant regression
+        run: node --experimental-strip-types --test --test-concurrency=3 packages/t4-network/tests/network-topology.test.mjs packages/t4-network/tests/operator-connection.test.mjs packages/t4-network/tests/original-signed-route-access.test.mjs packages/t4-network/tests/original-host-capture-ledger.test.mjs packages/t4-network/tests/original-host-outbox-dispatcher.test.mjs packages/t4-network/tests/original-native-host-network-owner.test.mjs packages/t4-network/tests/original-host-dispatch-task-binding.test.mjs packages/t4-network/tests/original-host-subject-capture.test.mjs packages/t4-network/tests/original-technical-history-integration.test.mjs packages/t4-network/tests/original-native-signed-kernel-relay.test.mjs packages/t4-network/tests/original-native-content-limits.test.mjs
