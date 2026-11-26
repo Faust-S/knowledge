@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FUNCTIONALLY_QUALIFIED_LOCAL_LINUX_MISMATCH_ENCRYPTED_DELIVERY_PREPARED",
+  "status": "FUNCTIONALLY_QUALIFIED_EXACT_ENCRYPTED_DELIVERY_REQUESTED",
   "scope": "1.6.0",
   "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -656,10 +656,17 @@
       "recipientFingerprintSha256": "354a20c29532edb08e62443e976e6f5f76561a4b4c39a4492ad5a0e7034baf08",
       "packerBlob": "021ce248698596106cbb0ffb89d3a5049406e928",
       "certificateBlob": "afe3d62d860392937194867883a4fb6dcaa6c736",
-      "state": "PREPARED",
-      "request": null,
+      "state": "REQUESTED",
+      "request": {
+        "runId": 45795519880,
+        "preparedCommit": "8cada9fdc339f299c33f68d29a0bee2d8990c96b",
+        "requestCommit": "0e3658aa4f4c355cfe8aa6c91c43c25f1f96e889",
+        "requestBranch": "ci/once/d05-t3-encrypted-delivery/8cada9fdc339f299c33f68d29a0bee2d8990c96b",
+        "runAttempt": 1
+      },
       "plaintextPublic": false,
-      "productTestsRepeated": false
+      "productTestsRepeated": false,
+      "runStatusAtRecording": "in_progress"
     }
   },
   "functionalQualification": {
