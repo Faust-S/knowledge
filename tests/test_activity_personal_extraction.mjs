@@ -93,3 +93,19 @@ test('Activity alone extracts recurring explicit review criteria and context lim
  data.accepted_results[0].draft_artifacts=['x'.repeat(12000),'y'.repeat(12000),'z'.repeat(12000),'w'.repeat(12000)];
  assert.equal((await reviewPersonalPracticalExperience(data)).rules.length,3);
 });
+
+test('recognized action wordings share a review candidate but differing conditions remain separate',async()=>{
+ const data=source();
+ data.accepted_results[0].review_notes='Проверить наличие договора до оплаты.\nПроверить лимит 100 руб.\nПроверить наличие договора до оплаты.';
+ data.accepted_results[1].review_notes='Проверьте наличие договора до оплаты\nПроверьте лимит 200 руб.\nПроверьте наличие договора после оплаты';
+ const r=await reviewPersonalPracticalExperience(data);
+ const rule=r.rules.find(x=>x.kind==='HUMAN_REVIEW_CRITERION');
+ assert.ok(rule);
+ assert.equal(r.rules.filter(x=>x.kind==='HUMAN_REVIEW_CRITERION').length,1);
+ assert.equal(rule.occurrence_count,2);
+ assert.equal(rule.variants.length,2);
+ assert.equal(rule.wording_review_required,true);
+ assert.deepEqual(rule.variants.map(x=>x.occurrence_count),[1,1]);
+ assert.ok(rule.variants.every(x=>x.source_text.includes('до оплаты')));
+ assert.equal(rule.evidence.length,2);
+});

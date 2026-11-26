@@ -439,3 +439,24 @@ test('explicit private source references are available locally but do not enter 
  const request=await prepareD05ExtractionRequest(r,g.id,1);
  for(const ref of refs)assert.ok(!request.document_text.includes(ref.value));
 });
+
+test('recorded variants of a corrective action are compared without merging changed conditions or unresolved results',async()=>{
+ const {review:r,group}=await extractionCase({recorded:true});
+ const reports=r.recorded_execution_review.profiles[0].reports;
+ const second=structuredClone(reports[0]);second.report_number=2;
+ second.defects[0].resolution_note=second.defects[0].resolution_note.replace('Настроить','Настройте').replace('проверить','проверьте');
+ reports.push(second);
+ const result=await extractD05PracticalLessons(r,group.id,1);
+ assert.equal(result.lessons.length,1);
+ assert.equal(result.lessons[0].variants.length,2);
+ assert.equal(result.lessons[0].order_count,2);
+ assert.equal(result.lessons[0].wording_review_required,true);
+ second.defects[0].status='open';
+ const unresolved=await extractD05PracticalLessons(r,group.id,1);
+ assert.equal(unresolved.lessons[0].unresolved_order_count,1);
+ assert.equal(unresolved.lessons[0].suggested_guidance,null);
+ second.defects[0].status=reports[0].defects[0].status;
+ second.defects[0].resolution_note+=' только при толщине 3 мм';
+ const separate=await extractD05PracticalLessons(r,group.id,1);
+ assert.equal(separate.lessons.length,2);
+});

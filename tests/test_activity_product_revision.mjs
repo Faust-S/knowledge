@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {preparePersonalTechnologyProduct,prepareD05TechnologyProduct} from '../modules/activity-base-anonymizer/technology-product.mjs';
-import {editableProductTexts,reviseTechnologyProductText} from '../modules/activity-base-anonymizer/technology-product-revision.mjs';
+import {editableProductTexts,reviseTechnologyProductText,reviewTechnologyTextChange} from '../modules/activity-base-anonymizer/technology-product-revision.mjs';
 import {suggestD05ParameterDecisions} from '../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
 import {buildD05RouteQualityComparisonExample,reviewD05ResultSelection,prepareD05DisclosureCandidate} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 import {personalRows,personalProposal,d05Candidate} from './activity_technology_product_fixture.mjs';
@@ -159,4 +159,20 @@ test('a declared contact matches the whole address, not a suffix of another addr
  assert.equal(plan.groups[0].spans.length,1);
  const out=await applyProductGeneralization(p,[],select(plan,[{group_id:plan.groups[0].group_id,replacement:refs[0].replacement}]),refs);
  assert.equal(out.preview.object_data.technology.instructions,'Send to the designated quality contact, not alt+quality@example.com or quality@example.com-other.');
+});
+
+test('text revision reports altered practical conditions before a new local preview is adopted',async()=>{
+ const p=await preparePersonalTechnologyProduct(personalRows(),'routine_001',{...personalProposal(),
+  instructions:'Перед проверкой не превышать 100 мм. Согласовать с Иваном Тестовым.'});
+ const row=editableProductTexts(p.object_data).find(x=>x.path.endsWith('.instructions'));
+ const safe=await reviseTechnologyProductText(p,revision(p,row,'Перед проверкой не превышать 100 мм. Согласовать с ответственным.'));
+ assert.deepEqual(safe.local_review.edits[0].text_review.changed_markers,[]);
+ const changed=await reviseTechnologyProductText(p,revision(p,row,'После проверки превышать 110 см. Согласовать с ответственным.'));
+ const markers=changed.local_review.edits[0].text_review.changed_markers.map(x=>x.kind);
+ for(const kind of ['NUMBERS','UNITS','CONDITIONS','OBLIGATIONS'])assert.ok(markers.includes(kind));
+ assert.equal(changed.local_review.edits[0].text_review.semantic_equivalence,'NOT_ESTABLISHED');
+ assert.equal(changed.preview.export_allowed,false);
+ assert.deepEqual(reviewTechnologyTextChange('10 мм; 20','10; 20 мм').changed_markers.map(m=>m.kind),['UNITS']);
+ assert.deepEqual(reviewTechnologyTextChange('Maximum 10 mm','Minimum 10 mm').changed_markers.map(m=>m.kind),['COMPARISONS']);
+ assert.match(p.object_data.technology.instructions,/Иваном Тестовым/);
 });

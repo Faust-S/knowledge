@@ -13,15 +13,16 @@ const numericTokens=s=>s.match(/[+-]?\d+(?:[.,]\d+)*(?:[eE][+-]?\d+)?/g)??[];
 // can be legitimate (private dates/IDs); the editor shows these for review
 // rather than guessing whether a number is an engineering requirement.
 const words=s=>(s.match(/[\p{L}\p{M}]+/gu)??[]).map(x=>x.toLocaleLowerCase('ru-RU'));
-const conditionWords=new Set(('если когда перед после затем сначала только кроме исключая при до пока одновременно последовательно доработки иначе при условии unless if when before after then first only except until while otherwise concurrently sequentially').split(' '));
+const conditionWords=new Set(('если когда перед после затем сначала только кроме исключая при до пока одновременно последовательно иначе при условии unless if when before after then first only except until while otherwise concurrently sequentially').split(' '));
+const limitWords=new Set(('минимум максимум минимальный максимальный менее более меньше больше равно минимуму максимуму нижний верхний минимумов minimum maximum min max least most less greater below above equal between').split(' '));
 const obligationWords=new Set(('не без нельзя запрещено запретить запрещается обязательно должен должна должны должно требуется требуются необходимо допускается допустимо можно not no without never must shall required require mandatory prohibited forbidden cannot may optional').split(' '));
 const unitPattern=/(?<![\p{L}\p{N}_])(?:[+-]?\d+(?:[.,]\d+)*(?:[eE][+-]?\d+)?)\s*(мм|см|мкм|нм|км|м|кг|мг|г|л|мл|квт|вт|мпа|кпа|па|нм³|н|мин|час(?:а|ов)?|сек(?:унд[а-я]*)?|дн(?:я|ей)?|mm|cm|µm|μm|um|nm|km|kg|mg|g|ml|l|kw|w|mpa|kpa|pa|psi|rpm|ms|s|min|h|hours?|days?|°\s*[cсf]|%)(?![\p{L}\p{N}_])/giu;
 function markerValues(value){
  const terms=words(value);
  return {
   NUMBERS:numericTokens(value),
-  UNITS:[...value.matchAll(unitPattern)].map(m=>m[1].toLocaleLowerCase('ru-RU').replace(/\s+/g,'')),
-  COMPARISONS:value.match(/<=|>=|!=|==|[<>=≤≥≠±−]/gu)??[],
+  UNITS:[...value.matchAll(unitPattern)].map(m=>m[0].toLocaleLowerCase('ru-RU').replace(/\s+/g,'')),
+  COMPARISONS:[...(value.match(/<=|>=|!=|==|[<>=≤≥≠±−]/gu)??[]),...terms.filter(x=>limitWords.has(x))],
   CONDITIONS:terms.filter(x=>conditionWords.has(x)),
   OBLIGATIONS:terms.filter(x=>obligationWords.has(x)),
  };
