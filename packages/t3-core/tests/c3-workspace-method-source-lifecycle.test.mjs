@@ -5,7 +5,7 @@ import { prepareWorkspaceMethodSourceInputs, reconstructWorkspaceMethodDraft } f
 import { PROJECT_PROCESS_SOURCE_ACTIVATION, ProjectProcessSourceOwner, createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { MemoryCanonicalAdapter, OwnerWriteGateway } from '../src/persistence/canonical-persistence.mjs';
 import { readWorkspaceMethodFromSourceOwner } from '../src/modules/base/owners/project-process-method-readback.mjs';
-import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
+import { createWorkspaceMethodThroughSourceOwner, readWorkspaceMethodCreationIntent, resumeWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { qualifyProjectProcessSameWorkspaceHistory } from '../src/modules/base/owners/project-process-history.mjs';
 
 const workspaceId='ws-method';
@@ -314,4 +314,99 @@ test('a success acknowledgement without an original record never counts as persi
   const uncommitted=port(owner,{create:async()=>({ok:true})});
   await assert.rejects(createMethod(uncommitted),code('METHOD_SOURCE_WRITE_UNCONFIRMED'));
   assert.equal((await owner.audit()).length,0);
+});
+
+
+async function stopMethod(owner,workId='project-a.compute'){
+  const stopped=port(owner,{create:async(kind,input)=>{
+    if(kind==='work'&&(!workId||input.workId===workId))throw Object.assign(new Error('stopped'),{code:'TEST_INTERRUPTED'});
+    return owner.create(kind,input);
+  }});
+  await assert.rejects(createMethod(stopped),code('TEST_INTERRUPTED'));
+}
+
+test('unwritten stages and their record IDs cannot be substituted after interruption',async()=>{
+  const owner=await emptyOwner();await stopMethod(owner);
+  const draft=fixture();draft.steps.find(s=>s.id==='compute').instruction='Different uncommitted instruction';
+  const ids=creationIds();ids.works['project-a.compute']='different-uncommitted-id';
+  await assert.rejects(createMethod(owner,{draft}),code('METHOD_SOURCE_CREATE_CONFLICT'));
+  await assert.rejects(createMethod(owner,{recordIds:ids}),code('METHOD_SOURCE_CREATE_CONFLICT'));
+  assert.equal((await owner.audit()).length,3);
+  assert.equal(await owner.load('work',workspaceId,'project-a.compute'),null);
+});
+
+test('fresh original owner recovers exact plan without the previous draft',async()=>{
+  const adapter=new MemoryCanonicalAdapter();
+  const first=(await createProjectProcessSourceOwnerQualificationHarness({gateway:new OwnerWriteGateway({adapter})})).owner;
+  await stopMethod(first);
+  const next=(await createProjectProcessSourceOwnerQualificationHarness({gateway:new OwnerWriteGateway({adapter})})).owner;
+  const intent=await readWorkspaceMethodCreationIntent({owner:next,workspaceId,projectId:'project-a'});
+  assert.deepEqual(intent.draft,fixture());assert.deepEqual(intent.recordIds,creationIds());
+  assert.equal(intent.writeAuthorized,false);assert.equal(intent.executionAuthority,false);
+  assert.equal((await next.audit()).length,3);
+  const resumed=await resumeWorkspaceMethodThroughSourceOwner({owner:next,workspaceId,projectId:'project-a',objects});
+  assert.equal(resumed.createdCount,2);assert.equal(resumed.alreadyPresentCount,3);
+  assert.deepEqual(resumed.method.draft,fixture());assert.equal((await next.audit()).length,5);
+  const replay=await resumeWorkspaceMethodThroughSourceOwner({owner:next,workspaceId,projectId:'project-a',objects});
+  assert.equal(replay.createdCount,0);assert.equal(replay.alreadyPresentCount,5);
+});
+
+test('first Project alone retains complete plan; changed material blocks recovery',async()=>{
+  const owner=await emptyOwner();await stopMethod(owner,null);
+  const project=await owner.load('project',workspaceId,'project-a');
+  assert.equal(project.value.methodology.creation.steps.length,4);
+  assert.ok(!JSON.stringify(project.value.methodology.creation).includes('actual material payload'));
+  await assert.rejects(resumeWorkspaceMethodThroughSourceOwner({owner,workspaceId,projectId:'project-a',
+    objects:[{...objects[0],revision:99},...objects.slice(1)]}),code('METHOD_MATERIAL_REVIEW_REQUIRED'));
+  assert.equal((await owner.audit()).length,1);
+  const resumed=await resumeWorkspaceMethodThroughSourceOwner({owner,workspaceId,projectId:'project-a',objects});
+  assert.equal(resumed.createdCount,4);assert.equal(resumed.alreadyPresentCount,1);
+});
+
+test('direct first Work creation must obey original plan, record identity and time',async()=>{
+  const owner=await emptyOwner(),plan=prepare(),ids=creationIds();await stopMethod(owner,null);
+  const work=inputFor(plan,'prepare');
+  for(const altered of [{...work,name:'different'},{...work,methodology:{...work.methodology,instruction:'different'}},
+    {...work,status:'active'},{...work,schedule:{plannedStart:knowledgeAt}}]){
+    await assert.rejects(owner.create('work',{...altered,recordId:ids.works[work.workId],knowledgeAt}),code('INVALID_PROJECT_PROCESS_METHODOLOGY'));
+  }
+  await assert.rejects(owner.create('work',{...work,recordId:'different-id',knowledgeAt}),code('INVALID_PROJECT_PROCESS_METHODOLOGY'));
+  await assert.rejects(owner.create('work',{...work,recordId:ids.works[work.workId],knowledgeAt:'2026-11-26T18:01:00Z'}),code('PROJECT_PROCESS_METHOD_CREATION_TIME_CHANGED'));
+  assert.equal((await owner.audit()).length,1);
+});
+
+test('original creation plan survives explicit Project revision; old attempt no longer resumes',async()=>{
+  const owner=await emptyOwner();await createMethod(owner);
+  const row=await owner.load('project',workspaceId,'project-a');
+  const {creation,...rest}=row.value.methodology;
+  for(const methodology of [rest,{...row.value.methodology,creation:{...creation,projectRecordId:'altered'}}]){
+    await assert.rejects(owner.revise('project',{...row.value,methodology,recordId:'project@2',baseRevisionId:row.baseRevisionId,knowledgeAt}),code('PROJECT_PROCESS_METHOD_CREATION_IMMUTABLE'));
+  }
+  await owner.revise('project',{...row.value,name:'Revised name',recordId:'project@2',baseRevisionId:row.baseRevisionId,knowledgeAt});
+  await assert.rejects(resumeWorkspaceMethodThroughSourceOwner({owner,workspaceId,projectId:'project-a',objects}),code('METHOD_SOURCE_CREATION_UNAVAILABLE'));
+  assert.deepEqual((await owner.load('project',workspaceId,'project-a')).value.methodology.creation,creation);
+});
+
+test('legacy partial plan is not reconstructed by inventing missing creation data',async()=>{
+  const {owner}=await setup({partial:true});
+  await assert.rejects(readWorkspaceMethodCreationIntent({owner,workspaceId,projectId:'project-a'}),code('METHOD_SOURCE_CREATION_UNAVAILABLE'));
+  await assert.rejects(resumeWorkspaceMethodThroughSourceOwner({owner,workspaceId,projectId:'project-a',objects}),code('METHOD_SOURCE_CREATION_UNAVAILABLE'));
+  assert.equal((await owner.audit()).length,1);
+});
+
+test('malformed creation plans and mismatched Project record IDs are rejected',async()=>{
+  const owner=await emptyOwner();await createMethod(owner);
+  const {value}=await owner.load('project',workspaceId,'project-a');
+  const creation=value.methodology.creation,step=creation.steps[0];
+  for(const bad of [{...creation,version:2},{...creation,executionAuthority:true},
+    {...creation,steps:[...creation.steps.slice(1),step,step]},
+    {...creation,steps:[{...step,recordId:creation.projectRecordId},...creation.steps.slice(1)]},
+    {...creation,steps:[{...step,predecessorWorkIds:['project-a.missing']},...creation.steps.slice(1)]},
+    {...creation,steps:[{...step,predecessorWorkIds:[step.workId]},...creation.steps.slice(1)]},
+    {...creation,steps:[{...step,intendedActor:'execute'},...creation.steps.slice(1)]}]){
+    assert.throws(()=>normalizeProject({...value,methodology:{...value.methodology,creation:bad}}),code('INVALID_PROJECT_PROCESS_METHODOLOGY'));
+  }
+  const second=await emptyOwner();
+  await assert.rejects(second.create('project',{...value,recordId:'different',knowledgeAt}),code('INVALID_PROJECT_PROCESS_METHODOLOGY'));
+  assert.equal((await second.audit()).length,0);
 });

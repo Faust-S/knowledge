@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import {
   PROJECT_PROCESS_NORMALIZERS,
   assertProjectMethodologyWork,
+  assertProjectMethodologyCreation,
+  assertProjectMethodologyCreationWork,
 } from '../features/project-process/project-process.mjs';
 import {
   MemoryCanonicalAdapter,
@@ -314,13 +316,15 @@ class ProjectProcessSourceOwnerCore {
     const payload=normalizeSource(kind,input);
     const binding=projectProcessSourceBinding(kind);
     const commands=commandsFor(kind);
-    const refs=await this.#resolveRefs(kind,payload);
+    const exactRecordId=requireText(recordId,'recordId');
+    if(kind==='project') assertProjectMethodologyCreation(payload,exactRecordId);
+    const refs=await this.#resolveRefs(kind,payload,{recordId:exactRecordId,knowledgeAt});
     return this.#gateway.execute({
       ownerId:OWNER_ID,
       commandId:commands.create,
       family:binding.family,
       objectId:projectProcessSourceObjectId(kind,payload.workspaceId,payload[binding.idField]),
-      recordId:requireText(recordId,'recordId'),
+      recordId:exactRecordId,
       expectedRevisionId:null,
       knowledgeAt,
       payload,
@@ -336,6 +340,10 @@ class ProjectProcessSourceOwnerCore {
     if(kind === 'project' || kind === 'work'){
       const expected=requireText(baseRevisionId,'baseRevisionId');
       const current=await this.#readLiveRecord(kind,payload.workspaceId,payload[binding.idField]);
+      if(kind==='project' && current?.recordId===expected
+          && stableJson(current.payload.methodology?.creation??null)!==stableJson(payload.methodology?.creation??null)){
+        throw new ProjectProcessSourceOwnerError('The original creation plan is immutable','PROJECT_PROCESS_METHOD_CREATION_IMMUTABLE');
+      }
       if(current?.recordId === expected && current.payload.methodology){
         if(!payload.methodology || (kind === 'work' && current.payload.projectId !== payload.projectId)){
           throw new ProjectProcessSourceOwnerError(
@@ -464,7 +472,7 @@ class ProjectProcessSourceOwnerCore {
     seen.set(work.workId,record.recordId);
   }
 
-  async #resolveRefs(kind,payload) {
+  async #resolveRefs(kind,payload,creationIdentity=null) {
     const canonicalHeads={};
     const seen=new Map(),visiting=new Set();
     let project=null;
@@ -480,6 +488,12 @@ class ProjectProcessSourceOwnerCore {
         project=record;
         const declared=record.payload.methodology?.workIds.includes(payload.workId);
         if(declared || payload.methodology) assertProjectMethodologyWork(record.payload,payload);
+        if(creationIdentity && record.revision===1 && record.payload.methodology?.creation && declared){
+          assertProjectMethodologyCreationWork(record.payload,payload,creationIdentity.recordId);
+          if(record.knowledgeAt.compare(creationIdentity.knowledgeAt)!==0){
+            throw new ProjectProcessSourceOwnerError('Work must retain the original creation knowledge time','PROJECT_PROCESS_METHOD_CREATION_TIME_CHANGED');
+          }
+        }
       }
       if(kind==='work' && relation.relation.startsWith('predecessor:')){
         await this.#assertMethodPredecessorClosure(project,payload,record,seen,visiting);

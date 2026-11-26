@@ -176,8 +176,48 @@ function methodMaterialRefs(values) {
   }));
 }
 
+// Immutable first-Project plan, not current Work state or a new Store.
+function methodCreationRecordId(value) {
+  if(typeof value!=='string' || !value || value.length>512 || value!==value.trim()
+      || /[\u0000-\u001f]/u.test(value)) methodError('creation recordId');
+  return value;
+}
+
+function normalizeMethodCreation(value,projectId){
+  methodRecord(value,['version','projectRecordId','steps'],'creation');
+  if(value.version!==1) methodError('creation version');
+  const projectRecordId=methodCreationRecordId(value.projectRecordId);
+  const prefix=projectId+'.';
+  const validId=id=>typeof id==='string' && id.startsWith(prefix) && METHOD_STAGE_ID.test(id.slice(prefix.length));
+  const ids=new Set(),recordIds=new Set([projectRecordId]);
+  const steps=methodDenseArray(value.steps,64,'creation steps',1).map(step=>{
+    methodRecord(step,['workId','recordId','name','intendedActor','instruction','materialRefs','predecessorWorkIds'],'creation step');
+    const recordId=methodCreationRecordId(step.recordId);
+    if(!validId(step.workId) || ids.has(step.workId) || recordIds.has(recordId)
+       || !METHOD_ACTORS.has(step.intendedActor)) methodError('creation step identity');
+    ids.add(step.workId);recordIds.add(recordId);
+    const predecessors=methodDenseArray(step.predecessorWorkIds,63,'creation predecessors');
+    if(new Set(predecessors).size!==predecessors.length || predecessors.some(id=>!validId(id)||id===step.workId)) methodError('creation predecessors');
+    return Object.freeze({workId:step.workId,recordId,name:methodText(step.name,240,'creation name'),
+      intendedActor:step.intendedActor,instruction:methodText(step.instruction,8000,'creation instruction',false),
+      materialRefs:methodMaterialRefs(step.materialRefs),predecessorWorkIds:Object.freeze([...predecessors])});
+  });
+  const pending=new Map(steps.map(step=>[step.workId,step])),visited=new Set();
+  for(const step of steps) if(step.predecessorWorkIds.some(id=>!ids.has(id))) methodError('creation predecessor missing');
+  while(pending.size){
+    let progress=false;
+    for(const [id,step] of pending) if(step.predecessorWorkIds.every(dep=>visited.has(dep))){
+      pending.delete(id);visited.add(id);progress=true;
+    }
+    if(!progress) methodError('creation dependency cycle');
+  }
+  return Object.freeze({version:1,projectRecordId,steps:Object.freeze(steps)});
+}
+
 function normalizeProjectMethodology(value, projectId, templateRef) {
-  methodRecord(value,['version','objective','materialRefs','workIds'],'project');
+  const keys=['version','objective','materialRefs','workIds'];
+  if(value && Object.hasOwn(value,'creation')) keys.push('creation');
+  methodRecord(value,keys,'project');
   if (value.version !== 1 || !METHOD_STAGE_ID.test(projectId) || !templateRef) methodError('project version or identity');
   const prefix = projectId + '.';
   const workIds = methodDenseArray(value.workIds,64,'workIds',1).map(workId => {
@@ -187,7 +227,8 @@ function normalizeProjectMethodology(value, projectId, templateRef) {
   });
   if (new Set(workIds).size !== workIds.length) methodError('duplicate workId');
   return Object.freeze({version:1,objective:methodText(value.objective,4000,'objective'),
-    materialRefs:methodMaterialRefs(value.materialRefs),workIds:Object.freeze(workIds)});
+    materialRefs:methodMaterialRefs(value.materialRefs),workIds:Object.freeze(workIds),
+    ...(Object.hasOwn(value,'creation')?{creation:normalizeMethodCreation(value.creation,projectId)}:{})});
 }
 
 function normalizeWorkMethodology(value, projectId, workId, dependencies) {
@@ -212,6 +253,33 @@ export function assertProjectMethodologyWork(project, work) {
   const pins = new Map(project.methodology.materialRefs.map(ref=>[ref.object_id,ref.revision]));
   if (work.methodology.materialRefs.some(ref=>pins.get(ref.object_id)!==ref.revision)
       || work.dependencies.some(dep=>!project.methodology.workIds.includes(dep.predecessorWorkId))) methodError('work binding');
+  return true;
+}
+
+// Initial Project binding. Later revisions may retain the historical plan.
+export function assertProjectMethodologyCreation(project,recordId){
+  const creation=project.methodology?.creation;
+  if(!creation)return true;
+  const {workIds,materialRefs}=project.methodology;
+  const pins=new Map(materialRefs.map(ref=>[ref.object_id,ref.revision]));
+  if(project.status!=='planned'||creation.projectRecordId!==recordId||creation.steps.length!==workIds.length
+      || creation.steps.some((step,i)=>step.workId!==workIds[i]
+        || step.materialRefs.some(ref=>pins.get(ref.object_id)!==ref.revision))) methodError('creation Project binding');
+  return true;
+}
+
+export function assertProjectMethodologyCreationWork(project,work,recordId){
+  const creation=project.methodology?.creation;
+  if(!creation)return true;
+  assertProjectMethodologyWork(project,work);
+  const step=creation.steps.find(item=>item.workId===work.workId),refs=work.methodology.materialRefs;
+  if(!step||step.recordId!==recordId||step.name!==work.name||work.status!=='planned'
+      || work.schedule.plannedStart!==null||work.schedule.plannedFinish!==null
+      || step.intendedActor!==work.methodology.intendedActor||step.instruction!==work.methodology.instruction
+      || refs.length!==step.materialRefs.length
+      || refs.some((ref,i)=>ref.object_id!==step.materialRefs[i].object_id||ref.revision!==step.materialRefs[i].revision)
+      || work.dependencies.length!==step.predecessorWorkIds.length
+      || work.dependencies.some((dep,i)=>dep.predecessorWorkId!==step.predecessorWorkIds[i])) methodError('creation Work binding');
   return true;
 }
 
