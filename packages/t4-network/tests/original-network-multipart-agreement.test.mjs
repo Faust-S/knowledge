@@ -27,6 +27,8 @@ import {readT4OriginalNativeMultipartAgreement as agreement,validateT4OriginalNa
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID} from '../src/network/original-network-technical-schema.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
+import {T4TransferError} from '../src/network/webdav-package-transfer.mjs';
+import {isT4RecoverablePublicationWakeError} from '../src/network/original-network-publication.mjs';
 import {t4NativeFrameIndexKeys} from '../src/network/original-network-frame-address.mjs';
 import {discoverT4OriginalSourceSessionAnnouncement} from '../src/network/original-network-source-announcement.mjs';
 const sorted=x=>Array.isArray(x)?x.map(sorted):x&&typeof x==='object'?
@@ -85,7 +87,7 @@ async function contentPlan(fill=17,encrypted=null){
 const payload=await contentPlan();
 function fixture(){
   const objects=new Map(),events=[],remote=new Map(),indexes=new Map(),replay=new Map(),selected=new Map();
-  let puts=0,gets=0,host='host:1',allow=true,writes=0;
+  let puts=0,gets=0,host='host:1',allow=true,writes=0,lostPut=null,indexWrites=0;
   const kernel={hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.putObject','t1.listObjects'].includes(op),
     async listObjects({workspace_id}){return structuredClone([...objects.values()].map(x=>x.object).filter(o=>o.workspace_id===workspace_id));},
     async getObject(w,id){return structuredClone(objects.get(w+':'+id)??null);},
@@ -110,14 +112,16 @@ function fixture(){
     },
     async putSnapshot({key,bytes,expectedSha256,createOnly}){
       assert.equal(createOnly,true);assert.equal(hex(bytes),expectedSha256);assert.equal(key,expectedSha256+'.t4n');puts++;
+      if(lostPut==='before'){lostPut=null;throw new T4TransferError('NETWORK_UNAVAILABLE');}
       const seen=remote.has(key);if(seen)assert.deepEqual(remote.get(key),bytes);else remote.set(key,new Uint8Array(bytes));
+      if(lostPut==='after'){lostPut=null;throw new T4TransferError('OUTCOME_UNKNOWN');}
       return {key,sha256:expectedSha256,state:seen?'ALREADY_PRESENT_VERIFIED':'PUBLISHED_AND_READ_BACK'};
     },
     async getSnapshot({key,expectedSha256}){gets++;const bytes=remote.get(key);
-      if(!bytes)throw Object.assign(Error('missing'),{code:'REMOTE_NOT_FOUND'});assert.equal(hex(bytes),expectedSha256);return {bytes:new Uint8Array(bytes)};},
+      if(!bytes)throw new T4TransferError('REMOTE_NOT_FOUND');assert.equal(hex(bytes),expectedSha256);return {bytes:new Uint8Array(bytes)};},
     async inspectOutcome({key,expectedSha256}){await this.getSnapshot({key,expectedSha256});return {state:'EXPECTED_BYTES_PRESENT',key,sha256:expectedSha256};},
     async getNativeFrameIndex({key}){gets++;return indexes.has(key)?idx(key,indexes.get(key)):null;},
-    async putNativeFrameIndex({key,frameSha256}){if(indexes.has(key)&&indexes.get(key)!==frameSha256)
+    async putNativeFrameIndex({key,frameSha256}){indexWrites++;if(indexes.has(key)&&indexes.get(key)!==frameSha256)
       throw Object.assign(Error('conflict'),{code:'REMOTE_INDEX_SLOT_CONFLICT'});indexes.set(key,frameSha256);return idx(key,frameSha256);}
   };
   const auth=async()=>allow;
@@ -159,7 +163,8 @@ function fixture(){
   function inject(bytes){const sha=hex(bytes),f=decodeT4CandidateFrame(bytes);remote.set(sha+'.t4n',new Uint8Array(bytes));
     for(const key of t4NativeFrameIndexKeys(f))indexes.set(key,sha);}
   return {objects,events,remote,indexes,replay,selected,transport,port,publish,negotiate,prepare,inject,kernel,get host(){return host;},
-    get puts(){return puts;},get gets(){return gets;},get writes(){return writes;},restart:()=>{host='host:2';},allow:x=>{allow=x;}};
+    get puts(){return puts;},get gets(){return gets;},get writes(){return writes;},get indexWrites(){return indexWrites;},
+    losePut:where=>{lostPut=where;},restart:()=>{host='host:2';},allow:x=>{allow=x;}};
 }
 test('K145 native offer and selection use existing slot 1, old HEAD bytes remain unchanged when disabled',async()=>{
   assert.deepEqual(headBody.multipartOffer,createT4NativeMultipartOffer());
@@ -814,4 +819,50 @@ test('K157 cold native migration repairs HEADS before reading multipart backing 
   assert.equal(done.verifiedMigratedFrameCount,saved.frames.filter(x=>x.state==='PRESENT').length);
   assert.equal(f.indexes.get(chunkKey),firstChunk.sha256);
   assert.equal(f.writes,writes);assert.equal(f.puts,puts);
+});
+
+test('K161 exact original multipart ATTEMPTED recovery refuses competing index before raw PUT and resumes saved bytes after explicit grant',async()=>{
+  const f=fixture(),{sp}=await f.negotiate();await f.prepare(sp);
+  await sp.publishOriginalMultipartFrames({limit:1});
+  const saved=(await sp.inspectOriginalPublication()).frames[2],address=t4NativeFrameIndexKeys(decodeT4CandidateFrame(saved.wireBytes))[0];
+  f.losePut('before');
+  await assert.rejects(sp.publishOriginalMultipartFrames({limit:1}),e=>e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN'&&isT4RecoverablePublicationWakeError(e));
+  assert.equal(f.remote.has(saved.key),false);
+  f.restart();const p=f.port(source),attempt=(await p.inspectOriginalPublication()).frames[2];
+  assert.equal(attempt.state,'ATTEMPTED');assert.equal(attempt.attempts,1);
+  assert.deepEqual(attempt.wireBytes,saved.wireBytes);
+  const before=f.puts,indices=f.indexWrites;
+  await assert.rejects(p.publishOriginalMultipartFrames({limit:1}),e=>e?.code==='PUBLICATION_PRIOR_NETWORK_OUTCOME_UNRESOLVED'&&isT4RecoverablePublicationWakeError(e));
+  assert.equal(f.puts,before);
+  const denied=f.port(source,true,{authorizeOriginalFramePublish:async proof=>proof.operation!=='t4.network.publish.retry-missing'});
+  await assert.rejects(denied.publishOriginalMultipartFrames({limit:1,retryMissing:true}),code('PUBLICATION_ORIGINAL_AUTHORITY_DENIED'));
+  assert.equal(f.puts,before);
+  f.indexes.set(address,hex('competing signed slot'));
+  await assert.rejects(p.publishOriginalMultipartFrames({limit:1,retryMissing:true}),e=>
+    e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN'&&e.details.originalCode==='WIRE_NATIVE_INDEX_SLOT_CONFLICT'&&!isT4RecoverablePublicationWakeError(e));
+  assert.equal(f.puts,before);assert.equal(f.indexWrites,indices);assert.equal(f.remote.has(saved.key),false);
+  // The original immutable carrier operator removes the invalid pointer;
+  // no repair/retry path itself may overwrite a competing address.
+  f.indexes.delete(address);
+  const repaired=await p.publishOriginalMultipartFrames({limit:1,retryMissing:true});
+  assert.equal(repaired.frames[0].sha256,saved.sha256);
+  assert.equal(f.puts,before+1);assert.deepEqual(f.remote.get(saved.key),saved.wireBytes);
+  assert.equal(f.indexes.get(address),saved.sha256);
+  const confirmed=(await p.inspectOriginalPublication()).frames[2];
+  assert.equal(confirmed.state,'PRESENT');assert.equal(confirmed.attempts,3);
+  assert.deepEqual(confirmed.wireBytes,saved.wireBytes);
+});
+test('K161 multipart lost raw PUT response recovers only original missing index and never sends signed bytes twice',async()=>{
+  const f=fixture(),{sp}=await f.negotiate();await f.prepare(sp);
+  await sp.publishOriginalMultipartFrames({limit:1});
+  const saved=(await sp.inspectOriginalPublication()).frames[2],address=t4NativeFrameIndexKeys(decodeT4CandidateFrame(saved.wireBytes))[0];
+  f.losePut('after');
+  await assert.rejects(sp.publishOriginalMultipartFrames({limit:1}),e=>e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN'&&isT4RecoverablePublicationWakeError(e));
+  assert.deepEqual(f.remote.get(saved.key),saved.wireBytes);assert.equal(f.indexes.has(address),false);
+  const before=f.puts,indices=f.indexWrites;f.restart();
+  const recovered=await f.port(source).publishOriginalMultipartFrames({limit:1});
+  assert.equal(recovered.frames[0].state,'REMOTE_READBACK_RECOVERED');
+  assert.equal(f.puts,before);assert.equal(f.indexWrites,indices+1);assert.equal(f.indexes.get(address),saved.sha256);
+  const confirmed=(await f.port(source).inspectOriginalPublication()).frames[2];
+  assert.equal(confirmed.state,'PRESENT');assert.equal(confirmed.attempts,1);
 });

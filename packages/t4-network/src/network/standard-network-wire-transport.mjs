@@ -149,9 +149,9 @@ export function createT4CandidateFrameTransport({
     if(check!==null&&await check()!==true)fail('WIRE_ORIGINAL_CONTENT_WRITE_DENIED');
     mode();
   }
-  async function ensureIndexes(ctx,frame,sha256,repair,check=null){
-    if(!indexed)return;
+  async function inspectIndexes(ctx,frame,sha256){
     const missing=[];
+    if(!indexed)return missing;
     // Inspect every deterministic slot before changing any address. A
     // pre-existing competing HEADS must not create a second session pointer
     // as a side effect of attempting to repair the source announcement.
@@ -162,6 +162,10 @@ export function createT4CandidateFrameTransport({
       else if(checkIndexRead(found,key)!==sha256)fail('WIRE_NATIVE_INDEX_SLOT_CONFLICT');
       await hostGuard('index-readback',ctx,frame,sha256);
     }
+    return missing;
+  }
+  async function ensureIndexes(ctx,frame,sha256,repair,check=null){
+    const missing=await inspectIndexes(ctx,frame,sha256);
     if(missing.length&&!repair)fail('WIRE_NATIVE_INDEX_MISSING');
     for(const key of missing){
       await hostGuard('index-publish',ctx,frame,sha256);
@@ -191,6 +195,12 @@ export function createT4CandidateFrameTransport({
       await multipartAgreement(ctx,frame,sha256,'physical-write',selected.agreementDigest);
       return true;
     }:beforeNetworkWrite;
+    // Before even a create-only raw PUT, inspect all immutable slot
+    // addresses. Otherwise an already-conflicting slot can acquire an
+    // orphan raw frame during an explicit retry (or first publication).
+    // This preflight is read-only, not a remote lock; ensureIndexes still
+    // rechecks every address after PUT and uses immutable index writes.
+    if(indexed)await inspectIndexes(ctx,frame,sha256);
     if(check!==null)await beforeWrite(check);
     mode();
     let receipt;
