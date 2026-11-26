@@ -35,20 +35,20 @@ jobs:
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-ux-source \
             --profile full-product-qualification \
-            --revision site=9c60c8a5dff603718051bb51c6f4a1c6a0831649 \
-            --revision subject=070686c5c5a46c0864c65a9abe22b85a3f5cb5f1 \
+            --revision site=48295831321c588c1a961c85d56172414b0ab36d \
+            --revision subject=1e8700f4fd6f11c50db154f9f080b2406bef02ec \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 9c60c8a5dff603718051bb51c6f4a1c6a0831649
+          ref: 48295831321c588c1a961c85d56172414b0ab36d
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn
-          ref: 070686c5c5a46c0864c65a9abe22b85a3f5cb5f1
+          ref: 1e8700f4fd6f11c50db154f9f080b2406bef02ec
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -59,8 +59,8 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 9c60c8a5dff603718051bb51c6f4a1c6a0831649
-          test "$(git -C private/domain rev-parse HEAD)" = 070686c5c5a46c0864c65a9abe22b85a3f5cb5f1
+          test "$(git -C private/site rev-parse HEAD)" = 48295831321c588c1a961c85d56172414b0ab36d
+          test "$(git -C private/domain rev-parse HEAD)" = 1e8700f4fd6f11c50db154f9f080b2406bef02ec
           for path in study/services t2/domain-modules/learn; do
             for file in study-write-outcome.mjs study-write-outcome.d.mts; do
               cmp "private/domain/learning-journey/$file" "private/site/$path/$file"
@@ -167,9 +167,18 @@ jobs:
           cmp private/domain/practice/review-focus.mjs private/site/practice/review-focus.js
           cmp private/domain/practice/self-check-review.mjs private/site/practice/self-check-review.js
           cmp private/domain/verification/t3-assistant/skill-runtime.mjs private/site/scripts/t3-inputs/original-skill-runtime.mjs
+          for target in study/services t2/domain-modules/learn t2/domain-modules/learn-results; do
+            for file in goal-route-links.mjs schema-history-read.mjs; do
+              cmp "private/domain/learning-journey/$file" "private/site/$target/$file"
+            done
+          done
+          cmp private/domain/mind/services/schema-history-read.mjs private/site/mind/app/services/schema-history-read.mjs
+          cmp private/site/study/services/study-history-read.mjs private/site/t2/domain-modules/learn/study-history-read.mjs
+          cmp private/site/study/library-view.mjs private/site/t2/domain-modules/learn/library-view.mjs
+          cmp private/site/study/services/study-calculator-links.mjs private/site/t2/domain-modules/learn/study-calculator-links.mjs
           echo D01_OWNER_PARITY_PASS
           set +e
-          node --test --test-reporter=tap private/domain/learning-journey/study-sources.test.mjs private/domain/learning-journey/projection.test.mjs private/domain/learning-journey/continuation.test.mjs private/domain/learning-journey/today.test.mjs private/domain/learning-journey/career-review.test.mjs private/domain/learning-journey/mind-sources.test.mjs private/domain/mind/services/persistence.test.mjs private/domain/learning-journey/route-review.test.mjs private/domain/learning-journey/session-flow.test.mjs private/domain/learning-journey/study-recall.test.mjs private/domain/learning-journey/topic-work.test.mjs private/domain/learning-journey/topic-lesson.test.mjs private/domain/learning-journey/route-edit.test.mjs private/domain/learning-journey/prerequisites.test.mjs private/domain/learning-journey/topic-mind.test.mjs private/domain/learning-journey/topic-progress.test.mjs private/domain/learning-journey/daily-learning.test.mjs private/domain/learning-journey/practice-study-reference.test.mjs private/domain/learning-journey/practice-repeat-reference.test.mjs private/domain/learning-journey/practice-support.test.mjs private/domain/learning-journey/practice-criterion-variants.test.mjs private/domain/learning-journey/practice-repeat-focus.test.mjs private/domain/practice/repeat-preparation.test.mjs private/domain/learning-journey/study-recall-progression.test.mjs private/domain/learning-journey/topic-learning-history.test.mjs private/domain/learning-journey/study-answer-review.test.mjs private/domain/learning-journey/practice-associations.test.mjs private/domain/tests/assistant-skills.test.mjs private/domain/mind/services/model-identities.test.mjs private/domain/learning-journey/practice-review-series.test.mjs private/domain/practice/review-focus.test.mjs private/domain/practice/self-check-review.test.mjs >"$RUNNER_TEMP/d01-domain.log" 2>&1
+          node --test --test-reporter=tap private/domain/learning-journey/study-sources.test.mjs private/domain/learning-journey/projection.test.mjs private/domain/learning-journey/continuation.test.mjs private/domain/learning-journey/large-session-history.test.mjs private/domain/learning-journey/goal-route-links.test.mjs private/domain/learning-journey/today.test.mjs private/domain/learning-journey/career-review.test.mjs private/domain/learning-journey/mind-sources.test.mjs private/domain/mind/services/persistence.test.mjs private/domain/learning-journey/route-review.test.mjs private/domain/learning-journey/session-flow.test.mjs private/domain/learning-journey/study-recall.test.mjs private/domain/learning-journey/topic-work.test.mjs private/domain/learning-journey/topic-lesson.test.mjs private/domain/learning-journey/route-edit.test.mjs private/domain/learning-journey/prerequisites.test.mjs private/domain/learning-journey/topic-mind.test.mjs private/domain/learning-journey/topic-progress.test.mjs private/domain/learning-journey/daily-learning.test.mjs private/domain/learning-journey/practice-study-reference.test.mjs private/domain/learning-journey/practice-repeat-reference.test.mjs private/domain/learning-journey/practice-support.test.mjs private/domain/learning-journey/practice-criterion-variants.test.mjs private/domain/learning-journey/practice-repeat-focus.test.mjs private/domain/practice/repeat-preparation.test.mjs private/domain/learning-journey/study-recall-progression.test.mjs private/domain/learning-journey/topic-learning-history.test.mjs private/domain/learning-journey/study-answer-review.test.mjs private/domain/learning-journey/practice-associations.test.mjs private/domain/tests/assistant-skills.test.mjs private/domain/mind/services/model-identities.test.mjs private/domain/learning-journey/practice-review-series.test.mjs private/domain/practice/review-focus.test.mjs private/domain/practice/self-check-review.test.mjs >"$RUNNER_TEMP/d01-domain.log" 2>&1
           code=$?
           grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-domain.log" | cut -c1-200 || true
           if [ "$code" -ne 0 ]; then echo D01_DOMAIN_SOURCE_LINK_TEST_FAIL; exit "$code"; fi
@@ -214,8 +223,8 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 9c60c8a5dff603718051bb51c6f4a1c6a0831649
-          test "$(git -C private/domain rev-parse HEAD)" = 070686c5c5a46c0864c65a9abe22b85a3f5cb5f1
+          test "$(git -C private/site rev-parse HEAD)" = 48295831321c588c1a961c85d56172414b0ab36d
+          test "$(git -C private/domain rev-parse HEAD)" = 1e8700f4fd6f11c50db154f9f080b2406bef02ec
           test "$(git -C private/t2 rev-parse HEAD)" = 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
           test "$(git -C private/t2 rev-parse refs/remotes/origin/main)" = 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
       - name: Run actual Learn/T2 build and browser user journey
@@ -225,7 +234,7 @@ jobs:
         env:
           D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
           D01_EXPECTED_T2_HEAD: 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
-          D01_EXPECTED_SITE_HEAD: 9c60c8a5dff603718051bb51c6f4a1c6a0831649
+          D01_EXPECTED_SITE_HEAD: 48295831321c588c1a961c85d56172414b0ab36d
           D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
           D01_CASE_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-001-workplace-numeracy.json
           D01_CASE_002_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-002-price-label-check.json
