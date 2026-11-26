@@ -3,7 +3,7 @@
  * A method draft is transient user input, not a source record, Task, Graph
  * or new persistence owner. Only the existing owner may materialize it.
  */
-import { normalizeProject, normalizeWork, previewProjectTemplate } from '../project-process/project-process.mjs';
+import { normalizeProject, normalizeWork, assertProjectMethodologyWork, previewProjectTemplate } from '../project-process/project-process.mjs';
 import { captureWorkspaceViewPresentation, restoreWorkspaceViewPresentation, parseWorkspaceViewPresentation, projectWorkspaceCanvasMaterials } from './workspace-persisted-view-state.mjs';
 
 export const WORKSPACE_METHOD_MAX_STEPS = 64;
@@ -249,5 +249,77 @@ export function reuseWorkspaceMethodPreview({ workspaceId, preview, allocate = m
     domainApplicability: [...(project.domainApplicability ?? [])], materials: [], steps };
   // Revalidate all copied structure through the same original owner model.
   prepareWorkspaceMethodPreview({ workspaceId, objects: [], draft });
+  return draft;
+}
+
+/** Prepare the lossless input for the existing Project/Work owners.
+ * No write is performed. Each Work must be written only through its
+ * original owner, in prerequisite order; the owner activation gate remains.
+ * Material refs are planning intentions in the selected workspace, not a
+ * claim of canonical-head binding or current access at execution time.
+ */
+export function prepareWorkspaceMethodSourceInputs({ workspaceId, objects, draft }) {
+  const structure = normalizeMethodStructure({workspaceId,draft});
+  const admitted = restoreWorkspaceViewPresentation({workspaceId,objects,presentation:structure.materialView});
+  if(admitted.changedCount || admitted.unavailableCount) fail('METHOD_MATERIAL_REVIEW_REQUIRED','Material revisions require review');
+  const {project,work,steps,pins,pinById,waves,workIdFor,objective}=structure;
+  const projectInput=Object.freeze({...project,domainApplicability:Object.freeze([...project.domainApplicability]),
+    templateRef:Object.freeze({...project.templateRef}),
+    methodology:Object.freeze({version:1,objective,materialRefs:pins,workIds:Object.freeze(work.map(item=>item.workId))})});
+  const normalizedProject=normalizeProject(projectInput);
+  const workInputs=Object.freeze(work.map((item,index)=>{
+    const step=steps[index];
+    const input=Object.freeze({...item,dependencies:Object.freeze(item.dependencies.map(dep=>Object.freeze({...dep}))),
+      schedule:Object.freeze({}),
+      methodology:Object.freeze({version:1,stepId:step.id,intendedActor:step.actor,instruction:step.instruction,
+        materialRefs:Object.freeze(step.materialIds.map(value=>pinById.get(value)))})});
+    assertProjectMethodologyWork(normalizedProject,normalizeWork(input));
+    return input;
+  }));
+  return Object.freeze({projectInput,workInputs,
+    writeOrder:Object.freeze(waves.flatMap(wave=>wave.map(workIdFor))),writeAuthorized:false,executionAuthority:false});
+}
+
+/** Reconstruct the editable planning draft from original normalized payloads.
+ * This function does not establish source provenance; the caller must use
+ * the existing owner and verify exact record references. Historical material
+ * pins remain unchanged, so missing/current revisions can be reviewed later.
+ * Active work or nonempty schedules are not flattened into a draft.
+ */
+export function reconstructWorkspaceMethodDraft({workspaceId,project,works}) {
+  if(!project || project.schema!=='IWXA_T2_PROJECT_V1' || project.objectKind!=='project'
+      || project.sourceTruth!==true || project.workspaceId!==workspaceId || project.status!=='planned'
+      || !project.methodology || !Array.isArray(works) || works.length>WORKSPACE_METHOD_MAX_STEPS) {
+    fail('METHOD_SOURCE_INCOMPATIBLE','Expected planned original Project/Work payloads');
+  }
+  const p=normalizeProject(project);
+  const byId=new Map();
+  for(const value of works){
+    if(!value || value.schema!=='IWXA_T2_WORK_V1' || value.objectKind!=='work' || value.sourceTruth!==true
+        || value.workspaceId!==workspaceId || value.projectId!==p.projectId || value.status!=='planned'
+        || !value.methodology || !value.schedule
+        || value.schedule.plannedStart!==null || value.schedule.plannedFinish!==null) {
+      fail('METHOD_SOURCE_INCOMPATIBLE','Work cannot be reopened as an unscheduled method draft');
+    }
+    const item=normalizeWork(value);
+    assertProjectMethodologyWork(p,item);
+    if(byId.has(item.workId)) fail('METHOD_SOURCE_INCOMPLETE','Duplicate Work');
+    byId.set(item.workId,item);
+  }
+  if(byId.size!==p.methodology.workIds.length || p.methodology.workIds.some(workId=>!byId.has(workId))){
+    fail('METHOD_SOURCE_INCOMPLETE','The complete declared method is required');
+  }
+  const steps=p.methodology.workIds.map(workId=>{
+    const item=byId.get(workId);
+    return {id:item.methodology.stepId,name:item.name,actor:item.methodology.intendedActor,
+      instruction:item.methodology.instruction,materialIds:item.methodology.materialRefs.map(ref=>ref.object_id),
+      dependsOn:item.dependencies.map(dep=>byId.get(dep.predecessorWorkId).methodology.stepId)};
+  });
+  const draft={templateId:p.templateRef.templateId,templateRevision:p.templateRef.templateRevision,projectId:p.projectId,
+    name:p.name,objective:p.methodology.objective,domainApplicability:[...p.domainApplicability],
+    materials:p.methodology.materialRefs,steps};
+  // Reuse the existing structural validation (including cycle detection).
+  // Do not use present-day material availability to change an original pin.
+  normalizeMethodStructure({workspaceId,draft});
   return draft;
 }

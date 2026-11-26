@@ -130,28 +130,124 @@ function normalizeIntervalFields({ startedAt, finishedAt }, prefix) {
   return Object.freeze({ startedAt: start, finishedAt: finish });
 }
 
+// Optional method planning content extends the existing Project/Work source
+// records. It is not an assignment, execution permission, result or grant.
+// Keep legacy normalized records byte-shape compatible when it is absent.
+const METHOD_STAGE_ID = /^[A-Za-z0-9_-]{1,63}$/u;
+const METHOD_OBJECT_ID = /^[A-Za-z0-9._:-]{1,128}$/u;
+const METHOD_ACTORS = new Set(['human', 'agent', 'program']);
+
+function methodError(field) {
+  throw new ProjectProcessSemanticError(`invalid methodology ${field}`, 'INVALID_PROJECT_PROCESS_METHODOLOGY');
+}
+
+function methodRecord(value, keys, field) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+      || Object.getPrototypeOf(value) !== Object.prototype
+      || Reflect.ownKeys(value).length !== keys.length
+      || keys.some(key => !Object.hasOwn(value,key) || !Object.hasOwn(Object.getOwnPropertyDescriptor(value,key),'value'))) {
+    methodError(field);
+  }
+}
+
+function methodText(value, max, field, required=true) {
+  if (typeof value !== 'string' || value.length > max
+      || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(value)
+      || (required && !value.trim())) methodError(field);
+  return value.trim();
+}
+
+function methodDenseArray(value, maximum, field, minimum=0) {
+  if (!Array.isArray(value) || value.length > maximum || value.length < minimum
+      || Object.keys(value).length !== value.length
+      || Array.from({length:value.length},(_,i)=>i).some(i=>!Object.hasOwn(value,i))) methodError(field);
+  return value;
+}
+
+function methodMaterialRefs(values) {
+  const ids = new Set();
+  return Object.freeze(methodDenseArray(values,256,'materialRefs').map(ref => {
+    methodRecord(ref,['object_id','revision'],'materialRef');
+    if (typeof ref.object_id !== 'string' || !METHOD_OBJECT_ID.test(ref.object_id)
+        || ref.object_id.startsWith('saved-view:') || !Number.isSafeInteger(ref.revision)
+        || ref.revision < 1 || ids.has(ref.object_id)) methodError('materialRef');
+    ids.add(ref.object_id);
+    return Object.freeze({object_id:ref.object_id,revision:ref.revision});
+  }));
+}
+
+function normalizeProjectMethodology(value, projectId, templateRef) {
+  methodRecord(value,['version','objective','materialRefs','workIds'],'project');
+  if (value.version !== 1 || !METHOD_STAGE_ID.test(projectId) || !templateRef) methodError('project version or identity');
+  const prefix = projectId + '.';
+  const workIds = methodDenseArray(value.workIds,64,'workIds',1).map(workId => {
+    if (typeof workId !== 'string' || !workId.startsWith(prefix)
+        || !METHOD_STAGE_ID.test(workId.slice(prefix.length))) methodError('workId');
+    return workId;
+  });
+  if (new Set(workIds).size !== workIds.length) methodError('duplicate workId');
+  return Object.freeze({version:1,objective:methodText(value.objective,4000,'objective'),
+    materialRefs:methodMaterialRefs(value.materialRefs),workIds:Object.freeze(workIds)});
+}
+
+function normalizeWorkMethodology(value, projectId, workId, dependencies) {
+  methodRecord(value,['version','stepId','intendedActor','instruction','materialRefs'],'work');
+  if (value.version !== 1 || !METHOD_STAGE_ID.test(projectId)
+      || typeof value.stepId !== 'string' || !METHOD_STAGE_ID.test(value.stepId)
+      || workId !== projectId + '.' + value.stepId || !METHOD_ACTORS.has(value.intendedActor)) methodError('work identity or actor');
+  const prefix = projectId + '.';
+  if (dependencies.length > 63 || dependencies.some(dep=>dep.predecessorWorkId === workId
+      || !dep.predecessorWorkId.startsWith(prefix) || !METHOD_STAGE_ID.test(dep.predecessorWorkId.slice(prefix.length))
+      || dep.relation !== 'finish-to-start' || dep.lagNanoseconds !== 0n)) methodError('work dependency');
+  return Object.freeze({version:1,stepId:value.stepId,intendedActor:value.intendedActor,
+    instruction:methodText(value.instruction,8000,'instruction',false),materialRefs:methodMaterialRefs(value.materialRefs)});
+}
+
+/** Check planning scope and the exact declared material revisions of a Work
+ * against its Project. Catalog access/existence is an independent owner/Host
+ * check; these stored intentions do not grant or prove material access. */
+export function assertProjectMethodologyWork(project, work) {
+  if (!project?.methodology || !work?.methodology || project.workspaceId !== work.workspaceId
+      || project.projectId !== work.projectId || !project.methodology.workIds.includes(work.workId)) methodError('work outside method');
+  const pins = new Map(project.methodology.materialRefs.map(ref=>[ref.object_id,ref.revision]));
+  if (work.methodology.materialRefs.some(ref=>pins.get(ref.object_id)!==ref.revision)
+      || work.dependencies.some(dep=>!project.methodology.workIds.includes(dep.predecessorWorkId))) methodError('work binding');
+  return true;
+}
+
 export function normalizeProject(input) {
+  const projectId = requireText(input.projectId, 'projectId');
+  const templateRef = normalizeTemplateRef(input.templateRef);
+  const methodology = Object.hasOwn(input,'methodology')
+    ? normalizeProjectMethodology(input.methodology,projectId,templateRef) : undefined;
   return Object.freeze({
     schema: 'IWXA_T2_PROJECT_V1',
     ...base('project', input.workspaceId),
-    projectId: requireText(input.projectId, 'projectId'),
+    projectId,
     name: requireText(input.name, 'name'),
     status: requireText(input.status ?? 'planned', 'status'),
     domainApplicability: normalizeDomainApplicability(input.domainApplicability),
-    templateRef: normalizeTemplateRef(input.templateRef),
+    templateRef,
+    ...(methodology ? {methodology} : {}),
   });
 }
 
 export function normalizeWork(input) {
+  const projectId = requireText(input.projectId, 'projectId');
+  const workId = requireText(input.workId, 'workId');
+  const dependencies = normalizeDependencies(input.dependencies ?? []);
+  const methodology = Object.hasOwn(input,'methodology')
+    ? normalizeWorkMethodology(input.methodology,projectId,workId,dependencies) : undefined;
   return Object.freeze({
     schema: 'IWXA_T2_WORK_V1',
     ...base('work', input.workspaceId),
-    workId: requireText(input.workId, 'workId'),
-    projectId: requireText(input.projectId, 'projectId'),
+    workId,
+    projectId,
     name: requireText(input.name, 'name'),
     status: requireText(input.status ?? 'planned', 'status'),
-    dependencies: normalizeDependencies(input.dependencies ?? []),
+    dependencies,
     schedule: normalizeSchedule(input.schedule ?? {}),
+    ...(methodology ? {methodology} : {}),
   });
 }
 

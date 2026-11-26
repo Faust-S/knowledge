@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   PROJECT_PROCESS_NORMALIZERS,
+  assertProjectMethodologyWork,
 } from '../features/project-process/project-process.mjs';
 import {
   MemoryCanonicalAdapter,
@@ -255,7 +256,14 @@ function relationSpecs(kind, payload) {
       relations.push(Object.freeze({relation,targetKind,targetId}));
     }
   };
-  if(kind === 'work') add('project','project',payload.projectId);
+  if(kind === 'work'){
+    add('project','project',payload.projectId);
+    if(payload.methodology){
+      for(const dependency of payload.dependencies){
+        add('predecessor:'+dependency.predecessorWorkId,'work',dependency.predecessorWorkId);
+      }
+    }
+  }
   if(kind === 'processRun'){
     add('definition','processDefinition',payload.definitionId);
     add('project','project',payload.projectId);
@@ -325,6 +333,18 @@ class ProjectProcessSourceOwnerCore {
     const payload=normalizeSource(kind,input);
     const binding=projectProcessSourceBinding(kind);
     const commands=commandsFor(kind);
+    if(kind === 'project' || kind === 'work'){
+      const expected=requireText(baseRevisionId,'baseRevisionId');
+      const current=await this.#readLiveRecord(kind,payload.workspaceId,payload[binding.idField]);
+      if(current?.recordId === expected && current.payload.methodology){
+        if(!payload.methodology || (kind === 'work' && current.payload.projectId !== payload.projectId)){
+          throw new ProjectProcessSourceOwnerError(
+            'An existing method record requires explicit compatible methodology on revision',
+            'PROJECT_PROCESS_METHODOLOGY_DOWNGRADE_FORBIDDEN',
+          );
+        }
+      }
+    }
     const refs=await this.#resolveRefs(kind,payload);
     return this.#gateway.execute({
       ownerId:OWNER_ID,
@@ -358,14 +378,10 @@ class ProjectProcessSourceOwnerCore {
   }
 
   async load(kind,workspaceId,objectId) {
-    const binding=projectProcessSourceBinding(kind);
-    const canonicalObjectId=projectProcessSourceObjectId(kind,workspaceId,objectId);
-    const head=await this.#gateway.head(binding.family,canonicalObjectId);
-    if(!head) return null;
-    const record=await this.#gateway.record(head.recordId);
-    if(!record || record.operation === 'tombstone') return null;
+    const record=await this.#readLiveRecord(kind,workspaceId,objectId);
+    if(!record) return null;
     return Object.freeze({
-      objectId:canonicalObjectId,
+      objectId:record.objectId,
       baseRevisionId:record.recordId,
       revision:record.revision,
       knowledgeAt:record.knowledgeAt,
@@ -386,26 +402,92 @@ class ProjectProcessSourceOwnerCore {
     return this.#gateway.audit();
   }
 
+  // Resolve the actual live source revision, never a tombstone or an
+  // unrelated record that happens to be named by a head.
+  async #readLiveRecord(kind,workspaceId,id){
+    workspaceId=requireText(workspaceId,'workspaceId');
+    id=requireText(id,'objectId');
+    const binding=projectProcessSourceBinding(kind);
+    const objectId=projectProcessSourceObjectId(kind,workspaceId,id);
+    const head=await this.#gateway.head(binding.family,objectId);
+    if(!head) return null;
+    const record=await this.#gateway.record(head.recordId);
+    if(!record || head.family!==binding.family || head.objectId!==objectId
+        || head.ownerId!==OWNER_ID || head.headKind!=='source'
+        || record.family!==binding.family || record.objectId!==objectId
+        || record.recordId!==head.recordId || record.revision!==head.revision
+        || record.ownerId!==OWNER_ID || record.headKind!=='source'
+        || record.refs?.workspaceId!==workspaceId){
+      throw new ProjectProcessSourceOwnerError('Source head and record identity mismatch','PROJECT_PROCESS_SOURCE_HEAD_MISMATCH');
+    }
+    if(record.operation==='tombstone' && record.payload===null) return null;
+    if(record.operation!=='upsert' || record.payload?.workspaceId!==workspaceId || record.payload?.[binding.idField]!==id){
+      throw new ProjectProcessSourceOwnerError('Source payload identity mismatch','PROJECT_PROCESS_SOURCE_HEAD_MISMATCH');
+    }
+    assertProjectProcessSourceRecord(kind,record.payload,{ownerId:OWNER_ID});
+    return record;
+  }
+
+  // This checks the exact prerequisite closure of planned source Work.
+  // It does not compute readiness, schedule, run or result.
+  async #assertMethodPredecessorClosure(project,candidate,record,seen,visiting){
+    const work=record.payload;
+    if(work.workId===candidate.workId || visiting.has(work.workId)){
+      throw new ProjectProcessSourceOwnerError('Cyclic method prerequisite','PROJECT_PROCESS_METHODOLOGY_DEPENDENCY_CYCLE');
+    }
+    const previous=seen.get(work.workId);
+    if(previous){
+      if(previous!==record.recordId) throw new ProjectProcessSourceOwnerError('Mixed prerequisite revisions','PROJECT_PROCESS_METHODOLOGY_REFERENCE_CHANGED');
+      return;
+    }
+    assertProjectMethodologyWork(project.payload,work);
+    const refs=record.refs?.canonicalHeads;
+    const projectRef=refs?.project;
+    if(projectRef?.recordId!==project.recordId || projectRef?.family!==project.family || projectRef?.objectId!==project.objectId){
+      throw new ProjectProcessSourceOwnerError('Predecessor was designed against another Project revision','PROJECT_PROCESS_METHODOLOGY_REFERENCE_CHANGED');
+    }
+    if(seen.size>=64) throw new ProjectProcessSourceOwnerError('Method prerequisite limit exceeded','PROJECT_PROCESS_METHODOLOGY_REFERENCE_CHANGED');
+    visiting.add(work.workId);
+    for(const dependency of work.dependencies){
+      const targetId=dependency.predecessorWorkId;
+      if(targetId===candidate.workId || visiting.has(targetId)){
+        throw new ProjectProcessSourceOwnerError('Cyclic method prerequisite','PROJECT_PROCESS_METHODOLOGY_DEPENDENCY_CYCLE');
+      }
+      const target=await this.#readLiveRecord('work',candidate.workspaceId,targetId);
+      const ref=refs?.['predecessor:'+targetId];
+      if(!target || ref?.recordId!==target.recordId || ref?.objectId!==target.objectId || ref?.family!==target.family){
+        throw new ProjectProcessSourceOwnerError('Predecessor closure contains a changed or unavailable revision','PROJECT_PROCESS_METHODOLOGY_REFERENCE_CHANGED');
+      }
+      await this.#assertMethodPredecessorClosure(project,candidate,target,seen,visiting);
+    }
+    visiting.delete(work.workId);
+    seen.set(work.workId,record.recordId);
+  }
+
   async #resolveRefs(kind,payload) {
     const canonicalHeads={};
+    const seen=new Map(),visiting=new Set();
+    let project=null;
     for(const relation of relationSpecs(kind,payload)){
-      const targetBinding=projectProcessSourceBinding(relation.targetKind);
-      const objectId=projectProcessSourceObjectId(
-        relation.targetKind,
-        payload.workspaceId,
-        relation.targetId,
-      );
-      const head=await this.#gateway.head(targetBinding.family,objectId);
-      if(!head || head.headKind !== 'source' || head.ownerId !== OWNER_ID){
+      const record=await this.#readLiveRecord(relation.targetKind,payload.workspaceId,relation.targetId);
+      if(!record){
         throw new ProjectProcessSourceOwnerError(
-          `missing owner-scoped source head for ${relation.relation}: ${relation.targetKind}/${relation.targetId}`,
+          `missing live owner-scoped source head for ${relation.relation}: ${relation.targetKind}/${relation.targetId}`,
           'MISSING_PROJECT_PROCESS_RELATION_HEAD',
         );
       }
+      if(kind==='work' && relation.relation==='project'){
+        project=record;
+        const declared=record.payload.methodology?.workIds.includes(payload.workId);
+        if(declared || payload.methodology) assertProjectMethodologyWork(record.payload,payload);
+      }
+      if(kind==='work' && relation.relation.startsWith('predecessor:')){
+        await this.#assertMethodPredecessorClosure(project,payload,record,seen,visiting);
+      }
       canonicalHeads[relation.relation]=Object.freeze({
-        family:targetBinding.family,
-        objectId,
-        recordId:head.recordId,
+        family:record.family,
+        objectId:record.objectId,
+        recordId:record.recordId,
       });
     }
     return Object.freeze({

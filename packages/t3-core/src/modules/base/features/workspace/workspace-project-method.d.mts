@@ -95,3 +95,19 @@ export function analyseWorkspaceMethodMaterialImpact(input: {
   executionAuthority: false;
   resultReuseProven: false;
 }>;
+
+export type WorkspaceMethodProjectInput = WorkspaceMethodPreview["projectedProject"] & Readonly<{
+  methodology: Readonly<{version:1; objective:string; materialRefs:readonly WorkspaceMethodMaterial[]; workIds:readonly string[]}>;
+}>;
+export type WorkspaceMethodWorkInput = WorkspaceMethodPreview["projectedWork"][number] & Readonly<{
+  methodology: Readonly<{version:1; stepId:string; intendedActor:WorkspaceMethodActor; instruction:string; materialRefs:readonly WorkspaceMethodMaterial[]}>;
+}>;
+export function prepareWorkspaceMethodSourceInputs(input: {
+  workspaceId:string; objects:readonly unknown[]; draft:WorkspaceMethodDraft;
+}): Readonly<{
+  projectInput:WorkspaceMethodProjectInput; workInputs:readonly WorkspaceMethodWorkInput[];
+  writeOrder:readonly string[]; writeAuthorized:false; executionAuthority:false;
+}>;
+export function reconstructWorkspaceMethodDraft(input: {
+  workspaceId:string; project:unknown; works:readonly unknown[];
+}): WorkspaceMethodDraft;

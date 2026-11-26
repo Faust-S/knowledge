@@ -37,6 +37,7 @@ export function qualifyProjectProcessSameWorkspaceHistory({
 
   const byObject=new Map();
   const recordIds=new Set();
+  const recordsById=new Map();
 
   for(const [index,record] of records.entries()){
     if(!record || typeof record !== 'object' || Array.isArray(record)){
@@ -55,6 +56,7 @@ export function qualifyProjectProcessSameWorkspaceHistory({
       );
     }
     recordIds.add(recordId);
+    recordsById.set(recordId,record);
 
     const kind=Object.keys({
       project:1,work:1,processDefinition:1,processRun:1,case:1,decision:1,activity:1,event:1,
@@ -133,10 +135,18 @@ export function qualifyProjectProcessSameWorkspaceHistory({
     for(const record of records){
       for(const ref of Object.values(record.refs?.canonicalHeads ?? {})){
         const refRecordId=requireText(ref?.recordId,'canonicalHeads.recordId');
-        if(!recordIds.has(refRecordId)){
+        const target=recordsById.get(refRecordId);
+        if(!target){
           throw new ProjectProcessHistoryError(
             `referenced source head ${refRecordId} is absent from qualified history set`,
             'PROJECT_PROCESS_HISTORY_REFERENCED_HEAD_MISSING',
+          );
+        }
+        if(ref.family!==target.family || ref.objectId!==target.objectId
+            || target.operation==='tombstone' || target.payload?.sourceTruth!==true){
+          throw new ProjectProcessHistoryError(
+            `referenced revision ${refRecordId} does not match a live source identity`,
+            'PROJECT_PROCESS_HISTORY_REFERENCED_HEAD_MISMATCH',
           );
         }
       }
