@@ -1,0 +1,90 @@
+{
+  "schema": "IWXA_D05_T3_HOSTING_DELIVERY_RECEIPT/1",
+  "runId": 45795519880,
+  "jobId": 139825050061,
+  "requestCommit": "0e3658aa4f4c355cfe8aa6c91c43c25f1f96e889",
+  "conclusion": "success",
+  "sourcePins": {
+    "site": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+    "assistant": "e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f",
+    "oneCore": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+    "subject": "547148d8cd74838e0dd384c9da2f196e3595bf9d"
+  },
+  "priorFunctionalRun": 45780282826,
+  "priorIdentityRun": 45790502240,
+  "identity": {
+    "status": "D05_T3_HOST_IDENTITY_PASS",
+    "head": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+    "tree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+    "allRegularTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+    "inputFiles": 92,
+    "executableFiles": 0,
+    "regularFiles": 92,
+    "contentInventorySha256": "de71e27b4b331a34aa4e5df0cd6db47f07f17ae2bdadee8f387cf7c2448f3171",
+    "modeInventorySha256": "414eabc72045e5735c640ced9927917a93de22688027812e5607e365974d1240",
+    "normalIndexUnchanged": true,
+    "expectedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+    "reportedWindowsTree": "5501e34185397c4a5c2a421859750474d6fa7649",
+    "expectedTreeMatched": true,
+    "reportedWindowsTreeExplainedByModesOnly": false,
+    "hostReceiptSha256": "85c1e80986aea58ba925cd89bebcb6e0c7322ec9ceefdd2bd4957fe09f246a5f",
+    "compiledFilesInventorySha256": "1b8f19d3002dd9cd1526771542366913a37f7cff0225c4bc356c5d931b2e1d62",
+    "moduleSourceInventorySha256": "4584354b773c31883eb7fd9229ba4ba958c8d3f68e88091d9cdee5b15a3d112b",
+    "productTestsRepeated": false,
+    "productAccepted": false
+  },
+  "build": "PASS",
+  "canonicalDistributionVerification": "PASS",
+  "packaging": {
+    "status": "D05_T3_DELIVERY_PACKAGED",
+    "tree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+    "distFiles": 224,
+    "inputFiles": 92,
+    "hostingSha256": "ee9ab5ebfc49b85edb6cb1a4024cd6510df4216f1b717a0090ad63c7fe792995",
+    "retainedSha256": "aa76302f620359aec59a880536f70a2d4278bbca742c6b5a05e04a572a65989e",
+    "hostingBytes": 6656733,
+    "retainedBytes": 10242070
+  },
+  "encryptedTransport": {
+    "artifactId": 15104851821,
+    "artifactName": "d05-t3-1.6.0-encrypted-delivery",
+    "outerZipSha256": "ddec659988e7a3cd4aef456add76bea9e5b2f21410527c98c24926659b829166",
+    "ciphertextSha256": "000c78ebcc5a516005a5aa940d93dfc129c4482bac5189821db61e9ebd2c321b",
+    "recipientFingerprintSha256": "354a20c29532edb08e62443e976e6f5f76561a4b4c39a4492ad5a0e7034baf08",
+    "algorithm": "RSA-3072 OAEP SHA-256 / AES-256-GCM CMS",
+    "publicPlaintext": false,
+    "privateKeyUploaded": false,
+    "localDownload": "PASS",
+    "outerZipIntegrity": "PASS",
+    "ciphertextIntegrity": "PASS",
+    "authenticatedDecryption": "PASS"
+  },
+  "localDeliveryVerification": {
+    "hostingArchive": {
+      "name": "cehovod-t3-1.6.0-hosting.zip",
+      "bytes": 6656733,
+      "sha256": "ee9ab5ebfc49b85edb6cb1a4024cd6510df4216f1b717a0090ad63c7fe792995",
+      "files": 224,
+      "allFileHashesMatch": true,
+      "htaccessAtRoot": true
+    },
+    "retainedInputsArchive": {
+      "name": "cehovod-t3-1.6.0-retained-inputs.zip",
+      "bytes": 10242070,
+      "sha256": "aa76302f620359aec59a880536f70a2d4278bbca742c6b5a05e04a572a65989e",
+      "files": 92,
+      "allFileHashesMatch": true,
+      "gitContentInventoryMatchesPriorQualification": true,
+      "gitModeInventoryMatchesPriorQualification": true,
+      "exactRetainedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94"
+    },
+    "localFilesCreated": true,
+    "archiveReadyForOwner": true
+  },
+  "releaseReady": true,
+  "productTestsRepeated": false,
+  "sourceChanged": false,
+  "remotePublicationVerified": false,
+  "hostingDeployed": false,
+  "ownerAcceptance": "NOT_RECORDED"
+}

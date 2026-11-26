@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FUNCTIONALLY_QUALIFIED_EXACT_ENCRYPTED_DELIVERY_REQUESTED",
+  "status": "FUNCTIONALLY_QUALIFIED_HOSTING_ARCHIVES_READY_FOR_OWNER",
   "scope": "1.6.0",
   "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -30,7 +30,7 @@
   },
   "scopeExpansionAllowed": false,
   "productAccepted": false,
-  "qualification": "PASS_EXACT_LOCAL_FUNCTIONAL_AND_SNAPSHOT",
+  "qualification": "PASS_EXACT_FUNCTIONAL_AND_RELEASE_ASSEMBLY",
   "publication": "BLOCKED_CI_TOKEN_WRITE_AND_MISSING_REMOTE_GENERATED_INPUTS",
   "notes": "Only release blockers may change this candidate. Keep all existing source, protected production, offline, hardware and publication gates. Codex may assemble the hosting archive only after stable qualification, not perform testing or preparation. Full release also requires a test-only rendered navigation audit after original browser gates; it does not replace protected or hardware evidence.",
   "originalFrozenSiteCommit": "0d88c6822a224cb54d8f7908b216e41f98dfd550",
@@ -548,13 +548,13 @@
     }
   ],
   "assemblyHandoff": {
-    "status": "HOLD_CODEX_EXACT_BYTES_DELIVERY_IN_PROGRESS",
+    "status": "COMPLETED_ARCHIVES_READY_NO_CODEX_REQUIRED",
     "sourceRepository": "Faust-S/cehovod.ru",
     "retainedBranch": "work/2026-11-25-d05-t3-retained-inputs",
     "expectedParent": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
-    "qualificationRun": 45780282826,
+    "qualificationRun": 45795519880,
     "retainedCommit": null,
-    "retainedTree": null,
+    "retainedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
     "nodeVersion": "22.16.0",
     "npmVersion": "10.9.2",
     "origin": "https://cehovod.ru",
@@ -564,7 +564,7 @@
     "archiveContents": "dist/ contents at archive root, including .htaccess; no source, dependencies, logs, models or development output",
     "allowedCodexWork": "Reconstruct the already qualified generated Host with the exact original build commands and pinned sources, retain inputs locally, check Git tree identity, build product once and package dist. No new tests or development.",
     "forbiddenCodexWork": "Source changes, new product tests, changing pins, GitHub Actions, private publication, deployment, or proceeding after a retained tree mismatch.",
-    "releaseGate": "Owner-authorized local assembly: prior functional qualification and independently reproduced exact Linux retained Host identity are confirmed. Require exact local tree before the final build and ZIP. No native Windows assembly, no remote publication gate, no repeated product tests.",
+    "releaseGate": "PASSED: prior functional qualification, exact independently reproduced Host identity, canonical production build, encrypted transport and local verification of all hosting and retained bytes. Ready for owner deployment; remote Git publication not performed and not required for authorized delivery.",
     "browserBuildPrerequisite": "Existing compatible system Chrome/Edge resolved by scripts/lib/resolve-browser-executable.ts for the product's own prerender; no separately initiated Codex browser acceptance.",
     "previousRemotePublicationGate": {
       "status": "BLOCKED_DO_NOT_ISSUE_CODEX_PROMPT",
@@ -588,7 +588,8 @@
       "expectedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
       "reportedLinuxTree": "5501e34185397c4a5c2a421859750474d6fa7649",
       "archiveCreated": false,
-      "reason": "EXACT_RETAINED_TREE_MISMATCH"
+      "reason": "EXACT_RETAINED_TREE_MISMATCH",
+      "status": "LOCAL_RECONSTRUCTION_MISMATCH_AVOIDED_BY_EXACT_CI_BYTES_DELIVERY"
     },
     "independentHostIdentityProbe": {
       "workflow": "d05-t3-host-identity",
@@ -640,7 +641,7 @@
       }
     },
     "independentHostIdentityReceipt": "qualification/d05/receipts/45790502240-host-identity.json",
-    "localArchiveCreated": false,
+    "localArchiveCreated": true,
     "encryptedDelivery": {
       "workflow": "d05-t3-encrypted-delivery",
       "profile": "1.6.0-exact-linux-encrypted-delivery",
@@ -656,7 +657,7 @@
       "recipientFingerprintSha256": "354a20c29532edb08e62443e976e6f5f76561a4b4c39a4492ad5a0e7034baf08",
       "packerBlob": "021ce248698596106cbb0ffb89d3a5049406e928",
       "certificateBlob": "afe3d62d860392937194867883a4fb6dcaa6c736",
-      "state": "REQUESTED",
+      "state": "PASS_LOCAL_AUTHENTICATED_DELIVERY",
       "request": {
         "runId": 45795519880,
         "preparedCommit": "8cada9fdc339f299c33f68d29a0bee2d8990c96b",
@@ -666,7 +667,32 @@
       },
       "plaintextPublic": false,
       "productTestsRepeated": false,
-      "runStatusAtRecording": "in_progress"
+      "runStatusAtRecording": "completed",
+      "conclusion": "success",
+      "receipt": "qualification/d05/receipts/45795519880-delivery.json",
+      "artifactId": 15104851821,
+      "result": {
+        "hostingArchive": {
+          "name": "cehovod-t3-1.6.0-hosting.zip",
+          "bytes": 6656733,
+          "sha256": "ee9ab5ebfc49b85edb6cb1a4024cd6510df4216f1b717a0090ad63c7fe792995",
+          "files": 224,
+          "allFileHashesMatch": true,
+          "htaccessAtRoot": true
+        },
+        "retainedInputsArchive": {
+          "name": "cehovod-t3-1.6.0-retained-inputs.zip",
+          "bytes": 10242070,
+          "sha256": "aa76302f620359aec59a880536f70a2d4278bbca742c6b5a05e04a572a65989e",
+          "files": 92,
+          "allFileHashesMatch": true,
+          "gitContentInventoryMatchesPriorQualification": true,
+          "gitModeInventoryMatchesPriorQualification": true,
+          "exactRetainedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94"
+        },
+        "localFilesCreated": true,
+        "archiveReadyForOwner": true
+      }
     }
   },
   "functionalQualification": {
@@ -788,5 +814,9 @@
       "platformArchiveRecoveredAndVerified": true,
       "domainHostBytesAvailable": false
     }
-  }
+  },
+  "releaseReady": true,
+  "hostingArchiveVerified": true,
+  "ownerAcceptance": "NOT_RECORDED",
+  "hostingDeployed": false
 }
