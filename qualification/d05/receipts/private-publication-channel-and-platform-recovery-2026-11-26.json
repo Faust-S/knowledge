@@ -1,0 +1,75 @@
+{
+  "schema": "IWXA_D05_T3_PRIVATE_PUBLICATION_CHANNEL_DIAGNOSTIC/1",
+  "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+  "qualifiedSourceTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+  "qualificationReceipt": "qualification/d05/receipts/45780282826-linux.json",
+  "priorPublicationReceipt": "qualification/d05/receipts/45783259434-publication.json",
+  "retainedBranch": {
+    "name": "work/2026-11-25-d05-t3-retained-inputs",
+    "head": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
+    "tree": "c096da9387bd771a81a41b940c9a82872a76e6e3",
+    "unchanged": true
+  },
+  "ciCredential": {
+    "reference": "DOMEN",
+    "writeResult": "HTTP_403_TOKEN_RESOURCE_ACCESS_DENIED",
+    "permissionsChanged": false
+  },
+  "authorizedConnector": {
+    "repository": "Faust-S/cehovod.ru",
+    "visibility": "private",
+    "reportedPush": true,
+    "existingTrackedBlobProbe": {
+      "path": "runtime/t3-platform/active.json",
+      "expected": "9dba3fe2ea4caa729bf138762915a496de469b79",
+      "actual": "9dba3fe2ea4caa729bf138762915a496de469b79",
+      "result": "PASS",
+      "newContentCreated": false,
+      "refChanged": false
+    }
+  },
+  "remoteInventory": {
+    "qualifiedTree": "NOT_FOUND_HTTP_422",
+    "priorLocalCandidate": "NOT_FOUND_HTTP_404",
+    "platformArchiveBlob": "NOT_FOUND_HTTP_404",
+    "qualifiedRunArtifactCount": 0,
+    "retainedBranchOnlyContainsSourcePins": true
+  },
+  "recoveredSharedPlatform": {
+    "source": "Faust-S/knowledge",
+    "qualificationRun": 45395047723,
+    "artifactId": 14920233669,
+    "downloaded": true,
+    "archiveSha256": "b778474d011b34a77cd60b945f02295fb24654c833f3ab12ff36bd3c0bdd8863",
+    "archiveBytes": 14420189,
+    "gitBlobSha": "5a7b9a6f004e107ac3de0a44e88d1f19b5ba6179",
+    "manifestSha256": "3716e18d8ba40b6d1b75a3798441ef49bb5cb46bb52e43766b0ea8c061897fee",
+    "manifestFileHashes": {
+      "passed": 128,
+      "total": 128
+    },
+    "checksumListEntries": 129,
+    "kernel": "0.3.6",
+    "kernelArchiveSha256": "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68",
+    "zipCrc": "PASS",
+    "privateDomainIncluded": false,
+    "remotePrivateRetention": false,
+    "scope": "SHARED_PLATFORM_ONLY_NOT_CEHOVOD_DOMAIN_HOST_OR_COMPLETE_DIST"
+  },
+  "localEnvironment": {
+    "node": "22.16.0",
+    "npm": "10.9.2",
+    "npmRegistryDns": "UNAVAILABLE",
+    "dependencyCacheAvailable": false,
+    "exactHostReconstruction": "NOT_EXECUTED"
+  },
+  "decision": {
+    "preserveOriginalPrivatePublicationProcedure": true,
+    "noNewActionsDispatched": true,
+    "noPrivateFilesExportedToPublicStorage": true,
+    "noCredentialFallbackAttempted": true,
+    "reason": "Direct authorized connector can write existing blobs but exact generated domain Host bytes are not present remotely, and local dependency installation is unavailable. The existing CI credential must be restored or owner must explicitly authorize a supported secure private transfer mechanism.",
+    "productAccepted": false,
+    "codeChanged": false
+  }
+}

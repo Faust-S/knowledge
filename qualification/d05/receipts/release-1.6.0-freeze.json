@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FUNCTIONALLY_QUALIFIED_PUBLICATION_BLOCKED_TOKEN_RESOURCE_ACCESS",
+  "status": "FUNCTIONALLY_QUALIFIED_PUBLICATION_BLOCKED_MISSING_RETAINED_HOST_AND_CI_WRITE",
   "scope": "1.6.0",
   "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -31,7 +31,7 @@
   "scopeExpansionAllowed": false,
   "productAccepted": false,
   "qualification": "PASS_EXACT_LOCAL_FUNCTIONAL_AND_SNAPSHOT",
-  "publication": "FAIL_TOKEN_RESOURCE_ACCESS_DENIED_HTTP_403",
+  "publication": "BLOCKED_CI_TOKEN_WRITE_AND_MISSING_REMOTE_GENERATED_INPUTS",
   "notes": "Only release blockers may change this candidate. Keep all existing source, protected production, offline, hardware and publication gates. Codex may assemble the hosting archive only after stable qualification, not perform testing or preparation. Full release also requires a test-only rendered navigation audit after original browser gates; it does not replace protected or hardware evidence.",
   "originalFrozenSiteCommit": "0d88c6822a224cb54d8f7908b216e41f98dfd550",
   "originalFrozenWitnessCommit": "3af00278ef77eb38084df4e9c7854528380dc615",
@@ -674,9 +674,17 @@
       "automaticCredentialFallback": false,
       "repeatedProductTests": false,
       "receipt": "qualification/d05/receipts/45783259434-publication.json",
-      "nextDispatch": "HOLD_UNTIL_AUTHORIZED_WRITE_ACCESS_RESTORED",
+      "nextDispatch": "HOLD_UNTIL_AUTHORIZED_WRITE_ACCESS_OR_OWNER_APPROVED_PRIVATE_TRANSFER",
       "primaryRateLimitExhausted": false,
       "exactTokenConfigurationCause": "UNKNOWN"
+    },
+    "directAuthorizedConnector": {
+      "receipt": "qualification/d05/receipts/private-publication-channel-and-platform-recovery-2026-11-26.json",
+      "result": "WRITE_EXISTING_BLOB_PASS",
+      "privateRepoWriteIsNotGenerallyBlocked": true,
+      "qualifiedTreeRemote": "ABSENT",
+      "platformArchiveRecoveredAndVerified": true,
+      "domainHostBytesAvailable": false
     }
   }
 }
