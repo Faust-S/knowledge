@@ -533,7 +533,7 @@ async function controlFixture({indexed=false,realSourceHistory=false,canonicalCa
   const context=(node,technical)=>async()=>({workspaceId:technical,originalWriteOwnerRef:owner,
     originalOwnerRef:owner,nodeRef:node,scopeRef,hostSessionRef:'host:k47:'+node});
   const localKey=node=>node===sourceNodeRef?sourceKey:recipientKey;
-  const transport=node=>{
+  const transport=(node,patch={})=>{
     const technical=node===sourceNodeRef?'ws:k47:source:technical':workspace,
       kernel=node===sourceNodeRef?sourceStore.kernel:f.kernel.kernel,ctx=context(node,technical);
     const replay=createT4OriginalNetworkReplayPort({originalKernel:kernel,technicalWorkspaceId:technical,
@@ -549,7 +549,7 @@ async function controlFixture({indexed=false,realSourceHistory=false,canonicalCa
       readOriginalHistoricalReplayEvidence:replay.readOriginalHistoricalReplayEvidence,
       readOriginalHistoricalAppliedAckSlot:replay.readOriginalHistoricalAppliedAckSlot,
       ...(multipartHandshake?{enableOriginalMultipartNegotiation:true,
-        readOriginalMultipartAgreement:async()=>assert.fail('handshake must not authorize content')}: {})});
+        readOriginalMultipartAgreement:async()=>assert.fail('handshake must not authorize content')}: {}),...patch});
   };
   const signing=node=>({getMode,requiredCryptoSuite:suite,
     resolveOriginalSigningContext:async p=>{assert.equal(p.originalNodeSigningAuthorityRequired,true);
@@ -2514,4 +2514,103 @@ test('K166 wrong signed successor DIFF selection is rejected before original rep
     isCode('WIRE_REPLACEMENT_HANDSHAKE_PROFILE_MISMATCH'));
   assert.equal(x.sourceStore.calls,writes);
   assert.equal(x.counts().networkPuts,puts);
+});
+
+import {prepareT4CandidateMultipartOpaqueChunks,t4CandidateMultipartChunkSequence}
+  from '../src/network/standard-network-multipart-opaque-chunks.mjs';
+import {T4_MULTIPART_OPAQUE_EXTENSION} from '../src/network/standard-network-wire-candidate.mjs';
+
+test('K167 successor multipart original backing CAS, explicit bilateral gate, lost PUT recovery and complete exact signed batch',async()=>{
+  const x=await controlFixture({indexed:true,multipartHandshake:true});await closeInitialAttempt(x);
+  const opts={...x.eligibilityOptions(),enableOriginalMultipartNegotiation:true};
+  const head=await x.publishReplacement(),c=head.candidate;
+  const createPhase=async({session:s,admission},readOriginalReplacementSourceAdmission)=>x.sourcePhase({
+    sessionRef:s.sessionRef,authorizeOriginalSourceSupersession:null,replacementSourceAdmission:admission,
+    readOriginalReplacementSourceAdmission});
+  const a=await admitT4OriginalReplacementSourcePhase({...opts,createOriginalReplacementPublicationPort:x.createReplacementPort,
+    createOriginalReplacementSourcePhasePort:createPhase});
+  const phase=await createPhase({session:c,admission:a.admission},async()=>true);
+  const source=await x.createReplacementPort({session:c},()=>x.eligibility());
+  const admission=()=>readT4OriginalReplacementRecipientAdmission(x.recipientAdmissionOptions(phase));
+  const recipient=await x.createReplacementRecipientPort({session:c},admission);
+  const discover=()=>discoverT4OriginalReplacementRecipientDiff({...opts,sourceAdmissionPhasePort:phase,
+    sourcePublicationPort:source,recipientPublicationPort:recipient,frameDiscoveryPort:x.transport(sourceNodeRef),
+    readOriginalReplacementRecipientAdmission:admission,authorizeOriginalReplacementDiffAcceptance:async()=>true});
+  await x.publishReplacementDiff(phase);
+  const accepted=await discover(),agreement=accepted.originalMultipartAgreement,eligibility=await x.eligibility();
+  assert.equal(accepted.state,'ORIGINAL_REPLACEMENT_DIFF_VERIFIED');
+  let allow=true,allowBacking=true,allowSealed=true,agreementReads=0,admissionReads=0;
+  // This isolated original-publication fixture models the original owner
+  // authorization callbacks. Their initial witnesses are independently
+  // reconstructed above, through actual signed HEAD/DIFF and phase CAS.
+  const readOriginalMultipartAgreement=async()=>{agreementReads++;return agreement;};
+  const readOriginalReplacementDiffAcceptance=async()=>{admissionReads++;return allow?accepted:null;};
+  const ciphertext=new Uint8Array(524289).fill(27),sealedRef='sealed:k167:successor';
+  const port=()=>x.createReplacementPort({session:c},async()=>eligibility,{
+    frameTransport:x.transport(sourceNodeRef,{readOriginalMultipartAgreement}),
+    readOriginalMultipartAgreement,readOriginalReplacementDiffAcceptance,
+    authorizeOriginalMultipartBacking:async proof=>allowBacking&&proof.session.sessionRef===c.sessionRef,
+    authorizeOriginalSealedPublication:async proof=>allowSealed&&proof.session.sessionRef===c.sessionRef&&
+      proof.originalMultipartAgreementDigest===agreement.agreementDigest&&
+      Buffer.from(proof.ciphertext).equals(Buffer.from(ciphertext))});
+  const p=await port();
+  assert.equal(p.originalReplacementMultipartContentPublication,true);
+  assert.equal(p.originalReplacementSourceContentPublication,undefined);
+  const chunks=await prepareT4CandidateMultipartOpaqueChunks({changeId:c.changeId,ownerRef:c.originalWriteOwnerRef,
+    sourceContentRef:'asset:k167:one',getMode:opts.getMode,authorizeOriginalSealedContent:async()=>true,
+    readOriginalSealedContent:async()=>({ciphertext,encryptionContextRef:sealedRef})});
+  const change={changeId:c.changeId,changeKind:c.changeKind,eventRef:c.sourceEventId,ownerRef:c.originalWriteOwnerRef,
+    sourceRevision:c.sourceRevision,parents:[c.sourcePrefixDigestBefore],contentDigest:chunks.manifest.contentDigest,
+    multipartManifest:chunks.manifest};
+  const signer=await x.resolveSourceContentSigner();
+  const make=async(messageType,sequence,body)=>signT4CandidateFrame({unsignedFrame:createT4CandidateUnsignedFrame({
+    messageType,sequence,messageId:'message:k167:'+sequence,sourceNodeRef,recipientNodeRef,scopeRef,
+    ownerEpoch:c.ownerEpoch,sessionRef:c.sessionRef,cryptoSuite:opts.requiredCryptoSuite,...signer,
+    criticalExtensions:[T4_MULTIPART_OPAQUE_EXTENSION],body}),signOriginalNodeBytes:x.signSourceContent});
+  const wireBytes=[await make('CHANGE_REF',2,change),
+    ...await Promise.all(chunks.bodies.map(b=>make('CHUNK',t4CandidateMultipartChunkSequence(b),b)))];
+  const counts=()=>({source:x.sourceStore.calls,recipient:x.f.kernel.calls,puts:x.counts().networkPuts,signs:x.signatureCount()});
+  const initial=counts();
+  allow=false;await assert.rejects(p.prepareOriginalMultipartBacking({wireBytes}),isCode('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'));
+  allow=true;allowBacking=false;await assert.rejects(p.prepareOriginalMultipartBacking({wireBytes}),isCode('PUBLICATION_MULTIPART_ORIGINAL_AUTHORITY_DENIED'));
+  allowBacking=true;allowSealed=false;await assert.rejects(p.prepareOriginalMultipartBacking({wireBytes}),isCode('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_DENIED'));
+  allowSealed=true;assert.deepEqual(counts(),initial);
+  const reserved=await p.prepareOriginalMultipartBacking({wireBytes});
+  assert.equal(reserved.originalRootReservationVerified,true);
+  assert.equal(reserved.originalMultipartAgreementDigest,agreement.agreementDigest);
+  assert.equal(reserved.originalPublicationPrepared,false);
+  assert.equal(x.counts().networkPuts,initial.puts);
+  assert.equal((await source.inspectOriginalPublication({metadataOnly:true})).multipartBackingReserved,true);
+  allow=false;const locked=counts();
+  await assert.rejects(p.prepareOriginalMultipartPublication(),isCode('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'));
+  assert.deepEqual(counts(),locked);allow=true;
+  x.f.restart();let cold=await port();
+  const prepared=await cold.prepareOriginalMultipartPublication();
+  assert.equal(prepared.originalPublicationPrepared,true);
+  const metadata=await source.inspectOriginalPublication({metadataOnly:true});
+  assert.equal(metadata.frames.length,wireBytes.length+1);
+  assert.ok(metadata.frames.slice(1).every(f=>f.wireBytes===undefined));
+  assert.deepEqual(await discover(),accepted);
+  x.loseControlWrite();
+  await assert.rejects(cold.publishOriginalMultipartFrames({limit:1}),isCode('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  const sent=x.counts().networkPuts;assert.equal(sent,initial.puts+1);
+  x.f.restart();cold=await port();
+  const recovered=await cold.publishOriginalMultipartFrames({limit:1});
+  assert.equal(recovered.frames[0].state,'REMOTE_READBACK_RECOVERED');
+  assert.equal(x.counts().networkPuts,sent);
+  allow=false;const blocked=counts();
+  await assert.rejects(cold.publishOriginalMultipartFrames({limit:1}),isCode('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'));
+  assert.deepEqual(counts(),blocked);allow=true;
+  let batch=await cold.publishOriginalMultipartFrames({limit:32});
+  while(batch.remaining)batch=await cold.publishOriginalMultipartFrames({limit:32});
+  assert.equal(batch.originalAllFramesPresentRecorded,true);
+  const saved=await cold.inspectOriginalPublication();
+  assert.ok(saved.frames.every(f=>f.state==='PRESENT'));
+  assert.deepEqual(saved.frames.slice(1).map(f=>f.wireBytes),wireBytes.map(b=>new Uint8Array(b)));
+  assert.equal(x.counts().networkPuts,initial.puts+wireBytes.length);
+  assert.equal(x.signatureCount(),initial.signs);
+  assert.equal(x.f.kernel.calls,initial.recipient);
+  assert.equal((await phase.inspectOriginalSession()).currentPhase,'INTENT');
+  assert.ok(agreementReads>wireBytes.length&&admissionReads>wireBytes.length);
+  assert.deepEqual(await discover(),accepted);
 });
