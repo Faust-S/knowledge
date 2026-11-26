@@ -1,17 +1,18 @@
 import {createHash} from 'node:crypto';
 import {T4_NATIVE_CHUNK_BYTES as CHUNK,T4_NATIVE_MAX_CHUNKS as PER_PART,
-  T4_NATIVE_MAX_CIPHERTEXT_BYTES as PART} from './original-native-content-limits.mjs';
+  T4_NATIVE_MAX_CIPHERTEXT_BYTES as PART,T4_NATIVE_MULTIPART_MAX_PARTS,
+  T4_NATIVE_MULTIPART_MAX_CIPHERTEXT_BYTES,T4_NATIVE_MULTIPART_PROFILE} from './original-native-content-limits.mjs';
 
 // Candidate extension only. Existing V1 plans, captures and publication
 // limits stay unchanged. A multipart transfer is ONE sealed byte string,
 // ONE source Event and ONE eventual original subject mutation.
-export const T4_MULTIPART_OPAQUE_EXTENSION='iwxa.opaque-content-multipart.v1';
+export const T4_MULTIPART_OPAQUE_EXTENSION=T4_NATIVE_MULTIPART_PROFILE;
 // The native compact route already reserves HEADS and DIFF_REQUEST at
 // sequence 1 in each direction. Negotiate the content profile in those
 // exact signed slots, without renumbering any existing content or ACK.
 export const T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION='iwxa.native-multipart-agreement.v1';
-export const T4_MULTIPART_MAX_PARTS=16;
-export const T4_MULTIPART_MAX_CIPHERTEXT_BYTES=PART*T4_MULTIPART_MAX_PARTS;
+export const T4_MULTIPART_MAX_PARTS=T4_NATIVE_MULTIPART_MAX_PARTS;
+export const T4_MULTIPART_MAX_CIPHERTEXT_BYTES=T4_NATIVE_MULTIPART_MAX_CIPHERTEXT_BYTES;
 export const T4_MULTIPART_MAX_CHUNKS=PER_PART*T4_MULTIPART_MAX_PARTS;
 const SCHEMA='IWXA_T4_OPAQUE_MULTIPART_MANIFEST_V1';
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);

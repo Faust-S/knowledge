@@ -116,7 +116,10 @@ function checkReceived(received){
     received.originalRecipientSubjectPermissionGranted!==false||
     received.originalT3ExchangeCalled!==false)
     fail('SUBJECT_RECEIVED_PROOF_INVALID');
-  const exact=type.verify(received.delta);
+  const multipart=Object.hasOwn(received,'originalMultipartAgreementDigest')||Object.hasOwn(received,'originalMultipartManifestDigest');
+  if(multipart&&(kind!=='ASSET_PUT'||!DIG(received.originalMultipartAgreementDigest)||!DIG(received.originalMultipartManifestDigest)))
+    fail('SUBJECT_RECEIVED_PROOF_INVALID');
+  const exact=type.verify(received.delta,...(multipart?[{enableMultipart:true}]:[]));
   if((isT4NativeDeleteKind(kind)&&exact.delta.kind!==kind)||
     received.sha256!==exact.sha256||received.key!==exact.key||
     received.originalEventDigest!==received.delta.sourceEventDigest||
@@ -712,7 +715,7 @@ export async function openT4OriginalNetworkSubjectChange({
     if(replacement&&(opened.originalVaultUsed!==true||opened.originalCapturedBytesVerified!==true||
       opened.originalBusinessApplied!==false||HASH(plaintext)!=='sha256:'+captureSession.capturedSha256))
       fail('SUBJECT_ORIGINAL_REPLACEMENT_CAPTURE_MISMATCH');
-    source=type.decode(plaintext);
+    source=type.decode(plaintext,...(multipart?[{enableMultipart:true}]:[]));
     if(replacement&&source.sha256!==captureSession.capturedSha256)fail('SUBJECT_ORIGINAL_REPLACEMENT_CAPTURE_MISMATCH');
     if(multipart&&source.sha256!==captureSession.capturedSha256)fail('SUBJECT_MULTIPART_CAPTURE_MISMATCH');
   }finally{plaintext.fill(0);}
@@ -1266,6 +1269,7 @@ async function applyOriginalNetworkSubjectChange({
       received:{delta:received.delta,sha256:received.sha256,key:received.key},
       originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,getMode,
       ...(kind==='OBJECT_PUT'?{}:{nativeNetworkEvidence:true,authorizeOriginalRead}),
+      ...(kind==='ASSET_PUT'&&Object.hasOwn(received,'originalMultipartAgreementDigest')?{enableMultipart:true}:{}),
       ...(isT4NativeDeleteKind(kind)||kind==='GRAPH_COMMIT'?{withOriginalSubjectMutation,readOriginalDependencyCoverage,originalRecipientHistory,originalGraphCatalog}:{}),
     });
   }catch(error){

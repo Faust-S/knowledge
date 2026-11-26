@@ -1,5 +1,6 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
-import {requireT4NativeCaptureCapacity} from './original-native-content-limits.mjs';
+import {requireT4NativeCaptureCapacity,T4_NATIVE_MULTIPART_MAX_CAPTURE_PLAINTEXT_BYTES,
+  T4_NATIVE_MULTIPART_MAX_RAW_ASSET_BYTES} from './original-native-content-limits.mjs';
 import {validT4OriginalAssetMime} from './original-subject-fields.mjs';
 import {verifyT4OriginalRecipientAcknowledgement} from './original-event-window.mjs';
 
@@ -18,10 +19,17 @@ const keys=['schema','workspaceId','originalWriteOwnerRef','assetId','objectId',
 const sorted=x=>Array.isArray(x)?x.map(sorted):
   x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,sorted(x[k])])):x;
 const json=x=>Buffer.from(JSON.stringify(sorted(x)),'utf8');
-const base64=x=>typeof x==='string'&&/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(x)&&
-  Buffer.from(x,'base64').toString('base64')===x;
+// Bound before decoding and avoid repeated regexp groups on multi-MiB data.
+const base64=(x,max)=>typeof x==='string'&&x.length<=max&&x.length%4===0&&
+  /^[A-Za-z0-9+/]*={0,2}$/.test(x)&&Buffer.from(x,'base64').toString('base64')===x;
+function capacity({enableMultipart=false}={}){
+  if(typeof enableMultipart!=='boolean')fail('ASSET_DELTA_CAPTURE_PROFILE_INVALID');
+  return {max:enableMultipart?T4_NATIVE_MULTIPART_MAX_CAPTURE_PLAINTEXT_BYTES:MAX,
+    raw:enableMultipart?T4_NATIVE_MULTIPART_MAX_RAW_ASSET_BYTES:MAX,enableMultipart};
+}
 const mode=f=>{if(typeof f!=='function'||f()!=='T4_NETWORK')fail('ASSET_DELTA_NETWORK_MODE_OFF');};
-function checked(delta){
+function checked(delta,options){
+  const {max,raw}=capacity(options);
   if(!delta||typeof delta!=='object'||Array.isArray(delta)||
     Object.keys(delta).length!==keys.length||keys.some(k=>!Object.hasOwn(delta,k))||
     delta.schema!==SCHEMA||!ID(delta.workspaceId)||!ID(delta.originalWriteOwnerRef)||
@@ -32,29 +40,31 @@ function checked(delta){
     !Number.isSafeInteger(delta.sourceRevision)||delta.sourceRevision!==delta.baseRevision+1||
     !validT4OriginalAssetMime(delta.mime)||
     !Number.isSafeInteger(delta.assetSize)||delta.assetSize<0||
-    delta.assetSize>MAX||!base64(delta.bytesBase64))
+    delta.assetSize>raw||!base64(delta.bytesBase64,max))
     fail('ASSET_DELTA_CONTRACT_INVALID');
   const assetBytes=Buffer.from(delta.bytesBase64,'base64');
   if(assetBytes.length!==delta.assetSize||packageSha256(assetBytes)!==delta.assetBytesSha256)
     fail('ASSET_DELTA_BYTES_DIGEST_MISMATCH');
   const normalized=Object.fromEntries(keys.map(k=>[k,delta[k]]));
   const bytes=json(normalized);
-  if(bytes.length>MAX)fail('ASSET_DELTA_WIRE_TOO_LARGE');
+  if(bytes.length>max)fail('ASSET_DELTA_WIRE_TOO_LARGE');
   const sha256=packageSha256(bytes);
   return Object.freeze({delta:Object.freeze(normalized),assetBytes,bytes,
     sha256,key:sha256+'.t4d'});
 }
-export function verifyT4OriginalAssetDelta(delta){return checked(delta);}
+export function verifyT4OriginalAssetDelta(delta,options){return checked(delta,options);}
 
-export function preflightT4OriginalAssetNativeCapacity({workspaceId,originalWriteOwnerRef,operation}){
+export function preflightT4OriginalAssetNativeCapacity({workspaceId,originalWriteOwnerRef,operation,enableMultipart=false}){
+  const {max}=capacity({enableMultipart});
+  if(!base64(operation?.bytesBase64,max))fail('ASSET_DELTA_CONTRACT_INVALID');
   const content=Buffer.from(operation.bytesBase64,'base64');
   const reserve=checked({schema:SCHEMA,workspaceId,originalWriteOwnerRef,
     assetId:operation.asset_id,objectId:operation.object_id,mime:operation.mime,
     baseRevision:operation.base_revision,sourceRevision:operation.base_revision+1,
     sourceEventId:'e'.repeat(160),sourceEventDigest:'sha256:'+'a'.repeat(64),
     originalEventType:operation.event.event_type,windowDigest:'sha256:'+'a'.repeat(64),
-    bytesBase64:operation.bytesBase64,assetBytesSha256:packageSha256(content),assetSize:content.length});
-  return requireT4NativeCaptureCapacity(reserve.bytes.length);
+    bytesBase64:operation.bytesBase64,assetBytesSha256:packageSha256(content),assetSize:content.length},{enableMultipart});
+  return requireT4NativeCaptureCapacity(reserve.bytes.length,{enableMultipart});
 }
 export function digestT4OriginalAssetContent(d){
   return 'sha256:'+packageSha256(Buffer.concat([
@@ -63,13 +73,14 @@ export function digestT4OriginalAssetContent(d){
       mime:d.mime,assetSize:d.assetSize,assetBytesSha256:d.assetBytesSha256}),
   ]));
 }
-export function decodeT4OriginalAssetDeltaBytes(bytes){
-  if(!(bytes instanceof Uint8Array)||!bytes.length||bytes.length>1024*1024)
+export function decodeT4OriginalAssetDeltaBytes(bytes,options){
+  const {max}=capacity(options);
+  if(!(bytes instanceof Uint8Array)||!bytes.length||bytes.length>max)
     fail('ASSET_DELTA_WIRE_MALFORMED');
   let parsed;
   try{parsed=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}
   catch{fail('ASSET_DELTA_WIRE_MALFORMED');}
-  const exact=checked(parsed);
+  const exact=checked(parsed,options);
   if(!exact.bytes.equals(Buffer.from(bytes)))
     fail('ASSET_DELTA_WIRE_CANONICAL_MISMATCH');
   return exact;
@@ -90,8 +101,9 @@ function matchedWindow(window,workspaceId,originalWriteOwnerRef,objectId){
 }
 export async function prepareT4OriginalAssetDelta({
   window,workspaceId,assetId,originalWriteOwnerRef,
-  originalKernel,authorizeOriginalRead,getMode,
+  originalKernel,authorizeOriginalRead,getMode,enableMultipart=false,
 }={}){
+  const {raw}=capacity({enableMultipart});
   if(!ID(workspaceId)||!ID(assetId)||!ID(originalWriteOwnerRef)||
     originalKernel?.hasOperation?.('t1.getAsset')!==true||
     typeof originalKernel.getAsset!=='function'||
@@ -114,8 +126,8 @@ export async function prepareT4OriginalAssetDelta({
     fail('ASSET_DELTA_SOURCE_REVISION_MISMATCH');
   if(!(result.bytes instanceof Uint8Array))
     fail('ASSET_DELTA_SOURCE_BYTES_REQUIRED');
+  if(result.bytes.length>(enableMultipart?raw:MAX*0.7))fail('ASSET_DELTA_SOURCE_TOO_LARGE');
   const copy=Buffer.from(result.bytes);
-  if(copy.length>MAX*0.7)fail('ASSET_DELTA_SOURCE_TOO_LARGE');
   return checked({
     schema:SCHEMA,workspaceId,originalWriteOwnerRef,assetId,
     objectId:record.object_id,mime:record.mime,
@@ -124,7 +136,7 @@ export async function prepareT4OriginalAssetDelta({
     originalEventType:event.eventType,windowDigest:window.windowDigest,
     bytesBase64:copy.toString('base64'),assetBytesSha256:packageSha256(copy),
     assetSize:copy.length,
-  });
+  },{enableMultipart});
 }
 
 export async function publishT4OriginalAssetDelta({prepared,transport}={}){
@@ -161,8 +173,10 @@ export async function fetchT4OriginalAssetDelta({transport,key,sha256,
 }
 export async function applyT4OriginalAssetDelta({received,originalKernel,
   authorizeOriginalWrite,verifyOriginalSourceEvent,getMode,
-  nativeNetworkEvidence=false,authorizeOriginalRead}={}){
-  const exact=received?.delta&&checked(received.delta);
+  nativeNetworkEvidence=false,authorizeOriginalRead,enableMultipart=false}={}){
+  if(typeof enableMultipart!=='boolean'||(enableMultipart&&!nativeNetworkEvidence))
+    fail('ASSET_DELTA_CAPTURE_PROFILE_INVALID');
+  const exact=received?.delta&&checked(received.delta,{enableMultipart});
   if(!exact||received.key!==exact.key||received.sha256!==exact.sha256)
     fail('ASSET_DELTA_RECEIVED_MISMATCH');
   if(originalKernel?.hasOperation?.('t1.putAsset')!==true||

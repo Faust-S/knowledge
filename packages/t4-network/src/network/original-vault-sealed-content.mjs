@@ -68,6 +68,21 @@ function encodeHeader(header){
   return Buffer.concat([prefix,raw]);
 }
 function contextRef(aad){return 'sealed:sha256:'+hash(aad);}
+// The conservative legacy capture reservation uses the maximum header.
+// A capture immediately above that bound can still have a small actual
+// header. Only the negotiated profile may add minimal authenticated
+// header padding so its envelope always occupies at least two parts.
+// Legacy V2 and already-valid unpadded multipart envelopes are unchanged.
+function multipartHeader(header){
+  const aad=encodeHeader(header);
+  if(aad.length+header.plaintextLength+TAG>MAX)return aad;
+  const padded={...header,multipartPadding:''};
+  const empty=encodeHeader(padded);
+  const count=Math.max(0,MAX+1-empty.length-header.plaintextLength-TAG);
+  if(count>MAX_HEADER)fail('SEALED_CONTENT_TRANSPORT_LIMIT_EXCEEDED');
+  padded.multipartPadding='0'.repeat(count);
+  return encodeHeader(padded);
+}
 function parseEnvelope(input,session,recipientKeyRef,publicKey,agreementDigest=null){
   const max=agreementDigest===null?MAX:T4_MULTIPART_MAX_CIPHERTEXT_BYTES;
   if(!(input instanceof Uint8Array)||input.length<PREFIX+TAG+1||input.length>max||
@@ -81,7 +96,8 @@ function parseEnvelope(input,session,recipientKeyRef,publicKey,agreementDigest=n
   catch{fail('SEALED_CONTENT_ENVELOPE_INVALID');}
   try{
     fields(header,['schema','suite','session','recipientKeyRef','recipientKeyFingerprint','ephemeralPublicKey',
-      'salt','nonce','plaintextLength',...(agreementDigest===null?[]:['multipartAgreementDigest'])]);
+      'salt','nonce','plaintextLength',...(agreementDigest===null?[]:['multipartAgreementDigest',
+        ...(Object.hasOwn(header,'multipartPadding')?['multipartPadding']:[])])]);
     if(header.schema!==SCHEMA||header.suite!==SUITE||!equal(header.session,session)||
       (agreementDigest!==null&&header.multipartAgreementDigest!==agreementDigest)||
       header.recipientKeyRef!==recipientKeyRef||!SHA(header.recipientKeyFingerprint)||
@@ -89,6 +105,11 @@ function parseEnvelope(input,session,recipientKeyRef,publicKey,agreementDigest=n
       !Number.isSafeInteger(header.plaintextLength)||header.plaintextLength<1||
       bytes.length!==end+header.plaintextLength+TAG||!encodeHeader(header).equals(aad))
       fail('SEALED_CONTENT_ENVELOPE_BINDING_MISMATCH');
+    if(Object.hasOwn(header,'multipartPadding')){
+      const {multipartPadding,...base}=header;
+      if(agreementDigest===null||typeof multipartPadding!=='string'||!/^0*$/.test(multipartPadding)||
+        !multipartHeader(base).equals(aad))fail('SEALED_CONTENT_ENVELOPE_BINDING_MISMATCH');
+    }
     if(replacementSession(header.session))validateT4OriginalReplacementSessionCandidate(header.session);
     else validateT4OriginalNativeCaptureSession(header.session);
     const der=fixedBytes(header.ephemeralPublicKey,44),ephemeral=publicAgreementKey({key:der,format:'der',type:'spki'});
@@ -104,7 +125,7 @@ function sealBytes(plaintext,session,recipientKeyRef,publicKey,agreementDigest=n
     ephemeralPublicKey:pubDer(ephemeralPublicKey).toString('base64url'),salt:salt.toString('base64url'),
     nonce:nonce.toString('base64url'),plaintextLength:plaintext.length,
     ...(agreementDigest===null?{}:{multipartAgreementDigest:agreementDigest})};
-  const aad=encodeHeader(header);
+  const aad=agreementDigest===null?encodeHeader(header):multipartHeader(header);
   // The old V2 envelope and cap remain byte-for-byte unchanged. Only
   // the selected multipart profile authenticates the extra agreement field.
   const length=aad.length+plaintext.length+TAG;
