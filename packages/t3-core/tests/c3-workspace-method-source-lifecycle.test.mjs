@@ -721,3 +721,27 @@ test('historical read of revised Project uses its declared composition and exact
   assert.deepEqual((await historical(owner,{...current,workRefs:[...current.workRefs].reverse()})).draft,draft);
   assert.equal((await owner.audit()).length,10);
 });
+
+
+test('adding or removing a stage requires explicit project-composition review',async()=>{
+  const {owner,base}=await revisionFixture();
+  const added=fixture();
+  added.steps.push({id:'validate',name:'Validate evidence',actor:'human',instruction:'Review evidence limits',dependsOn:['prepare'],materialIds:['source']});
+  const addPreview=await revisionPreview(owner,base,added);
+  assert.equal(addPreview.projectCompositionChanged,true);
+  assert.equal(addPreview.projectIntentChanged,true);
+  assert.equal(addPreview.counts.create,1);
+  assert.ok(addPreview.workOperations.filter(item=>item.operation==='REVISE')
+    .every(item=>item.reviewState==='PROJECT_INTENT_REVIEW'&&item.reviewRequired));
+  assert.equal(opFor(addPreview,'validate').reviewState,'NEW_STAGE');
+  const removed=fixture();
+  removed.steps=removed.steps.filter(step=>step.id!=='analyse');
+  removed.steps.find(step=>step.id==='review').dependsOn=['compute'];
+  const removePreview=await revisionPreview(owner,base,removed);
+  assert.equal(removePreview.projectCompositionChanged,true);
+  assert.equal(removePreview.projectIntentChanged,true);
+  assert.equal(removePreview.requiresReleaseReview,true);
+  assert.ok(removePreview.workOperations.every(item=>item.reviewState==='PROJECT_INTENT_REVIEW'&&item.reviewRequired));
+  assert.equal(removePreview.removed[0].automaticRelease,false);
+  assert.equal((await owner.audit()).length,5);
+});

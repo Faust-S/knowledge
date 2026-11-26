@@ -53,9 +53,11 @@ export async function previewWorkspaceMethodRevision({owner,workspaceId,projectI
   const oldProject=normalizeProject(before.projectInput);
   const nextProject=normalizeProject(after.projectInput);
   const projectChanged=!equal(oldProject,nextProject);
+  const projectCompositionChanged=!equal(oldProject.methodology.workIds,nextProject.methodology.workIds);
   const projectIntentChanged=oldProject.methodology.objective!==nextProject.methodology.objective
     ||!equal(oldProject.domainApplicability,nextProject.domainApplicability)
-    ||!equal(oldProject.templateRef,nextProject.templateRef);
+    ||!equal(oldProject.templateRef,nextProject.templateRef)
+    ||projectCompositionChanged;
   const sourceProject=await owner.load('project',workspaceId,projectId);
   if(sourceProject?.objectId!==current.projectRef.objectId||sourceProject?.baseRevisionId!==current.projectRef.recordId
       ||sourceProject?.revision!==current.projectRef.revision){
@@ -122,7 +124,7 @@ export async function previewWorkspaceMethodRevision({owner,workspaceId,projectI
   await checkAdded();
   return Object.freeze({
     state:projectChanged||counts.create||counts.revise||counts.releaseReview?'CHANGES_PROPOSED':'UNCHANGED',
-    workspaceId,projectId,projectIntentChanged,
+    workspaceId,projectId,projectIntentChanged,projectCompositionChanged,
     baseRevisionSet:Object.freeze({projectRef:current.projectRef,workRefs:current.workRefs}),
     projectOperation:Object.freeze({operation:projectChanged?'REVISE':'KEEP',baseRef:current.projectRef,
       input:projectChanged?projectInput:null}),

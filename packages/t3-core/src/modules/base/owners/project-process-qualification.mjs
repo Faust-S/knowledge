@@ -10,7 +10,7 @@ import { qualifyProjectProcessSameWorkspaceHistory } from './project-process-his
 import { canonicalStringify } from '../../../persistence/canonical-codec.mjs';
 import { createWorkspaceMethodThroughSourceOwner,readWorkspaceMethodCreationIntent,
   resumeWorkspaceMethodThroughSourceOwner,inspectWorkspaceMethodCreation } from './project-process-method-materialization.mjs';
-import { readWorkspaceMethodFromSourceOwner } from './project-process-method-readback.mjs';
+import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from './project-process-method-readback.mjs';
 import { previewWorkspaceMethodRevision } from './project-process-method-revision.mjs';
 import {
   createProjectProcessSourceOwnerQualificationHarness,
@@ -94,6 +94,14 @@ async function qualifyWorkspaceMethodWithOriginalOwner(owner){
   const base=completed.method;
   const changed={...draft,steps:draft.steps.map(step=>step.id==='analyse'
     ?{...step,instruction:'Determine assumptions with a second method'}:step)};
+  const compositionDraft={...draft,steps:[...draft.steps,
+    {id:'validation',name:'Validate evidence',actor:'human',instruction:'Review evidence limits',dependsOn:['prepare'],materialIds:['measurement']}]};
+  const composition=await previewWorkspaceMethodRevision({owner,workspaceId,projectId,expected:base,draft:compositionDraft,objects});
+  const compositionReview=composition.projectCompositionChanged===true&&composition.projectIntentChanged===true
+    &&composition.counts.create===1
+    &&composition.workOperations.filter(item=>item.operation==='REVISE')
+      .every(item=>item.reviewState==='PROJECT_INTENT_REVIEW'&&item.reviewRequired)
+    &&composition.workOperations.find(item=>item.operation==='CREATE')?.reviewState==='NEW_STAGE';
   const preview=await previewWorkspaceMethodRevision({owner,workspaceId,projectId,expected:base,draft:changed,objects});
   const selectivePlan=preview.projectOperation.operation==='KEEP'
     &&preview.counts.revise===2&&preview.counts.keep===2
@@ -117,14 +125,28 @@ async function qualifyWorkspaceMethodWithOriginalOwner(owner){
   const staleBaseRejected=await rejectsWithCode(()=>previewWorkspaceMethodRevision({
     owner,workspaceId,projectId,expected:base,draft:changed,objects,
   }),'METHOD_REVISION_BASE_CHANGED');
+  const historical=await readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected:base});
+  const historicalReadback=canonicalStringify(historical.draft)===canonicalStringify(draft)
+    &&historical.historicalRead===true&&historical.currentHeadVerified===false
+    &&historical.executionAuthority===false&&historical.writeAuthorized===false;
+  const compute=base.workRefs.find(ref=>ref.objectId===projectId+'.compute');
+  await owner.release('work',{workspaceId,objectId:projectId+'.compute',
+    recordId:'method-compute-release',baseRevisionId:compute.recordId,
+    knowledgeAt:'2026-11-26T18:06:00Z'});
+  const historicalAfterRelease=canonicalStringify((await readHistoricalWorkspaceMethod({
+    owner,workspaceId,projectId,expected:base,
+  })).draft)===canonicalStringify(draft);
+  const currentTombstone=await rejectsWithCode(()=>readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId}),
+    'METHOD_SOURCE_INCOMPLETE');
   const history=[...(await owner.history('project',workspaceId,projectId))];
   for(const step of draft.steps)history.push(...await owner.history('work',workspaceId,projectId+'.'+step.id));
   const verifiedHistory=qualifyProjectProcessSameWorkspaceHistory({workspaceId,records:history});
   const historicalPlan=history.find(row=>row.recordId===recordIds.project)?.payload?.methodology?.creation;
   const originalPlanRetained=historicalPlan?.steps.find(step=>step.workId===projectId+'.analyse')?.instruction===draft.steps[1].instruction;
   const checks=Object.freeze({interrupted,lostAckObserved:acknowledgedLost,partialReadback,originalIntent,
-    exactRecovery,selectivePlan,selectiveReadback,staleBaseRejected,originalPlanRetained,
-    sameWorkspaceHistory:verifiedHistory.status==='PASS'&&verifiedHistory.recordCount===7});
+    exactRecovery,compositionReview,selectivePlan,selectiveReadback,staleBaseRejected,
+    historicalReadback,historicalAfterRelease,currentTombstone,originalPlanRetained,
+    sameWorkspaceHistory:verifiedHistory.status==='PASS'&&verifiedHistory.recordCount===8});
   return Object.freeze({status:Object.values(checks).every(Boolean)?'PASS':'FAIL',
     workspaceId,checks,recordCount:verifiedHistory.recordCount,objectCount:verifiedHistory.objectCount,
     auditDelta:(await owner.audit()).length-initialAudit,qualificationOnly:true,
