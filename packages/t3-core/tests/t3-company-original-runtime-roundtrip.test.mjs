@@ -433,8 +433,8 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
       const coldPilot=await activate(pilot);
       for(const row of protectedRows)
         assert.deepEqual((await coldPilot.product.t1.getObject(row.workspace_id,row.object_id)).object,row);
-      const tombstone=(await coldPilot.product.t1.listObjects(ws,{include_deleted:true})).find(x=>x.object_id===business.object_id);
-      assert.ok(tombstone&&tombstone.revision===business.revision+1&&tombstone.deleted_at!=null,'PILOT_ORIGINAL_TOMBSTONE_MISSING');
+      const tombstone=(await coldPilot.product.t1.listObjects({workspace_id:ws,include_deleted:true})).find(x=>x.object_id===business.object_id);
+      assert.ok(tombstone&&tombstone.revision===business.revision+1&&tombstone.deleted===true,'PILOT_ORIGINAL_TOMBSTONE_MISSING');
       await pilot.runtime.__resetKernelStoreForTests();
     }
   }finally{
