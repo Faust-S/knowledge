@@ -28,7 +28,8 @@ export function isOriginalKernelRegistryStatePort(value) {
 // technical Object, not merely the same policy or similarly shaped registry.
 export function isOriginalKernelRegistryStatePortForKernel(value,kernel,{workspaceId,objectId="t3.access.signed-registry"}={}){
   const binding=originalPorts.get(value);
-  return !!binding&&binding.kernel===kernel&&(binding.currentWorkspaceId?.()??binding.workspaceId)===workspaceId&&binding.objectId===objectId;
+  return !!binding&&typeof workspaceId==="string"&&ID.test(workspaceId)&&binding.kernel===kernel&&
+    (binding.currentWorkspaceId?.()??binding.workspaceId)===workspaceId&&binding.objectId===objectId;
 }
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;

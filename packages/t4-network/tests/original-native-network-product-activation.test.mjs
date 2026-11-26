@@ -184,3 +184,26 @@ test('trusted realm rejects premature methods, wrong session, unsupported capabi
     activationReply({...ready,state:'READY',networkActivationVersion:2}),activationReply({state:'DENIED',localSourceMutationVersion:1})])
     assert.throws(()=>parse(reply,session),{code:'T3_ORIGINAL_NETWORK_RELAY_NEGOTIATION_INVALID'});
 });
+
+test('convergence preserves optional native workspace creation outside reserved network scopes',async()=>{
+  const f=fixture({grants:[...new Set([...base,...operations,'t1.createWorkspace'])]});
+  try{const s=await f.attach(0);
+    assert.equal(f.relay.nativeKernel.hasOperation('t1.createWorkspace'),true);
+    for(const id of [WS,TECH,REG])assert.throws(()=>f.relay.nativeKernel.createWorkspace({workspace_id:id,profile:'generic'}),{code:'T3_ORIGINAL_NETWORK_WORKSPACE_CREATION_DENIED'});
+    const input={workspace_id:'ws:other',profile:'generic'},created=f.relay.nativeKernel.createWorkspace(input);
+    await f.command(s,'createWorkspace',[input],input);assert.deepEqual(await created,input);
+  }finally{f.relay.close();}
+});
+test('convergence permits only the pinned Registry workspace read in the original activation slot',async()=>{
+  const f=fixture({createHook:async({registryKernel})=>{
+    assert.equal(registryKernel.hasOperation('t1.getWorkspace'),true);
+    assert.equal(registryKernel.hasOperation('t1.createWorkspace'),false);
+    assert.equal(registryKernel.createWorkspace,undefined);
+    await assert.rejects(registryKernel.getWorkspace(WS),{code:'T3_ORIGINAL_REGISTRY_RELAY_SCOPE_DENIED'});
+    const w=await registryKernel.getWorkspace(REG);assert.equal(w.workspace_id,REG);
+    await registryKernel.getObject(REG,OBJ);
+  }});
+  try{const s=await f.attach();await f.command(s,'getWorkspace',[REG]);await f.activate(s);
+    assert.equal(f.relay.networkAttached,true);
+  }finally{f.relay.close();}
+});

@@ -7,10 +7,10 @@
   "corporateChanges": 55,
   "overlappingFiles": 9,
   "resolvedBlobs": {
-    "packages/t3-core/src/t3/access/original-kernel-registry-state.mjs": "305b858da66ff516e8c0ade09d0f2a71a47f9e5d",
+    "packages/t3-core/src/t3/access/original-kernel-registry-state.mjs": "ca3717d9a40bc3ac97c477cc354146141b0a0ba6",
     "packages/t3-core/src/main-trusted-kernel-realm.ts": "e99c99a2c6da124daf51cbb6ba33be8b6bc164cb",
     "packages/t3-core/src/t3/index.d.mts": "fedcde6696f00f57c52d73dc4f3cf2fe4136a6de",
-    "packages/t3-core/src/t3/original-kernel-native-relay.mjs": "81bbc9de8066ad6f1740ccf47e1786e3e06ab1dc",
+    "packages/t3-core/src/t3/original-kernel-native-relay.mjs": "335b07ceaebcff8559a73aa161f1ffbe010d2e0c",
     "packages/t3-core/src/t3/subject-access-binding.mjs": "88f44e9645c82a92b3792c341dbbe5c83c64537a",
     "packages/t3-core/src/workspace-host/context/create-kernel-facade.ts": "302faf170162c3025c660db5ba30a26110ea665d",
     "packages/t3-core/tests/module-kernel-facade.test.ts": "4989c0a2c0aa173140399a0fa92f9dd4f134adc9",
@@ -30,5 +30,13 @@
     "No automatic Registry migration, issuance or fallback.",
     "The source branch heads remain untouched. Corporate Registry placement must be resolved before provenance check; a scoped network Relay cannot bootstrap corporate placement.",
     "Source staging only; no private or installed qualification."
-  ]
+  ],
+  "additionalTests": {
+    "packages/t4-network/tests/original-native-network-product-activation.test.mjs": "c6e8dac9f2ee93763078e76d90a641f940221bb1"
+  },
+  "localRelayQualification": {
+    "pass": 46,
+    "fail": 0,
+    "scope": "Exact converged Relay and activation tests; prior qualified SubjectBinding, mocked original Kernel/owner. Not the full merged core."
+  }
 }
