@@ -1,0 +1,39 @@
+name: T4 K164 successor multipart qualification
+on:
+  push:
+    branches:
+      - 'ci/once/t4-k164/7d28de760d8e'
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact source identity
+        run: |
+          test "$(git rev-parse HEAD^)" = "7d28de760d8e2dd4d90060575d559c701875e5bb"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+      - name: Install and check
+        working-directory: packages/t4-network
+        run: |
+          npm ci
+          npm run check
+      - name: Wire and backing regression
+        working-directory: packages/t4-network
+        run: |
+          node --experimental-strip-types --test tests/standard-network-multipart-wire.test.mjs tests/standard-network-wire-candidate.test.mjs tests/standard-network-wire-independent-vectors.test.mjs tests/original-network-publication-multipart-backing.test.mjs tests/original-network-publication.test.mjs
+      - name: Original compact successor regression
+        working-directory: packages/t4-network
+        run: |
+          node --experimental-strip-types --test --test-name-pattern='K50|K51|K52|K58|K59|K60' tests/original-network-session-phases.test.mjs
+      - name: Exact native and replacement negotiation
+        working-directory: packages/t4-network
+        run: |
+          node --experimental-strip-types --test --test-name-pattern='K145|K154|K155|K164' tests/original-network-multipart-agreement.test.mjs
