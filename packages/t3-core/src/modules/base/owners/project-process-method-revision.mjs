@@ -53,7 +53,9 @@ export async function previewWorkspaceMethodRevision({owner,workspaceId,projectI
   const oldProject=normalizeProject(before.projectInput);
   const nextProject=normalizeProject(after.projectInput);
   const projectChanged=!equal(oldProject,nextProject);
-  const projectCompositionChanged=!equal(oldProject.methodology.workIds,nextProject.methodology.workIds);
+  const oldWorkIds=new Set(oldProject.methodology.workIds);
+  const projectCompositionChanged=oldWorkIds.size!==nextProject.methodology.workIds.length
+    ||nextProject.methodology.workIds.some(id=>!oldWorkIds.has(id));
   const projectIntentChanged=oldProject.methodology.objective!==nextProject.methodology.objective
     ||!equal(oldProject.domainApplicability,nextProject.domainApplicability)
     ||!equal(oldProject.templateRef,nextProject.templateRef)
