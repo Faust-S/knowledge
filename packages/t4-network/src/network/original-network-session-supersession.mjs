@@ -600,7 +600,7 @@ export async function publishT4OriginalReplacementSourceHead({
   await current();
   const published=await port.publishPreparedFrame({sequence:1,retryMissing});
   await current();
-  const saved=await port.inspectOriginalPublication();mode(getMode);const frame=saved?.frames?.[0];
+  const saved=await port.inspectOriginalPublication({metadataOnly:enableOriginalMultipartNegotiation});mode(getMode);const frame=saved?.frames?.[0];
   if(published?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_RESULT_V1'||published.sessionRef!==session.sessionRef||
     published.changeId!==session.changeId||published.sequence!==1||published.messageType!=='HEADS'||
     published.checkpointRef!==port.checkpointRef||published.sha256!==entry.sha256||published.key!==entry.sha256+'.t4n'||
@@ -1156,7 +1156,7 @@ export async function discoverT4OriginalReplacementRecipientDiff({
     if(ownerRead){
       // Source proves its own HEADS live. The remote owner reads its own
       // replay and DIFF PRESENT without a nested callback to this source.
-      const saved=await sourcePublicationPort.inspectOriginalPublication();mode(getMode);
+      const saved=await sourcePublicationPort.inspectOriginalPublication({metadataOnly:true});mode(getMode);
       const slot=saved?.frames?.[0];
       if(saved?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1'||!same(saved.session,c)||
         saved.checkpointRef!==sourcePublicationPort.checkpointRef||saved.originalT3EventChainVerified!==true||
