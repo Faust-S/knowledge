@@ -799,9 +799,13 @@ export function validateT4OriginalReplacementContentEvidence(value,identity){
     v.originalSubjectMutationInvoked!==false||v.originalBusinessApplied!==false||
     v.sourceCursorAdvanced!==false||v.recipientCursorAdvanced!==false||v.liveNetworkAuthorityGranted!==false||
     !DIG(v.contentDigest)||!ID(v.encryptionContextRef)||!ID(v.sourcePublicationCheckpointRef)||
-    !Array.isArray(v.frames)||v.frames.length<3||v.frames.length>66)
+    !Array.isArray(v.frames)||v.frames.length<3||
+    v.frames.length>(Object.hasOwn(v.agreement??{},'originalMultipartAgreement')?MAX_MULTIPART_FRAMES:66))
     fail('PUBLICATION_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_REQUIRED');
-  const a=validateT4OriginalReplacementDiffAcceptance(v.agreement,c),head=v.frames[0];
+  const multipart=Object.hasOwn(v.agreement??{},'originalMultipartAgreement');
+  if(multipart?(!DIG(v.originalMultipartManifestDigest)||v.frames.length<67):
+    Object.hasOwn(v,'originalMultipartManifestDigest'))fail('PUBLICATION_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_REQUIRED');
+  const a=validateT4OriginalReplacementDiffAcceptance(v.agreement,c,{enableOriginalMultipartNegotiation:multipart}),head=v.frames[0];
   if(v.sourcePublicationCheckpointRef===a.originalRecipientPublicationCheckpointRef||
     v.sourcePublicationCheckpointRef===a.originalSourceAdmissionCheckpointRef||
     head?.key!==a.originalSourceHeadKey||head.presentEventId!==a.originalSourceHeadPresentEventId||

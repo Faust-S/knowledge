@@ -603,7 +603,7 @@ export function createT4CandidateFrameTransport({
     return finish(receipts.length?'FOUND':'NOT_FOUND');
   }
   async function indexedRead({selector,requiredCryptoSuite,supportedCriticalExtensions=[],head=false,replacementHead=false,
-    expectedMultipartChange=null,expectedHandshake=null},ctx){
+    expectedMultipartChange=null,expectedHandshake=null,expectedFrameSha256=null},ctx){
     if(!selector||!ID(selector.sourceNodeRef)||selector.sourceNodeRef===originalHostNodeRef||
       !Number.isSafeInteger(selector.ownerEpoch)||selector.ownerEpoch<1||!ID(requiredCryptoSuite)||
       !Array.isArray(supportedCriticalExtensions)||supportedCriticalExtensions.length>16||
@@ -616,6 +616,8 @@ export function createT4CandidateFrameTransport({
     await hostGuard('index-discover-readback',ctx,null,null,selector);
     if(pointer===null)return null;
     const sha256=checkIndexRead(pointer,key),frameKey=sha256+'.t4n';
+    if(expectedFrameSha256!==null&&sha256!==expectedFrameSha256)
+      fail('WIRE_REPLACEMENT_CONTENT_PUBLICATION_ANCHOR_MISMATCH');
     const downloaded=await wireTransport.getSnapshot({key:frameKey,expectedSha256:sha256});
     mode();
     if(!(downloaded?.bytes instanceof Uint8Array)||hash(downloaded.bytes)!==sha256)
@@ -706,19 +708,29 @@ export function createT4CandidateFrameTransport({
       createsStore:false,createsScheduler:false});
   }
   async function discoverOriginalMultipartContentPage({selector,requiredCryptoSuite,startSequence=3,limit=64,
-    expectedManifestDigest=null}={}){
+    expectedManifestDigest=null,replacementFrameAnchors=null}={}){
     if(!enableOriginalMultipartNegotiation||!indexed)fail('WIRE_NATIVE_MULTIPART_ORIGINAL_PORTS_REQUIRED');
     if(!selector||Object.keys(selector).sort().join(',')!=='ownerEpoch,sessionRef,sourceNodeRef'||
       !ID(selector.sessionRef)||!Number.isSafeInteger(startSequence)||startSequence<3||
       startSequence>T4_MULTIPART_MAX_CHUNKS+2||!Number.isSafeInteger(limit)||limit<1||limit>64||
       (expectedManifestDigest!==null&&!/^sha256:[a-f0-9]{64}$/.test(expectedManifestDigest)))
       fail('WIRE_MULTIPART_DISCOVERY_PAGE_INVALID');
+    const replacement=replacementFrameAnchors!==null;
+    if(replacement&&(!Array.isArray(replacementFrameAnchors)||replacementFrameAnchors.length<67||
+      replacementFrameAnchors.length>T4_MULTIPART_MAX_CHUNKS+2||replacementFrameAnchors.some((f,i)=>
+        f?.sequence!==i+1||f.messageType!==(i===0?'HEADS':i===1?'CHANGE_REF':'CHUNK')||!SHA(f.sha256))))
+      fail('WIRE_REPLACEMENT_CONTENT_PUBLICATION_ANCHOR_MISMATCH');
+    const anchors=replacement?structuredClone(replacementFrameAnchors):null;
     const input=Object.freeze({...selector}),ctx=await hostSnapshot(),receipts=[],missing=[];
-    const extensions=Object.freeze([T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,T4_MULTIPART_OPAQUE_EXTENSION]);
+    const headExtension=replacement?T4_REPLACEMENT_SOURCE_SESSION_EXTENSION:T4_ORIGINAL_SOURCE_SESSION_EXTENSION;
+    const extensions=Object.freeze([headExtension,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,T4_MULTIPART_OPAQUE_EXTENSION]);
     let lookups=0;
     const get=async(messageType,sequence,expectedMultipartChange=null)=>{
+      if(replacement&&!anchors[sequence-1])fail('WIRE_REPLACEMENT_CONTENT_PUBLICATION_ANCHOR_MISMATCH');
       lookups++;return indexedRead({selector:{...input,messageType,sequence},
-        requiredCryptoSuite,supportedCriticalExtensions:extensions,expectedMultipartChange},ctx);
+        requiredCryptoSuite,supportedCriticalExtensions:extensions,expectedMultipartChange,
+        expectedFrameSha256:replacement?anchors[sequence-1].sha256:null,
+        expectedHandshake:replacement&&messageType==='HEADS'?{extensions:[headExtension,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION],body:null}:null},ctx);
     };
     const head=await get('HEADS',1);
     const result=(state,extra={})=>frozen({schema:'IWXA_T4_ORIGINAL_MULTIPART_CONTENT_PAGE_V1',state,
@@ -736,6 +748,7 @@ export function createT4CandidateFrameTransport({
     if(expectedManifestDigest!==null&&manifest.manifestDigest!==expectedManifestDigest)
       fail('WIRE_MULTIPART_DISCOVERY_MANIFEST_CHANGED');
     const total=manifest.parts.reduce((n,p)=>n+p.chunkCount,0),last=total+2;
+    if(replacement&&anchors.length!==last)fail('WIRE_REPLACEMENT_CONTENT_PUBLICATION_ANCHOR_MISMATCH');
     if(startSequence>last)fail('WIRE_MULTIPART_DISCOVERY_PAGE_INVALID');
     const end=Math.min(last,startSequence+limit-1);
     for(let sequence=startSequence;sequence<=end;sequence++){

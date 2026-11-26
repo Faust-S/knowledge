@@ -2663,6 +2663,23 @@ test('K167 successor multipart original backing CAS, explicit bilateral gate, lo
   assert.ok(history.publication.frames.every(f=>!Object.hasOwn(f,'wireBytes')));
   const bad=structuredClone(history);bad.publication.frames.pop();
   assert.throws(()=>validateT4OriginalReplacementOwnerSourceContentSnapshot(bad,historyRequest));
+  const recipientTransport=x.transport(recipientNodeRef,{readOriginalMultipartAgreement});
+  const receiveOptions={session:c,frameDiscoveryPort:recipientTransport,requiredCryptoSuite:opts.requiredCryptoSuite,
+    requireSourceAnnouncement:true,sourceCursorBefore:x.sourceCursorBefore,authorizeOriginalRecipientSession:async()=>true,
+    readOriginalMultipartAgreement,readOriginalReplacementDiffAcceptance:()=>discover(),
+    originalReplacementSourcePublicationPort:cold,originalReplacementRecipientPublicationPort:recipient};
+  const recipientPhaseWrites=x.phaseWrites();
+  const found=await discoverT4OriginalNetworkSessionContent(receiveOptions);
+  assert.equal(found.state,'CONTENT_VERIFIED');
+  assert.equal(found.originalDecryptionInvoked,false);
+  assert.equal(found.originalReplacementContentEvidence.originalMultipartManifestDigest,chunks.manifest.manifestDigest);
+  assert.deepEqual(found.originalReplacementContentEvidence.frames,history.publication.frames);
+  assert.equal(x.phaseWrites(),recipientPhaseWrites);
+  const wrongAnchors=history.publication.frames.map(({sequence,messageType,sha256})=>({sequence,messageType,sha256}));
+  wrongAnchors[2].sha256='f'.repeat(64);
+  await assert.rejects(recipientTransport.discoverOriginalMultipartContentPage({selector:{sourceNodeRef,sessionRef:c.sessionRef,ownerEpoch:c.ownerEpoch},
+    requiredCryptoSuite:opts.requiredCryptoSuite,replacementFrameAnchors:wrongAnchors}),isCode('WIRE_REPLACEMENT_CONTENT_PUBLICATION_ANCHOR_MISMATCH'));
+  assert.equal(x.phaseWrites(),recipientPhaseWrites);
   const beforeHistory=counts();x.rotateSource();x.rotateRecipient();x.offline();x.f.restart();
   assert.deepEqual(await readHistory(),history);
   assert.deepEqual(counts(),beforeHistory);
