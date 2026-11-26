@@ -1,0 +1,35 @@
+name: T4 K161 K163 live multipart recovery qualification
+on:
+  push:
+    branches: ['ci/once/t4-k161-k163/71704ae963641b82c4e0690001b1cec4fca77126']
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public candidate and locked dependencies
+        run: |
+          test "$(git rev-parse HEAD^)" = "71704ae963641b82c4e0690001b1cec4fca77126"
+          test "$(git rev-parse HEAD:packages)" = "$(git rev-parse HEAD^:packages)"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Original source contracts
+        working-directory: packages/t4-network
+        run: npm run check
+      - name: Compact publication and retirement regression
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test tests/original-network-publication.test.mjs
+      - name: Multipart exact retry, live repair, history and cold migration
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test --test-name-pattern='K152|K153|K154|K155|K157|K160|K161|K162|K163' tests/original-network-multipart-agreement.test.mjs
+      - name: Original native signed owner and Vault attachment
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test --test-name-pattern='K90|K158|K156|K41|K43' tests/original-network-key-lifecycle.test.mjs tests/original-native-host-network-owner.test.mjs
