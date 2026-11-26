@@ -18,7 +18,8 @@ import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFra
 import {createT4NativeMultipartOffer,createT4NativeMultipartSelection,prepareT4CandidateMultipartOpaqueChunks,
   t4CandidateMultipartChunkSequence,assembleT4CandidateMultipartOpaqueChunks}
   from '../src/network/standard-network-multipart-opaque-chunks.mjs';
-import {createT4OriginalSourceSessionHead,readT4OriginalSourceSessionHead,createT4OriginalNetworkPublicationPort}
+import {createT4OriginalSourceSessionHead,readT4OriginalSourceSessionHead,createT4OriginalNetworkPublicationPort,
+  createT4OriginalPublicationIndexMigrationStepper}
   from '../src/network/original-network-publication.mjs';
 import {readT4OriginalNativeMultipartAgreement as agreement,validateT4OriginalNativeMultipartAgreement as validate}
   from '../src/network/original-network-multipart-agreement.mjs';
@@ -82,7 +83,8 @@ const payload=await contentPlan();
 function fixture(){
   const objects=new Map(),events=[],remote=new Map(),indexes=new Map(),replay=new Map(),selected=new Map();
   let puts=0,host='host:1',allow=true,writes=0;
-  const kernel={hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.putObject'].includes(op),
+  const kernel={hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.putObject','t1.listObjects'].includes(op),
+    async listObjects({workspace_id}){return structuredClone([...objects.values()].map(x=>x.object).filter(o=>o.workspace_id===workspace_id));},
     async getObject(w,id){return structuredClone(objects.get(w+':'+id)??null);},
     async listEventsSince(w){return structuredClone(events.filter(e=>e.workspace_id===w));},
     async putObject(input){
@@ -560,4 +562,52 @@ test('K152 new recipient profile does not add an offer or change legacy DIFF byt
   const diff=decodeT4CandidateFrame((await f.port(recipient,false).inspectOriginalPublication()).frames[0].wireBytes);
   assert.deepEqual(diff.criticalExtensions,[]);assert.deepEqual(diff.body,{familyRef:session.familyRef,fromHeads:[session.sourcePrefixDigestBefore]});
   assert.equal(r.signatures,1);assert.equal(r.writes,0);assert.equal(r.opens,0);host.dispose();
+});
+
+test('K153 original cold migration reconciles multipart indexes in bounded pages without new frame or Kernel writes',async()=>{
+  const f=fixture(),{sp}=await f.negotiate();await f.prepare(sp);
+  let wake=await sp.publishOriginalMultipartFrames();while(wake.remaining)wake=await sp.publishOriginalMultipartFrames();
+  const saved=await sp.inspectOriginalPublication(),count=saved.frames.length;
+  assert.ok(count>64);
+  const lost=[saved.frames[2],saved.frames.at(-1)];
+  const addresses=lost.map(x=>t4NativeFrameIndexKeys(decodeT4CandidateFrame(x.wireBytes))[0]);
+  addresses.forEach(k=>assert.ok(f.indexes.delete(k)));
+  f.restart();
+  const cold=f.port(source),beforeWrites=f.writes,beforePuts=f.puts;
+  const root=await cold.inspectOriginalPublication({metadataOnly:true});
+  assert.equal(root.originalMultipartRootMetadataOnly,true);
+  assert.equal(root.frames.length,count);assert.ok(root.frames[0].wireBytes instanceof Uint8Array);
+  assert.ok(root.frames.slice(1).every(x=>x.wireBytes===undefined));
+  const migrate=createT4OriginalPublicationIndexMigrationStepper({
+    ...session,sourceWorkspaceId:session.workspaceId,technicalWorkspaceId:'workspace:technical:'+source,localNodeRef:source,
+    originalKernel:f.kernel,getMode:()=> 'T4_NETWORK',readOriginalHostContext:async()=>({
+      workspaceId:'workspace:technical:'+source,originalWriteOwnerRef:session.originalWriteOwnerRef,nodeRef:source,
+      scopeRef:session.scopeRef,hostSessionRef:f.host}),authorizeOriginalTechnicalRead:async()=>true,
+    createOriginalPublicationPort:async({session:s})=>{assert.deepEqual(s,session);return f.port(source);}
+  });
+  const first=await migrate();
+  assert.equal(first.state,'NETWORK_INDEX_MIGRATION_PROGRESS');assert.equal(first.verifiedMigratedFrameCount,64);
+  assert.equal(first.pendingPublicationCount,1);
+  assert.equal(f.indexes.get(addresses[0]),lost[0].sha256);assert.equal(f.indexes.has(addresses[1]),false);
+  const last=await migrate();
+  assert.equal(last.state,'NETWORK_INDEX_MIGRATION_COMPLETE');assert.equal(last.verifiedMigratedFrameCount,count);
+  assert.equal(last.pendingPublicationCount,0);assert.equal(f.indexes.get(addresses[1]),lost[1].sha256);
+  assert.equal(await migrate(),null);assert.equal(f.writes,beforeWrites);assert.equal(f.puts,beforePuts);
+  assert.deepEqual(await cold.inspectOriginalPublication(),saved);
+});
+
+test('K153 multipart index repair cannot recreate a missing PRESENT frame or bypass the original agreement',async()=>{
+  const f=fixture(),{sp}=await f.negotiate();await f.prepare(sp);await sp.publishOriginalMultipartFrames({limit:2});
+  const saved=await sp.inspectOriginalPublication(),frame=saved.frames[2],address=t4NativeFrameIndexKeys(decodeT4CandidateFrame(frame.wireBytes))[0];
+  const writes=f.writes,puts=f.puts;
+  await assert.rejects(sp.reconcileOriginalPublishedFrameIndexes({sequences:[4]}),code('PUBLICATION_INDEX_MIGRATION_PRESENT_REQUIRED'));
+  f.indexes.delete(address);f.remote.delete(frame.key);
+  await assert.rejects(sp.reconcileOriginalPublishedFrameIndexes({sequences:[3]}),
+    error=>error.code==='PUBLICATION_INDEX_MIGRATION_OUTCOME_UNKNOWN'&&error.details.originalCode==='REMOTE_NOT_FOUND');
+  assert.equal(f.indexes.has(address),false);assert.equal(f.remote.has(frame.key),false);
+  f.remote.set(frame.key,new Uint8Array(frame.wireBytes));f.selected.delete(source);
+  const root=await sp.inspectOriginalPublication({metadataOnly:true});
+  assert.equal(root.originalMultipartRootMetadataOnly,true);
+  await assert.rejects(sp.reconcileOriginalPublishedFrameIndexes({sequences:[3]}),code('MULTIPART_AGREEMENT_WITNESS_INVALID'));
+  assert.equal(f.indexes.has(address),false);assert.equal(f.writes,writes);assert.equal(f.puts,puts);
 });
