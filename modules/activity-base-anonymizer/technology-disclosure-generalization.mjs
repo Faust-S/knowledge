@@ -43,7 +43,7 @@ function occurrences(row,value,kind){
 function nameVariantPattern(ref){
  if(ref.kind==='LOCAL_REFERENCE'||!/^[\p{L}\p{M} \u00a0\u202f«»„“”"'-]+$/u.test(ref.value)||
   (ref.value.match(/[\p{L}\p{M}]+/gu)??[]).length<2)return null;
- const escape=v=>v.replace(/[.*+?^$(){}[\]\\]/g,'\\const spanKey=x=>x.path+':'+x.start+':'+x.end;');
+ const escape=v=>v.replace(/[.*+?^$(){}[\]\\]/g,ch=>'\\'+ch);
  return new RegExp(ref.value.split(/([ \u00a0\u202f]+|[«»„“”"])/u).map(part=>
   /^[ \u00a0\u202f]+$/u.test(part)?'[ \\u00a0\\u202f]+':/^[«»„“”"]$/u.test(part)?'[«»„“”"]':escape(part)).join(''),'giu');
 }
