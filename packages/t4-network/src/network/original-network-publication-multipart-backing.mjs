@@ -35,7 +35,8 @@ const replacementSession=s=>s?.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_SESSION_CA
 function validateSession(s){
   try{
     const exact=replacementSession(s)?validateT4OriginalReplacementSessionCandidate(s):validateT4OriginalNativeCaptureSession(s);
-    if(exact.changeKind!=='ASSET_PUT')fail('MULTIPART_BACKING_SESSION_INVALID');
+    if(exact.changeKind!=='ASSET_PUT'||exact.sourceRevision<1||
+      exact.sourcePrefixDigestBefore===exact.sourcePrefixDigestAfter)fail('MULTIPART_BACKING_SESSION_INVALID');
     return structuredClone(exact);
   }catch{fail('MULTIPART_BACKING_SESSION_INVALID');}
 }

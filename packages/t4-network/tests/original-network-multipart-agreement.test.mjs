@@ -976,3 +976,103 @@ test('K163 original terminal retirement between bounded migration wakes restarts
   assert.equal(f.indexes.has(index),false);assert.equal(f.puts,physical);assert.equal(f.writes,writes);
   assert.equal(f.indexWrites,indices);assert.equal(f.gets,reads);
 });
+
+import {deriveT4OriginalReplacementSessionCandidate,createT4OriginalReplacementSourceHead,readT4OriginalReplacementSourceHead}
+  from '../src/network/original-network-publication.mjs';
+import {T4_REPLACEMENT_SOURCE_SESSION_EXTENSION as REPL_EXT,verifyT4CandidateOutboundSignature}
+  from '../src/network/standard-network-wire-candidate.mjs';
+import {createT4OriginalMultipartBacking,readT4OriginalMultipartBacking,
+  validateT4OriginalMultipartBackingPlan,verifyT4OriginalMultipartBackingSignatures}
+  from '../src/network/original-network-publication-multipart-backing.mjs';
+
+async function replacementMultipartFixture(){
+  // Terminal phase records are modeled here. This test deliberately verifies
+  // candidate structure and signatures, not owner admission or terminal CAS.
+  const replacement={previousSessionRef:session.sessionRef,changeId:session.changeId,
+    decisionDigest:d('replacement decision'),sourcePhaseRef:'phase:source',
+    sourcePhaseEventId:'event:source:retired',sourcePhaseRevision:2,sourcePhaseChainHash:d('source retired'),
+    recipientPhaseRef:'phase:recipient',recipientPhaseEventId:'event:recipient:retired',
+    recipientPhaseRevision:1,recipientPhaseChainHash:d('recipient retired')};
+  const candidate=deriveT4OriginalReplacementSessionCandidate({originalCaptureSession:session,replacement});
+  const body=createT4OriginalReplacementSourceHead({candidate,sourceCursorBefore:before,sourceCursorAfter:after,offerMultipart:true});
+  const head=await signed(source,'HEADS',1,body,[REPL_EXT,AGREEMENT_EXT],{sessionRef:candidate.sessionRef});
+  const selection={familyRef:candidate.familyRef,fromHeads:[candidate.sourcePrefixDigestBefore],
+    multipartSelection:createT4NativeMultipartSelection({offer:body.multipartOffer,headSha256:hex(head)})};
+  const diff=await signed(recipient,'DIFF_REQUEST',1,selection,[AGREEMENT_EXT],{sessionRef:candidate.sessionRef});
+  return {candidate,replacement,body,head,diff,selection};
+}
+test('K164 replacement HEAD and exact DIFF negotiate only for the signed successor identity',async()=>{
+  const {candidate,replacement,body,head,diff,selection}=await replacementMultipartFixture();
+  assert.notEqual(candidate.sessionRef,session.sessionRef);
+  assert.equal(candidate.changeId,session.changeId);
+  const read=readT4OriginalReplacementSourceHead({identity:session,body:decodeT4CandidateFrame(head).body,
+    sessionRef:candidate.sessionRef,sourceCursorBefore:before,expectedCandidate:candidate});
+  assert.deepEqual(read.candidate,candidate);
+  assert.deepEqual(read.multipartOffer,createT4NativeMultipartOffer());
+  assert.equal(read.liveNetworkAuthorityGranted,false);
+  assert.equal(read.originalNewAttemptAdmissionStillRequired,true);
+  const compact=createT4OriginalReplacementSourceHead({candidate,sourceCursorBefore:before,sourceCursorAfter:after});
+  assert.equal(Object.hasOwn(compact,'multipartOffer'),false);
+  assert.deepEqual(readT4OriginalReplacementSourceHead({identity:session,body:compact,sessionRef:candidate.sessionRef}).candidate,candidate);
+  await assert.rejects(signed(source,'HEADS',1,body,[REPL_EXT,AGREEMENT_EXT]),code('WIRE_REPLACEMENT_HEAD_IDENTITY_MISMATCH'));
+  await assert.rejects(signed(source,'HEADS',1,body,[HEAD_EXT,REPL_EXT,AGREEMENT_EXT],{sessionRef:candidate.sessionRef}));
+  const f=fixture();
+  f.inject(head);f.inject(diff);
+  const discover=(node,type,remote)=>f.transport(node).discoverUniqueSignedFrame({
+    selector:{sourceNodeRef:remote,sessionRef:candidate.sessionRef,ownerEpoch:candidate.ownerEpoch,messageType:type,sequence:1},
+    requiredCryptoSuite:suite,supportedCriticalExtensions:[REPL_EXT,AGREEMENT_EXT]});
+  const h=await discover(recipient,'HEADS',source),df=await discover(source,'DIFF_REQUEST',recipient);
+  assert.equal(h.state,'FOUND');assert.equal(df.state,'FOUND');
+  // The receiver proofs above come from the actual wire trust path. The
+  // PRESENT anchors below are fixtures, not claimed original owner writes.
+  const outbound=async(p,bytes,node)=>{
+    const signature=await verifyT4CandidateOutboundSignature({wireBytes:bytes,verifyOriginalNodeSignature});
+    assert.equal(signature.originalSignatureVerified,true);
+    return {...p,schema:'IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1',
+      originalT3PublicationEventChainVerified:true,originalOutboundSignatureVerified:true,
+      originalOutboundAuthorityVerified:true,originalImmutableTransportReadbackVerified:true,
+      checkpointRef:'checkpoint:'+node,originalPresentEventId:'event:present:'+node,
+      originalPresentRevision:3,originalPresentChainHash:d(node),remoteReceiptProven:false};
+  };
+  const sh=await outbound(h.receipt,head,source),rd=await outbound(df.receipt,diff,recipient);
+  const a=agreement({session:candidate,sourceHead:sh,recipientDiff:df.receipt,localRole:'SOURCE',requiredCryptoSuite:suite});
+  const r=agreement({session:candidate,sourceHead:h.receipt,recipientDiff:rd,localRole:'RECIPIENT',requiredCryptoSuite:suite});
+  assert.deepEqual(a,r);assert.equal(a.originalSubjectAuthorityGranted,false);
+  assert.deepEqual(validate({agreement:a,session:candidate,headSha256:hex(head)}),a);
+  assert.throws(()=>validate({agreement:a,session}),code('MULTIPART_AGREEMENT_SESSION_MISMATCH'));
+  const other=deriveT4OriginalReplacementSessionCandidate({originalCaptureSession:session,
+    replacement:{...replacement,sourcePhaseEventId:'event:source:different'}});
+  assert.throws(()=>agreement({session:other,sourceHead:sh,recipientDiff:df.receipt,localRole:'SOURCE',requiredCryptoSuite:suite}),
+    code('MULTIPART_AGREEMENT_HEAD_MISMATCH'));
+  assert.throws(()=>agreement({session:candidate,sourceHead:sh,recipientDiff:{...df.receipt,
+    verifiedBody:{...selection,multipartSelection:createT4NativeMultipartSelection({offer:body.multipartOffer,headSha256:hex(headBytes)})}},
+    localRole:'SOURCE',requiredCryptoSuite:suite}),code('MULTIPART_AGREEMENT_DIFF_MISMATCH'));
+  assert.equal(f.puts,0);assert.equal(f.writes,0);
+});
+test('K164 replacement multipart backing is bound to its exact successor HEAD and never grants publication',async()=>{
+  const {candidate,replacement,head}=await replacementMultipartFixture();
+  const technicalWorkspaceId='workspace:technical:'+source;
+  const checkpointRef='t4:net:publish:'+identityDigest('PUBLICATION-KEY',{sessionRef:candidate.sessionRef,localNodeRef:source,technicalWorkspaceId});
+  const input={session:candidate,technicalWorkspaceId,checkpointRef,
+    rootAnchor:{revision:3,chainHash:d('root'),presentEventId:'event:replacement:head',headSha256:hex(head)},headWireBytes:head};
+  const wireBytes=await Promise.all(payload.frames.map(w=>{const frame=decodeT4CandidateFrame(w);
+    return signed(source,frame.messageType,frame.sequence,frame.body,[EXT],{sessionRef:candidate.sessionRef});}));
+  const backing=createT4OriginalMultipartBacking({...input,wireBytes});
+  assert.equal(backing.originalRootReservationRequired,true);
+  assert.equal(backing.originalPublicationStateCreated,false);
+  assert.equal(backing.originalBusinessApplied,false);
+  assert.deepEqual(validateT4OriginalMultipartBackingPlan({...input,plan:backing.plan}),backing.plan);
+  const proof=await verifyT4OriginalMultipartBackingSignatures({...input,plan:backing.plan,segments:backing.segments,verifyOriginalNodeSignature});
+  assert.deepEqual(proof.wireBytes.map(hex),wireBytes.map(hex));
+  assert.equal(proof.originalObjectEventReadbackVerified,false);
+  assert.equal(proof.originalPublicationStateCreated,false);
+  const other=deriveT4OriginalReplacementSessionCandidate({originalCaptureSession:session,
+    replacement:{...replacement,recipientPhaseEventId:'event:recipient:different'}});
+  assert.throws(()=>readT4OriginalMultipartBacking({...input,session:other,plan:backing.plan,segments:backing.segments}),
+    code('MULTIPART_BACKING_HEAD_MISMATCH'));
+  assert.throws(()=>createT4OriginalMultipartBacking({...input,wireBytes:payload.frames}),code('MULTIPART_BACKING_ROUTE_MISMATCH'));
+  const compact=createT4OriginalReplacementSourceHead({candidate,sourceCursorBefore:before,sourceCursorAfter:after});
+  const compactHead=await signed(source,'HEADS',1,compact,[REPL_EXT],{sessionRef:candidate.sessionRef});
+  assert.throws(()=>createT4OriginalMultipartBacking({...input,headWireBytes:compactHead,
+    rootAnchor:{...input.rootAnchor,headSha256:hex(compactHead)},wireBytes}),code('MULTIPART_BACKING_HEAD_MISMATCH'));
+});
