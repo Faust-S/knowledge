@@ -780,7 +780,7 @@ test('method comparison separates display order from dependency and semantic cha
   draft.steps.reverse();
   const after={...base,draft,projectRef:{...base.projectRef,recordId:'project@2',revision:2}};
   const result=compareWorkspaceMethodRevisions({before:base,after});
-  assert.equal(result.state,'CHANGES_PROPOSED');assert.equal(result.displayOrderChanged,true);
+  assert.equal(result.state,'SOURCE_REBIND_ONLY');assert.equal(result.displayOrderChanged,true);
   assert.equal(result.projectCompositionChanged,false);assert.equal(result.projectIntentChanged,false);
   assert.equal(result.reviewRequired,false);assert.deepEqual(result.changedStepIds,[]);
   assert.deepEqual(result.affectedStepIds,[]);assert.equal(result.sourceRevisionChanges.project.changed,true);
@@ -814,7 +814,7 @@ test('method comparison separates assigned material impact from unassigned mater
   const result=compareWorkspaceMethodRevisions({before:base,after});
   assert.deepEqual(result.materialChanges,[{object_id:'model',beforeRevision:2,afterRevision:77,operation:'REVISED'}]);
   assert.deepEqual(result.materialImpactStepIds,['analyse','compute']);
-  assert.deepEqual(result.affectedStepIds,['prepare','analyse','compute','review']);
+  assert.deepEqual(result.affectedStepIds,['analyse','compute','review']);
   assert.equal(result.unassignedMaterialChanges.length,0);assert.equal(result.reviewRequired,true);
   const unused={...fixture(),materials:fixture().materials.map(ref=>ref.object_id==='unused'?{...ref,revision:66}:ref)};
   const unusedResult=compareWorkspaceMethodRevisions({before:base,after:{...base,draft:unused,

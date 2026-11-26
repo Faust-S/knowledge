@@ -4,7 +4,6 @@ import { compareWorkspaceMethodRevisions } from '../src/modules/base/owners/proj
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { readWorkspaceMethodFromSourceOwner } from '../src/modules/base/owners/project-process-method-readback.mjs';
-import { prepareWorkspaceMethodSourceInputs } from '../src/modules/base/features/workspace/workspace-project-method.mjs';
 
 const workspaceId='ws-method-comparison',knowledgeAt='2026-11-26T18:00:00Z';
 const objects=['source','model','unused'].map((object_id,i)=>({workspace_id:workspaceId,object_id,revision:i+1,schema_id:'note'}));
@@ -14,7 +13,7 @@ function draft(){return{templateId:'method-a',templateRevision:'1',projectId:'pr
  {id:'prepare',name:'Prepare',actor:'human',instruction:'Read inputs',dependsOn:[],materialIds:['source']},
  {id:'analyse',name:'Analyse',actor:'agent',instruction:'Propose options',dependsOn:['prepare'],materialIds:['source','model']},
  {id:'compute',name:'Calculate',actor:'program',instruction:'Use original program after approval',dependsOn:['prepare'],materialIds:['model']}]};}
-async function base(){const {owner}=await createProjectProcessSourceOwnerQualificationHarness();const value=draft(),plan=prepareWorkspaceMethodSourceInputs({workspaceId,objects,draft:value});
+async function base(){const {owner}=await createProjectProcessSourceOwnerQualificationHarness();const value=draft();
  const recordIds={project:'comparison:project@1',works:Object.fromEntries(value.steps.map(step=>['project-a.'+step.id,'comparison:'+step.id+'@1']))};
  await createWorkspaceMethodThroughSourceOwner({owner,workspaceId,objects,draft:value,recordIds,knowledgeAt});
  return{owner,readback:await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId:'project-a'}),draft:value};}
@@ -31,7 +30,7 @@ test('single branch edit affects only its transitive dependent',async()=>{const 
 
 test('display reorder does not create semantic review',async()=>{const {owner,readback,draft:d}=await base();const after={...readback,draft:{...d,steps:[...d.steps].reverse()},projectRef:fakeRef(readback.projectRef,'-2')};
  const r=compareWorkspaceMethodRevisions({before:readback,after});assert.equal(r.displayOrderChanged,true);assert.equal(r.projectCompositionChanged,false);
- assert.equal(r.reviewRequired,false);assert.deepEqual(r.affectedStepIds,[]);assert.equal((await owner.audit()).length,5);});
+ assert.equal(r.state,'SOURCE_REBIND_ONLY');assert.equal(r.reviewRequired,false);assert.deepEqual(r.affectedStepIds,[]);assert.equal((await owner.audit()).length,5);});
 
 test('project composition change marks additions and removals',async()=>{const {owner,readback,draft:d}=await base();const add={...d,steps:[...d.steps,{id:'validate',name:'Validate',actor:'human',instruction:'Review',dependsOn:['prepare'],materialIds:['source']}]};
  const after={...readback,draft:add,projectRef:fakeRef(readback.projectRef,'-2'),workRefs:[...readback.workRefs,{family:'iwxa.work',objectId:'work:ws-method-comparison:project-a.validate',recordId:'validate@1',revision:1}]};
