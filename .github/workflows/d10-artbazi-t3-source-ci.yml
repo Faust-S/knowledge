@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 431d3fdfa040e963ffaf46a03f3223225710eaae
+          ref: 1e79578802363bb0cea5ac251a5a76a62b80dcfa
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi
-          ref: e0fa44400ab7dd6443ad4a520d2d9340fe9b6d71
+          ref: 0f6af238719a34ff2bc73bb797dddc8153d22575
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -70,6 +70,7 @@ jobs:
         run: |
           if npm install --no-save --no-package-lock --ignore-scripts > "$RUNNER_TEMP/d10-t3-domain-install.log" 2>&1 &&
              npm run test:d10:cases > "$RUNNER_TEMP/d10-t3-domain.log" 2>&1 &&
+             npm run test:crm > "$RUNNER_TEMP/d10-t3-domain-crm.log" 2>&1 &&
              node --test tests/d10-t3-assistant-skills.test.mjs > "$RUNNER_TEMP/d10-t3-domain-skills.log" 2>&1; then
             echo "D10_T3_DOMAIN_CASES_AND_SKILLS=PASS"
           else
@@ -83,6 +84,7 @@ jobs:
             cmp -s "src/commercial/$model.mjs" "../site/runtime/artbazi-module/runtime/$model.mjs"
           done
           cmp -s src/crm/deal-pipeline-review.mjs ../site/runtime/artbazi-module/runtime/deal-pipeline-review.mjs
+          cmp -s src/crm/crm-objects.mjs ../site/runtime/artbazi-module/runtime/crm-objects.mjs
           echo "D10_T3_CANONICAL_MONTH_PROJECTIONS=PASS"
       - name: Build last qualified T2 site at the exact future T3 origin
         working-directory: previous-site
