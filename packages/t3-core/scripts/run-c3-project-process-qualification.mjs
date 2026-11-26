@@ -35,8 +35,17 @@ function runCurrentNativeSourceTests(){
   process.stdout.write(gate.stdout??'');process.stderr.write(gate.stderr??'');
   if(gate.error||gate.status!==0)throw new Error('C3_CURRENT_RUNTIME_SOURCE_CONTRACT_FAILED');
   const tests=spawnSync(process.execPath,['--test','--test-reporter=tap',
-    'tests/c3-workspace-method-source-lifecycle.test.mjs','tests/c3-project-process-qualification.test.mjs'],
-    {cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    'tests/c3-project-process-owner.test.mjs',
+    'tests/c3-project-process-history.test.mjs',
+    'tests/c3-project-process-source-contract.test.mjs',
+    'tests/c3-project-process-source-owner.test.mjs',
+    'tests/c3-project-process-bridge-preview.test.mjs',
+    'tests/c3-project-process-migration.test.mjs',
+    'tests/c3-project-process-owner-adoption-candidate.test.mjs',
+    'tests/c3-process-intelligence.test.mjs',
+    'tests/c3-project-process-qualification.test.mjs',
+    'tests/c3-workspace-method-source-lifecycle.test.mjs'],
+    {cwd:root,encoding:'utf8',maxBuffer:12*1024*1024});
   process.stdout.write(tests.stdout??'');process.stderr.write(tests.stderr??'');
   if(tests.error||tests.status!==0)throw new Error('C3_CURRENT_NATIVE_SOURCE_TESTS_FAILED');
   const counts={};
@@ -45,7 +54,7 @@ function runCurrentNativeSourceTests(){
     if(rows.length!==1)throw new Error('C3_NATIVE_TEST_SUMMARY_INVALID:'+name);
     counts[name]=Number(rows[0][1]);
   }
-  if(counts.tests<47||counts.pass!==counts.tests||counts.fail||counts.cancelled||counts.skipped||counts.todo){
+  if(counts.tests<97||counts.pass!==counts.tests||counts.fail||counts.cancelled||counts.skipped||counts.todo){
     throw new Error('C3_NATIVE_SOURCE_TEST_COUNTS_INVALID');
   }
   return Object.freeze(counts);
