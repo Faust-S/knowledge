@@ -15,6 +15,7 @@ import {T4_SOURCE_EVENT_WINDOW_REQUEST,createT4OriginalSourceEventWindowRequest,
 import {T4_RECIPIENT_RESULT_REQUEST,createT4OriginalRecipientResultRequest,validateT4OriginalRecipientResultSnapshot} from './original-recipient-result-read.mjs';
 import {decodeT4CandidateFrame} from './standard-network-wire-candidate.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
+import {T4_MULTIPART_MAX_CHUNKS} from './standard-network-multipart-opaque-chunks.mjs';
 
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const SHA=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
@@ -81,11 +82,14 @@ function mapSnapshot(raw,r,encoding){
     fail('REPLACEMENT_HISTORY_CARRIER_SNAPSHOT_INVALID');
   const {publication,...meta}=v;snapshot(meta);
   if(publication===null)return v;
-  const {frames,...pub}=publication;snapshot(pub);
-  if(pub.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_BATCH_V1'||!same(pub.session,r.session)||
-    !Array.isArray(frames)||!frames.length||frames.length>80)fail('REPLACEMENT_HISTORY_CARRIER_BATCH_INVALID');
+  const {frames,head,change,...pub}=publication;snapshot(pub);
+  const multipart=pub.schema==='IWXA_T4_ORIGINAL_HISTORICAL_MULTIPART_PUBLICATION_V1';
+  if(!same(pub.session,r.session)||!Array.isArray(frames)||!frames.length||
+    (multipart?(v.role!=='SOURCE'||r.session.changeKind!=='ASSET_PUT'||frames.length<67||frames.length>T4_MULTIPART_MAX_CHUNKS+2):
+      (pub.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_BATCH_V1'||frames.length>80||head!==undefined||change!==undefined)))
+    fail('REPLACEMENT_HISTORY_CARRIER_BATCH_INVALID');
   let total=0;
-  const mapped=frames.map((raw,i)=>{
+  const mapWire=(raw,i)=>{
     const {wireBytes,wireBytesBase64,...rest}=raw;snapshot(rest);
     if(!SHA(rest.sha256)||rest.key!==rest.sha256+'.t4n'||rest.sequence!==i+1||rest.sessionRef!==r.session.sessionRef)
       fail('REPLACEMENT_HISTORY_CARRIER_FRAME_INVALID');
@@ -107,8 +111,20 @@ function mapSnapshot(raw,r,encoding){
       frame.scopeRef!==c.scopeRef||frame.ownerEpoch!==c.ownerEpoch||frame.sessionRef!==c.sessionRef||frame.sequence!==rest.sequence||frame.messageType!==rest.messageType)
       fail('REPLACEMENT_HISTORY_CARRIER_FRAME_INVALID');
     return {...rest,...(encoding?{wireBytesBase64:bytes.toString('base64')}:{wireBytes:new Uint8Array(bytes)})};
-  });
-  return {...v,publication:{...pub,frames:mapped}};
+  };
+  if(multipart){
+    snapshot(frames);
+    if(frames.some((f,i)=>!exactKeys(f,['sequence','messageType','sha256','state','key','originalPresentEventId','originalPresentRevision','originalPresentChainHash'])||
+      f.sequence!==i+1||f.messageType!== (i===0?'HEADS':i===1?'CHANGE_REF':'CHUNK')||
+      f.state!=='PRESENT'||!SHA(f.sha256)||f.key!==f.sha256+'.t4n'||!ID(f.originalPresentEventId)||
+      !Number.isSafeInteger(f.originalPresentRevision)||f.originalPresentRevision<1||
+      (i>0&&f.originalPresentRevision<=frames[i-1].originalPresentRevision)))
+      fail('REPLACEMENT_HISTORY_CARRIER_BATCH_INVALID');
+    if(![head,change].every((f,i)=>f&&['sequence','messageType','sha256','key','originalPresentEventId','originalPresentRevision','originalPresentChainHash']
+      .every(k=>f[k]===frames[i][k])))fail('REPLACEMENT_HISTORY_CARRIER_FRAME_INVALID');
+    return {...v,publication:{...publication,head:mapWire(head,0),change:mapWire(change,1)}};
+  }
+  return {...v,publication:{...pub,frames:frames.map(mapWire)}};
 }
 export function encodeT4OriginalReplacementHistoryResponse(raw,rawRequest){
   const r=request(rawRequest);return encode({schema:RESPONSE,request:r,snapshot:mapSnapshot(raw,r,true)},RESPONSE_LIMIT);

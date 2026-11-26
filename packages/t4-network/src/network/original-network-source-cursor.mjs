@@ -4,7 +4,7 @@ import {validT4NativeSubjectRevision,validT4NativeOriginalEventRevision,
   decodeT4CandidateFrame,verifyT4CandidateHistoricalFrameSignature,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_REPLACEMENT_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
 import {validateT4OriginalNativeCaptureSession,readT4OriginalSourceSessionHead,
   validateT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementSourceIntentStatus,
-  validateT4OriginalReplacementRecipientApplyAdmission,readT4OriginalReplacementSourceHead} from './original-network-publication.mjs';
+  validateT4OriginalReplacementRecipientApplyAdmission,readT4OriginalReplacementSourceHead,readT4OriginalReplacementHandshakeProfile} from './original-network-publication.mjs';
 import {requireT4OriginalRetiredAttemptStatus} from './original-network-session-phases.mjs';
 import {assembleT4CandidateOpaqueChunks} from './standard-network-opaque-chunks.mjs';
 import {T4_MULTIPART_OPAQUE_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION,T4_MULTIPART_MAX_CHUNKS,
@@ -607,14 +607,28 @@ export async function recoverT4OriginalReplacementTerminalCursorEvidence({sessio
   const ackRead=(sessionRef,expectedSha256=null)=>historyRead(()=>historicalFramePort.readOriginalHistoricalAppliedAck({selector:{
     sourceNodeRef:c.recipientNodeRef,sessionRef,ownerEpoch:c.ownerEpoch},requiredCryptoSuite,
     supportedCriticalExtensions:t4NativeSubjectCriticalExtensions(c.changeKind),expectedSha256}));
-  function publication(saved,checkpointRef,types,from,to){
-    if(saved?.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_BATCH_V1'||stable(saved.session)!==stable(c)||
+  function publication(saved,checkpointRef,types,from,to,multipartEvidence=null){
+    const multipart=multipartEvidence!==null;
+    if(saved?.schema!==(multipart?'IWXA_T4_ORIGINAL_HISTORICAL_MULTIPART_PUBLICATION_V1':'IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_BATCH_V1')||stable(saved.session)!==stable(c)||
       saved.checkpointRef!==checkpointRef||!Number.isSafeInteger(saved.originalPublicationRevision)||saved.originalPublicationRevision<1||
       !DIG(saved.originalPublicationChainHash)||saved.originalT3PublicationEventChainVerified!==true||
       saved.originalHistoricalEvidenceOnly!==true||saved.currentRemotePresenceProven!==false||saved.liveNetworkAuthorityGranted!==false||
       saved.originalBusinessApplied!==false||!Array.isArray(saved.frames)||saved.frames.length!==types.length)
       fail('CURSOR_REPLACEMENT_HISTORICAL_PUBLICATION_MISMATCH');
-    return saved.frames.map((f,i)=>{
+    if(multipart){
+      const e=multipartEvidence,a=e.agreement.originalMultipartAgreement,last=saved.frames.at(-1);
+      if(c.changeKind!=='ASSET_PUT'||!DIG(saved.planDigest)||saved.manifestDigest!==e.originalMultipartManifestDigest||
+        saved.contentDigest!==e.contentDigest||saved.agreementDigest!==a.agreementDigest||
+        saved.originalMultipartBackingEventChainVerified!==true||saved.originalAllPresentSlotsVerified!==true||
+        saved.originalSelectedCiphertextDigestVerified!==true||
+        saved.frames.some((f,i)=>f.state!=='PRESENT'||f.sequence!==i+1||f.messageType!==types[i])||
+        stable(saved.frames.map(anchor))!==stable(e.frames)||last.originalPresentRevision!==saved.originalPublicationRevision||
+        last.originalPresentChainHash!==saved.originalPublicationChainHash||
+        ![saved.head,saved.change].every((f,i)=>f&&stable(anchor(f))===stable(anchor(saved.frames[i]))))
+        fail('CURSOR_REPLACEMENT_HISTORICAL_PUBLICATION_MISMATCH');
+    }
+    const signed=multipart?[saved.head,saved.change]:saved.frames;
+    return signed.map((f,i)=>{
       if(f?.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_FRAME_V1'||f.checkpointRef!==saved.checkpointRef||
         f.sessionRef!==c.sessionRef||f.sequence!==i+1||f.messageType!==types[i]||!SHA(f.sha256)||f.key!==f.sha256+'.t4n'||
         !(f.wireBytes instanceof Uint8Array)||sha(f.wireBytes)!==f.sha256||!ID(f.originalPresentEventId)||
@@ -691,21 +705,25 @@ export async function recoverT4OriginalReplacementTerminalCursorEvidence({sessio
       stable(recipient.recipientApplyIntentEvidence)!==stable({evidenceRef:e.frames[1].key,evidenceDigest:'sha256:'+c.capturedSha256})||
       stable(recipient.recipientVerifiedEvidence)!==stable({evidenceRef:e.frames[1].key,evidenceDigest:admission.originalStateDigest}))
       fail('CURSOR_REPLACEMENT_TERMINAL_PHASE_MISMATCH');
+    const multipart=Object.hasOwn(a,'originalMultipartAgreement');
     if(!ownerReads){
-      sourcePub=await historyRead(()=>sourcePublicationPort.readOriginalHistoricalPublishedBatch());
+      if(multipart&&typeof sourcePublicationPort.readOriginalHistoricalMultipartPublication!=='function')
+        fail('CURSOR_REPLACEMENT_TERMINAL_HISTORY_PORTS_REQUIRED');
+      sourcePub=await historyRead(()=>multipart?sourcePublicationPort.readOriginalHistoricalMultipartPublication():sourcePublicationPort.readOriginalHistoricalPublishedBatch());
       recipientPub=await historyRead(()=>recipientPublicationPort.readOriginalHistoricalPublishedBatch());
     }
-    const sourceFrames=publication(sourcePub,refs[4],e.frames.map(f=>f.messageType),c.sourceNodeRef,c.recipientNodeRef);
+    const sourceFrames=publication(sourcePub,refs[4],e.frames.map(f=>f.messageType),c.sourceNodeRef,c.recipientNodeRef,multipart?e:null);
     const peerFrames=publication(recipientPub,refs[5],['DIFF_REQUEST','APPLIED_ACK'],c.recipientNodeRef,c.sourceNodeRef);
     if(ownerReads){
       // A peer read is original-authorized, not an assertion that its
       // transmitted bytes have a valid historical signature on this node.
       const [batch,frames]=requesterNodeRef===c.sourceNodeRef?[recipientPub,peerFrames]:[sourcePub,sourceFrames];
+      const signed=multipart&&batch===sourcePub?[batch.head,batch.change]:batch.frames;
       for(let i=0;i<frames.length;i++){
-        const verified=await verifyT4CandidateHistoricalFrameSignature({wireBytes:batch.frames[i].wireBytes,
+        const verified=await verifyT4CandidateHistoricalFrameSignature({wireBytes:signed[i].wireBytes,
           direction:'INBOUND',localNodeRef:requesterNodeRef,scopeRef:c.scopeRef,requiredCryptoSuite,
           supportedCriticalExtensions:frames[i].criticalExtensions,verifyOriginalHistoricalNodeSignature});mode();
-        if(verified.frameDigest!==batch.frames[i].historicalSignature.frameDigest||verified.signerRef!==frames[i].signerRef)
+        if(verified.frameDigest!==signed[i].historicalSignature.frameDigest||verified.signerRef!==frames[i].signerRef)
           fail('CURSOR_REPLACEMENT_HISTORICAL_SIGNATURE_MISMATCH');
       }
     }
@@ -720,20 +738,32 @@ export async function recoverT4OriginalReplacementTerminalCursorEvidence({sessio
       savedDiff.originalPresentRevision!==a.originalRecipientPublicationRevision||savedDiff.originalPresentChainHash!==a.originalRecipientPublicationChainHash||
       savedAck.key!==evidence.evidenceRef||'sha256:'+savedAck.sha256!==evidence.evidenceDigest)
       fail('CURSOR_REPLACEMENT_HISTORICAL_ANCHOR_MISMATCH');
-    if(stable(head.criticalExtensions)!==stable([T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]))fail('CURSOR_REPLACEMENT_HISTORICAL_HEAD_MISMATCH');
+    if(!multipart&&stable(head.criticalExtensions)!==stable([T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]))fail('CURSOR_REPLACEMENT_HISTORICAL_HEAD_MISMATCH');
     readT4OriginalReplacementSourceHead({identity:c.originalCaptureSession,body:head.body,sessionRef:c.sessionRef,sourceCursorBefore:before,expectedCandidate:c});
+    const profile=readT4OriginalReplacementHandshakeProfile({candidate:c,headBody:head.body,headSha256:savedHead.sha256,
+      headExtensions:head.criticalExtensions,enableOriginalMultipartNegotiation:multipart});
+    const canonical=x=>JSON.stringify(x,(_k,v)=>v&&typeof v==='object'&&!Array.isArray(v)?
+      Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
     const b=change.body,body=ack.body,ackRef='ack:t4:'+sha(JSON.stringify(['IWXA-T4-ORIGINAL-APPLIED-ACK-V1',c.sessionRef,c.changeId,c.capturedSha256,
       evidence.originalRecipientEventId,evidence.originalRecipientRevision,evidence.originalRecipientStateDigest]));
-    if(stable(diff.body)!==stable({familyRef:c.familyRef,fromHeads:[c.sourcePrefixDigestBefore]})||diff.criticalExtensions.length!==0||
+    if(canonical(diff.body)!==canonical(profile.diffBody)||stable(diff.criticalExtensions)!==stable(profile.diffExtensions)||
       b.changeId!==c.changeId||b.changeKind!==c.changeKind||b.eventRef!==c.sourceEventId||b.ownerRef!==c.originalWriteOwnerRef||
       b.sourceRevision!==c.sourceRevision||b.contentDigest!==e.contentDigest||stable(b.parents)!==stable([c.sourcePrefixDigestBefore])||
-      !matchesT4NativeSubjectCriticalExtensions(c.changeKind,change.criticalExtensions)||
+      (multipart?stable(change.criticalExtensions)!==stable([T4_MULTIPART_OPAQUE_EXTENSION]):
+        !matchesT4NativeSubjectCriticalExtensions(c.changeKind,change.criticalExtensions))||
       chunks.some((f,i)=>f.body.chunkIndex!==i||f.criticalExtensions.length!==0)||
       body.changeId!==c.changeId||body.contentDigest!==b.contentDigest||body.ackRef!==ackRef||body.recipientEventRef!==evidence.originalRecipientEventId||
       body.recipientRevision!==evidence.originalRecipientRevision||body.recipientStateDigest!==evidence.originalRecipientStateDigest||
       !matchesT4NativeSubjectCriticalExtensions(c.changeKind,ack.criticalExtensions))
       fail('CURSOR_REPLACEMENT_HISTORICAL_CONTENT_MISMATCH');
-    assembleT4CandidateOpaqueChunks({bodies:chunks.map(f=>f.body),expectedChangeId:c.changeId,expectedContentDigest:e.contentDigest,
+    if(multipart){
+      const m=validateT4CandidateMultipartManifest(b.multipartManifest),agreement=a.originalMultipartAgreement;
+      if(m.manifestDigest!==e.originalMultipartManifestDigest||m.changeId!==c.changeId||m.contentDigest!==e.contentDigest||
+        m.encryptionContextRef!==e.encryptionContextRef||m.parts.reduce((n,p)=>n+p.chunkCount,0)!==e.frames.length-2||
+        agreement.headSha256!==savedHead.sha256||agreement.diffSha256!==savedDiff.sha256||
+        agreement.cryptoSuite!==requiredCryptoSuite||agreement.offerDigest!==profile.diffBody.multipartSelection.offerDigest)
+        fail('CURSOR_REPLACEMENT_HISTORICAL_CONTENT_MISMATCH');
+    }else assembleT4CandidateOpaqueChunks({bodies:chunks.map(f=>f.body),expectedChangeId:c.changeId,expectedContentDigest:e.contentDigest,
       expectedEncryptionContextRef:e.encryptionContextRef});
     if(!ownerReads)accepted=await ackRead(c.sessionRef,savedAck.sha256);
     if(accepted?.schema!=='IWXA_T4_HISTORICAL_RECEIVED_FRAME_V1'||accepted.operation!=='t4.network.receive.APPLIED_ACK'||

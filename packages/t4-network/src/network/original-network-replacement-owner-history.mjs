@@ -378,9 +378,11 @@ export async function readT4OriginalReplacementOwnerHistory({request,technicalSc
   if(role==='SOURCE')validateT4OriginalReplacementSourceIntentStatus(phase,c);
   else if(!same(validateT4OriginalReplacementRecipientApplyAdmission(phase.originalReplacementRecipientAdmission).candidate,c))
     fail('REPLACEMENT_HISTORY_RECIPIENT_ADMISSION_MISMATCH');
-  const publication=await createT4OriginalNetworkPublicationPort({technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,
-    readOriginalHostContext,authorizeOriginalTechnicalRead,session:c,historicalReadOnly:true,enableOriginalTechnicalObjectHistory,verifyOriginalHistoricalNodeSignature})
-    .readOriginalHistoricalPublishedBatch();await guard();
+  const publicationPort=createT4OriginalNetworkPublicationPort({technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,
+    readOriginalHostContext,authorizeOriginalTechnicalRead,session:c,historicalReadOnly:true,enableOriginalTechnicalObjectHistory,verifyOriginalHistoricalNodeSignature});
+  const inventory=await publicationPort.inspectOriginalPublication({metadataOnly:true});await guard();
+  const publication=role==='SOURCE'&&inventory.multipartBackingReserved===true?
+    await publicationPort.readOriginalHistoricalMultipartPublication():await publicationPort.readOriginalHistoricalPublishedBatch();await guard();
   let acceptedAck=null,retiredAck=null;
   if(role==='SOURCE'){
     const replay=createT4OriginalNetworkReplayPort({technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,
