@@ -1,0 +1,174 @@
+name: D08 closed-month cash review and original Host qualification
+on:
+  push:
+    branches: ['qa/2026-11-26-d08-cash-review-c6ffba6']
+    paths: ['.github/workflows/d08-cash-forecast-qualification.yml']
+permissions:
+  contents: read
+concurrency:
+  group: d08-cash-review-c6ffba6-one-shot
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: github.event.before == '22293b803f1dc28c6a0d484c1c1dac80818c97c1' && github.event.deleted != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CI: 'true'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout exact private domain
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops
+          ref: '8520034966ef17dff56bee2f5644620134f0d9da'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: domain
+      - name: Checkout exact private site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: 'c6ffba6c1c659939417a22efcd2e94c4a660fe64'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact revisions and canonical copies
+        run: |
+          set -e
+          test "$(git -C domain rev-parse HEAD)" = '8520034966ef17dff56bee2f5644620134f0d9da'
+          test "$(git -C site rev-parse HEAD)" = 'c6ffba6c1c659939417a22efcd2e94c4a660fe64'
+          for model in enterprise-portfolio business-goods-cash-coordination business-attention-queue business-obligation business-navigation; do
+            for ext in mjs d.mts; do
+              cmp -s "domain/model/$model.$ext" "site/src/lib/$model.$ext"
+              cmp -s "domain/model/$model.$ext" "site/t2-site-module/marketops/decision/$model.$ext"
+            done
+          done
+          node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; const read=p=>JSON.parse(fs.readFileSync(p,"utf8"));const pass=read("site/t2-site-module/t2-config/marketops-workspace-passport.json");assert.equal(pass.output_object_types.length,7);const embedded=pass.schemas["ru.iwxa.marketops.business-project"].json_schema.properties.data.properties.snapshot.properties.enterprisePortfolio; const canonical=read("domain/model/enterprise-portfolio.schema.json");if(JSON.stringify(embedded)!==JSON.stringify(canonical))process.exit(1);'
+          echo D08_CASH_CANONICAL_COPIES_20_SCHEMA_7_TYPES=PASS
+      - name: Canonical native Node subject tests
+        working-directory: domain
+        run: |
+          rc=0
+          node --test tests/enterprise-portfolio.test.mjs tests/business-goods-cash-coordination.test.mjs tests/business-attention-queue.test.mjs tests/business-obligation.test.mjs tests/enterprise-mixed-trade.test.mjs tests/enterprise-sector-guidance.test.mjs tests/business-navigation.test.mjs > "$RUNNER_TEMP/d08-domain.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d08-domain.log" || true
+          if [ "$rc" -ne 0 ]; then grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-domain.log" | sed -E 's/^not ok ([0-9]+).*/D08_SUBJECT_FAILED_TEST_ORDINAL=\1/' | head -30 || true; exit "$rc"; fi
+          echo D08_CASH_SUBJECT=PASS
+      - name: Install site dependencies without private caching
+        if: always() && !cancelled()
+        id: install
+        working-directory: site
+        run: |
+          rc=0
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d08-install.log" 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then echo D08_CASH_INSTALL=FAIL; exit "$rc"; fi
+          echo D08_CASH_INSTALL=PASS
+      - name: Site TypeScript
+        id: types
+        if: always() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          npm run check:types > "$RUNNER_TEMP/d08-types.log" 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo D08_CASH_TYPES=FAIL
+            grep -E '^[A-Za-z0-9_./-]+\([0-9]+,[0-9]+\): error TS[0-9]+' "$RUNNER_TEMP/d08-types.log" | sed -E 's/(: error TS[0-9]+):.*/\1/' | head -30 || true
+            exit "$rc"
+          fi
+          echo D08_CASH_TYPES=PASS
+      - name: Full adapter regression and React rendering
+        if: always() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          npm run test:d08:adapters > "$RUNNER_TEMP/d08-adapters.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d08-adapters.log" || true
+          if [ "$rc" -ne 0 ]; then
+            echo D08_CASH_ADAPTERS=FAIL
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-adapters.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -30 || true
+            awk '/^not ok / {bad=1} /^ok / {bad=0} bad && /location:/ {print}' "$RUNNER_TEMP/d08-adapters.log" | grep -oE 'tests/[A-Za-z0-9_-]+\.test\.mjs:[0-9]+:[0-9]+' | head -30 || true
+            if grep -q 'React is not defined' "$RUNNER_TEMP/d08-adapters.log"; then echo D08_RENDER_REACT_BINDING=FAIL; fi
+            if grep -q 'ERR_ASSERTION' "$RUNNER_TEMP/d08-adapters.log"; then echo D08_ASSERTION=FAIL; fi
+            exit "$rc"
+          fi
+          echo D08_CASH_ADAPTERS=PASS
+      - name: Compile public Vite application without browser or publishing
+        if: always() && steps.types.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          npm exec -- vite build > "$RUNNER_TEMP/d08-vite.log" 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then echo D08_CASH_VITE_BUNDLE=FAIL; exit "$rc"; fi
+          test -f dist/index.html
+          echo D08_CASH_VITE_BUNDLE=PASS
+      - name: Checkout exact original T2 Host source
+        id: t2
+        uses: actions/checkout@v4
+        if: always() && steps.install.outcome == 'success'
+        with:
+          repository: Faust-S/T2
+          ref: '49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - name: Stage original Host and install existing dependencies
+        id: host
+        if: always() && steps.t2.outcome == 'success'
+        run: |
+          set -e
+          test "$(git -C t2 rev-parse HEAD)" = '49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7'
+          canonical="$GITHUB_WORKSPACE/t2/t2/current/final-successor/canonical-source"
+          host="$RUNNER_TEMP/d08-host"
+          cp -a "$canonical" "$host"
+          node "$canonical/scripts/stage-t2-external-module.mjs" "$host" "$GITHUB_WORKSPACE/site/t2-site-module/marketops" iwxa.domain.marketops marketops > "$RUNNER_TEMP/d08-stage.log" 2>&1
+          cmp -s site/src/components/enterprise-period-chart.tsx "$host/src/modules/marketops/app/EnterprisePeriodChart.tsx"
+          cd "$host"
+          npm ci --no-audit --no-fund --include=dev > "$RUNNER_TEMP/d08-host-install.log" 2>&1 || { echo D08_CHART_HOST_INSTALL=FAIL; exit 1; }
+          echo D08_CHART_HOST_STAGE_INSTALL=PASS
+      - name: Compile the staged original T2 Host
+        if: always() && steps.host.outcome == 'success'
+        run: |
+          cd "$RUNNER_TEMP/d08-host"
+          npm run build > "$RUNNER_TEMP/d08-host-build.log" 2>&1 || { echo D08_CHART_HOST_BUILD=FAIL; exit 1; }
+          test -f dist/index.html
+          echo D08_CHART_HOST_BUILD=PASS
+      - name: Real editor and chart interaction tests with exact result count
+        if: always() && steps.host.outcome == 'success'
+        run: |
+          set -e
+          host="$RUNNER_TEMP/d08-host"
+          mkdir -p "$host/tests/marketops-chart-fixture"
+          cp site/tests/enterprise-chart-interactions.dom.test.tsx site/tests/enterprise-cash-review-interactions.dom.test.tsx "$host/tests/"
+          for file in enterprise-comparison-charts enterprise-period-chart enterprise-cash-forecast-view enterprise-cash-forecast-editor enterprise-cash-review-view enterprise-cash-review-editor; do
+            cp "site/src/components/$file.tsx" "$host/tests/marketops-chart-fixture/"
+          done
+          cd "$host"
+          cat > vitest.d08.config.ts <<'EOF'
+          import { defineConfig } from "vitest/config";
+          import path from "node:path";
+          export default defineConfig({
+            resolve:{alias:[{find:"@/lib/enterprise-portfolio.mjs",replacement:path.resolve("src/modules/marketops/decision/enterprise-portfolio.mjs")},{find:"@",replacement:path.resolve("src")}]},
+            test:{environment:"jsdom",setupFiles:["tests/setup-jsdom.ts"],maxWorkers:2,
+              include:["tests/enterprise-chart-interactions.dom.test.tsx","tests/enterprise-cash-review-interactions.dom.test.tsx"],
+              reporters:[["json",{outputFile:process.env.D08_DOM_REPORT}]]}
+          });
+          EOF
+          export D08_DOM_REPORT="$RUNNER_TEMP/d08-chart-dom.json"
+          rc=0
+          npm exec -- vitest run --config vitest.d08.config.ts > "$RUNNER_TEMP/d08-chart-dom.log" 2>&1 || rc=$?
+          if [ ! -f "$D08_DOM_REPORT" ]; then echo D08_CASH_REVIEW_DOM_REPORT_MISSING=FAIL; exit 1; fi
+          node --input-type=module -e 'import fs from "node:fs";const x=JSON.parse(fs.readFileSync(process.env.D08_DOM_REPORT,"utf8"));console.log("D08_CASH_REVIEW_DOM_TOTAL="+x.numTotalTests);console.log("D08_CASH_REVIEW_DOM_PASS="+x.numPassedTests);console.log("D08_CASH_REVIEW_DOM_FAIL="+x.numFailedTests);for(const s of x.testResults??[]){for(const [i,t] of (s.assertionResults??[]).entries())if(t.status!=="passed")console.log("D08_DOM_FAILED_"+(s.name.includes("cash-review")?"REVIEW":"CHART")+"_ORDINAL="+(i+1));}if(x.numTotalTests!==9||x.numPassedTests!==9||x.numFailedTests!==0)process.exitCode=1;'
+          if [ "$rc" -ne 0 ]; then echo D08_CASH_REVIEW_DOM=FAIL; exit "$rc"; fi
+          echo D08_CASH_REVIEW_DOM=PASS
+      - name: Discard private source, generated files and local logs
+        if: always()
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/site" "$GITHUB_WORKSPACE/domain" "$GITHUB_WORKSPACE/t2" "$RUNNER_TEMP/d08-host"
+          rm -f "$RUNNER_TEMP/d08-stage.log" "$RUNNER_TEMP/d08-host-install.log" "$RUNNER_TEMP/d08-host-build.log" "$RUNNER_TEMP/d08-chart-dom.json" "$RUNNER_TEMP/d08-chart-dom.log" "$RUNNER_TEMP/d08-domain.log" "$RUNNER_TEMP/d08-install.log" "$RUNNER_TEMP/d08-types.log" "$RUNNER_TEMP/d08-adapters.log" "$RUNNER_TEMP/d08-vite.log"
