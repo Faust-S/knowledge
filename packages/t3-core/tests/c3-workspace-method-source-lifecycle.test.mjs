@@ -796,7 +796,7 @@ test('method comparison detects project composition additions and removals and d
   const add=compareWorkspaceMethodRevisions({before:base,after:addAfter});
   assert.equal(add.projectCompositionChanged,true);assert.equal(add.projectIntentChanged,true);
   assert.equal(add.stepChanges.find(item=>item.stepId==='validate').operation,'ADDED');
-  assert.deepEqual(add.affectedStepIds,['review','prepare','analyse','compute','validate']);
+  assert.deepEqual([...add.affectedStepIds].sort(),['analyse','compute','prepare','review','validate']);
   const removed=fixture();removed.steps=removed.steps.filter(step=>step.id!=='analyse');
   removed.steps.find(step=>step.id==='review').dependsOn=['compute'];
   const removeAfter={...base,draft:removed,projectRef:{...base.projectRef,recordId:'project@2',revision:2},

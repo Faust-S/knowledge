@@ -14,7 +14,7 @@ export type WorkspaceMethodRevisionReadback = Readonly<{
 }>;
 export type WorkspaceMethodRevisionComparison = Readonly<{
   schema:'IWXA_T2_WORKSPACE_METHOD_REVISION_COMPARISON_V1';
-  state:'UNCHANGED'|'CHANGES_PROPOSED';
+  state:'UNCHANGED'|'SOURCE_REBIND_ONLY'|'CHANGES_PROPOSED';
   workspaceId:string;
   projectId:string;
   projectChanges:readonly Readonly<{field:string;before:unknown;after:unknown}>[];
@@ -28,6 +28,7 @@ export type WorkspaceMethodRevisionComparison = Readonly<{
   dependencyChanges:readonly unknown[];
   materialImpactStepIds:readonly string[];
   affectedStepIds:readonly string[];
+  sourceRevisionSetChanged:boolean;
   sourceRevisionChanges:Readonly<{project:Readonly<{before:WorkspaceMethodSourceRef;after:WorkspaceMethodSourceRef;changed:boolean}>;works:readonly unknown[]}>;
   reviewRequired:boolean;
   atomicSnapshot:false;

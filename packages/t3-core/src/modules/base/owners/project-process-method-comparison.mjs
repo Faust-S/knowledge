@@ -7,8 +7,6 @@ function sameSet(a,b){return a.length===b.length&&a.every(value=>b.includes(valu
 function sameArray(a,b){return a.length===b.length&&a.every((value,index)=>value===b[index]);}
 function sameRef(a,b){return !!a&&!!b&&a.family===b.family&&a.objectId===b.objectId
   &&a.recordId===b.recordId&&a.revision===b.revision;}
-function stableMaterials(values){return [...values].map(value=>({object_id:value.object_id,revision:value.revision}))
-  .sort((a,b)=>a.object_id.localeCompare(b.object_id));}
 function mapMaterials(values){return new Map(values.map(value=>[value.object_id,value.revision]));}
 function materialDiff(before,after){
   const a=mapMaterials(before),b=mapMaterials(after),ids=[...new Set([...a.keys(),...b.keys()])].sort();
@@ -116,20 +114,25 @@ export function compareWorkspaceMethodRevisions({before,after}={}){
       changedFields:Object.freeze(fields),beforeIndex:a.draft.steps.findIndex(step=>step.id===id),
       afterIndex:b.draft.steps.findIndex(step=>step.id===id),reviewRequired:fields.length>0}));
   }
-  const changedStepIds=stepChanges.filter(item=>item.operation!=='UNCHANGED').map(item=>item.stepId);
-  const dependencyChanges=stepChanges.filter(item=>item.operation!=='UNCHANGED'
-    &&(item.changedFields.includes('DEPENDENCIES')||item.operation==='ADDED'||item.operation==='REMOVED'));
+  const orderedIds=[...b.structure.writeOrder.map(id=>id.slice(b.projectId.length+1)),
+    ...a.structure.writeOrder.map(id=>id.slice(a.projectId.length+1))]
+    .filter((id,index,all)=>all.indexOf(id)===index);
+  const changedSet=new Set(stepChanges.filter(item=>item.operation!=='UNCHANGED').map(item=>item.stepId));
+  const changedStepIds=orderedIds.filter(id=>changedSet.has(id));
+  const dependencyChanges=orderedIds.map(id=>stepChanges.find(item=>item.stepId===id))
+    .filter(item=>item&&item.operation!=='UNCHANGED'
+      &&(item.changedFields.includes('DEPENDENCIES')||item.operation==='ADDED'||item.operation==='REMOVED'));
   const assigned=new Set([...a.draft.steps,...b.draft.steps].flatMap(step=>step.materialIds));
   const unassignedMaterialChanges=materialChanges.filter(item=>!assigned.has(item.object_id));
   const assignedMaterialChanges=materialChanges.filter(item=>assigned.has(item.object_id));
-  const materialImpactSeeds=new Set([...a.draft.steps,...b.draft.steps]
+  const materialImpactSet=new Set([...a.draft.steps,...b.draft.steps]
     .filter(step=>assignedMaterialChanges.some(item=>step.materialIds.includes(item.object_id)))
     .map(step=>step.id));
-  const beforeAffected=downstream(a,[...changedStepIds,...materialImpactSeeds]);
-  const afterAffected=downstream(b,[...changedStepIds,...materialImpactSeeds]);
+  const materialImpactStepIds=orderedIds.filter(id=>materialImpactSet.has(id));
+  const beforeAffected=downstream(a,[...changedStepIds,...materialImpactStepIds]);
+  const afterAffected=downstream(b,[...changedStepIds,...materialImpactStepIds]);
   const affected=new Set([...beforeAffected,...afterAffected]);
   if(projectIntentChanged)for(const id of [...oldSteps.keys(),...newSteps.keys()])affected.add(id);
-  const orderedIds=[...newSteps.keys(),...oldSteps.keys()].filter((id,index,all)=>all.indexOf(id)===index);
   const affectedStepIds=orderedIds.filter(id=>affected.has(id));
   const sourceWorkIds=[...new Set([...beforeWorkIds,...afterWorkIds])];
   const sourceRevisionChanges=Object.freeze({
@@ -142,14 +145,16 @@ export function compareWorkspaceMethodRevisions({before,after}={}){
   });
   const semanticChanges=projectIntentChanged||stepChanges.some(item=>item.operation!=='UNCHANGED')
     ||assignedMaterialChanges.length>0;
-  const state=projectChanges.length||stepChanges.some(item=>item.operation!=='UNCHANGED')?'CHANGES_PROPOSED':'UNCHANGED';
+  const sourceRevisionSetChanged=sourceRevisionChanges.project.changed||sourceRevisionChanges.works.some(item=>item.changed);
+  const state=semanticChanges?'CHANGES_PROPOSED':sourceRevisionSetChanged?'SOURCE_REBIND_ONLY'
+    :projectChanges.length||stepChanges.some(item=>item.operation!=='UNCHANGED')?'CHANGES_PROPOSED':'UNCHANGED';
   return Object.freeze({
     schema:'IWXA_T2_WORKSPACE_METHOD_REVISION_COMPARISON_V1',state,workspaceId:a.workspaceId,projectId:a.projectId,
     projectChanges:Object.freeze(projectChanges),projectCompositionChanged,displayOrderChanged,projectIntentChanged,
     materialChanges:Object.freeze(materialChanges),unassignedMaterialChanges:Object.freeze(unassignedMaterialChanges),
     stepChanges:Object.freeze(stepChanges),changedStepIds:Object.freeze(changedStepIds),
-    dependencyChanges:Object.freeze(dependencyChanges),materialImpactStepIds:Object.freeze([...materialImpactSeeds]),
-    affectedStepIds:Object.freeze(affectedStepIds),sourceRevisionChanges,
+    dependencyChanges:Object.freeze(dependencyChanges),materialImpactStepIds:Object.freeze(materialImpactStepIds),
+    affectedStepIds:Object.freeze(affectedStepIds),sourceRevisionChanges,sourceRevisionSetChanged,
     reviewRequired:semanticChanges,atomicSnapshot:false,writeAuthorized:false,executionAuthority:false,resultReuseProven:false,
   });
 }
