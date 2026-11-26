@@ -75,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C d04-private/site rev-parse HEAD)" = "4e2d5d7ede7a1ab062772d52664021a91eb2053b"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "04486f19a6456e90a3f19418538edeb6b9873315"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "8e273c71d93d6ae8fe9b39d706c99aa1d456c953"
           test "$(git -C d04-private/model rev-parse HEAD)" = "b277a721135381813dfdc7333c7b8e8645610722"
           test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "d4f8c393a11d199f9266766af7c4569401fbeaa6"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
