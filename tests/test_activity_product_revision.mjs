@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {preparePersonalTechnologyProduct,prepareD05TechnologyProduct} from '../modules/activity-base-anonymizer/technology-product.mjs';
-import {editableProductTexts,reviseTechnologyProductText,reviewTechnologyTextChange} from '../modules/activity-base-anonymizer/technology-product-revision.mjs';
+import {editableProductTexts,reviseTechnologyProductText,reviewTechnologyTextChange,reviewTechnologyTransferContent} from '../modules/activity-base-anonymizer/technology-product-revision.mjs';
 import {suggestD05ParameterDecisions} from '../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
 import {buildD05RouteQualityComparisonExample,reviewD05ResultSelection,prepareD05DisclosureCandidate} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 import {personalRows,personalProposal,d05Candidate} from './activity_technology_product_fixture.mjs';
@@ -175,4 +175,27 @@ test('text revision reports altered practical conditions before a new local prev
  assert.deepEqual(reviewTechnologyTextChange('10 мм; 20','10; 20 мм').changed_markers.map(m=>m.kind),['UNITS']);
  assert.deepEqual(reviewTechnologyTextChange('Maximum 10 mm','Minimum 10 mm').changed_markers.map(m=>m.kind),['COMPARISONS']);
  assert.match(p.object_data.technology.instructions,/Иваном Тестовым/);
+});
+
+test('content review detects explicit gaps and supports correction using the existing local revision',async()=>{
+ const p=await preparePersonalTechnologyProduct(personalRows(),'routine_001',{...personalProposal(),
+  purpose:'Weekly review',inputs:'Weekly review',instructions:'Выполнить задачу',outputs:'Не указано'});
+ const before=reviewTechnologyTransferContent(p.object_data);
+ assert.equal(before.issues.filter(i=>i.code==='IDENTICAL_DISTINCT_ROLES').length,2);
+ assert.ok(before.issues.some(i=>i.path.endsWith('.instructions')&&i.code==='GENERIC_PROCEDURE'));
+ assert.ok(before.issues.some(i=>i.path.endsWith('.outputs')&&i.code==='EXPLICIT_PLACEHOLDER'));
+ const row=editableProductTexts(p.object_data).find(x=>x.path.endsWith('.instructions'));
+ const changed=await reviseTechnologyProductText(p,revision(p,row,'Сопоставить запланированные и выполненные работы, указать отклонения и следующие действия.'));
+ assert.ok(!reviewTechnologyTransferContent(changed.preview.object_data).issues.some(i=>i.path===row.path));
+ assert.equal(before.semantic_usefulness,'REQUIRES_RECIPIENT_REVIEW');
+ assert.equal(changed.preview.export_allowed,false);
+ const c=d05Candidate();
+ c.technology.operations[0].equipment_requirement='Не требуется';
+ const parameter=c.technology.route_parameters.find(x=>x.mode==='PARAMETERIZE');
+ assert.ok(parameter);parameter.guidance='Определяет получатель';
+ const d=await prepareD05TechnologyProduct(c,'Part');
+ const review=reviewTechnologyTransferContent(d.object_data);
+ assert.equal(review.recipient.operation_count,d.object_data.technology.operations.length);
+ assert.ok(review.issues.some(i=>i.code==='PARAMETER_WITHOUT_SELECTION_RULE'));
+ assert.ok(!review.issues.some(i=>i.path.endsWith('equipment_requirement')));
 });

@@ -109,3 +109,18 @@ test('recognized action wordings share a review candidate but differing conditio
  assert.ok(rule.variants.every(x=>x.source_text.includes('до оплаты')));
  assert.equal(rule.evidence.length,2);
 });
+
+test('nonidentical owner instructions become review candidates, not automatically repeated rules',async()=>{
+ const data=source();
+ data.accepted_results[0].review_notes='Проверить наличие подписанного договора до оплаты.\nПроверить лимит 100 рублей.';
+ data.accepted_results[1].review_notes='Проверьте наличие договора с подписью до оплаты.\nПроверьте лимит 200 рублей.';
+ const r=await reviewPersonalPracticalExperience(data);
+ assert.equal(r.rules.filter(x=>x.kind==='HUMAN_REVIEW_CRITERION').length,0);
+ assert.equal(r.related_candidates.length,1);
+ assert.equal(r.related_candidates[0].distinct_observations,2);
+ assert.ok(r.related_candidates[0].shared_terms.includes('договора'));
+ assert.equal(r.related_candidates[0].left.evidence.length,1);
+ assert.equal(r.related_candidates[0].right.evidence.length,1);
+ data.accepted_results[1].review_notes=data.accepted_results[1].review_notes.replace('до оплаты','после оплаты');
+ assert.equal((await reviewPersonalPracticalExperience(data)).related_candidates.length,0);
+});

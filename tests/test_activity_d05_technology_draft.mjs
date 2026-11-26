@@ -475,6 +475,15 @@ test('compatible route experience aligns actual controls across differing plan o
  assert.equal(out.lessons[0].order_count,2);
  assert.equal(out.lessons[0].rechecked_order_count,2);
  assert.deepEqual(out.lessons[0].observations.map(v=>v.model_number),[1,2]);
+ const different=structuredClone(r);
+ different.recorded_execution_review.profiles[1].reports[0].defects[0].resolution_note='Настроить положение упора, проверить ширину первой детали, повторить контроль партии';
+ const compared=await extractD05PracticalLessons(different,group.id,1,options);
+ assert.equal(compared.lessons.length,2);
+ assert.equal(compared.related_candidates.length,1);
+ assert.equal(compared.related_candidates[0].distinct_observations,2);
+ assert.ok(compared.related_candidates[0].shared_terms.includes('ширину'));
+ different.recorded_execution_review.profiles[1].reports[0].defects[0].resolution_note+=' после проверки';
+ assert.equal((await extractD05PracticalLessons(different,group.id,1,options)).related_candidates.length,0);
  const selected=await extractD05PracticalLessons(r,group.id,1);
  assert.equal(selected.lessons[0].order_count,1);
  const other=await extractionCase({recurring:true,recorded:true,peerReports:true,peerContextChanged:true});

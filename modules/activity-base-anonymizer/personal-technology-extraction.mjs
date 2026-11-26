@@ -93,7 +93,10 @@ export async function reviewPersonalPracticalExperience(source){
   observation.uncertainties.forEach((value,i)=>add('REPORTED_CONTEXT_LIMITATION',value,observation.id,'uncertainties.'+i));
  }
  const rules=[],single=[];
+ const singletonCriteria=[...candidates.values()].filter(r=>r.occurrences.size===1&&r.kind==='HUMAN_REVIEW_CRITERION').length;
+ const tooManyRelated=singletonCriteria>160;
  for(const row of candidates.values()){
+  if(row.occurrences.size<2&&(tooManyRelated||row.kind!=='HUMAN_REVIEW_CRITERION'))continue;
   const variants=[...row.variants].map(([source_text,refs])=>({source_text,occurrence_count:refs.size,evidence:[...refs.values()]}))
    .sort((a,b)=>b.occurrence_count-a.occurrence_count||compare(a.source_text,b.source_text));
   const primary=variants[0].source_text;
@@ -111,7 +114,7 @@ export async function reviewPersonalPracticalExperience(source){
  const candidatesForReview=compareRelatedPracticalWordings(single.filter(r=>r.kind==='HUMAN_REVIEW_CRITERION').map(r=>({id:r.rule_id,partition:r.kind,sections:[r.source_text],observations:[...new Set(r.evidence.map(e=>e.id))]})));
  const byId=new Map(single.map(r=>[r.rule_id,r]));
  const related_candidates=candidatesForReview.pairs.map(p=>({...p,left:byId.get(p.left_id),right:byId.get(p.right_id)}));
- return {status:'LOCAL_PERSONAL_PRACTICAL_EXPERIENCE',source_sha256,variant_id,related_candidates,related_comparison_limited:candidatesForReview.limited,
+ return {status:'LOCAL_PERSONAL_PRACTICAL_EXPERIENCE',source_sha256,variant_id,related_candidates,related_comparison_limited:tooManyRelated||candidatesForReview.limited,
   occurrence_count:document.observations.length,rules,source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED',
   evidence_semantics:'REPEATED_EXPLICIT_STATEMENTS_NOT_EXTERNAL_EXECUTION',export_allowed:false,iwxa_package:null};
 }
