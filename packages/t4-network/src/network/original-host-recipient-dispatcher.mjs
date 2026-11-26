@@ -697,7 +697,8 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
   const sameExtensions=(actual,expected)=>Array.isArray(actual)&&actual.length===expected.length&&
     expected.every(value=>actual.includes(value));
   function diffProfile(body,criticalExtensions){
-    if(sameExtensions(criticalExtensions,[])&&same(body,legacyDiff))return {multipart:false,headSha256:null,body:legacyDiff,extensions:[]};
+    if(expectedMultipartHeadSha256===null&&sameExtensions(criticalExtensions,[])&&same(body,legacyDiff))
+      return {multipart:false,headSha256:null,body:legacyDiff,extensions:[]};
     const headSha256=body?.multipartSelection?.headSha256;
     if(canMultipart&&sameExtensions(criticalExtensions,[T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION])&&SHA(headSha256)&&
       same(body,multipartDiff(headSha256))&&(expectedMultipartHeadSha256===null||headSha256===expectedMultipartHeadSha256))

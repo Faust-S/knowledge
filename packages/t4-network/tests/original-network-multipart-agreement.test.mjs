@@ -513,7 +513,7 @@ test('K152 existing SOURCE and RECIPIENT owner tasks negotiate multipart, recove
   assert.equal(r.writes,1);assert.deepEqual(await r.cursor().readOriginalVerifiedCursor(),before);
   receiver.dispose();f.restart();receiver=r.bind();
   const done=await receiver.runNativeOwnerStep(r.options());
-  assert.equal(done.state,'APPLIED_AND_ACKNOWLEDGED');assert.equal(done.originalRecipientApplied,true);
+  assert.equal(done.state,'RECIPIENT_CURSOR_ADVANCED');assert.equal(done.originalRecipientApplied,true);
   assert.equal(done.originalSubjectMutationInvoked,false);assert.equal(done.originalRecipientCursorAdvanced,true);
   assert.deepEqual(await r.cursor().readOriginalVerifiedCursor(),after);assert.equal(r.writes,1);
   assert.deepEqual(r.stored.bytes,new Uint8Array(assetBytes));assert.equal(r.subjectEvents.length,1);
@@ -527,8 +527,8 @@ test('K152 existing SOURCE and RECIPIENT owner tasks negotiate multipart, recove
 });
 test('K152 original recipient must explicitly select signed multipart offer; disabled or unadmitted paths never sign DIFF',async()=>{
   const f=fixture(),r=originalRecipientTask(f),host=r.bind();await f.publish(source,'HEADS',headBytes);
-  await assert.rejects(host.runNativeOwnerStep({...r.options(),enableOriginalMultipartNegotiation:false}),
-    e=>['WIRE_NATIVE_MULTIPART_NEGOTIATION_REQUIRED','RECIPIENT_NATIVE_STEP_ORIGINAL_HEADS_MISMATCH','RECIPIENT_NATIVE_OWNER_SELECTION_INVALID'].includes(e.code));
+  const disabled=await host.runNativeOwnerStep({...r.options(),enableOriginalMultipartNegotiation:false});
+  assert.equal(disabled.state,'WAITING_FOR_HEADS');
   assert.equal(r.signatures,0);assert.equal(r.opens,0);assert.equal(r.writes,0);
   r.admit(false);await assert.rejects(host.runNativeOwnerStep(r.options()),code('RECIPIENT_NATIVE_ORIGINAL_ADMISSION_DENIED'));
   assert.equal(r.signatures,0);assert.equal(r.writes,0);host.dispose();
@@ -540,4 +540,18 @@ test('K151 original native SOURCE refuses unmarked or disabled large capture bef
       code('HOST_TASK_NATIVE_MULTIPART_CAPTURE_REQUIRED'));
     assert.equal(f.puts,0);assert.equal(f.writes,0);assert.equal(t.seals,0);host.dispose();
   }
+});
+
+test('K152 new recipient profile does not add an offer or change legacy DIFF bytes for a compact signed announcement',async()=>{
+  const f=fixture(),r=originalRecipientTask(f),host=r.bind();
+  const legacy=createT4OriginalSourceSessionHead({session,sourceCursorBefore:before,sourceCursorAfter:after});
+  await f.publish(source,'HEADS',await signed(source,'HEADS',1,legacy,[HEAD_EXT]));
+  const options={...r.options(),createOriginalRecipientPublicationPort:async proof=>{
+    assert.equal(proof.originalMultipartOffer,undefined);return f.port(recipient,false);
+  }};
+  const result=await host.runNativeOwnerStep(options);
+  assert.equal(result.state,'DIFF_PRESENT');assert.equal(result.step.originalMultipartAgreementDigest,undefined);
+  const diff=decodeT4CandidateFrame((await f.port(recipient,false).inspectOriginalPublication()).frames[0].wireBytes);
+  assert.deepEqual(diff.criticalExtensions,[]);assert.deepEqual(diff.body,{familyRef:session.familyRef,fromHeads:[session.sourcePrefixDigestBefore]});
+  assert.equal(r.signatures,1);assert.equal(r.writes,0);assert.equal(r.opens,0);host.dispose();
 });

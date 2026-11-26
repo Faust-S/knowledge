@@ -483,7 +483,8 @@ export function createT4OriginalHostDispatchTaskBinding({
     };
     const liveHistory=()=>Object.fromEntries(Object.entries(history).map(([key,value])=>[key,
       typeof value==='function'?live(value):value]));
-    const request=Object.freeze({session,task,originalHostSessionRef:initial.hostSessionRef});
+    const request=Object.freeze({session,task,originalHostSessionRef:initial.hostSessionRef,
+      ...(multipart?{originalMultipartOfferRequired:true}:{})});
     const rawPhase=await createOriginalSourcePhasePort(request);
     await refresh();
     if(rawPhase?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||
@@ -531,7 +532,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       typeof frameDiscoveryPort.discoverUniqueSignedFrame!=='function')
       fail('HOST_TASK_NATIVE_SOURCE_DISCOVERY_REQUIRED');
     const discovery=scopeOriginalHostPort(frameDiscoveryPort,lifetime,
-      ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
+      ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion','originalMultipartNegotiationEnabled'],
       'HOST_TASK_NATIVE_SOURCE_DISCOVERY_REQUIRED');
     const saved=await publication.inspectOriginalPublication();
     await refresh();
