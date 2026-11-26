@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FUNCTIONALLY_QUALIFIED_INDEPENDENT_LINUX_HOST_RECONSTRUCTION_PASS",
+  "status": "FUNCTIONALLY_QUALIFIED_LOCAL_LINUX_MISMATCH_ENCRYPTED_DELIVERY_PREPARED",
   "scope": "1.6.0",
   "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -548,7 +548,7 @@
     }
   ],
   "assemblyHandoff": {
-    "status": "LOCAL_LINUX_ASSEMBLY_AUTHORIZED_EXACT_HOST_IDENTITY_PROVEN",
+    "status": "HOLD_CODEX_EXACT_BYTES_DELIVERY_IN_PROGRESS",
     "sourceRepository": "Faust-S/cehovod.ru",
     "retainedBranch": "work/2026-11-25-d05-t3-retained-inputs",
     "expectedParent": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
@@ -584,12 +584,11 @@
     },
     "environment": "Mandatory Linux x86_64 with native Linux filesystem and Linux Node/npm; the independently reproduced environment was Ubuntu 26.04, Node.js 22.16.0, npm 10.9.2. No native Windows compilation or Windows filesystem reuse.",
     "latestAttempt": {
-      "receipt": "qualification/d05/receipts/retained-host-identity-windows-mismatch-2026-11-26.json",
+      "receipt": "qualification/d05/receipts/local-linux-assembly-mismatch-2026-11-26.json",
       "expectedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
-      "reportedWindowsTree": "c33f6e2dde9f5c7ec08b6518a03e06f046a83394",
+      "reportedLinuxTree": "5501e34185397c4a5c2a421859750474d6fa7649",
       "archiveCreated": false,
-      "reason": "EXACT_RETAINED_TREE_MISMATCH",
-      "status": "WINDOWS_IDENTITY_MISMATCH_LINUX_EXACT_REPRODUCTION_CONFIRMED"
+      "reason": "EXACT_RETAINED_TREE_MISMATCH"
     },
     "independentHostIdentityProbe": {
       "workflow": "d05-t3-host-identity",
@@ -641,7 +640,27 @@
       }
     },
     "independentHostIdentityReceipt": "qualification/d05/receipts/45790502240-host-identity.json",
-    "localArchiveCreated": false
+    "localArchiveCreated": false,
+    "encryptedDelivery": {
+      "workflow": "d05-t3-encrypted-delivery",
+      "profile": "1.6.0-exact-linux-encrypted-delivery",
+      "pins": {
+        "site": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
+        "subject": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
+        "assistant": "e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f",
+        "one-core": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+        "qualified-request": "7b2f1ddddbfd0b117138c971cf94a6d44ae5cb2f",
+        "expected-tree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+        "reported-local-tree": "5501e34185397c4a5c2a421859750474d6fa7649"
+      },
+      "recipientFingerprintSha256": "354a20c29532edb08e62443e976e6f5f76561a4b4c39a4492ad5a0e7034baf08",
+      "packerBlob": "021ce248698596106cbb0ffb89d3a5049406e928",
+      "certificateBlob": "afe3d62d860392937194867883a4fb6dcaa6c736",
+      "state": "PREPARED",
+      "request": null,
+      "plaintextPublic": false,
+      "productTestsRepeated": false
+    }
   },
   "functionalQualification": {
     "receipt": "qualification/d05/receipts/45780282826-linux.json",

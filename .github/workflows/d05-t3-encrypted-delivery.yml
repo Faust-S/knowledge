@@ -1,0 +1,288 @@
+name: D05 T3 exact encrypted hosting delivery
+on:
+  push:
+    branches: ['ci/once/d05-t3-encrypted-delivery/*']
+    paths: ['.github/ci-requests/d05-t3-encrypted-delivery.json']
+
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: d05-t3-release
+  cancel-in-progress: false
+jobs:
+  identity:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout the public assembly identity harness
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+          path: harness
+      - name: Admit exactly one request and bind immutable qualification evidence
+        working-directory: harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/ci/verify_once_request.py \
+            --repository Faust-S/knowledge --workflow d05-t3-encrypted-delivery \
+            --profile 1.6.0-exact-linux-encrypted-delivery \
+            --revision site=5e3ff328f7b31d7fa69b86a0759b914148c921df \
+            --revision subject=547148d8cd74838e0dd384c9da2f196e3595bf9d \
+            --revision assistant=e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f \
+            --revision one-core=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
+            --revision qualified-request=7b2f1ddddbfd0b117138c971cf94a6d44ae5cb2f \
+            --revision expected-tree=34ce805156b5e81807a5ee2614c65c57a7464f94 \
+            --revision reported-local-tree=5501e34185397c4a5c2a421859750474d6fa7649
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("qualification/d05/receipts/45780282826-linux.json").read_text())
+          assert r["runId"]==45780282826 and r["jobId"]==139773898412
+          assert r["requestCommit"]=="7b2f1ddddbfd0b117138c971cf94a6d44ae5cb2f"
+          assert r["siteCommit"]=="5e3ff328f7b31d7fa69b86a0759b914148c921df" and r["subjectCommit"]=="547148d8cd74838e0dd384c9da2f196e3595bf9d"
+          assert r["assistantCommit"]=="e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f" and r["oneCoreCommit"]=="326f725c44d69ac99f6b912241e9e8a6c3d716a5"
+          assert r["linux"]["functionalReady"] is True
+          assert r["linux"]["snapshot"]["sourceTree"]=="34ce805156b5e81807a5ee2614c65c57a7464f94"
+          assert r["linux"]["snapshot"]["inputFiles"]==92 and r["linux"]["snapshot"]["distFiles"]==224
+          assert r["linux"]["snapshot"]["exactBytes"] is True
+          assert r["linux"]["renderedNavigation"]["clicks"]==242
+          print("D05_T3_HOST_IDENTITY_PRIOR_EVIDENCE_PASS")
+          PY
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact Linux toolchain and test the temporary-index helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          test "$(node --version)" = v22.16.0
+          test "$(npm --version)" = 10.9.2
+          . /etc/os-release
+          test "$ID" = ubuntu
+          test "$VERSION_ID" = 26.04
+          printf 'D05_T3_HOST_IDENTITY_ENV Linux %s node=%s npm=%s\n' "$VERSION_ID" "$(node --version)" "$(npm --version)"
+          node --test harness/qualification/d05/assembly/retained-tree-identity.test.mjs
+      - name: Read exact private site source without retaining credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: Faust-S/cehovod.ru
+          ref: 5e3ff328f7b31d7fa69b86a0759b914148c921df
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Read exact original assistant without retaining credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: Faust-S/T3
+          ref: e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f
+          token: ${{ secrets.DOMEN }}
+          path: assistant
+          persist-credentials: false
+      - name: Read exact original One Core source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: Faust-S/knowledge
+          ref: 326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          path: one-core
+          persist-credentials: false
+      - name: Confirm source pins and native Git filemode
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C site rev-parse HEAD)" = '5e3ff328f7b31d7fa69b86a0759b914148c921df'
+          test "$(git -C assistant rev-parse HEAD)" = 'e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f'
+          test "$(git -C one-core rev-parse HEAD)" = '326f725c44d69ac99f6b912241e9e8a6c3d716a5'
+          test "$(git -C site config --get core.filemode)" = true
+          test -z "$(git -C site status --porcelain --untracked-files=no)"
+          echo D05_T3_HOST_IDENTITY_SOURCE_PINS_PASS
+      - name: Install dependencies without exporting private sources
+        working-directory: site
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+        run: |
+          npm ci --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-npm.log" 2>&1 || { echo D05_T3_NPM_FAIL; exit 1; }
+      - name: Verify exact portable common platform
+        working-directory: site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/artifacts/14920233669/zip > "$RUNNER_TEMP/t3-artifact.zip"
+          unzip -p "$RUNNER_TEMP/t3-artifact.zip" platform-inputs.zip > "$RUNNER_TEMP/platform-inputs.zip"
+          if ! node scripts/t3-platform-inputs.mjs verify "$RUNNER_TEMP/platform-inputs.zip" > "$RUNNER_TEMP/d05-t3-platform.log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_PLATFORM_[A-Z0-9_]+' "$RUNNER_TEMP/d05-t3-platform.log" | sort -u | head -20 || true
+            echo D05_T3_PLATFORM_FAIL
+            exit 1
+          fi
+          echo D05_T3_PLATFORM_PASS
+      - name: Compile original T3 Host with current domain module and shared assistant
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-host.log"
+          if ! npm run prepare:t3-host -- "$GITHUB_WORKSPACE/one-core/packages/t3-core" "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/assistant" https://cehovod.ru >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_HOST_PHASE_[A-Z0-9_]+' "$log" | tail -5 || true
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T[23]_[A-Z0-9_]+|TS[0-9]{4,6}|ERR_[A-Z0-9_]+' "$log" | sort -u | head -50 || true
+            node --input-type=module <<'JS'
+          import {readFileSync} from "node:fs";
+          import {basename} from "node:path";
+          const rows=readFileSync(process.env.RUNNER_TEMP+"/d05-t3-host.log","utf8").split("\n");
+          const found=new Set();
+          for(const row of rows){
+            const match=row.match(/^\s*([A-Za-z0-9_./-]{1,240})\((\d{1,6}),(\d{1,6})\): error (TS\d{4,6}):/);
+            if(!match)continue;
+            const key=JSON.stringify({file:basename(match[1]),line:Number(match[2]),column:Number(match[3]),code:match[4],area:match[1].includes("cehovod/")?"domain":match[1].includes("node_modules")?"dependency":"core"});
+            if(!found.has(key)&&found.size<60){found.add(key);console.log("D05_T3_HOST_TYPE_DIAG "+key);}
+          }
+          JS
+            echo D05_T3_HOST_BUILD_FAIL
+            exit 1
+          fi
+          echo D05_T3_HOST_BUILD_PASS
+      - name: Retain verified original Host and platform in the local version directory
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-retain.log"
+          if ! npm run retain:t3-inputs -- "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/platform-inputs.zip" >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_[A-Z0-9_]+' "$log" | sort -u | head -30 || true
+            echo D05_T3_RETAIN_FAIL
+            exit 1
+          fi
+          if ! npm run retain:t3-inputs -- "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/platform-inputs.zip" >"$log" 2>&1; then
+            echo D05_T3_RETAIN_REPEAT_FAIL
+            exit 1
+          fi
+          grep -Eq '"added":0' "$log"
+          echo D05_T3_RETAIN_PASS
+      - name: Compare exact rebuilt tree and executable-bit-only alternative
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git -C site status --porcelain --untracked-files=no)"
+          log="$RUNNER_TEMP/d05-t3-host-identity.log"
+          rc=0
+          node harness/qualification/d05/assembly/retained-tree-identity.mjs site \
+            34ce805156b5e81807a5ee2614c65c57a7464f94 \
+            5501e34185397c4a5c2a421859750474d6fa7649 >"$log" 2>&1 || rc=$?
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync} from "node:fs";
+          const rows=readFileSync(process.env.RUNNER_TEMP+"/d05-t3-host-identity.log","utf8").split(/\r?\n/).filter(l=>l.startsWith('{"status":"D05_T3_HOST_IDENTITY_')).map(JSON.parse);
+          assert.equal(rows.length,1,"D05_T3_HOST_IDENTITY_RECEIPT_MISSING");
+          const r=rows[0],sha=/^[0-9a-f]{40}$/,digest=/^[0-9a-f]{64}$/;
+          assert.ok(["D05_T3_HOST_IDENTITY_PASS","D05_T3_HOST_IDENTITY_MISMATCH"].includes(r.status));
+          assert.equal(r.head,"5e3ff328f7b31d7fa69b86a0759b914148c921df");assert.equal(r.expectedTree,"34ce805156b5e81807a5ee2614c65c57a7464f94");
+          assert.equal(r.reportedWindowsTree,"5501e34185397c4a5c2a421859750474d6fa7649");
+          assert.ok(sha.test(r.tree)&&sha.test(r.allRegularTree));
+          for(const k of ["contentInventorySha256","modeInventorySha256","hostReceiptSha256","compiledFilesInventorySha256","moduleSourceInventorySha256"])assert.ok(digest.test(r[k]));
+          for(const k of ["inputFiles","executableFiles","regularFiles"])assert.ok(Number.isSafeInteger(r[k])&&r[k]>=0);
+          assert.equal(r.inputFiles,r.executableFiles+r.regularFiles);
+          assert.equal(r.normalIndexUnchanged,true);assert.equal(r.productTestsRepeated,false);assert.equal(r.productAccepted,false);
+          assert.equal(r.expectedTreeMatched,r.tree===r.expectedTree);
+          assert.equal(r.reportedWindowsTreeExplainedByModesOnly,r.expectedTreeMatched&&r.tree!==r.allRegularTree&&r.allRegularTree===r.reportedWindowsTree);
+          // Only aggregate hashes, counts and booleans leave the private checkout.
+          console.log(JSON.stringify(r));
+          assert.equal(r.inputFiles,92);
+          JS
+          exit "$rc"
+      - name: Retain exact identity evidence and remove external source checkouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F '{"status":"D05_T3_HOST_IDENTITY_PASS",' "$RUNNER_TEMP/d05-t3-host-identity.log" > "$RUNNER_TEMP/d05-delivery-identity.json"
+          for name in assistant one-core; do
+            test -d "$GITHUB_WORKSPACE/$name"
+            test ! -L "$GITHUB_WORKSPACE/$name"
+            rm -rf "$GITHUB_WORKSPACE/$name"
+            test ! -e "$GITHUB_WORKSPACE/$name"
+          done
+          echo D05_T3_DELIVERY_EXACT_INPUTS_PASS
+      - name: Build complete local T3 dist from retained inputs
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-product.log"
+          if ! node scripts/build-cehovod-t3-local-site.mjs >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T3_[A-Z0-9_]+|TS[0-9]{4,6}' "$log" | sort -u | head -30 || true
+            echo D05_T3_DIST_BUILD_FAIL
+            exit 1
+          fi
+          echo D05_T3_DIST_BUILD_PASS
+      - name: Verify the canonical assembled T3 distribution before browser qualification
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-verify-production.log"
+          if ! npm run verify:product:t3 -- --production >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+            echo D05_T3_PRODUCTION_DIST_FAIL
+            exit 1
+          fi
+          grep -Eq '^\{"files":[0-9]+,"pages":[0-9]+,"skills":11,"originalKernel":true,"sharedEngine":true,"productAccepted":false,"status":"CEHOVOD_T3_DIST_VERIFIED_NOT_PRODUCT_ACCEPTED","productionOrigin":true\}$' "$log"
+          echo D05_T3_PRODUCTION_DIST_PASS
+      - name: Verify exact input receipt and package only qualified output
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          packer="$GITHUB_WORKSPACE/harness/qualification/d05/assembly/package-delivery.py"
+          printf '%s  %s\n' '5bf6f648d936392cbdc1c8d3c739b46a23a60db1c744a5075f74ab2d4fe5d91b' "$packer" | sha256sum -c -
+          log="$RUNNER_TEMP/d05-t3-delivery-package.log"
+          if ! python3 "$packer" "$GITHUB_WORKSPACE/site" "$RUNNER_TEMP/d05-delivery-identity.json" "$RUNNER_TEMP/d05-delivery-private" >"$log" 2>&1; then
+            echo D05_T3_DELIVERY_PACKAGE_FAIL
+            exit 1
+          fi
+          grep -E '^\{"status": "D05_T3_DELIVERY_PACKAGED", "tree": "[a-f0-9]{40}", "distFiles": 224, "inputFiles": 92, "hostingSha256": "[a-f0-9]{64}", "retainedSha256": "[a-f0-9]{64}", "hostingBytes": [0-9]+, "retainedBytes": [0-9]+\}$' "$log"
+      - name: Encrypt delivery before any artifact upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          cert="$GITHUB_WORKSPACE/harness/qualification/d05/assembly/delivery-recipient-2026-11-26.pem"
+          test "$(openssl x509 -in "$cert" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':')" = '354A20C29532EDB08E62443E976E6F5F76561A4B4C39A4492AD5A0E7034BAF08'
+          mkdir "$RUNNER_TEMP/d05-encrypted"
+          (
+            cd "$RUNNER_TEMP/d05-delivery-private"
+            python3 -m zipfile -c "$RUNNER_TEMP/d05-delivery-private.zip" cehovod-t3-1.6.0-hosting.zip cehovod-t3-1.6.0-retained-inputs.zip delivery-receipt.json
+          )
+          openssl cms -encrypt -binary -aes-256-gcm -outform DER \
+            -in "$RUNNER_TEMP/d05-delivery-private.zip" \
+            -out "$RUNNER_TEMP/d05-encrypted/d05-release.cms" \
+            -recip "$cert" -keyopt rsa_padding_mode:oaep -keyopt rsa_oaep_md:sha256
+          test -s "$RUNNER_TEMP/d05-encrypted/d05-release.cms"
+          openssl cms -cmsout -inform DER -in "$RUNNER_TEMP/d05-encrypted/d05-release.cms" -print | grep -E 'contentType:|algorithm:' > "$RUNNER_TEMP/d05-encryption-structure.txt"
+          grep -q 'id-smime-ct-authEnvelopedData' "$RUNNER_TEMP/d05-encryption-structure.txt"
+          grep -q 'aes-256-gcm' "$RUNNER_TEMP/d05-encryption-structure.txt"
+          grep -q 'rsaesOaep' "$RUNNER_TEMP/d05-encryption-structure.txt"
+          rm -rf "$RUNNER_TEMP/d05-delivery-private" "$RUNNER_TEMP/d05-delivery-private.zip"
+          printf 'D05_T3_ENCRYPTED_DELIVERY_SHA256 '
+          sha256sum "$RUNNER_TEMP/d05-encrypted/d05-release.cms" | cut -d' ' -f1
+      - name: Upload only authenticated encrypted release bytes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: d05-t3-1.6.0-encrypted-delivery
+          path: ${{ runner.temp }}/d05-encrypted/d05-release.cms
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Remove all disposable private build and delivery data
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/site" "$GITHUB_WORKSPACE/assistant" "$GITHUB_WORKSPACE/one-core" "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/d05-delivery-private" "$RUNNER_TEMP/d05-encrypted"
+          rm -f "$RUNNER_TEMP"/d05-t3-*.log "$RUNNER_TEMP/t3-artifact.zip" "$RUNNER_TEMP/platform-inputs.zip" "$RUNNER_TEMP/d05-delivery-private.zip" "$RUNNER_TEMP/d05-delivery-identity.json" "$RUNNER_TEMP/d05-encryption-structure.txt"

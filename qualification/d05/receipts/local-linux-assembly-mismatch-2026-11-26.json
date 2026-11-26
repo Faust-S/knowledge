@@ -1,0 +1,33 @@
+{
+  "schema": "IWXA_D05_T3_LOCAL_ASSEMBLY_MISMATCH/1",
+  "expectedTree": "34ce805156b5e81807a5ee2614c65c57a7464f94",
+  "reportedLinuxTree": "5501e34185397c4a5c2a421859750474d6fa7649",
+  "reportedWindowsTree": "c33f6e2dde9f5c7ec08b6518a03e06f046a83394",
+  "reportedPlatformAndHostPreparation": "PASS",
+  "reportedEnvironment": {
+    "os": "Ubuntu 26.04",
+    "node": "22.16.0",
+    "npm": "10.9.2"
+  },
+  "subjectCheckoutMissing": true,
+  "subjectCheckoutAlsoAbsentFromSuccessfulIdentityRun": true,
+  "exactDifferenceCause": "UNKNOWN",
+  "priorFunctionalReceipt": "qualification/d05/receipts/45780282826-linux.json",
+  "priorIdentityReceipt": "qualification/d05/receipts/45790502240-host-identity.json",
+  "decision": "Do not ask Codex to reconstruct Host again. Exact retained files must be preserved in the build environment that reproduced the qualified tree. Assemble final hosting ZIP there; authenticated encryption to a temporary public certificate for delivery; no plaintext private artifact, no private publication, no product regression.",
+  "encryption": {
+    "algorithm": "RSA-3072 OAEP SHA-256 / AES-256-GCM CMS",
+    "recipientFingerprintSha256": "354a20c29532edb08e62443e976e6f5f76561a4b4c39a4492ad5a0e7034baf08",
+    "privateKeyUploaded": false,
+    "localRoundtripAndTamperRejection": "PASS",
+    "retentionDays": 1
+  },
+  "packaging": {
+    "localFixture": "PASS",
+    "packerBlob": "021ce248698596106cbb0ffb89d3a5049406e928",
+    "expectedInputs": 92,
+    "expectedDistFiles": 224
+  },
+  "artifactCreated": false,
+  "productAccepted": false
+}
