@@ -24,7 +24,7 @@ export function D05LocalContextPanel({review,scopeLabel,guidance,mappings,onAppl
  review:D05FunctionalMappingReview;scopeLabel:(scope:string)=>string;guidance:string;mappings:D05ContextMapping[];
  onApply:(guidance:string,mappings:D05ContextMapping[])=>void;
 }){
- const [page,setPage]=useState(0),[selected,setSelected]=useState(''),[requirement,setRequirement]=useState('');
+ const [page,setPage]=useState(0),[contextPage,setContextPage]=useState(0),[selected,setSelected]=useState(''),[requirement,setRequirement]=useState('');
  const key=(e:{scope:string;field:string})=>e.scope+':'+e.field;
  const current=review.local_context_entries.find(e=>key(e)===selected);
  const lines=guidance.split(/\r?\n/).map(v=>v.trim()).filter(Boolean);
@@ -53,10 +53,11 @@ export function D05LocalContextPanel({review,scopeLabel,guidance,mappings,onAppl
  return <details className="activity-domain-group">
   <summary>Обобщить локальные условия и документы</summary>
   <p>Правила получателя выводятся из известных видов исходных условий. Неизвестное содержание примечания или документа не восстанавливается автоматически.</p>
-  {review.context_requirements.map((r,i)=><div key={r.scope+':'+r.code+':'+i} className="activity-domain-op">
+  {review.context_requirements.slice(contextPage*6,(contextPage+1)*6).map((r,i)=><div key={r.scope+':'+r.code+':'+i} className="activity-domain-op">
    <strong>{contextLabels[r.code]??r.code} · {scopeLabel(r.scope)}</strong>
    {r.suggested_requirement?<><p>{r.suggested_requirement}</p>{r.code==='SOURCE_NOTE_INSTRUCTION'?<p>Сначала проверьте применимость и частные обозначения. Это исходное указание, не новый норматив.</p>:null}<button disabled={lines.includes(r.suggested_requirement)||append(r.suggested_requirement).length>4096} onClick={()=>onApply(append(r.suggested_requirement!),mappings)}>Добавить к условиям получателя</button></>:<p>Требуется содержательное уточнение исходной записи.</p>}
   </div>)}
+  {review.context_requirements.length>6?<div className="activity-v7-actions"><button disabled={!contextPage} onClick={()=>setContextPage(p=>p-1)}>Назад</button><span>{contextPage+1} / {Math.ceil(review.context_requirements.length/6)}</span><button disabled={(contextPage+1)*6>=review.context_requirements.length} onClick={()=>setContextPage(p=>p+1)}>Далее</button></div>:null}
   {all.length>1?<button disabled={suggestedText.length>4096} onClick={()=>onApply(suggestedText,mappings)}>Добавить предложенные правила ({all.length})</button>:null}
   <h4>Исходные локальные сведения</h4>
   {!review.local_context_entries.length?<p>Подробные сведения не включены в выборку либо отсутствуют. Для просмотра включите исходные примечания и документы перед чтением маршрутов.</p>:null}

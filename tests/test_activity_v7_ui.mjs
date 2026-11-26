@@ -84,7 +84,7 @@ test('A4.1 is reachable inside the native shell with actual local route comparis
  const inner=load('../desktop/src/ActivityInnerPage.tsx');
  const page=load('../desktop/src/DomainRouteComparison.tsx');
  assert.match(inner,/case 'Группировка маршрутов':return <DomainRouteComparison/);
- assert.match(page,/reviewD05ResultSelection\(records,\{includeTechnologyDraft:true\}\)/);
+ assert.match(page,/reviewD05ResultSelection\(records,\{includeTechnologyDraft:true,includeLocalContextDetails\}\)/);
  assert.match(page,/multiple accept="\.json,application\/json"/);
  assert.match(page,/JSON.parse\(await file.text\(\)\)/);
  assert.match(page,/generation.current/);
@@ -97,9 +97,11 @@ test('A4.1 domain Host is separate from generic D2 and uses an explicit original
  const app=load('../desktop/src/App.tsx');
  const surface=load('../desktop/src/host-surface.tsx');
  assert.match(page,/await host\.readSelectedRoutes\(\)/);
+ assert.match(page,/host\.readSelectedRoutes\(\{includeRecordedReports,includeLocalContextDetails:true\}\)/);
+ assert.match(page,/onChange=\{e=>\{reset\(\);setIncludeLocalContextDetails\(e.target.checked\);\}\}/);
  assert.match(page,/host\.subscribeInvalidation/);
  assert.match(page,/ORIGINAL_SIGNED_SELECTED_READBACK/);
- assert.match(page,/hostConnected\?<button/);
+ assert.match(page,/hostConnected\?<><button/);
  assert.match(app,/d05RouteHost/);
  assert.match(surface,/readSelectedRoutes,subscribeInvalidation/);
  assert.match(surface,/IWXA_ACTIVITY_NARROW_D05_HOST_REQUIRED/);
