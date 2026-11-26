@@ -47,7 +47,7 @@ function number(value,issues){
 }
 const linked=(row,...targets)=>targets.every(t=>id(t)&&row.links.has(t));
 const flag=(v,values)=>values.has(v)?v:null;
-export function projectD05RecordedExecution(entries,plans,templates,details,workspace,templateRevisions){
+export function projectD05RecordedExecution(entries,plans,templates,details,workspace,templateRevisions,normativeReviews=[]){
  need(Array.isArray(details)&&details.length<=512,'D05_RECORDED_SELECTION_LIMIT');
  const rows=details.map(d=>read(d,workspace));
  need(new Set(rows.map(r=>r.id)).size===rows.length,'D05_RECORDED_DUPLICATE');
@@ -68,6 +68,13 @@ export function projectD05RecordedExecution(entries,plans,templates,details,work
   // results to a later changed route without that historical source.
   const planList=plans.filter(p=>p.body.linked_operation_route_id===entry.routeId&&p.links.has(entry.routeId));
   const plan=planList.length===1?planList[0]:null;
+  const normative=normativeReviews.find(v=>v.model_number===entry.number);
+  // The draft sorts the complete original declarations; map plan order into
+  // that order, without treating identical duplicate controls as identifiable.
+  const signatures=normative?.status==='DECLARED_CHECKS_READ'?normative.draftChecks.map(v=>JSON.stringify(v)):[];
+  const sorted=[...signatures].sort(cmp),counts=new Map();
+  for(const signature of signatures)counts.set(signature,(counts.get(signature)??0)+1);
+  const controlMap=signatures.map(v=>counts.get(v)===1?sorted.indexOf(v)+1:null);
   for(const order of orders){
    if(entry.sourceRevision!==1||order.ref.revision!==1){issues.add('FROZEN_ROUTE_REVISION_REQUIRED');continue;}
    if(!linked(order,entry.routeId)){issues.add('ORDER_ROUTE_LINK_MISSING');continue;}
@@ -136,6 +143,7 @@ export function projectD05RecordedExecution(entries,plans,templates,details,work
      qualityIds.set(row.id,quality.length+1);related.add(row.id);
      quality.push({kind:'CONTROL_REPORT',reported_sequence:known?qcRows.indexOf(row)+1:null,control:localText(template.title),status:v.status,
       control_number:plan.body.check_template_ids.indexOf(v.control_point_ref)+1,
+      canonical_control_number:controlMap[plan.body.check_template_ids.indexOf(v.control_point_ref)]??null,
       operation_id:entry.aliases.get(template.related_operation_id)??null,scope_number:scopeNumber(v),
       scope:v.batch_ref?'BATCH_REPORT':'ORDER_REPORT',measured_value:localText(v.measured_value),
       deviation_type:localText(v.deviation_type),result_note:localText(v.text_result),comment:localText(v.comment)});

@@ -1,4 +1,5 @@
-import {useMemo,useState} from 'react';
+import {useLayoutEffect,useState} from 'react';
+import {selectD05PracticalExperience} from '../../modules/activity-base-anonymizer/d05-practical-lessons.mjs';
 import type {SourceReference} from '../../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 import {suggestD05ParameterDecisions} from '../../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
 import {PresidioReviewPanel} from './PresidioReviewPanel';
@@ -20,10 +21,16 @@ export function TechnologyDisclosurePanel({review,groupId,profile,operations,for
  const [computed,setComputed]=useState<{form:D05TechnologyProposalForm;decisions:Record<string,D05ParameterDecision>;value:D05DisclosureCandidate}|null>(null);
  const [error,setError]=useState('');
  const candidate=computed?.form===form&&computed.decisions===decisions?computed.value:null;
- const sourceReferences=useMemo<SourceReference[]>(()=>{
-  const r=review as D05RouteReview;
-  if(!r?.groups?.some(g=>g.id===groupId&&g.model_numbers.includes(profile.model_number)))return [];
-  return r.recorded_execution_review?.profiles.find(p=>p.model_number===profile.model_number)?.source_references??[];
+ const [sourceReferences,setSourceReferences]=useState<SourceReference[]>([]);
+ const [referencesReady,setReferencesReady]=useState(false);
+ useLayoutEffect(()=>{
+  let active=true;setReferencesReady(false);
+  const selected=(review as D05RouteReview)?.recorded_execution_review?.profiles.find(p=>p.model_number===profile.model_number)?.source_references??[];
+  setSourceReferences(selected);
+  void selectD05PracticalExperience(review,groupId,profile.model_number,{includeCompatibleDeclarations:true})
+   .then(r=>{if(active){setSourceReferences(r.source_references);setReferencesReady(true);}})
+   .catch(()=>{if(active)setReferencesReady(true);});
+  return()=>{active=false;};
  },[review,groupId,profile.model_number]);
  const fields=profile.conditions.filter(c=>c.use==='ADAPTATION_REVIEW');
  const selectedFields=fields.filter(c=>c.scope===scope);
@@ -103,7 +110,7 @@ export function TechnologyDisclosurePanel({review,groupId,profile,operations,for
     <p>Незаполненных полей предложения: {candidate.missing_proposal_fields.length}. Нерешённых исходных требований: {candidate.unresolved_source_requirements.length}. Сохранено контрольных точек: {candidate.technology.quality_checks.length}.</p>
     <PresidioReviewPanel candidate={candidate}/>
     <ObservationReviewPanel candidate={candidate}/>
-    <TechnologyProductPanel candidate={candidate} suggestedTitle={suggestedTitle} sourceReferences={sourceReferences}/>
+    {referencesReady?<TechnologyProductPanel candidate={candidate} suggestedTitle={suggestedTitle} sourceReferences={sourceReferences}/>:<p role="status">Сопоставляются известные частные обозначения исходного опыта…</p>}
     <p className="activity-v7-note hold">Текстовая проверка не заменяет оценку уникальности графа, коммерческих сведений и статистических выпусков. Анонимность и право передачи не установлены.</p>
    </div>:null}
   </div>:null}

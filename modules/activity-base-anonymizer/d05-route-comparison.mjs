@@ -342,7 +342,7 @@ export function reviewD05RouteModelsWithQuality(records,planDetails,templateReco
   const resultWithDraft=includeTechnologyDraft?attachTechnologyDraft(output,records,entries,reviewed):output;
   if(recordedDetails!==null){
     require(includeTechnologyDraft,'D05_RECORDED_SELECTION_REQUIRES_TECHNOLOGY');
-    return {...resultWithDraft,recorded_execution_review:projectD05RecordedExecution(entries,plans,templates,recordedDetails,ws,new Map(templateRecords.map(row=>[row.object_id,row.revision])))};
+    return {...resultWithDraft,recorded_execution_review:projectD05RecordedExecution(entries,plans,templates,recordedDetails,ws,new Map(templateRecords.map(row=>[row.object_id,row.revision])),reviewed)};
   }
   return resultWithDraft;
 }

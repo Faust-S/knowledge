@@ -4,18 +4,22 @@ export function D05PracticalLessonsPanel({review,groupId,modelNumber,guidance,on
  review:unknown;groupId:string;modelNumber:number;guidance:string;onApply:(value:string)=>void;
 }){
  const epoch=useRef(0),[result,setResult]=useState<PracticalLessonReview|null>(null),[busy,setBusy]=useState(false);
+ const [includeCompatible,setIncludeCompatible]=useState(true);
  const [selected,setSelected]=useState<Record<string,string>>({}),[page,setPage]=useState(0),[error,setError]=useState('');
  useLayoutEffect(()=>{const token=++epoch.current;setResult(null);setSelected({});setPage(0);setError('');setBusy(true);
-  void extractD05PracticalLessons(review,groupId,modelNumber).then(r=>{if(token===epoch.current){setResult(r);setSelected(Object.fromEntries(r.lessons.filter(l=>l.suggested_guidance&&!l.wording_review_required).map(l=>[l.lesson_id,l.suggested_guidance!])));}})
+  void extractD05PracticalLessons(review,groupId,modelNumber,{includeCompatibleDeclarations:includeCompatible}).then(r=>{if(token===epoch.current){setResult(r);setSelected(Object.fromEntries(r.lessons.filter(l=>l.suggested_guidance&&!l.wording_review_required).map(l=>[l.lesson_id,l.suggested_guidance!])));}})
    .catch(()=>{if(token===epoch.current)setError('Не удалось сопоставить зарегистрированные исправления с выбранной технологией.');})
    .finally(()=>{if(token===epoch.current)setBusy(false);});
-  return()=>{epoch.current++;};},[review,groupId,modelNumber]);
- if(!result?.lessons.length&&!busy&&!error)return null;
+  return()=>{epoch.current++;};},[review,groupId,modelNumber,includeCompatible]);
+ if(!busy&&!error&&!result)return null;
  const lines=Object.values(selected).map(x=>x.trim()).filter(Boolean);
  const additions=[...new Set(lines)].filter(line=>!guidance.includes(line));
  const next=[guidance.trim(),...additions].filter(Boolean).join('\n');
  return <div className="activity-domain-group">
   <h3>Практические правила из зарегистрированных исправлений</h3>
+  <label><input type="checkbox" checked={includeCompatible} onChange={e=>setIncludeCompatible(e.target.checked)}/> Учитывать опыт совместимых исходных маршрутов</label>
+  {result?<p>Маршрутов в выборке: {result.source_model_numbers.length}. Отчётов: {result.source_report_count}. {result.excluded_duplicate_order_count||result.excluded_unaligned_count?`Исключены повторные заказы (${result.excluded_duplicate_order_count}) и неоднозначные контрольные связи (${result.excluded_unaligned_count}).`:''}</p>:null}
+  {result&&!result.lessons.length?<p>В выбранном опыте нет связанных описаний исправления и контрольного отклонения.</p>:null}
   <p>Выделены связанные отклонения, записанные действия и последующие проверки той же контрольной точки и партии. Повторяющиеся записи одного заказа не увеличивают число заказов. Сведения требуют предметного обобщения и обезличивания.</p>
   {busy?<p role="status">Сопоставляются зарегистрированные исправления…</p>:null}
   {error?<p role="alert">{error}</p>:null}

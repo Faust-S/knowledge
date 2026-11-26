@@ -2,17 +2,55 @@
 // Results. No new result owner, quality gate, scheduler or technology format.
 import {ActivityHold,sha256Canonical} from './engine.mjs';
 import {practicalWordingKey} from './practical-rule-wording.mjs';
+import {reviewD05RecurringTechnologies} from './d05-recurring-technology.mjs';
 const need=(ok,code)=>{if(!ok)throw new ActivityHold(code);};
 const cmp=(a,b)=>a<b?-1:a>b?1:0;
 const text=v=>typeof v==='string'&&v.trim()?v.trim():null;
 const validNumber=v=>Number.isSafeInteger(v)&&v>0;
-export async function extractD05PracticalLessons(review,groupId,modelNumber){
+export async function selectD05PracticalExperience(review,groupId,modelNumber,{includeCompatibleDeclarations=false}={}){
  const group=review?.groups?.find(g=>g.id===groupId);
- const profile=review?.recorded_execution_review?.profiles?.find(p=>p.model_number===modelNumber);
- need(group?.model_numbers.includes(modelNumber)&&review.export_allowed===false,'D05_LESSON_SELECTION');
- const source=profile?.reports??[];
+ need(group?.model_numbers.includes(modelNumber)&&review.export_allowed===false&&typeof includeCompatibleDeclarations==='boolean','D05_LESSON_SELECTION');
+ let numbers=[modelNumber];
+ const draft=review.technology_draft?.groups?.find(g=>g.group_id===groupId);
+ if(includeCompatibleDeclarations&&draft&&group.basis!=='AMBIGUOUS_OPERATION_OCCURRENCES'){
+  const recurring=await reviewD05RecurringTechnologies(review,groupId);
+  const family=recurring.families.find(f=>f.model_numbers.includes(modelNumber));
+  // The recurring family checks its exact retained technical profile. Also
+  // require the original complete normative comparison to have no differences
+  // when extending practical evidence to other routes. This includes the
+  // source context and fields intentionally omitted from the draft.
+  const quality=review.quality_review?.groups?.find(g=>g.group_id===groupId);
+  if(family&&quality?.comparison==='NO_DIFFERENCE_IN_CHECKED_FIELDS')numbers=family.model_numbers;
+ }
+ const profiles=(review.recorded_execution_review?.profiles??[]).filter(p=>numbers.includes(p.model_number))
+  .sort((a,b)=>a.model_number-b.model_number);
+ const references=new Map(),source=[],orders=new Set(),duplicateOrders=new Set();
+ for(const profile of profiles){
+  for(const ref of profile.source_references??[])references.set(JSON.stringify([ref.value,ref.replacement,ref.kind]),ref);
+  for(const report of profile.reports){
+   const orderRefs=report.source_refs?.filter(r=>r.schema_id.endsWith('.production-order'))??[];
+   if(numbers.length>1){
+    need(orderRefs.length===1,'D05_LESSON_ORDER_REFERENCE');
+    if(orders.has(orderRefs[0].object_id))duplicateOrders.add(orderRefs[0].object_id);
+    orders.add(orderRefs[0].object_id);
+   }
+   source.push({model_number:profile.model_number,report,order_ref:orderRefs[0]?.object_id??null});
+  }
+ }
+ // The same original order appearing under multiple projections is not
+ // independent evidence. Exclude all copies rather than choose one.
+ const reports=source.filter(s=>!duplicateOrders.has(s.order_ref));
+ return {model_numbers:numbers,reports,duplicate_order_count:duplicateOrders.size,
+  source_references:[...references.values()].sort((a,b)=>cmp(JSON.stringify(a),JSON.stringify(b)))};
+}
+export async function extractD05PracticalLessons(review,groupId,modelNumber,options){
+ const scope=await selectD05PracticalExperience(review,groupId,modelNumber,options);
+ const {model_numbers,reports:source}=scope;
+ const combined=model_numbers.length>1;
  const candidates=new Map();
- for(const report of source){
+ let excluded_unaligned_count=0;
+ for(const {model_number,report,order_ref} of source){
+  const orderKey=combined?order_ref:report.report_number;
   for(const defect of report.defects){
    const q=report.quality[defect.quality_report_number-1];
    if(!q||q.kind!=='CONTROL_REPORT'||!validNumber(q.control_number)||
@@ -28,20 +66,22 @@ export async function extractD05PracticalLessons(review,groupId,modelNumber){
    const last=later.at(-1);
    const followup=last?last.status:null;
    const recovered=defect.disposition==='rework'&&defect.status==='resolved'&&['passed','accepted_after_rework'].includes(followup);
-   const key=JSON.stringify([q.control_number,q.operation_id??null,q.scope,q.deviation_type??null,defect.severity,
+   const controlNumber=combined?q.canonical_control_number:q.control_number;
+   if(!validNumber(controlNumber)){excluded_unaligned_count++;continue;}
+   const key=JSON.stringify([controlNumber,q.operation_id??null,q.scope,q.deviation_type??null,defect.severity,
     defect.disposition,practicalWordingKey(problem),practicalWordingKey(action)]);
    let item=candidates.get(key);
-   if(!item){item={control_number:q.control_number,control:q.control,operation_id:q.operation_id??null,
+   if(!item){item={control_number:controlNumber,control:q.control,operation_id:q.operation_id??null,
     key,problem,action,disposition:defect.disposition,scope:q.scope,severity:defect.severity,
     deviation_type:q.deviation_type??null,variants:new Map(),observations:[],orders:new Set(),recoveredOrders:new Set(),unresolvedOrders:new Set()};candidates.set(key,item);}
    const variantKey=JSON.stringify([problem,action]);
    let variant=item.variants.get(variantKey);
    if(!variant){variant={problem,action,orders:new Set(),observations:[]};item.variants.set(variantKey,variant);}
-   const observation={report_number:report.report_number,quality_report_number:defect.quality_report_number,
+   const observation={model_number,report_number:report.report_number,quality_report_number:defect.quality_report_number,
     recorded_defect_status:defect.status,followup_status:followup,recorded_recheck:recovered};
-   item.observations.push(observation);variant.observations.push(observation);variant.orders.add(report.report_number);
-   item.orders.add(report.report_number);
-   (recovered?item.recoveredOrders:item.unresolvedOrders).add(report.report_number);
+   item.observations.push(observation);variant.observations.push(observation);variant.orders.add(orderKey);
+   item.orders.add(orderKey);
+   (recovered?item.recoveredOrders:item.unresolvedOrders).add(orderKey);
   }
  }
  const rows=[];
@@ -62,6 +102,7 @@ export async function extractD05PracticalLessons(review,groupId,modelNumber){
  }
  rows.sort((a,b)=>b.rechecked_order_count-a.rechecked_order_count||b.order_count-a.order_count||cmp(a.lesson_id,b.lesson_id));
  return {status:'LOCAL_D05_PRACTICAL_LESSONS',source_model_number:modelNumber,
-  source_sha256:await sha256Canonical({groupId,modelNumber,reports:source}),lessons:rows,
+  source_sha256:await sha256Canonical({groupId,modelNumber,model_numbers,reports:source}),lessons:rows,
+  source_model_numbers:model_numbers,source_report_count:source.length,excluded_duplicate_order_count:scope.duplicate_order_count,excluded_unaligned_count,
   semantics:'RECORDED_CORRECTIONS_NOT_CAUSAL_PROOF',export_allowed:false,iwxa_package:null};
 }
