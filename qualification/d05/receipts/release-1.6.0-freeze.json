@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FROZEN_DECORATIVE_NAVIGATION_FIX_READY_FOR_RESUME",
+  "status": "NAVIGATION_RESUME_REQUESTED",
   "scope": "1.6.0",
   "siteCommit": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -148,7 +148,15 @@
         "wait for real destination content and exact fragment",
         "pointer hit testing and bounded failure coordinates"
       ],
-      "status": "SOURCE_FIX_NOT_BROWSER_QUALIFIED"
+      "status": "SOURCE_FIX_NOT_BROWSER_QUALIFIED",
+      "helperTests": {
+        "passed": 7,
+        "total": 7,
+        "execution": "Node.js v22.16.0",
+        "helperBlob": "b61a46d33ee2e2dd740c32098a7268373417cc79",
+        "testBlob": "27244e2343cb569536648976c1f7b8cd39b58f4a",
+        "localGitBlobHashesMatch": true
+      }
     }
   },
   "manualDispatchOnly": false,
@@ -430,7 +438,7 @@
     "sourceRepository": "Faust-S/cehovod.ru",
     "retainedBranch": "work/2026-11-25-d05-t3-retained-inputs",
     "expectedParent": "5e3ff328f7b31d7fa69b86a0759b914148c921df",
-    "qualificationRun": null,
+    "qualificationRun": 45778304289,
     "retainedCommit": null,
     "retainedTree": null,
     "nodeVersion": "22.16.0",
@@ -443,5 +451,17 @@
     "allowedCodexWork": "assemble from qualified retained tree and package resulting dist; record archive SHA-256",
     "forbiddenCodexWork": "source changes, rebuilding original platform inputs, independent product tests, production activation",
     "releaseGate": "PASS all grouped release stages, exact remote source tree readback and byte-identical private reproduction"
+  },
+  "oneTimeRequest": {
+    "runId": 45778304289,
+    "preparedCommit": "bfb33c914efb9ea64e8f5b877d1e5ebbd3beb842",
+    "requestCommit": "d70d3cfc4ebb13ebb7cd90854e19b1ff7601d958",
+    "requestBranch": "ci/once/d05-t3-release/bfb33c914efb9ea64e8f5b877d1e5ebbd3beb842",
+    "requestFile": ".github/ci-requests/d05-t3-release.json",
+    "runStatusAtRecording": "in_progress",
+    "conclusionAtRecording": null,
+    "matchingRuns": 1,
+    "immutable": true,
+    "priorEvidenceRun": 45697492951
   }
 }
