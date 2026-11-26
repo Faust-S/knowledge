@@ -556,11 +556,17 @@ test('K23 real HTTPS indexed HEADS and exact session discovery use no collection
     assert.deepEqual(full.receipts.map(r=>r.signedMessageType),['HEADS','CHANGE_REF','CHUNK','CHUNK']);
     assert.equal(full.candidatesExamined,4);assert.equal(requests.length,8);assert.equal(recipient.replay.size,4);
     assert.equal(full.originalBusinessApplied,false);assert.equal(full.sourceCursorAdvanced,false);
-    // Another signed successor at the same source count cannot replace the first pointer.
-    await assert.rejects(source.wire.publishSignedFrame({wireBytes:await makeBytes('HEADS',{
+    // A pre-existing conflicting slot is a proven denial, not a lost
+    // publication response. K161 preflights all indexes before any raw PUT.
+    const conflicting=await makeBytes('HEADS',{
       sessionRef:'session:conflict:'+id,sequence:1,body:{...body,sourceSession:{...body.sourceSession,
-        predecessorPrefixDigest:'sha256:'+'f'.repeat(64)}},criticalExtensions:supportedCriticalExtensions})}),
-      code('WIRE_NETWORK_PUBLICATION_OUTCOME_UNKNOWN'));
+        predecessorPrefixDigest:'sha256:'+'f'.repeat(64)}},criticalExtensions:supportedCriticalExtensions});
+    requests.length=0;
+    await assert.rejects(source.wire.publishSignedFrame({wireBytes:conflicting}),code('WIRE_NATIVE_INDEX_SLOT_CONFLICT'));
+    assert.equal(requests.length,2);
+    assert.ok(requests.every(r=>r.method==='GET'&&r.path.endsWith('.t4i')));
+    const conflictingSha=createHash('sha256').update(conflicting).digest('hex');
+    await assert.rejects(incoming.getSnapshot({key:conflictingSha+'.t4n',expectedSha256:conflictingSha}),code('REMOTE_NOT_FOUND'));
     const still=await recipient.wire.discoverSourceSessionHeads({selector:{sourceNodeRef:'node:one',ownerEpoch:2,familyRef,predecessorEventCount:5},requiredCryptoSuite:suite});
     assert.equal(still.receipts[0].verifiedSessionRef,sessionRef);
     const rejected=await recipient.wire.discoverUniqueSignedFrame({selector:{...selector,
