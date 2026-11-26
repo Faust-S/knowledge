@@ -212,9 +212,9 @@ test('known names include complete case and quote variants but never preselect a
  assert.equal(alias.value,'ООО "ЧАСТНЫЙ ЦЕХ"');
  assert.equal(alias.mode,'SOURCE_REFERENCE_VARIANT');
  assert.equal(alias.suggested_replacement,refs[0].replacement);
- const changes=select(plan,plan.groups.map(g=>({group_id:g.group_id,replacement:g.suggested_replacement})));
+ const changes=select(plan,plan.groups.map(g=>({group_id:g.group_id,replacement:'подрядчиком получателя'})));
  const out=await applyProductGeneralization(p,[],changes,refs);
  assert.equal(out.preview.object_data.technology.terms.local_context_guidance,
-  'Согласовать с подрядчик получателя и подрядчик получателя. ООО «ЧАСТНЫЙ ЦЕХ 2» оставить для предметного уточнения.');
+  'Согласовать с подрядчиком получателя и подрядчиком получателя. ООО «ЧАСТНЫЙ ЦЕХ 2» оставить для предметного уточнения.');
  assert.equal(out.preview.export_allowed,false);
 });
