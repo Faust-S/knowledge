@@ -106,3 +106,69 @@ export function validateT4OriginalNativeMultipartAgreement({agreement,session=nu
   }
   return Object.freeze(a);
 }
+
+// Compose the two existing original proof ports at the Host lifetime.
+// A caller cannot supply a precomputed agreement, select a different
+// capture, or substitute a successful network response for original
+// authority. No receipt, decision, authorization or session is persisted.
+export function createT4OriginalNativeMultipartAgreementReader({
+  session,localRole,requiredCryptoSuite,originalHostSessionRef,technicalWorkspaceId,
+  expectedHeadSha256=null,assertOriginalOwnerBinding,readOriginalPublishedFrame,discoverUniqueSignedFrame,
+}={}){
+  const exact=structuredClone(session);checkIdentity(exact);
+  if(!['SOURCE','RECIPIENT'].includes(localRole)||
+    ![requiredCryptoSuite,originalHostSessionRef,technicalWorkspaceId,exact.workspaceId,exact.originalWriteOwnerRef].every(ID)||
+    (expectedHeadSha256!==null&&!SHA(expectedHeadSha256))||
+    ![assertOriginalOwnerBinding,readOriginalPublishedFrame,discoverUniqueSignedFrame].every(f=>typeof f==='function'))
+    fail('MULTIPART_AGREEMENT_READER_ORIGINAL_PORTS_REQUIRED');
+  const source=localRole==='SOURCE',localNodeRef=source?exact.sourceNodeRef:exact.recipientNodeRef,
+    peerNodeRef=source?exact.recipientNodeRef:exact.sourceNodeRef;
+  const requireCurrent=async()=>{
+    if(await assertOriginalOwnerBinding()!==true)fail('MULTIPART_AGREEMENT_READER_ORIGINAL_BINDING_CHANGED');
+  };
+  return async request=>{
+    const q=structuredClone(request);
+    if(!q||q.originalSubjectAuthorityGranted!==false||
+      (q.headSha256!==undefined&&!SHA(q.headSha256))||
+      (q.originalMultipartAgreementDigest!==undefined&&!DIG(q.originalMultipartAgreementDigest))||
+      (q.technicalWorkspaceId!==undefined&&q.technicalWorkspaceId!==technicalWorkspaceId)||
+      (q.checkpointRef!==undefined&&!ID(q.checkpointRef)))
+      fail('MULTIPART_AGREEMENT_READER_REQUEST_INVALID');
+    if(q.session!==undefined){
+      if(!same(q.session,exact))fail('MULTIPART_AGREEMENT_READER_SESSION_MISMATCH');
+    }else{
+      // Exact proof shape used by the original wire transport. Requests
+      // for a missing CHUNK are reverse-direction but retain the same
+      // original captured session.
+      const reverse=q.messageType==='CHUNK_REQUEST';
+      if(!['CHANGE_REF','CHUNK','CHUNK_REQUEST'].includes(q.messageType)||
+        q.originalSignedHeadAndDiffProofRequired!==true||
+        q.originalHostNodeRef!==localNodeRef||q.originalHostScopeRef!==exact.scopeRef||
+        q.originalHostSessionRef!==originalHostSessionRef||
+        q.sourceNodeRef!==(reverse?exact.recipientNodeRef:exact.sourceNodeRef)||
+        q.recipientNodeRef!==(reverse?exact.sourceNodeRef:exact.recipientNodeRef)||
+        q.scopeRef!==exact.scopeRef||q.ownerEpoch!==exact.ownerEpoch||q.sessionRef!==exact.sessionRef||
+        q.changeId!==exact.changeId||q.cryptoSuite!==requiredCryptoSuite)
+        fail('MULTIPART_AGREEMENT_READER_SESSION_MISMATCH');
+    }
+    await requireCurrent();
+    const local=await readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
+    await requireCurrent();
+    const remote=await discoverUniqueSignedFrame({selector:{sourceNodeRef:peerNodeRef,
+      sessionRef:exact.sessionRef,ownerEpoch:exact.ownerEpoch,messageType:source?'DIFF_REQUEST':'HEADS',sequence:1},
+      requiredCryptoSuite,supportedCriticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]});
+    await requireCurrent();
+    if(remote?.schema!=='IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1'||remote.state!=='FOUND'||
+      remote.originalBusinessApplied!==false||remote.sourceCursorAdvanced!==false)
+      fail('MULTIPART_AGREEMENT_READER_PEER_PROOF_REQUIRED');
+    const observed=readT4OriginalNativeMultipartAgreement({session:exact,sourceHead:source?local:remote.receipt,
+      recipientDiff:source?remote.receipt:local,localRole,requiredCryptoSuite});
+    if((expectedHeadSha256!==null&&observed.headSha256!==expectedHeadSha256)||
+      (q.headSha256!==undefined&&observed.headSha256!==q.headSha256)||
+      (q.originalMultipartAgreementDigest!==undefined&&observed.agreementDigest!==q.originalMultipartAgreementDigest)||
+      (q.checkpointRef!==undefined&&local.checkpointRef!==q.checkpointRef))
+      fail('MULTIPART_AGREEMENT_READER_PROOF_CHANGED');
+    await requireCurrent();
+    return observed;
+  };
+}
