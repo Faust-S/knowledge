@@ -1022,3 +1022,21 @@ test('K125 exact technical history cannot activate an unselected source commit o
     assert.throws(()=>createT4OriginalNativeHostNetworkProfile(options),{code:'NATIVE_NETWORK_PROFILE_TECHNICAL_OBJECT_HISTORY_REQUIRED'});
   }
 });
+
+test('K156 multipart native profile is explicit and rejects incomplete original owner ports before attachment or transport',()=>{
+  const rejectOwner={code:'NATIVE_NETWORK_OWNER_MULTIPART_PROFILE_INVALID'};
+  const rejectProfile={code:'NATIVE_NETWORK_PROFILE_MULTIPART_REQUIRED'};
+  for(const options of [
+    {role:'SOURCE',enableOriginalMultipartNegotiation:true},
+    {role:'RECIPIENT',enableOriginalMultipartNegotiation:true},
+    {role:'SOURCE',enableOriginalMultipartNegotiation:'true'},
+    {role:'SOURCE',enableOriginalMultipartNegotiation:true,enableOriginalTechnicalObjectHistory:true,
+      enableSourceEventWindowRead:true,enableSourceCaptureBinding:true,enableRecipientResultRead:true,enableOriginalCommitOrder:true,
+      enableOriginalDispatchEvidence:true,originalPorts:{authorizeOriginalMultipartAssetCapture:async()=>true}},
+    {role:'RECIPIENT',enableOriginalMultipartNegotiation:true,enableOriginalTechnicalObjectHistory:true,
+      enableSourceEventWindowRead:true,enableSourceCaptureBinding:true,enableRecipientResultRead:true},
+  ]){
+    assert.throws(()=>createT4OriginalNativeHostNetworkOwner(options),rejectOwner);
+    assert.throws(()=>createT4OriginalNativeHostNetworkProfile(options),rejectProfile);
+  }
+});

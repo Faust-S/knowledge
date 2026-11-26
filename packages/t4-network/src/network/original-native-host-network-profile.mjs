@@ -23,7 +23,15 @@ export function createT4OriginalNativeHostNetworkProfile({
   originalAccess,originalVault,originalTopology,originalPeerHistory,originalPorts,
   readOriginalBaselineAdmissionInput,readOriginalNetworkResumeInput,onStep,monotonicNow,enableSourceEventWindowRead=false,enableSourceCaptureBinding=false,enableRecipientResultRead=false,
   enableOriginalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,enableOriginalObjectCatalogWindow=false,enableOriginalRecipientFrontierCommitOrder=false,enableOriginalDispatchEvidence=false,
+  enableOriginalMultipartNegotiation=false,
 }={}){
+  if(typeof enableOriginalMultipartNegotiation!=='boolean'||(enableOriginalMultipartNegotiation&&
+    (!['SOURCE','RECIPIENT'].includes(role)||!enableOriginalTechnicalObjectHistory||!enableSourceEventWindowRead||
+      !enableSourceCaptureBinding||!enableRecipientResultRead||
+      (role==='SOURCE'?(!enableOriginalCommitOrder||!enableOriginalDispatchEvidence||
+        !['authorizeOriginalMultipartAssetCapture','authorizeOriginalMultipartBacking'].every(k=>typeof originalPorts?.[k]==='function')):
+        !enableOriginalRecipientFrontierCommitOrder))))
+    fail('NATIVE_NETWORK_PROFILE_MULTIPART_REQUIRED');
   if(typeof enableOriginalRecipientFrontierCommitOrder!=='boolean'||(enableOriginalRecipientFrontierCommitOrder&&
     (role!=='RECIPIENT'||!enableOriginalTechnicalObjectHistory||typeof originalPorts?.withOriginalHistoryReadBoundary!=='function')))
     fail('NATIVE_NETWORK_PROFILE_RECIPIENT_COMMIT_ORDER_REQUIRED');
@@ -70,7 +78,8 @@ export function createT4OriginalNativeHostNetworkProfile({
     const signature=createT4OriginalVaultNodeSignaturePort({...keys,localNodeRef,remoteNodeRef:peerNodeRef,
       localKeyRef,remoteKeyRef,readEncryptedVault,unlockPassphrase,requireDurableNetworkKeyBinding:true});
     const sealed=createT4OriginalVaultSealedContentPort({...keys,role,sourceNodeRef,recipientNodeRef,recipientKeyRef,
-      ...(!source?{readEncryptedVault,unlockPassphrase}:{}),enableOriginalReplacementBinding:true});
+      ...(!source?{readEncryptedVault,unlockPassphrase}:{}),enableOriginalReplacementBinding:true,
+      enableOriginalMultipartBinding:enableOriginalMultipartNegotiation});
     const history=createT4OriginalSignedReplacementHistoryAccess({...common,...signed,technicalWorkspaceId,
       sourceNodeRef,recipientNodeRef,localNodeRef,enableOriginalEligibilityRead:true,enableOriginalSourceWindowRead:enableSourceEventWindowRead,enableOriginalRecipientResultRead:enableRecipientResultRead});
     const client=createT4OriginalReplacementHistoryClient({...carrier,invokeOriginalPeerHistory});
@@ -85,7 +94,7 @@ export function createT4OriginalNativeHostNetworkProfile({
       requireSignedTopologyAccess:true,requireOriginalVaultNodeSignature:true,requireDurableNetworkKeyBinding:true,
       requireOriginalVaultSealedContent:true,enablePublicationIndexMigration:true,enableExplicitNetworkResume:true,
       enableLocalSourceCapture:source,enableLocalRecipientResultVerification:!source,enableRecipientResultRead,enableHistoricalAcknowledgementRecovery:source,enableLocalRetiredRecipientRecovery:!source,
-      enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:true,enableSourceEventWindowRead,enableSourceCaptureBinding,enableOriginalCommitOrder,enableOriginalTechnicalObjectHistory,enableOriginalObjectCatalogWindow,enableOriginalRecipientFrontierCommitOrder,enableOriginalDispatchEvidence,
+      enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:true,enableSourceEventWindowRead,enableSourceCaptureBinding,enableOriginalCommitOrder,enableOriginalTechnicalObjectHistory,enableOriginalObjectCatalogWindow,enableOriginalRecipientFrontierCommitOrder,enableOriginalDispatchEvidence,enableOriginalMultipartNegotiation,
       enableReplacementSourceAdmission:source,enableReplacementSourceContent:source,enableReplacementSourceAckConfirmation:source,
       enableReplacementRecipientAdmission:!source,enableReplacementRecipientContent:!source,enableReplacementRecipientApply:!source});
     const close=()=>{if(closed)return;closed=true;try{transport.close();}finally{tlsBinding?.close();}};

@@ -465,6 +465,11 @@ export function createT4OriginalHostDispatchTaskBinding({
       return selectT4NativeAssetContentProfile(bytes.length,{enableMultipart:enableOriginalMultipartNegotiation})===T4_NATIVE_MULTIPART_PROFILE;
     };
     const multipart=selectProfile(task.capture);
+    // Historical multipart ACK recovery is not implemented yet. Do not
+    // invoke the live multipart backing reader during the pre-migration
+    // historical-only wake: the exact HEAD/DIFF indexes may need repair.
+    if(historicalOnly&&multipart)return result('NO_ORIGINAL_HISTORICAL_RECOVERY',{
+      sessionRef:session.sessionRef,changeId:session.changeId,originalHostFrontierRevision:task.originalHostFrontierRevision});
     const expected={initial,session,frontierRevision:task.originalHostFrontierRevision};
     const extensions=t4NativeSubjectCriticalExtensions(session.changeKind);
     const inboundExtensions=multipart?[...extensions,T4_NATIVE_MULTIPART_AGREEMENT_EXTENSION]:extensions;
