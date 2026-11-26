@@ -169,6 +169,24 @@ export function validateT4OriginalMultipartBackingPlan({plan,...p}={}){
   return freeze(structuredClone(plan));
 }
 
+// Validate the exact selected part at a targeted physical-write fence,
+// without reassembling or hashing all the other parts.
+export function validateT4OriginalMultipartBackingSegment({plan,descriptor:d,segment:s}={}){
+  if(!d||!plan||!same(plan.segments?.[d.partIndex],d)||
+    !keys(s,['schema','bindingDigest','checkpointRef','manifestDigest','partIndex','entries','recordDigest','objectId'])||
+    s.schema!==SEGMENT||s.bindingDigest!==plan.bindingDigest||s.checkpointRef!==plan.binding.checkpointRef||
+    s.manifestDigest!==plan.manifestDigest||s.partIndex!==d.partIndex||s.objectId!==d.objectId||
+    s.recordDigest!==d.recordDigest||!Array.isArray(s.entries)||s.entries.length!==d.frameCount||
+    s.entries.some((e,i)=>e?.sequence!==d.firstSequence+i||e.messageType!=='CHUNK'))
+    fail('MULTIPART_BACKING_SEGMENT_INVALID');
+  budget(s);
+  const {recordDigest,objectId,...data}=s;
+  if(recordDigest!==digest('IWXA-T4-MULTIPART-BACKING-SEGMENT-V1',data)||
+    objectId!==T4_MULTIPART_BACKING_SEGMENT_PREFIX+recordDigest.slice(7))
+    fail('MULTIPART_BACKING_SEGMENT_DIGEST_MISMATCH');
+  return true;
+}
+
 // Reconstruct against the exact original root-selected plan. A valid segment
 // by itself is NEVER a reservation, PREPARE, PRESENT, or authorization.
 export function readT4OriginalMultipartBacking({plan,segments,...p}={}){

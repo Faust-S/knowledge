@@ -216,7 +216,7 @@ test('K143 missing segment Event and changed segment bytes never supply original
   await assert.rejects(p.readOriginalMultipartBacking(),code('PUBLICATION_MULTIPART_SEGMENT_EVENT_NOT_PROVEN'));
   f.events.splice(e,0,saved);
   f.objects.get(id).object.data.segment.entries[0].sha256=hex('changed');
-  await assert.rejects(p.readOriginalMultipartBacking(),code('MULTIPART_BACKING_FRAME_CHANGED'));
+  await assert.rejects(p.readOriginalMultipartBacking(),code('MULTIPART_BACKING_SEGMENT_DIGEST_MISMATCH'));
 });
 test('K143 root selection cannot be replaced by a different valid signed plan',async()=>{
   const f=journal(),p=await f.ready();await reserve(p);const w=[...small.wireBytes];
@@ -310,4 +310,17 @@ test('K144 complete 66-frame batch resumes in bounded wakes through original Eve
   for(const frame of small.wireBytes)assert.deepEqual(f.remote.get(hex(frame)+'.t4n'),frame);
   const final=await f.port().readOriginalMultipartBacking();assert.equal(final.originalAllFramesPresentRecorded,true);
   assert.equal(final.originalBusinessApplied,false);
+});
+
+test('K144 targeted physical-write fence rejects a changed block even if the target frame is untouched',async()=>{
+  const f=journal(),p=await f.ready(),r=await reserve(p);await p.prepareOriginalMultipartPublication();
+  await p.publishPreparedFrame({sequence:2});
+  let changed=false;
+  const q=f.port(true,{authorizeOriginalMultipartBacking:async x=>{
+    if(!changed&&x.purpose==='before-multipart-network-write'){
+      changed=true;f.objects.get(r.segmentEvents[0].objectId).object.data.segment.entries[1].sha256=hex('changed-neighbor');
+    }return true;
+  }});
+  await assert.rejects(q.publishPreparedFrame({sequence:3}),code('MULTIPART_BACKING_SEGMENT_DIGEST_MISMATCH'));
+  assert.equal(f.publishes,2);
 });

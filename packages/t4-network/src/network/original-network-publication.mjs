@@ -17,7 +17,7 @@ import {assembleT4CandidateOpaqueChunks}
   from './standard-network-opaque-chunks.mjs';
 import {T4_MULTIPART_OPAQUE_EXTENSION,T4_MULTIPART_MAX_CHUNKS,assembleT4CandidateMultipartOpaqueChunks} from './standard-network-multipart-opaque-chunks.mjs';
 import {createT4OriginalMultipartBacking,readT4OriginalMultipartBacking,
-  validateT4OriginalMultipartBackingPlan,
+  validateT4OriginalMultipartBackingPlan,validateT4OriginalMultipartBackingSegment,
   T4_MULTIPART_BACKING_MAX_RECORD_BYTES} from './original-network-publication-multipart-backing.mjs';
 
 /*
@@ -1440,7 +1440,7 @@ export function createT4OriginalNetworkPublicationPort({
     mode();
     const current={entries:clone(d.entries),revision:o.revision,chainHash:previous,presentEvents};
     if(reserved!==null){
-      current.multipartPlan=validateT4OriginalMultipartBackingPlan({...multipartAnchor(current),plan:d.multipartPlan});
+      current.multipartPlan=validateT4OriginalMultipartBackingPlan({...multipartAnchor({...current,multipartPlan:d.multipartPlan}),plan:d.multipartPlan});
       current.multipartReservation=validateMultipartReservation(current.multipartPlan,reserved);
       if(!same(d.multipartReservation,current.multipartReservation)||
         (current.entries.length!==1&&current.entries.length!==current.multipartPlan.frameCount+1))
@@ -1566,6 +1566,7 @@ export function createT4OriginalNetworkPublicationPort({
         e?.workspace_id!==technicalWorkspaceId||e.object_id!==id||e.revision!==1||
         e.event_type!==MULTIPART_SEGMENT_EVENT||!ID(e.event_id)||!same(e.payload,segmentPayload(plan,desc)))
         fail('PUBLICATION_MULTIPART_SEGMENT_EVENT_NOT_PROVEN');
+      validateT4OriginalMultipartBackingSegment({plan,descriptor:desc,segment:s});
     }
     await permit('t1.getObject','multipart-segment-double-read');
     if(!same(await originalKernel.getObject(technicalWorkspaceId,id),row))
