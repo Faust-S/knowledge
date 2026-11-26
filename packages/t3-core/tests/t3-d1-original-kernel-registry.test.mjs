@@ -438,3 +438,23 @@ test("actual scoped Relay attaches the ONE existing corporate Registry and reads
     await assert.rejects(ownerRegistry.readState(),{code:"T3_ORIGINAL_REGISTRY_RELAY_NOT_CONNECTED"});
   }finally{relay.close();}
 });
+
+test("installed scoped corporate Registry never reissues after the admitted authority record disappears",async()=>{
+  const s=productionRegistryFixture(),ordinary=s.port();
+  await ordinary.initializeStorage({confirmed:true});
+  await ordinary.commitSignedState(s.state);
+  let missing=false;
+  const kernel={...s.kernel,async getObject(ws,id){
+    if(missing&&ws===s.storageId)return null;
+    return s.kernel.getObject(ws,id);
+  }};
+  const strict=createOriginalKernelRegistryStatePort({...s.opts,kernel,corporateScope:{
+    organizationId:s.scope.organizationId,authorityId:s.scope.authorityId,existingSeparateStorageOnly:true}});
+  assert.equal((await strict.readStoragePlacement()).mode,"SEPARATE");
+  const state=await strict.readState();
+  missing=true;
+  await assert.rejects(strict.readState(),{code:"T3_ACCESS_REGISTRY_STATE_UNAVAILABLE"});
+  await assert.rejects(strict.commitSignedState(state),{code:"T3_ACCESS_REGISTRY_STATE_UNAVAILABLE"});
+  assert.equal(s.original.calls.length,1);
+  assert.equal(s.creates.length,1);
+});

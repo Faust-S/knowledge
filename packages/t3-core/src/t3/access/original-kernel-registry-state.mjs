@@ -391,7 +391,7 @@ function corporateRegistryPort({kernel,workspaceId,objectId,trustedPolicy,clock,
   };
   const select=(id,mode)=>{
     const port=createOriginalKernelRegistryStatePort({
-      kernel,workspaceId:id,objectId,trustedPolicy,clock});
+      kernel,workspaceId:id,objectId,trustedPolicy,clock,requireExistingState:existingOnly});
     selected=Object.freeze({mode,workspaceId:id,port});
     return selected;
   };
@@ -544,8 +544,10 @@ export function prepareOriginalEmployeeRegistryRefresh({
  */
 export function createOriginalKernelRegistryStatePort({
   kernel,workspaceId,objectId="t3.access.signed-registry",
-  trustedPolicy,clock=Date.now,corporateScope=null
+  trustedPolicy,clock=Date.now,corporateScope=null,requireExistingState=false
 }={}){
+  check(typeof requireExistingState==="boolean"&&(!requireExistingState||corporateScope===null),
+    "T3_ACCESS_REGISTRY_STORAGE_SCOPE_INVALID");
   const direct=typeof kernel?.putObject==="function"&&
     kernel.hasOperation?.("t1.putObject")===true;
   const graph=typeof kernel?.commitObjectGraph==="function"&&
@@ -602,7 +604,9 @@ export function createOriginalKernelRegistryStatePort({
     return Object.freeze({...verified,delivery:{rootPolicy:copy(pinned),record:copy(record),events:copy(journal)}});
   };
   const commit=async(signedState,{expectedStateDigest=null}={})=>{
-    const before=await read({allowAbsent:true});
+    // Even after placement has been cached, a network-bound Registry must
+    // never turn loss of the authority record into first issuance.
+    const before=await read({allowAbsent:!requireExistingState});
     if(expectedStateDigest!==null)check(before&&HEX.test(expectedStateDigest)&&
       digest(before.state)===expectedStateDigest,'T3_ACCESS_REGISTRY_EXPECTED_STATE_CHANGED');
     const now=validClock(clock);
