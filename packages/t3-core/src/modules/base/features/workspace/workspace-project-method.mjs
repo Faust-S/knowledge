@@ -262,6 +262,18 @@ export function prepareWorkspaceMethodSourceInputs({ workspaceId, objects, draft
   const structure = normalizeMethodStructure({workspaceId,draft});
   const admitted = restoreWorkspaceViewPresentation({workspaceId,objects,presentation:structure.materialView});
   if(admitted.changedCount || admitted.unavailableCount) fail('METHOD_MATERIAL_REVIEW_REQUIRED','Material revisions require review');
+  return describeMethodSourceStructure(structure);
+}
+
+/** Pure structural description for comparing existing saved methodology
+ * revisions. Unlike prepareWorkspaceMethodSourceInputs this DOES NOT admit
+ * present-day materials. It must never be used as write or execution authority.
+ */
+export function describeWorkspaceMethodSourceInputs({workspaceId,draft}){
+  return describeMethodSourceStructure(normalizeMethodStructure({workspaceId,draft}));
+}
+
+function describeMethodSourceStructure(structure){
   const {project,work,steps,pins,pinById,waves,workIdFor,objective}=structure;
   const projectInput=Object.freeze({...project,domainApplicability:Object.freeze([...project.domainApplicability]),
     templateRef:Object.freeze({...project.templateRef}),

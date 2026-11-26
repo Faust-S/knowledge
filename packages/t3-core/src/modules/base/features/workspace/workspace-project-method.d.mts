@@ -108,6 +108,10 @@ export function prepareWorkspaceMethodSourceInputs(input: {
   projectInput:WorkspaceMethodProjectInput; workInputs:readonly WorkspaceMethodWorkInput[];
   writeOrder:readonly string[]; writeAuthorized:false; executionAuthority:false;
 }>;
+/** Structural description only. No current-catalog admission or authority. */
+export function describeWorkspaceMethodSourceInputs(input: {
+  workspaceId:string; draft:WorkspaceMethodDraft;
+}): ReturnType<typeof prepareWorkspaceMethodSourceInputs>;
 export function reconstructWorkspaceMethodDraft(input: {
   workspaceId:string; project:unknown; works:readonly unknown[];
 }): WorkspaceMethodDraft;

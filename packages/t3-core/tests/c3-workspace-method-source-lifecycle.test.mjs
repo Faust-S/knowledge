@@ -7,6 +7,7 @@ import { MemoryCanonicalAdapter, OwnerWriteGateway } from '../src/persistence/ca
 import { readWorkspaceMethodFromSourceOwner } from '../src/modules/base/owners/project-process-method-readback.mjs';
 import { createWorkspaceMethodThroughSourceOwner, readWorkspaceMethodCreationIntent, resumeWorkspaceMethodThroughSourceOwner, inspectWorkspaceMethodCreation } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { qualifyProjectProcessSameWorkspaceHistory } from '../src/modules/base/owners/project-process-history.mjs';
+import { previewWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
 
 const workspaceId='ws-method';
 const knowledgeAt='2026-11-26T18:00:00Z';
@@ -485,4 +486,121 @@ test('inspection detects changed live heads during observation and refuses cross
   await assert.rejects(inspectCreation(concurrent),code('METHOD_SOURCE_REFERENCE_CHANGED'));
   await assert.rejects(inspectWorkspaceMethodCreation({owner,workspaceId:'foreign',projectId:'project-a',objects:[]}),code('METHOD_SOURCE_CREATION_UNAVAILABLE'));
   assert.equal((await owner.audit()).length,4);
+});
+
+
+async function revisionFixture(){
+  const owner=await emptyOwner();await createMethod(owner);
+  return {owner,base:await read(owner)};
+}
+const revisionPreview=(owner,base,draft=fixture(),catalog=objects)=>previewWorkspaceMethodRevision({
+  owner,workspaceId,projectId:'project-a',expected:base,draft,objects:catalog});
+const opFor=(preview,id)=>preview.workOperations.find(item=>item.workId==='project-a.'+id);
+
+test('revision preview of unchanged saved methodology makes no source writes',async()=>{
+  const {owner,base}=await revisionFixture();
+  const preview=await revisionPreview(owner,base);
+  assert.equal(preview.state,'UNCHANGED');assert.equal(preview.projectOperation.operation,'KEEP');
+  assert.deepEqual(preview.counts,{create:0,revise:0,keep:4,releaseReview:0});
+  assert.equal(preview.resultReuseProven,false);assert.equal(preview.executionAuthority,false);
+  assert.equal(preview.writeAuthorized,false);assert.equal(preview.atomicSnapshot,false);
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('editing one branch revises only that Work and its transitive dependent Work',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  draft.steps.find(step=>step.id==='analyse').instruction='Use another analytical approach';
+  const preview=await revisionPreview(owner,base,draft);
+  assert.equal(preview.projectOperation.operation,'KEEP');
+  assert.deepEqual(preview.counts,{create:0,revise:2,keep:2,releaseReview:0});
+  assert.equal(opFor(preview,'prepare').operation,'KEEP');
+  assert.equal(opFor(preview,'compute').operation,'KEEP');
+  assert.deepEqual(opFor(preview,'analyse').changedFields,['INSTRUCTION']);
+  assert.equal(opFor(preview,'analyse').reviewState,'CONTENT_REVIEW_REQUIRED');
+  assert.equal(opFor(preview,'review').reviewState,'DEPENDENCY_REVIEW_REQUIRED');
+  assert.deepEqual(opFor(preview,'review').predecessorRebinds,['project-a.analyse']);
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('changed root revises every transitive stage without changing Project',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  draft.steps.find(step=>step.id==='prepare').instruction='Read the new specification';
+  const preview=await revisionPreview(owner,base,draft);
+  assert.equal(preview.projectOperation.operation,'KEEP');
+  assert.deepEqual(preview.counts,{create:0,revise:4,keep:0,releaseReview:0});
+  assert.equal(opFor(preview,'prepare').reviewState,'CONTENT_REVIEW_REQUIRED');
+  assert.equal(opFor(preview,'compute').reviewState,'DEPENDENCY_REVIEW_REQUIRED');
+  assert.equal(opFor(preview,'review').reviewState,'DEPENDENCY_REVIEW_REQUIRED');
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('display order change rebinds sources but does not assert computational impact',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  draft.steps.reverse();
+  const preview=await revisionPreview(owner,base,draft);
+  assert.equal(preview.projectOperation.operation,'REVISE');
+  assert.equal(preview.projectIntentChanged,false);
+  assert.equal(preview.counts.revise,4);
+  assert.ok(preview.workOperations.every(item=>item.reviewState==='SOURCE_REBIND_ONLY'&&!item.reviewRequired));
+  assert.equal(preview.resultReuseProven,false);
+  const stored=await owner.load('project',workspaceId,'project-a');
+  assert.deepEqual(preview.projectOperation.input.methodology.creation,stored.value.methodology.creation);
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('material revision change distinguishes source rebinding from declared input impact',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  const catalog=objects.map(row=>row.object_id==='model'?{...row,revision:77}:row);
+  draft.materials=draft.materials.map(ref=>ref.object_id==='model'?{...ref,revision:77}:ref);
+  const preview=await revisionPreview(owner,base,draft,catalog);
+  assert.equal(preview.projectOperation.operation,'REVISE');
+  assert.equal(preview.counts.revise,4);
+  assert.equal(opFor(preview,'prepare').reviewState,'SOURCE_REBIND_ONLY');
+  assert.equal(opFor(preview,'analyse').reviewState,'CONTENT_REVIEW_REQUIRED');
+  assert.equal(opFor(preview,'compute').reviewState,'CONTENT_REVIEW_REQUIRED');
+  assert.equal(opFor(preview,'review').reviewState,'DEPENDENCY_REVIEW_REQUIRED');
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('changed unassigned material and changed Project intent remain explicit',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  const catalog=objects.map(row=>row.object_id==='unused'?{...row,revision:66}:row);
+  draft.materials=draft.materials.map(ref=>ref.object_id==='unused'?{...ref,revision:66}:ref);
+  const preview=await revisionPreview(owner,base,draft,catalog);
+  assert.deepEqual(preview.unassignedMaterialChanges,[{object_id:'unused',beforeRevision:3,afterRevision:66}]);
+  assert.ok(preview.workOperations.every(item=>item.reviewState==='SOURCE_REBIND_ONLY'));
+  draft.objective='A different professional objective';
+  const changed=await revisionPreview(owner,base,draft,catalog);
+  assert.equal(changed.projectIntentChanged,true);
+  assert.ok(changed.workOperations.every(item=>item.reviewState==='PROJECT_INTENT_REVIEW'&&item.reviewRequired));
+});
+
+test('adding and removing stages is explicit and never silently releases old source Work',async()=>{
+  const {owner,base}=await revisionFixture(),draft=fixture();
+  draft.steps=draft.steps.filter(step=>step.id!=='analyse');
+  draft.steps.find(step=>step.id==='review').dependsOn=['compute','new-analysis'];
+  draft.steps.push({id:'new-analysis',name:'New analysis',actor:'human',instruction:'Review new evidence',dependsOn:['prepare'],materialIds:['model']});
+  const preview=await revisionPreview(owner,base,draft);
+  assert.equal(preview.projectOperation.operation,'REVISE');
+  assert.deepEqual(preview.counts,{create:1,revise:3,keep:0,releaseReview:1});
+  assert.equal(preview.requiresReleaseReview,true);
+  assert.equal(preview.removed[0].workId,'project-a.analyse');
+  assert.equal(preview.removed[0].automaticRelease,false);
+  assert.equal(opFor(preview,'new-analysis').baseRef,null);
+  assert.equal(opFor(preview,'new-analysis').reviewState,'NEW_STAGE');
+  assert.ok(preview.workOperations.findIndex(item=>item.workId==='project-a.new-analysis')<preview.workOperations.findIndex(item=>item.workId==='project-a.review'));
+  assert.equal((await owner.audit()).length,5);
+  assert.ok(await owner.load('work',workspaceId,'project-a.analyse'));
+});
+
+test('revision preview rejects stale, incomplete, foreign or changed material base before any write',async()=>{
+  const {owner,base}=await revisionFixture();
+  await assert.rejects(revisionPreview(owner,{...base,workRefs:base.workRefs.slice(1)}),code('METHOD_REVISION_BASE_CHANGED'));
+  await assert.rejects(revisionPreview(owner,base,{...fixture(),projectId:'other'}),code('METHOD_REVISION_ID_CHANGED'));
+  await assert.rejects(revisionPreview(owner,base,{...fixture(),templateId:'other'}),code('METHOD_REVISION_ID_CHANGED'));
+  await assert.rejects(revisionPreview(owner,base,fixture(),objects.slice(1)),code('METHOD_MATERIAL_REVIEW_REQUIRED'));
+  const plan=prepare(),review=inputFor(plan,'review');
+  await owner.revise('work',{...review,recordId:'review@2',baseRevisionId:creationIds().works[review.workId],knowledgeAt});
+  await assert.rejects(revisionPreview(owner,base),code('METHOD_REVISION_BASE_CHANGED'));
+  assert.equal((await owner.audit()).length,6);
 });
