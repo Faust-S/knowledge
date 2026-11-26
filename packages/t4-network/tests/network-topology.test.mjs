@@ -7,6 +7,7 @@ import {
 } from '../src/network/network-topology.mjs';
 import {createT4NetworkConnectionProfile} from '../src/network/operator-connection.mjs';
 import {createWebDavPackageTransport,packageSha256} from '../src/network/webdav-package-transfer.mjs';
+import {encodeT4NativeFrameIndex} from '../src/network/original-network-frame-address.mjs';
 
 const ref='t4:network:user';
 const full={include_history:true,include_assets:true,include_relations:true,include_schemas:true};
@@ -478,4 +479,41 @@ test('K151 no route or network callback can use an unverified topology digest or
   assert.throws(()=>validateT4NetworkTopology({...fresh,nodes:[...fresh.nodes].reverse()}),code('TOPOLOGY_CANONICAL_SEQUENCE_INVALID'));
   assert.throws(()=>validateT4NetworkTopology({...fresh,canonicalOrder:'UNKNOWN'}),code('TOPOLOGY_CANONICAL_ORDER_UNSUPPORTED'));
   assert.equal(invoked,0);
+});
+
+test('T4 RC index read cannot substitute a separately revoked frame read',async()=>{
+  const topology=nativeTopology(),b=Buffer.from('immutable signed wire bytes fixture');
+  const sha256=packageSha256(b),key=sha256+'.t4n',indexKey='b'.repeat(64)+'.t4i';
+  const index=encodeT4NativeFrameIndex(sha256);
+  let allowFrame=true,remoteFrame=true,credentials=0;
+  const requests=[],authorizations=[];
+  const opened=openT4NativeTopologyTransport({topology,workspaceId:'workspace:owner',objectFamily:'orders',
+    serverNodeRef:'node:home',nativeWireProfile:'INDEXED',readOriginalTopology:async()=>topology,
+    getMode:()=> 'T4_NETWORK',verifyOriginalEndpoint:async()=>true,
+    authorizeOriginalOperation:async p=>{
+      const op=p.transportRequest.operation;authorizations.push(op);
+      return op==='t4.network.frame.index.read'||(allowFrame&&op==='t4.network.frame.read');
+    },getAuthorizationHeader:async()=>{credentials++;return 'Bearer test';},
+    fetchImpl:async(url,options)=>{
+      assert.equal(options.method,'GET');const name=url.pathname.split('/').at(-1);
+      requests.push(name);
+      if(name===indexKey)return new Response(index);
+      assert.equal(name,key);return remoteFrame?new Response(b):new Response(null,{status:404});
+    }});
+  try{
+    const readIndex=()=>opened.transport.getNativeFrameIndex({key:indexKey});
+    const readFrame=()=>opened.transport.getSnapshot({key,expectedSha256:sha256});
+    assert.equal((await readIndex()).frameSha256,sha256);
+    assert.deepEqual((await readFrame()).bytes,b);
+    allowFrame=false;
+    assert.equal((await readIndex()).frameSha256,sha256);
+    const count=requests.length,creds=credentials;
+    await assert.rejects(readFrame(),code('ORIGINAL_OPERATION_NOT_AUTHORIZED'));
+    assert.equal(requests.length,count);assert.equal(credentials,creds);
+    assert.equal(authorizations.at(-1),'t4.network.frame.read');
+    allowFrame=true;remoteFrame=false;
+    assert.equal((await readIndex()).frameSha256,sha256);
+    await assert.rejects(readFrame(),code('REMOTE_NOT_FOUND'));
+    assert.equal(requests.at(-1),key);
+  }finally{opened.close();}
 });
