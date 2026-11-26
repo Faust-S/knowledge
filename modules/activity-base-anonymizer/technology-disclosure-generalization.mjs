@@ -283,7 +283,7 @@ function contextualFacts(product,rows){
   related_operations:t.operations.filter(o=>ops.has(o.operation_id)),
   related_checks:t.quality_checks.filter(c=>checks.has(c.check_id))};
 }
-export async function prepareContextualGeneralizationRequest(preview,reports,language,references,paths){
+async function buildContextualGeneralizationRequest(preview,reports,language,references,paths){
  const product=await readGeneralizationProduct(preview),known=normalizedReferences(references);
  need(['ru','en'].includes(language)&&Array.isArray(reports)&&reports.length<=2,'TECHNOLOGY_GENERALIZATION_REPORTS');
  const inventory=editableProductTexts(product),editable=inventory.filter(r=>r.edit_kind!=='FIXED');
@@ -318,8 +318,12 @@ export async function prepareContextualGeneralizationRequest(preview,reports,lan
   'fields must contain exactly every requested path; each value is {decision:"RETAIN"|"REWRITE"|"NEEDS_REVIEW",value:string|null,reason:string}. '+
   'RETAIN and NEEDS_REVIEW require null and a reason; REWRITE requires the full replacement in '+(language==='ru'?'Russian':'English')+
   ' and a reason. Do not pretend missing context is resolved. Do not add fields, invoke tools, claim anonymity, authority or export. All results are local proposals.';
- return {document,document_text,request_sha256,objective,field_count:fields.length,editable_field_count:editable.length,
+ const request={document,document_text,request_sha256,objective,field_count:fields.length,editable_field_count:editable.length,
   export_allowed:false,iwxa_package:null};
+ return {request,product,plan,known};
+}
+export async function prepareContextualGeneralizationRequest(preview,reports,language,references,paths){
+ return (await buildContextualGeneralizationRequest(preview,reports,language,references,paths)).request;
 }
 const scopedCounts=v=>Object.entries({...v.operations,...v.quality}).map(([id,lines])=>[id,lines.length]).sort((a,b)=>cmp(a[0],b[0]));
 function rewriteBlock(product,row,value){
@@ -328,7 +332,7 @@ function rewriteBlock(product,row,value){
  // explicit engineering quantities and comparison directions are not
  // safe to change in this operation. Other markers remain visible in the
  // original comparison UI for deliberate owner review.
- if(markers.some(m=>['UNITS','COMPARISONS'].includes(m.kind)&&m.before.length>0))return 'TECHNICAL_MARKERS_CHANGED';
+ if(markers.some(m=>['UNITS','COMPARISONS'].includes(m.kind)))return 'TECHNICAL_MARKERS_CHANGED';
  if(row.edit_kind==='CONTROL_TEXT'&&markers.some(m=>m.kind==='NUMBERS'))return 'CONTROL_NUMBERS_CHANGED';
  if(product.target===D05_TARGET&&row.path===termPath){
   const t=product.technology,old=partitionD05Guidance(t),next=partitionD05Guidance({...t,terms:{...t.terms,local_context_guidance:value}});
@@ -336,20 +340,36 @@ function rewriteBlock(product,row,value){
  }
  return null;
 }
-function remainingMatches(row,value){
- const indexed=indexText({text:value});
- const remaining=new Map();
- for(const match of row.matches){
-  if(occurrences(indexed,match.value,email.test(match.value)?'EMAIL':null).length)remaining.set(match.group_id,match.value);
+// Recheck the rewritten field against the entire original local inventory,
+// not just the matches originally in that field. This also reveals a private
+// reference copied from another field by the model. A partial detector span
+// remains visible conservatively; it is not a verified identity.
+function remainingMatches(row,value,plan,known){
+ const indexed=indexText({text:value}),original=indexText({text:row.text}),remaining=new Map();
+ const groups=plan?.groups??[];
+ const add=(group_id,match)=>{
+  const kind=email.test(match)?'EMAIL':null;
+  const had=row.matches.some(m=>m.value===match)||occurrences(original,match,kind).length>0;
+  if(!remaining.has(match))remaining.set(match,{group_id,value:match,introduced:!had});
+ };
+ for(const g of groups){
+  const localDetected=row.matches.some(m=>m.group_id===g.group_id&&m.detected);
+  if(occurrences(indexed,g.value,email.test(g.value)?'EMAIL':null).length||localDetected&&value.includes(g.value))add(g.group_id,g.value);
  }
- return [...remaining].map(([group_id,value])=>({group_id,value}));
+ for(const [i,ref] of known.entries()){
+  const id=groups.find(g=>g.value===ref.value)?.group_id??'known_'+String(i+1).padStart(4,'0');
+  if(occurrences(indexed,ref.value,email.test(ref.value)?'EMAIL':null).length)add(id,ref.value);
+  const pattern=nameVariantPattern(ref);
+  if(pattern)for(const match of variantOccurrences(indexed,ref,pattern))add(id,match.value);
+ }
+ return [...remaining.values()].sort((a,b)=>cmp(a.value,b.value)||cmp(a.group_id,b.group_id));
 }
 export async function reviewContextualGeneralizationProposal(preview,reports,language,references,paths,proposal){
- const request=await prepareContextualGeneralizationRequest(preview,reports,language,references,paths);
+ const {request,product,plan,known}=await buildContextualGeneralizationRequest(preview,reports,language,references,paths);
  need(exact(proposal,['profile','request_sha256','fields'])&&proposal.profile===CONTEXTUAL_PROPOSAL&&
   proposal.request_sha256===request.request_sha256&&exact(proposal.fields,request.document.fields.map(f=>f.path)),
   'TECHNOLOGY_CONTEXTUAL_GENERALIZATION_REQUEST_CHANGED');
- const product=await readGeneralizationProduct(preview),fields=[],edits=[];
+ const fields=[],edits=[];
  for(const row of request.document.fields){
   const v=proposal.fields[row.path];
   need(exact(v,['decision','value','reason'])&&['RETAIN','REWRITE','NEEDS_REVIEW'].includes(v.decision)&&validText(v.reason,1000),
@@ -357,7 +377,7 @@ export async function reviewContextualGeneralizationProposal(preview,reports,lan
   need(v.decision==='REWRITE'?validText(v.value,row.max_length)&&v.value!==row.text:v.value===null,
    'TECHNOLOGY_CONTEXTUAL_GENERALIZATION_FIELD');
   const block=v.decision==='REWRITE'?rewriteBlock(product,row,v.value):null;
-  const remaining=remainingMatches(row,v.decision==='REWRITE'&&!block?v.value:row.text);
+  const remaining=remainingMatches(row,v.decision==='REWRITE'&&!block?v.value:row.text,plan,known);
   fields.push({path:row.path,previous:row.text,decision:v.decision,value:v.value,reason:v.reason,block,remaining_matches:remaining});
   if(v.decision==='REWRITE'&&!block)edits.push({path:row.path,previous:row.text,replacement:v.value,reason:v.reason});
  }
@@ -368,5 +388,6 @@ export async function reviewContextualGeneralizationProposal(preview,reports,lan
   request_sha256:request.request_sha256,fields,revision,selected_field_count:fields.length,
   editable_field_count:request.editable_field_count,changed_field_count:edits.length,
   blocked_field_count:fields.filter(f=>f.block).length,remaining_match_field_count:fields.filter(f=>f.remaining_matches.length).length,
+  introduced_match_field_count:fields.filter(f=>f.remaining_matches.some(m=>m.introduced)).length,
   requires_owner_review:true,semantic_equivalence:'NOT_ESTABLISHED',anonymity:'NOT_ESTABLISHED',export_allowed:false,iwxa_package:null};
 }

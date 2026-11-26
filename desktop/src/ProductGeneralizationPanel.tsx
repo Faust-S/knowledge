@@ -4,6 +4,7 @@ import {prepareProductGeneralization,applyProductGeneralization,type Generalizat
  from '../../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 import type {ProductPreview} from '../../modules/activity-base-anonymizer/technology-product.mjs';
 import {ProductRevisionComparison} from './ProductRevisionComparison';
+import {ProductContextualGeneralizationPanel} from './ProductContextualGeneralizationPanel';
 
 type Choice={selected:boolean;replacement:string};
 const EMPTY_REFERENCES:SourceReference[]=[];
@@ -127,5 +128,7 @@ export function ProductGeneralizationPanel({product,reports,onRevision,disabled=
    {current?<ProductRevisionComparison key={signature} review={current.local_review} disabled={blocked} onConfirm={confirmRevision} onCancel={()=>setPending(null)}/>:null}
   </>:null}
   {error?<p role="alert" className="activity-v7-note hold">{error}</p>:null}
+  <ProductContextualGeneralizationPanel product={product} reports={reports} references={references} language={language}
+   plan={plan} disabled={blocked} onRevision={onRevision}/>
  </div>;
 }

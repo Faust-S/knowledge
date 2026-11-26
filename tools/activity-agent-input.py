@@ -20,6 +20,8 @@ OUTPUT_LIMIT = 4 * 1024 * 1024  # Original Agent U01 owner ceiling.
 WORKER_TIMEOUT = 18  # Original U01 outer timeout is 20 seconds.
 # Runtime, original local entry point, fixed worker flags.
 OPERATIONS = {
+    "contextual_generalization_request": ("node", "activity-technology-product.mjs", ("--contextual-generalization-request",)),
+    "contextual_generalization_review": ("node", "activity-technology-product.mjs", ("--contextual-generalization-review",)),
     "personal_extraction_request": ("node", "activity-technology-product.mjs", ("--personal-extraction-request",)),
     "personal_extraction_review": ("node", "activity-technology-product.mjs", ("--personal-extraction-review",)),
     "personal_routine_group": ("node", "activity-technology-product.mjs", ("--personal-group",)),

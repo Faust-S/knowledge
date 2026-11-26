@@ -291,6 +291,16 @@ test('contextual generalization rewrites complete recipient statements different
   [paths[2]]:{decision:'REWRITE',value:'Weekly review',reason:'Remove local program name'}});
  const before=JSON.stringify(p),out=await reviewContextualGeneralizationProposal(p,[],'en',refs,paths,proposal);
  assert.equal(out.changed_field_count,2);assert.equal(out.remaining_match_field_count,1);
+ assert.equal(out.introduced_match_field_count,0);
+ const copied=await reviewContextualGeneralizationProposal(p,[],'en',refs,paths,contextualReply(request,{
+  [paths[0]]:{decision:'REWRITE',value:'Send the weekly review to the designated reviewer before Monday. Do not send without approval.',reason:'Replace local recipient'},
+  [paths[2]]:{decision:'REWRITE',value:'Alpha private review',reason:'Keep known reference'}}));
+ assert.equal(copied.fields.find(f=>f.path===paths[2]).remaining_matches[0].introduced,false);
+ const addedPath='object_data.technology.outputs',addedRequest=await prepareContextualGeneralizationRequest(p,[],'en',refs,[addedPath]);
+ const added=await reviewContextualGeneralizationProposal(p,[],'en',refs,[addedPath],contextualReply(addedRequest,{
+  [addedPath]:{decision:'REWRITE',value:'Weekly report for Alpha',reason:'Model copied a local identity from context'}}));
+ assert.equal(added.introduced_match_field_count,1);
+ assert.equal(added.fields[0].remaining_matches[0].value,'Alpha');
  assert.deepEqual(out.revision.preview.object_data.technology.result_requirements,p.object_data.technology.result_requirements);
  assert.equal(out.revision.preview.object_data.title,'Weekly review');
  assert.equal(out.revision.preview.export_allowed,false);assert.equal(out.anonymity,'NOT_ESTABLISHED');
@@ -319,5 +329,8 @@ test('contextual D05 proposal cannot erase technical measurements or move a prac
   [paths[0]]:{decision:'REWRITE',value:'Операция '+id+': Проверить упор оборудования перед запуском.',reason:'Retain action and condition'},
   [paths[1]]:{decision:'REWRITE',value:'Станок для обработки листа 2 мм',reason:'Preserve thickness and required function'}}));
  assert.equal(safe.changed_field_count,2);assert.equal(safe.blocked_field_count,0);
+ const invented=await reviewContextualGeneralizationProposal(p,[],'ru',[],paths,contextualReply(request,{
+  [paths[2]]:{decision:'REWRITE',value:'Изготовление детали 10 мм',reason:'Invented condition'}}));
+ assert.equal(invented.changed_field_count,0);assert.equal(invented.fields.find(f=>f.path===paths[2]).block,'TECHNICAL_MARKERS_CHANGED');
  assert.deepEqual(safe.revision.preview.object_data.technology.quality_checks,p.object_data.technology.quality_checks);
 });
