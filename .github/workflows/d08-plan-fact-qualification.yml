@@ -1,0 +1,99 @@
+name: D08 isolated plan-fact qualification
+on:
+  push:
+    branches: ['qa/2026-11-26-d08-plan-fact-6da7d4e']
+    paths: ['.github/workflows/d08-plan-fact-qualification.yml']
+permissions:
+  contents: read
+concurrency:
+  group: d08-plan-fact-6da7d4e-one-shot
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: github.event.before == '22293b803f1dc28c6a0d484c1c1dac80818c97c1' && github.event.deleted != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CI: 'true'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout exact private canonical model
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops
+          ref: '3bae1cabb4755fdea343f8e217278488f20d9a3b'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: logic
+      - name: Checkout exact private site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: '6da7d4e054073525a9a423f7e5a31de73f42c8f6'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact revisions and canonical copies
+        run: |
+          test "$(git -C logic rev-parse HEAD)" = '3bae1cabb4755fdea343f8e217278488f20d9a3b'
+          test "$(git -C site rev-parse HEAD)" = '6da7d4e054073525a9a423f7e5a31de73f42c8f6'
+          for f in enterprise-portfolio.mjs enterprise-portfolio.d.mts business-attention-queue.mjs business-attention-queue.d.mts business-obligation.mjs business-obligation.d.mts business-goods-cash-coordination.mjs business-goods-cash-coordination.d.mts; do
+            cmp -s "logic/model/$f" "site/src/lib/$f"
+            cmp -s "logic/model/$f" "site/t2-site-module/marketops/decision/$f"
+          done
+          node --input-type=module -e 'import fs from "node:fs";const s=JSON.parse(fs.readFileSync("logic/model/enterprise-portfolio.schema.json"));const p=JSON.parse(fs.readFileSync("site/t2-site-module/t2-config/marketops-workspace-passport.json"));if(JSON.stringify(s)!==JSON.stringify(p.schemas["ru.iwxa.marketops.business-project"].json_schema.properties.data.properties.snapshot.properties.enterprisePortfolio)||p.output_object_types.length!==7)process.exit(1);'
+          echo D08_PLAN_FACT_PARITY=PASS
+      - name: Canonical regression using the real Node test runner
+        id: model
+        working-directory: logic
+        run: |
+          rc=0
+          node --test tests/enterprise-portfolio.test.mjs tests/business-attention-queue.test.mjs tests/business-attention-navigation.test.mjs tests/business-obligation.test.mjs tests/business-obligation-allocation-passport.test.mjs > "$RUNNER_TEMP/d08-model.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d08-model.log" || true
+          if [ "$rc" -ne 0 ]; then echo D08_PLAN_FACT_MODEL=FAIL; exit "$rc"; fi
+          echo D08_PLAN_FACT_MODEL=PASS
+      - name: Install pinned site dependencies without caching private data
+        id: install
+        working-directory: site
+        if: always() && steps.model.outcome != 'skipped'
+        run: |
+          rc=0
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d08-install.log" 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then echo D08_PLAN_FACT_INSTALL=FAIL; exit "$rc"; fi
+          echo D08_PLAN_FACT_INSTALL=PASS
+      - name: Site TypeScript check
+        if: always() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          npm run check:types > "$RUNNER_TEMP/d08-types.log" 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo D08_PLAN_FACT_TYPES=FAIL
+            grep -E '^[A-Za-z0-9_./-]+\([0-9]+,[0-9]+\): error TS[0-9]+' "$RUNNER_TEMP/d08-types.log" | sed -E 's/(: error TS[0-9]+):.*/\1/' | head -30 || true
+            exit "$rc"
+          fi
+          echo D08_PLAN_FACT_TYPES=PASS
+      - name: All site adapter and source syntax tests
+        if: always() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          npm run test:d08:adapters > "$RUNNER_TEMP/d08-adapters.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d08-adapters.log" || true
+          if [ "$rc" -ne 0 ]; then
+            echo D08_PLAN_FACT_ADAPTERS=FAIL
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-adapters.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -30 || true
+            exit "$rc"
+          fi
+          echo D08_PLAN_FACT_ADAPTERS=PASS
+      - name: Discard private source, generated files and local logs
+        if: always()
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/logic" "$GITHUB_WORKSPACE/site"
+          rm -f "$RUNNER_TEMP/d08-model.log" "$RUNNER_TEMP/d08-install.log" "$RUNNER_TEMP/d08-types.log" "$RUNNER_TEMP/d08-adapters.log"
