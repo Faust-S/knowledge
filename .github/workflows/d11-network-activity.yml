@@ -20,7 +20,7 @@ jobs:
           persist-credentials: false
       - name: Admit one exact request
         run: |
-          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-network-activity --profile source-build --revision domain=60474ea1db4223770f95f0b33d4240e23cd62b39 --revision site=8f56ce9b3cabb519fcbe871db79af302be589762 --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-network-activity --profile source-build --revision domain=98e20dddafd09a2367914755f93ed72f7bff8c9a --revision site=06edff72cd721a61bed5f846a4f7ba7390515bcb --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17
       - name: Verify existing approved read scope
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
@@ -34,14 +34,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics
-          ref: 60474ea1db4223770f95f0b33d4240e23cd62b39
+          ref: 98e20dddafd09a2367914755f93ed72f7bff8c9a
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 8f56ce9b3cabb519fcbe871db79af302be589762
+          ref: 06edff72cd721a61bed5f846a4f7ba7390515bcb
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -57,14 +57,14 @@ jobs:
           node-version: '22'
       - name: Exact source pins and canonical mirrors
         run: |
-          test "$(git -C domain rev-parse HEAD)" = "60474ea1db4223770f95f0b33d4240e23cd62b39"
-          test "$(git -C site rev-parse HEAD)" = "8f56ce9b3cabb519fcbe871db79af302be589762"
+          test "$(git -C domain rev-parse HEAD)" = "98e20dddafd09a2367914755f93ed72f7bff8c9a"
+          test "$(git -C site rev-parse HEAD)" = "06edff72cd721a61bed5f846a4f7ba7390515bcb"
           test "$(git -C t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import {execFileSync} from 'node:child_process';
           const m=JSON.parse(fs.readFileSync('site/runtime/d11-module/operations/source.json','utf8'));
-          if(m.sourceCommit!=='60474ea1db4223770f95f0b33d4240e23cd62b39' || m.files.length!==36) throw Error('D11_SOURCE_MANIFEST_INVALID');
+          if(m.sourceCommit!=='98e20dddafd09a2367914755f93ed72f7bff8c9a' || m.files.length!==36) throw Error('D11_SOURCE_MANIFEST_INVALID');
           for(const f of m.files){
             const blob=(repo,path)=>execFileSync('git',['-C',repo,'rev-parse','HEAD:'+path],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();
             if(blob('domain',f.sourcePath)!==f.blob||blob('site',f.localPath)!==f.blob) throw Error('D11_SOURCE_MIRROR_DIFF');
