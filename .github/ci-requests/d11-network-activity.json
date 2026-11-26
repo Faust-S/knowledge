@@ -1,0 +1,11 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d11-network-activity",
+  "prepared_sha": "05a0b24b4f129e161bbacc5249b618b403b47c73",
+  "profile": "source-build",
+  "revisions": {
+    "domain": "081a1ef10191c43283c05d13c2cec67568d7d9ee",
+    "site": "faece7dcdcca7adbf59b2499f75a53fa3593cdd2",
+    "t2": "e70de29b72b83e2546f7ab74b17572685a728c17"
+  }
+}
