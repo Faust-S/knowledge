@@ -13,6 +13,12 @@ const INTENTS=['IWXA_T4_ORIGINAL_OBJECT_MUTATION_INTENT_V1',
 const OUTBOXES=['IWXA_T4_ORIGINAL_OBJECT_DELTA_OUTBOX_V1','IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1'];
 const DISPATCH_PROTOCOL='ORIGINAL_CAPTURE_DISPATCH_CAS_V1';
 const DISPATCH_SCHEMA='IWXA_T4_ORIGINAL_CAPTURE_DISPATCH_V1';
+const BACKING_SCHEMA='IWXA_T4_ORIGINAL_CAPTURE_BACKING_V1';
+const BACKING_EVENT='t4.network.original.capture.backing';
+const BACKING_CHARS=512*1024,MAX_BACKING_SEGMENTS=32,MAX_ROOT_BYTES=1024*1024;
+const BACKING_RECORD_LIMIT=BACKING_CHARS*MAX_BACKING_SEGMENTS;
+const base64=x=>typeof x==='string'&&x.length<=BACKING_RECORD_LIMIT&&
+  x.length%4===0&&/^[A-Za-z0-9+/]*={0,2}$/.test(x)&&Buffer.from(x,'base64').toString('base64')===x;
 const DIG=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
 const OPERATIONS=Object.freeze({OBJECT_PUT:'t1.putObject',ASSET_PUT:'t1.putAsset',RELATION_PUT:'t1.putRelation',
   OBJECT_DELETE:'t1.deleteObject',ASSET_DELETE:'t1.deleteAsset',RELATION_DELETE:'t1.deleteRelation',GRAPH_COMMIT:'t1.commitObjectGraph'});
@@ -74,12 +80,15 @@ export function createT4OriginalHostCaptureLedgerPort({
   getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   enableOriginalTechnicalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,originalTechnicalPageSize=256,
   enableOriginalObjectCatalogWindow=false,originalObjectCatalogPageSize=16,enableOriginalDispatchEvidence=false,
+  enableOriginalCaptureBacking=false,
 }={}){
   requireT4OriginalTechnicalObjectHistory(enableOriginalTechnicalObjectHistory,originalKernel);
   requireT4OriginalObjectCatalog(enableOriginalObjectCatalogWindow,originalKernel,originalObjectCatalogPageSize);
   if(typeof enableOriginalDispatchEvidence!=='boolean'||(enableOriginalDispatchEvidence&&
     (!enableOriginalTechnicalCommitOrder||!enableOriginalTechnicalObjectHistory)))
     fail('CAPTURE_LEDGER_DISPATCH_PROFILE_REQUIRED');
+  if(typeof enableOriginalCaptureBacking!=='boolean'||(enableOriginalCaptureBacking&&!enableOriginalDispatchEvidence))
+    fail('CAPTURE_LEDGER_BACKING_PROFILE_REQUIRED');
   if(enableOriginalObjectCatalogWindow&&!enableOriginalTechnicalCommitOrder)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_PROFILE_INVALID');
   if(enableOriginalTechnicalObjectHistory&&!enableOriginalTechnicalCommitOrder)
     fail('CAPTURE_LEDGER_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
@@ -105,10 +114,11 @@ export function createT4OriginalHostCaptureLedgerPort({
       fail('CAPTURE_LEDGER_ORIGINAL_CONTEXT_INVALID');
     return Object.freeze({workspaceId:c.workspaceId,originalWriteOwnerRef:c.originalWriteOwnerRef,hostSessionRef:c.hostSessionRef});
   }
-  async function guard(initial,operation,role,captureRef=null){
+  async function guard(initial,operation,role,captureRef=null,backingRef=null){
     if(!same(await context(),initial))fail('CAPTURE_LEDGER_ORIGINAL_CONTEXT_CHANGED');
     const proof=Object.freeze({...identity,operation,recordRole:role,captureRef,
-      objectRef:captureRef===null?null:ref(role,captureRef),
+      objectRef:backingRef??(captureRef===null?null:ref(role,captureRef)),
+      ...(backingRef===null?{}:{originalCaptureBacking:true}),
       technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
       originalHostSessionRef:initial.hostSessionRef,networkGrantsNoWriteAuthority:true});
     const authorize=operation==='t1.putObject'?authorizeOriginalTechnicalWrite:authorizeOriginalTechnicalRead;
@@ -142,7 +152,7 @@ export function createT4OriginalHostCaptureLedgerPort({
   }
   function eventPayload(data){return {captureRef:data.captureRef,role:data.role,
     recordDigest:data.recordDigest,kind:data.kind,sourceEventId:data.payload.sourceEventId??null,
-    sourceWorkspaceId,originalWriteOwnerRef};}
+    sourceWorkspaceId,originalWriteOwnerRef,...(data.captureBacking?{captureBackingDigest:HASH(data.captureBacking)}:{})};}
   // The installed native owner retains its existing exclusive relay task.
   // Both original read operations and every requested role remain required.
   // The selected DB9 route must never silently downgrade to a full read.
@@ -181,7 +191,125 @@ export function createT4OriginalHostCaptureLedgerPort({
     });
     return matches;
   }
-  async function read(role,query,initial,knownEvents,catalogObject=null,returnRecord=false){
+  // Only large canonical Asset byte fields are segmented. Their existing
+  // logical record digest, original root identity and dispatch proof do not
+  // change. Unselected immutable segments never constitute an Intent/Outbox.
+  const fieldFor=d=>d.kind==='ASSET_PUT'&&d.role==='intent'?'operation.bytesBase64':
+    d.kind==='ASSET_PUT'&&d.role==='outbox'?'bytesBase64':null;
+  const fieldValue=(d,field)=>field==='operation.bytesBase64'?d.payload?.operation?.bytesBase64:d.payload?.bytesBase64;
+  const segmentRef=(d,index)=>prefix+'backing:'+HASH({role:d.role,captureRef:d.captureRef,recordDigest:d.recordDigest,index}).slice(7);
+  function segmentData(d,index,chars){
+    const body={...identity,role:'backing',parentRole:d.role,captureRef:d.captureRef,
+      recordDigest:d.recordDigest,index,chars};
+    return {schema:SCHEMA,title:'Original T3 T4 capture backing',...body,segmentDigest:HASH(body)};
+  }
+  function segmentEvent(d,index,chars,segmentDigest){
+    return {sourceWorkspaceId,originalWriteOwnerRef,captureRef:d.captureRef,parentRole:d.role,
+      recordDigest:d.recordDigest,index,chars,segmentDigest};
+  }
+  async function readSegment(d,entry,initial){
+    const {index,objectId,chars,segmentDigest,eventId}=entry;
+    if(objectId!==segmentRef(d,index)||!DIG(segmentDigest)||!Number.isInteger(chars)||chars<4||chars>BACKING_CHARS||
+      chars%4!==0||(eventId!==undefined&&!ID(eventId)))fail('CAPTURE_LEDGER_BACKING_INVALID');
+    const authorize=async operation=>{await guard(initial,operation,d.role,d.captureRef,objectId);return true;};
+    await authorize('t1.getObject');
+    const row=await originalKernel.getObject(technicalWorkspaceId,objectId);
+    await authorize('t1.getObject');
+    const all=await readT4OriginalTechnicalObjectEvents({originalKernel,workspaceId:technicalWorkspaceId,
+      objectRef:objectId,pageSize:originalTechnicalPageSize,authorizeOriginalOperation:authorize});
+    if(row==null){
+      if(all.length||eventId!==undefined)fail('CAPTURE_LEDGER_BACKING_MISSING');
+      return null;
+    }
+    const o=row.object,body=o?.data,e=all[0];
+    if(o?.workspace_id!==technicalWorkspaceId||o.object_id!==objectId||o.schema_id!==T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID||
+      o.schema_version!=='1.0.0'||o.revision!==1||o.deleted===true||typeof body?.chars!=='string'||body.chars.length!==chars||
+      !base64(body.chars)||!same(body,segmentData(d,index,body.chars))||body.segmentDigest!==segmentDigest)
+      fail('CAPTURE_LEDGER_BACKING_INVALID');
+    if(all.length!==1||e.workspace_id!==technicalWorkspaceId||e.object_id!==objectId||e.revision!==1||!ID(e.event_id)||
+      e.event_type!==BACKING_EVENT||(eventId!==undefined&&e.event_id!==eventId)||
+      !same(e.payload,segmentEvent(d,index,chars,segmentDigest)))fail('CAPTURE_LEDGER_BACKING_EVENT_NOT_PROVEN');
+    await authorize('t1.getObject');
+    const after=await originalKernel.getObject(technicalWorkspaceId,objectId);
+    await authorize('t1.getObject');
+    if(!same(after?.object,o))fail('CAPTURE_LEDGER_ORIGINAL_RECORD_CHANGED');
+    return {chars:body.chars,eventId:e.event_id};
+  }
+  function validateBacking(d){
+    if(!enableOriginalCaptureBacking)fail('CAPTURE_LEDGER_BACKING_PROFILE_REQUIRED');
+    const b=d.captureBacking,field=fieldFor(d);
+    if(!object(b)||b.schema!==BACKING_SCHEMA||field===null||b.field!==field||!DIG(d.recordDigest)||
+      fieldValue(d,field)!==undefined||!Number.isInteger(b.totalChars)||b.totalChars<=BACKING_CHARS||
+      b.totalChars>BACKING_RECORD_LIMIT||b.totalChars%4!==0||!Array.isArray(b.segments)||
+      b.segments.length!==Math.ceil(b.totalChars/BACKING_CHARS)||
+      !same(Object.keys(b).sort(),['schema','field','totalChars','segments'].sort()))
+      fail('CAPTURE_LEDGER_BACKING_INVALID');
+    const seen=new Set();
+    for(const [index,x] of b.segments.entries()){
+      const chars=Math.min(BACKING_CHARS,b.totalChars-index*BACKING_CHARS);
+      if(!object(x)||!same(Object.keys(x).sort(),['index','objectId','chars','segmentDigest','eventId'].sort())||
+        x.index!==index||x.objectId!==segmentRef(d,index)||x.chars!==chars||!DIG(x.segmentDigest)||!ID(x.eventId)||seen.has(x.eventId))
+        fail('CAPTURE_LEDGER_BACKING_INVALID');
+      seen.add(x.eventId);
+    }
+    return b;
+  }
+  async function reconstruct(d,initial,rootEventId){
+    const b=validateBacking(d);
+    if(b.segments.some(x=>x.eventId===rootEventId))fail('CAPTURE_LEDGER_BACKING_EVENT_NOT_PROVEN');
+    const parts=[];
+    for(const entry of b.segments)parts.push((await readSegment(d,entry,initial)).chars);
+    const chars=parts.join('');
+    if(chars.length!==b.totalChars||!base64(chars))fail('CAPTURE_LEDGER_BACKING_INVALID');
+    const full=copy(d);delete full.captureBacking;
+    if(b.field==='operation.bytesBase64')full.payload.operation.bytesBase64=chars;
+    else full.payload.bytesBase64=chars;
+    return full;
+  }
+  async function stageBacking(d,initial){
+    if(!enableOriginalCaptureBacking)return d;
+    const field=fieldFor(d),chars=field===null?null:fieldValue(d,field);
+    if(typeof chars!=='string'||chars.length<=BACKING_CHARS)return d;
+    if(!base64(chars))fail('CAPTURE_LEDGER_BACKING_INVALID');
+    const root=copy(d);
+    if(field==='operation.bytesBase64')delete root.payload.operation.bytesBase64;
+    else delete root.payload.bytesBase64;
+    const manifest={schema:BACKING_SCHEMA,field,totalChars:chars.length,segments:[]};
+    for(let offset=0,index=0;offset<chars.length;offset+=BACKING_CHARS,index++){
+      const part=chars.slice(offset,offset+BACKING_CHARS),data=segmentData(d,index,part);
+      manifest.segments.push({index,objectId:segmentRef(d,index),chars:part.length,segmentDigest:data.segmentDigest});
+    }
+    root.captureBacking=manifest;
+    // Bound the root before any staging writes, including maximum Event IDs.
+    const budget=copy(root);
+    for(const x of budget.captureBacking.segments)x.eventId='e'.repeat(160);
+    if(Buffer.byteLength(canonical(budget),'utf8')>MAX_ROOT_BYTES)fail('CAPTURE_LEDGER_BACKING_ROOT_TOO_LARGE');
+    for(const entry of manifest.segments){
+      const part=chars.slice(entry.index*BACKING_CHARS,entry.index*BACKING_CHARS+entry.chars);
+      const data=segmentData(d,entry.index,part);
+      let previous=await readSegment(d,entry,initial);
+      if(previous===null){
+        await guard(initial,'t1.putObject',d.role,d.captureRef,entry.objectId);
+        let receipt;
+        try{
+          receipt=await originalKernel.putObject({workspace_id:technicalWorkspaceId,object_id:entry.objectId,
+            schema_id:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,schema_version:'1.0.0',base_revision:0,data,extensions:{},
+            event:{event_type:BACKING_EVENT,payload:segmentEvent(d,entry.index,entry.chars,entry.segmentDigest)}});
+          if(receipt?.object?.revision!==1||receipt.object.object_id!==entry.objectId||
+            receipt.event?.event_type!==BACKING_EVENT||!ID(receipt.event.event_id))
+            fail('CAPTURE_LEDGER_BACKING_RECEIPT_INVALID');
+        }catch(error){fail('CAPTURE_LEDGER_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{
+          originalCode:error?.code??null,automaticRetryAllowed:false,readOriginalRecordRequired:true});}
+        previous=await readSegment(d,{...entry,eventId:receipt.event.event_id},initial);
+      }
+      if(previous.chars!==part)fail('CAPTURE_LEDGER_BACKING_INVALID');
+      entry.eventId=previous.eventId;
+    }
+    // Prove the entire selected backing immediately before root publication.
+    if(!same(await reconstruct(root,initial,null),d))fail('CAPTURE_LEDGER_BACKING_INVALID');
+    return root;
+  }
+  async function read(role,query,initial,knownEvents,catalogObject=null,returnRecord=false,selectedBacking=null){
     checkScope(query);const objectId=ref(role,query.captureRef);
     await guard(initial,'t1.getObject',role,query.captureRef);
     const row=await originalKernel.getObject(technicalWorkspaceId,objectId);
@@ -192,11 +320,11 @@ export function createT4OriginalHostCaptureLedgerPort({
         fail('CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING');
       return null;
     }
-    const o=row.object,d=o?.data;
+    const o=row.object;let d=o?.data;
     if(o?.workspace_id!==technicalWorkspaceId||o.object_id!==objectId||
       o.schema_id!==T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID||o.schema_version!=='1.0.0'||
       o.revision!==1||o.deleted===true||d?.schema!==SCHEMA||
-      !same(d,record(role,d.payload,d.dispatchProtocol))||d.captureRef!==query.captureRef||
+      d.role!==role||d.captureRef!==query.captureRef||
       (query.kind!==undefined&&query.kind!==d.kind)||
       (query.subjectId!==undefined&&query.subjectId!==d.subjectId)||
       (query.objectId!==undefined&&d.kind==='OBJECT_PUT'&&query.objectId!==d.subjectId))
@@ -206,6 +334,11 @@ export function createT4OriginalHostCaptureLedgerPort({
     if(matching.length!==1||matching[0].revision!==1||!ID(matching[0].event_id)||
       matching[0].event_type!==EVENT||!same(matching[0].payload,eventPayload(d)))
       fail('CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN');
+    if(Object.hasOwn(d,'captureBacking')){
+      const selected=d;d=await reconstruct(selected,initial,matching[0].event_id);
+      if(selectedBacking!==null)selectedBacking.push({root:copy(selected),eventId:matching[0].event_id});
+    }
+    if(!same(d,record(role,d.payload,d.dispatchProtocol)))fail('CAPTURE_LEDGER_ORIGINAL_RECORD_INVALID');
     if(catalogObject!==null){
       // Only the combined inventory can use its signed original catalog
       // as the second observation. It checks the complete catalog again
@@ -267,12 +400,13 @@ export function createT4OriginalHostCaptureLedgerPort({
         fail('CAPTURE_LEDGER_DISPATCH_NOT_AVAILABLE');
       validateDispatchLink(intent,data.payload,null);
     }
+    const stored=await stageBacking(data,initial);
     await guard(initial,'t1.putObject',role,data.captureRef);
     try{
       const receipt=await originalKernel.putObject({workspace_id:technicalWorkspaceId,
         object_id:ref(role,data.captureRef),schema_id:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
-        schema_version:'1.0.0',base_revision:0,data,extensions:{},
-        event:{event_type:EVENT,payload:eventPayload(data)}});
+        schema_version:'1.0.0',base_revision:0,data:stored,extensions:{},
+        event:{event_type:EVENT,payload:eventPayload(stored)}});
       if(receipt?.object?.revision!==1||receipt.object.object_id!==ref(role,data.captureRef)||
         receipt.event?.event_type!==EVENT||!ID(receipt.event.event_id))
         fail('CAPTURE_LEDGER_ORIGINAL_RECEIPT_INVALID');
@@ -409,9 +543,9 @@ export function createT4OriginalHostCaptureLedgerPort({
       !query.kindFilter.every(k=>KINDS.includes(k))))fail('CAPTURE_LEDGER_KIND_FILTER_INVALID');
     if(query.sourceEventId!==undefined&&!ID(query.sourceEventId))fail('CAPTURE_LEDGER_EVENT_FILTER_INVALID');
   }
-  async function readIndexed(role,e,i,initial,combined=false,returnRecord=false){
+  async function readIndexed(role,e,i,initial,combined=false,returnRecord=false,selectedBacking=null){
     const payload=await read(role,{workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
-      captureRef:e.payload.captureRef},initial,[e],combined?i.rows.get(e.object_id):null,returnRecord);
+      captureRef:e.payload.captureRef},initial,[e],combined?i.rows.get(e.object_id):null,returnRecord,selectedBacking);
     if(!payload)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
     return payload;
   }
@@ -449,7 +583,7 @@ export function createT4OriginalHostCaptureLedgerPort({
     checkScope(query,false);
     const roles=enableOriginalDispatchEvidence?['intent','outbox','dispatch']:['intent','outbox'];
     const initial=await context(),snapshot=await indexes(initial,roles),
-      intents=snapshot.get('intent'),outboxes=snapshot.get('outbox'),dispatches=snapshot.get('dispatch'),pending=[],pairs=[];
+      intents=snapshot.get('intent'),outboxes=snapshot.get('outbox'),dispatches=snapshot.get('dispatch'),pending=[],pairs=[],selectedBacking=[];
     for(const captureRef of dispatches?.byCapture.keys()??[])if(!intents.byCapture.has(captureRef))
       fail('CAPTURE_LEDGER_DISPATCH_LINK_INVALID');
     for(const [captureRef,e] of outboxes.byCapture){
@@ -458,14 +592,14 @@ export function createT4OriginalHostCaptureLedgerPort({
         fail('CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED',{captureRef});
     }
     for(const [captureRef,e] of intents.byCapture){
-      const originalIntent=await readIndexed('intent',e,intents,initial,true,true),input=originalIntent.payload,
+      const originalIntent=await readIndexed('intent',e,intents,initial,true,true,selectedBacking),input=originalIntent.payload,
         kind=originalIntent.kind,subjectId=originalIntent.subjectId,paired=outboxes.byCapture.get(captureRef);
       const witness=dispatches?.byCapture.get(captureRef);
       const dispatch=witness?await readIndexed('dispatch',witness,dispatches,initial,true):null;
       if(enableOriginalDispatchEvidence)validateDispatchLink(originalIntent,dispatch,paired??null);
       if(dispatch?.decision==='CLOSED_BEFORE_DISPATCH')continue;
       if(paired){
-        const out=await readIndexed('outbox',paired,outboxes,initial,true);
+        const out=await readIndexed('outbox',paired,outboxes,initial,true,false,selectedBacking);
         if(kindOf(out)!==kind||subjectOf(out,kind)!==subjectId)
           fail('CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED',{captureRef});
         if(includePairs)pairs.push(Object.freeze({captureRef,kind,subjectId,intent:input,outbox:out}));
@@ -493,6 +627,12 @@ export function createT4OriginalHostCaptureLedgerPort({
         await guard(initial,'t1.getObject',role,o.data.captureRef);
       }
     }
+    // Recheck exact selected segment Objects and Event IDs after the second
+    // original catalog observation; unreferenced stages are intentionally inert.
+    for(const selected of selectedBacking){
+      const full=await reconstruct(selected.root,initial,selected.eventId);
+      if(!same(full,record(full.role,full.payload,full.dispatchProtocol)))fail('CAPTURE_LEDGER_BACKING_INVALID');
+    }
     if(!includePairs)return Object.freeze(pending);
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_CAPTURE_INVENTORY_V1',
       workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
@@ -519,7 +659,7 @@ export function createT4OriginalHostCaptureLedgerPort({
       originalKernel,...identity,getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       enableOriginalTechnicalCommitOrder,enableOriginalTechnicalObjectHistory,originalTechnicalPageSize,
-      enableOriginalObjectCatalogWindow,originalObjectCatalogPageSize,enableOriginalDispatchEvidence,
+      enableOriginalObjectCatalogWindow,originalObjectCatalogPageSize,enableOriginalDispatchEvidence,enableOriginalCaptureBacking,
     }),
   });
 }
