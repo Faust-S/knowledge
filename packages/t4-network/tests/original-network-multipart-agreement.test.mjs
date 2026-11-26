@@ -26,6 +26,7 @@ import {readT4OriginalNativeMultipartAgreement as agreement,validateT4OriginalNa
   from '../src/network/original-network-multipart-agreement.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID} from '../src/network/original-network-technical-schema.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
+import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
 import {t4NativeFrameIndexKeys} from '../src/network/original-network-frame-address.mjs';
 import {discoverT4OriginalSourceSessionAnnouncement} from '../src/network/original-network-source-announcement.mjs';
 const sorted=x=>Array.isArray(x)?x.map(sorted):x&&typeof x==='object'?
@@ -84,7 +85,7 @@ async function contentPlan(fill=17,encrypted=null){
 const payload=await contentPlan();
 function fixture(){
   const objects=new Map(),events=[],remote=new Map(),indexes=new Map(),replay=new Map(),selected=new Map();
-  let puts=0,host='host:1',allow=true,writes=0;
+  let puts=0,gets=0,host='host:1',allow=true,writes=0;
   const kernel={hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.putObject','t1.listObjects'].includes(op),
     async listObjects({workspace_id}){return structuredClone([...objects.values()].map(x=>x.object).filter(o=>o.workspace_id===workspace_id));},
     async getObject(w,id){return structuredClone(objects.get(w+':'+id)??null);},
@@ -112,10 +113,10 @@ function fixture(){
       const seen=remote.has(key);if(seen)assert.deepEqual(remote.get(key),bytes);else remote.set(key,new Uint8Array(bytes));
       return {key,sha256:expectedSha256,state:seen?'ALREADY_PRESENT_VERIFIED':'PUBLISHED_AND_READ_BACK'};
     },
-    async getSnapshot({key,expectedSha256}){const bytes=remote.get(key);
+    async getSnapshot({key,expectedSha256}){gets++;const bytes=remote.get(key);
       if(!bytes)throw Object.assign(Error('missing'),{code:'REMOTE_NOT_FOUND'});assert.equal(hex(bytes),expectedSha256);return {bytes:new Uint8Array(bytes)};},
     async inspectOutcome({key,expectedSha256}){await this.getSnapshot({key,expectedSha256});return {state:'EXPECTED_BYTES_PRESENT',key,sha256:expectedSha256};},
-    async getNativeFrameIndex({key}){return indexes.has(key)?idx(key,indexes.get(key)):null;},
+    async getNativeFrameIndex({key}){gets++;return indexes.has(key)?idx(key,indexes.get(key)):null;},
     async putNativeFrameIndex({key,frameSha256}){if(indexes.has(key)&&indexes.get(key)!==frameSha256)
       throw Object.assign(Error('conflict'),{code:'REMOTE_INDEX_SLOT_CONFLICT'});indexes.set(key,frameSha256);return idx(key,frameSha256);}
   };
@@ -158,7 +159,7 @@ function fixture(){
   function inject(bytes){const sha=hex(bytes),f=decodeT4CandidateFrame(bytes);remote.set(sha+'.t4n',new Uint8Array(bytes));
     for(const key of t4NativeFrameIndexKeys(f))indexes.set(key,sha);}
   return {objects,events,remote,indexes,replay,selected,transport,port,publish,negotiate,prepare,inject,kernel,get host(){return host;},
-    get puts(){return puts;},get writes(){return writes;},restart:()=>{host='host:2';},allow:x=>{allow=x;}};
+    get puts(){return puts;},get gets(){return gets;},get writes(){return writes;},restart:()=>{host='host:2';},allow:x=>{allow=x;}};
 }
 test('K145 native offer and selection use existing slot 1, old HEAD bytes remain unchanged when disabled',async()=>{
   assert.deepEqual(headBody.multipartOffer,createT4NativeMultipartOffer());
@@ -365,7 +366,7 @@ test('K147 agreement revocation during authenticated open denies received subjec
 });
 
 function originalSourceTask(f,{captureProfile=EXT,prepared=asset,sourceCursorPort,
-  verifyOriginalRecipientApplied=async()=>false}={}){
+  verifyOriginalRecipientApplied=async()=>false,publicationOptions=()=>({}),transportOptions=()=>({})}={}){
   let seals=0,signatures=0,frontier=1;
   const hostContext=async()=>({workspaceId:session.workspaceId,originalWriteOwnerRef:session.originalWriteOwnerRef,
     networkTargetRef:recipient,hostSessionRef:f.host});
@@ -384,9 +385,9 @@ function originalSourceTask(f,{captureProfile=EXT,prepared=asset,sourceCursorPor
     expectedOriginalWriteOwnerRef:session.originalWriteOwnerRef,expectedNetworkTargetRef:recipient,getMode:()=> 'T4_NETWORK',
     readOriginalHostContext:hostContext,authorizeOriginalHostTask:async()=>true,
     dispatcher:{drain:async()=>assert.fail('legacy drain'),prepareNextNativeObject:async()=>({...task,originalHostFrontierRevision:frontier})},
-    createOriginalNativePublicationPort:async()=>f.port(source)});
+    createOriginalNativePublicationPort:async()=>f.port(source,true,publicationOptions())});
   const options=()=>({enableOriginalMultipartNegotiation:true,announceOriginalSourceSession:true,requiredCryptoSuite:suite,
-    sourceCursorPort:sourceCursorPort?.(),createOriginalSourcePhasePort:async()=>phase(),frameDiscoveryPort:f.transport(source),
+    sourceCursorPort:sourceCursorPort?.(),createOriginalSourcePhasePort:async()=>phase(),frameDiscoveryPort:f.transport(source,true,transportOptions()),
     resolveOriginalSigningContext:async()=>({permissionRef:'permission:'+source,signerRef:'key:'+source}),
     signOriginalNodeBytes:async p=>{signatures++;return sign(null,p.bytes,keys.get(source).privateKey);},
     authorizeOriginalSealedContent:async()=>true,readOriginalSealedContent:async p=>{
@@ -482,9 +483,29 @@ async function readFixtureAgreement(f,node){
   return agreement({session,sourceHead:node===source?published:found.receipt,recipientDiff:node===source?found.receipt:published,
     localRole:node===source?'SOURCE':'RECIPIENT',requiredCryptoSuite:suite});
 }
-test('K152 existing SOURCE and RECIPIENT owner tasks negotiate multipart, recover cold, apply once and confirm both original frontiers',async()=>{
-  const f=fixture(),r=originalRecipientTask(f),sourceCursor=()=>createT4OriginalNetworkHostCursorPort(originalCursorArgs(f,source)),
-    t=originalSourceTask(f,{sourceCursorPort:sourceCursor,verifyOriginalRecipientApplied:r.verifyApplied});
+for(const historical of [false,true])test(historical?'K160 original retained multipart ACK recovers both source phases after transport loss without live agreement or repeated subject write':'K152 existing SOURCE and RECIPIENT owner tasks negotiate multipart, recover cold, apply once and confirm both original frontiers',async()=>{
+  const f=fixture(),r=originalRecipientTask(f),sourceCursor=()=>createT4OriginalNetworkHostCursorPort(originalCursorArgs(f,source));
+  const replay=()=>createT4OriginalNetworkReplayPort({...originalCursorArgs(f,source),localNodeRef:source,scopeRef:session.scopeRef});
+  let retired=false,historySignatures=0;
+  // The fixture has real Ed25519 keys and the original replay CAS. The
+  // original registry retirement is modeled here, not installed DB9.
+  const verifyHistory=async p=>{
+    historySignatures++;
+    if(!await verifyOriginalNodeSignature(p))return null;
+    return {schema:'IWXA_T4_ORIGINAL_HISTORICAL_SIGNATURE_V1',frameDigest:p.frameDigest,signerRef:p.signerRef,
+      direction:p.sourceNodeRef===source?'LOCAL':'PEER',originalKeyCurrentlyActive:!retired,
+      originalHistoricalSignatureVerified:true,originalHistoricalAcceptanceProven:false,liveNetworkAuthorityGranted:false,
+      trustedSigningTimeProven:false,originalBusinessApplied:false};
+  };
+  const historyTransport=()=>{const p=replay();return {verifyOriginalHistoricalNodeSignature:verifyHistory,
+    verifyOriginalNodeSignature:async proof=>!retired&&verifyOriginalNodeSignature(proof),
+    persistOriginalReplayDecision:p.persistOriginalReplayDecision,readOriginalHistoricalReplayEvidence:p.readOriginalHistoricalReplayEvidence,
+    readOriginalHistoricalAppliedAckSlot:p.readOriginalHistoricalAppliedAckSlot};};
+  const t=originalSourceTask(f,{sourceCursorPort:sourceCursor,verifyOriginalRecipientApplied:r.verifyApplied,
+    publicationOptions:()=>historical?{verifyOriginalHistoricalNodeSignature:verifyHistory,
+      verifyOriginalNodeSignature:async p=>!retired&&verifyOriginalNodeSignature(p),
+      authorizeOriginalMultipartBacking:async()=>!retired,authorizeOriginalSealedPublication:async()=>!retired}: {},
+    transportOptions:()=>historical?historyTransport():{}});
   let host=t.bind(),receiver=r.bind();
   assert.equal((await host.runNativeSourceStep(t.options())).state,'INTENT_RECORDED');
   assert.equal((await host.runNativeSourceStep(t.options())).state,'HEADS_PRESENT');
@@ -528,7 +549,47 @@ test('K152 existing SOURCE and RECIPIENT owner tasks negotiate multipart, recove
   assert.deepEqual(await r.cursor().readOriginalVerifiedCursor(),after);assert.equal(r.writes,1);
   assert.deepEqual(r.stored.bytes,new Uint8Array(assetBytes));assert.equal(r.subjectEvents.length,1);
   host.dispose();host=t.bind();
-  const ack=await host.runNativeSourceStep(t.options());
+  let ack;
+  if(historical){
+    const selected={sourceNodeRef:recipient,sessionRef:session.sessionRef,ownerEpoch:session.ownerEpoch,messageType:'APPLIED_ACK',sequence:2};
+    const found=await t.options().frameDiscoveryPort.discoverUniqueSignedFrame({selector:selected,requiredCryptoSuite:suite,
+      supportedCriticalExtensions:extensions});
+    assert.equal(found.state,'FOUND');
+    assert.equal((await t.phase().inspectOriginalSession()).currentPhase,'PUBLISHED');
+    assert.deepEqual((await sourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,before);
+    // Cold source loses all remote content and agreement; accepted ACK is
+    // retained in the original replay Object/Event, not the fixture Map.
+    const physical=f.puts,reads=f.gets,opens=r.opens,priorWrites=f.writes;
+    retired=true;f.selected.clear();f.remote.clear();f.indexes.clear();f.restart();
+    host.dispose();host=t.bind();
+    const deny=()=>assert.fail('historical recovery called a live content operation');
+    const historicOptions=()=>({...t.options(),historicalOnly:true,authorizeOriginalHistoricalCursorRecovery:allow,
+      resolveOriginalSigningContext:deny,signOriginalNodeBytes:deny,readOriginalSealedContent:deny,authorizeOriginalSealedContent:deny});
+    const proofPort=f.port(source,true,{verifyOriginalHistoricalNodeSignature:verifyHistory,
+      authorizeOriginalMultipartBacking:deny,authorizeOriginalSealedPublication:deny,readOriginalMultipartAgreement:deny,
+      verifyOriginalNodeSignature:deny});
+    const proof=await proofPort.readOriginalHistoricalMultipartPublication();
+    assert.equal(proof.originalAllPresentSlotsVerified,true);
+    assert.equal(proof.liveNetworkAuthorityGranted,false);
+    assert.equal(proof.frames.length,final.frames.length);
+    assert.equal(proof.head.historicalSignature.originalKeyCurrentlyActive,false);
+    const segment=[...f.objects.entries()].find(([,x])=>x.object.data.recordRole==='multipart-backing-segment');
+    assert.ok(segment);
+    f.objects.delete(segment[0]);
+    await assert.rejects(proofPort.readOriginalHistoricalMultipartPublication(),code('PUBLICATION_MULTIPART_SEGMENT_OBJECT_MISSING'));
+    f.objects.set(segment[0],segment[1]);
+    await assert.rejects(host.runNativeSourceStep({...historicOptions(),authorizeOriginalHistoricalCursorRecovery:async()=>false}),
+      code('CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED'));
+    assert.equal(f.writes,priorWrites);
+    const confirmed=await host.runNativeSourceStep(historicOptions());
+    assert.equal(confirmed.state,'SOURCE_PHASE_HISTORICALLY_CONFIRMED');
+    assert.equal(confirmed.sourceCursorAdvanced,false);
+    host.dispose();host=t.bind();
+    ack=await host.runNativeSourceStep(historicOptions());
+    assert.equal(ack.originalHistoricalRecoveryUsed,true);
+    assert.equal(f.puts,physical);assert.equal(f.gets,reads);assert.equal(r.opens,opens);
+    assert.ok(historySignatures>=4);
+  }else ack=await host.runNativeSourceStep(t.options());
   assert.equal(ack.state,'SOURCE_ACK_CONFIRMED');assert.equal(ack.sourceCursorAdvanced,true);
   assert.equal((await t.phase().inspectOriginalSession()).currentPhase,'APPLIED_CONFIRMED');
   assert.deepEqual((await sourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,after);
