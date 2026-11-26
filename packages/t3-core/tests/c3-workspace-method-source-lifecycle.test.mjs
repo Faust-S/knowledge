@@ -844,8 +844,11 @@ test('method comparison refuses unverified, cross-workspace and incomplete revis
   const {owner,base}=await revisionFixture();
   await assert.rejects(Promise.resolve().then(()=>compareWorkspaceMethodRevisions({
     before:base,after:{...base,revisionSetVerified:false}})),code('METHOD_COMPARISON_READBACK_REQUIRED'));
+  const foreign={...base,workspaceId:'other',
+    projectRef:{...base.projectRef,objectId:'project:other:project-a'},
+    workRefs:base.workRefs.map(ref=>({...ref,objectId:ref.objectId.replace('work:ws-method:','work:other:')}))};
   await assert.rejects(Promise.resolve().then(()=>compareWorkspaceMethodRevisions({
-    before:base,after:{...base,workspaceId:'other'}})),code('METHOD_COMPARISON_SCOPE_MISMATCH'));
+    before:base,after:foreign})),code('METHOD_COMPARISON_SCOPE_MISMATCH'));
   await assert.rejects(Promise.resolve().then(()=>compareWorkspaceMethodRevisions({
     before:base,after:{...base,workRefs:base.workRefs.slice(1)}})),code('METHOD_COMPARISON_REVISION_SET_INVALID'));
   assert.equal((await owner.audit()).length,5);
