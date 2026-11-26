@@ -1,0 +1,63 @@
+name: T3 T4 exact converged source one-shot
+on:
+  push:
+    branches: ['ci/once/t3-t4-convergence/03feb44f6f52']
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 03feb44f6f52b438a53e4d52f33c7f0fac817605
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public candidate and locked dependencies
+        id: deps
+        run: |
+          test "$(git rev-parse HEAD)" = "03feb44f6f52b438a53e4d52f33c7f0fac817605"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+          npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Original Registry, Control and converged corporate regression
+        if: ${{ always() && steps.deps.outcome == 'success' }}
+        run: |
+          timeout 300s node --experimental-strip-types --test --test-timeout=60000 --test-concurrency=2 \
+            packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs \
+            packages/t3-core/tests/t3-d1-original-control-http.test.mjs \
+            packages/t3-core/tests/t3-d1-real-ed25519-personal.test.mjs \
+            packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs \
+            packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs \
+            packages/t3-core/tests/t3-corporate-*.test.mjs \
+            packages/t3-core/tests/t3-company-workspace-readback.test.mjs \
+            packages/t3-core/tests/t3-control-loopback-owner.test.mjs \
+            packages/t3-core/tests/t3-d1-origin-isolated-kernel.test.mjs \
+            packages/t3-core/tests/t3-d1-signed-control-dist.test.mjs \
+            packages/t3-core/tests/t3-subject-*.test.mjs \
+            packages/t3-core/tests/t3-signed-access-host-port.test.mjs \
+            packages/t3-core/tests/t3-reconciliation-*.test.mjs \
+            packages/t3-core/tests/t3-d6-*.test.mjs \
+            packages/t3-core/tests/t3-d7-*.test.mjs \
+            packages/t3-core/tests/installed-kernel-candidate.test.mjs
+      - name: Complete T4 source and native contract regression
+        if: ${{ always() && steps.deps.outcome == 'success' }}
+        working-directory: packages/t4-network
+        run: |
+          npm run check
+          timeout 600s node --experimental-strip-types --test --test-timeout=60000 --test-concurrency=2 tests/*.test.mjs
+      - name: Converged TypeScript contract
+        if: ${{ always() && steps.deps.outcome == 'success' }}
+        working-directory: packages/t3-core
+        run: timeout 180s npm run typecheck
+      - name: Original facade and signed Workspace DOM regression without browser automation
+        if: ${{ always() && steps.deps.outcome == 'success' }}
+        working-directory: packages/t3-core
+        run: |
+          timeout 180s npx --no-install vitest run --config vitest.t3-product.config.mjs tests/module-kernel-facade.test.ts tests/t3-host-signed-kernel.test.ts tests/t3-d1-signed-selected-workspace.dom.test.tsx tests/t3-d1-mounted-signed-workspace.dom.test.tsx tests/t3-d1-trusted-kernel-bootstrap.dom.test.tsx
+      - name: Complete original public One Core build
+        if: ${{ always() && steps.deps.outcome == 'success' }}
+        working-directory: packages/t3-core
+        run: timeout 240s npm run build
