@@ -93,7 +93,7 @@ export async function readWorkspaceMethodFromSourceOwner({owner,workspaceId,proj
       || ref.revision!==[projectRef,...workRefs][index].revision)){
     fail('METHOD_SOURCE_REFERENCE_CHANGED','Source head changed during readback');
   }
-  return Object.freeze({draft,projectRef,workRefs:Object.freeze(workRefs),
+  return Object.freeze({workspaceId,projectId,draft,projectRef,workRefs:Object.freeze(workRefs),
     revisionSetVerified:true,atomicSnapshot:false,writeAuthorized:false,executionAuthority:false});
 }
 
@@ -160,6 +160,6 @@ export async function readHistoricalWorkspaceMethod({owner,workspaceId,projectId
     records:[...projectHistory.prefix,...histories.flatMap(item=>item.prefix)],requireReferencedHeads:false});
   const loaded=histories.map(item=>item.loaded);
   const {draft,workRefs}=verifyMethodSet({workspaceId,project,projectRef,ids,loaded});
-  return Object.freeze({draft,projectRef,workRefs:Object.freeze(workRefs),revisionSetVerified:true,
+  return Object.freeze({workspaceId,projectId,draft,projectRef,workRefs:Object.freeze(workRefs),revisionSetVerified:true,
     historicalRead:true,currentHeadVerified:false,atomicSnapshot:false,writeAuthorized:false,executionAuthority:false});
 }
