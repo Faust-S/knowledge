@@ -97,6 +97,12 @@ function fixture(){
   const idx=(key,frameSha256)=>({schema:'IWXA_T4_NATIVE_FRAME_INDEX_READ_V1',key,frameSha256,
     addressMetadataIsNotSignatureOrAuthority:true,originalBusinessApplied:false});
   const wireTransport={wireKind:'T4_NETWORK_CANDIDATE',nativeFrameIndexVersion:1,
+    forOriginalHostLifetime(isHostActive){
+      const requireActive=()=>{if(isHostActive()!==true)throw Object.assign(Error('fixture transport lifetime ended'),{code:'FIXTURE_WIRE_LIFETIME_ENDED'});};
+      const raw=this;
+      return {...raw,...Object.fromEntries(['putSnapshot','getSnapshot','inspectOutcome','getNativeFrameIndex','putNativeFrameIndex'].map(k=>[
+        k,async(...args)=>{requireActive();const result=await raw[k](...args);requireActive();return result;}]))};
+    },
     async putSnapshot({key,bytes,expectedSha256,createOnly}){
       assert.equal(createOnly,true);assert.equal(hex(bytes),expectedSha256);assert.equal(key,expectedSha256+'.t4n');puts++;
       const seen=remote.has(key);if(seen)assert.deepEqual(remote.get(key),bytes);else remote.set(key,new Uint8Array(bytes));
