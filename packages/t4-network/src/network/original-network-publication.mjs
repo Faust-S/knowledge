@@ -15,6 +15,7 @@ import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,verifyT4Candid
 import {t4OriginalDeletedSubjectRevision} from './original-deletion-delta.mjs';
 import {assembleT4CandidateOpaqueChunks}
   from './standard-network-opaque-chunks.mjs';
+import {T4_MULTIPART_OPAQUE_EXTENSION} from './standard-network-multipart-opaque-chunks.mjs';
 
 /*
  * Native outgoing publication belongs to the original T3 Host. A single
@@ -1166,6 +1167,11 @@ export function createT4OriginalNetworkPublicationPort({
       hex(Buffer.from(entry.wireText,'utf8'))!==entry.sha256)
       fail('PUBLICATION_ORIGINAL_SIGNED_BYTES_CHANGED');
     const frame=decodeT4CandidateFrame(Buffer.from(entry.wireText,'utf8'));
+    // V1 stores all signed bytes in its single root Object. Multipart requires
+    // original root selection and complete immutable backing before any write.
+    // Do not activate the new wire extension through the legacy ledger.
+    if(frame.criticalExtensions.includes(T4_MULTIPART_OPAQUE_EXTENSION))
+      fail('PUBLICATION_MULTIPART_BACKING_PROFILE_REQUIRED');
     if(frame.sequence!==entry.sequence||frame.messageType!==entry.messageType||
       frame.sourceNodeRef!==localNodeRef||frame.recipientNodeRef!==remoteNodeRef||
       frame.scopeRef!==identity.scopeRef||frame.sessionRef!==identity.sessionRef||
