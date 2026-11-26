@@ -1384,7 +1384,8 @@ test('K80 existing signed Access and native relay carry opt-in owner eligibility
   }finally{transport.close();}
 });
 
-test('K90 complete native T4 profile binds both roles to their exact original signed relay and carrier', {timeout:60000},async()=>{
+for(const multipart of [false,true])test(multipart?'K158 selected multipart profile attaches both original signed relay roles without granting new history writes':
+  'K90 complete native T4 profile binds both roles to their exact original signed relay and carrier', {timeout:60000},async()=>{
   const caps=['network.frame.read','network.frame.publish','network.frame.index.read','network.frame.index.publish'];
   const ownerOp='t4.network.original.replacement.owner.read-history',peerOp='t4.network.original.replacement.peer.read-history';
   const f=await fixture([ownerOp,peerOp,...caps.map(x=>'t4.'+x)]),allow=async()=>true;
@@ -1406,7 +1407,8 @@ test('K90 complete native T4 profile binds both roles to their exact original si
       placements:[{policy:{workspaceId:WS,objectFamily:family,authorityRoot:PRINCIPAL,writeOwnerRef:OWNER,primaryPlacement:'LOCAL_PRIMARY_HOSTED_REPLICA',
         allowedLocations:[localLocation,locationRef],retentionClass:'test',recoveryClass:'test',universalCloudMaster:false,subjectActionAuthority:false},
         primaryNodeRef:local,replicaNodeRefs:[server]}]});
-    const technical=createTemporaryOriginalPersonalAuthority({workspaceId:tech,operations:['t1.getObject','t1.listEventsSince'],clock:Date.now});
+    const technical=createTemporaryOriginalPersonalAuthority({workspaceId:tech,operations:['t1.getObject','t1.listEventsSince',
+      ...(multipart?['t1.listEventCommitWindow','t1.listEventObjectCommitWindow']:[])],clock:Date.now});
     const originalPorts=Object.fromEntries(['authorizeOriginalBinding','authorizeOriginalTechnicalRead','authorizeOriginalBaselineAdmission',
       'verifyOriginalBaselineEvidence','authorizeOriginalHostTask','authorizeOriginalRead','authorizeOriginalWrite','authorizeOriginalHostWire',
       'authorizeOriginalNetwork','authorizeOriginalFramePublish','verifyOriginalPhaseEvidence','verifyOriginalRecipientApplied','authorizeNetworkPublish',
@@ -1420,10 +1422,21 @@ test('K90 complete native T4 profile binds both roles to their exact original si
     Object.assign(originalPorts,{resolveOriginalAccess:p=>p.args[0]===tech?technical.access:null,
       authorizeOriginalTechnicalWrite:async()=>assert.fail('history must not write'),
       authorizeOriginalReplacementHistoryCaller:async p=>p.peerContext.nodeRef===peer&&p.peerContext.originalPeerSessionRef==='peer:k90:authenticated'});
+    if(multipart){
+      originalPorts.withOriginalHistoryReadBoundary=async(_,action)=>action();
+      originalPorts.withOriginalSubjectMutation=async()=>assert.fail('history must not mutate');
+      if(source){
+        originalPorts.authorizeOriginalMultipartAssetCapture=async()=>assert.fail('history must not capture');
+        originalPorts.authorizeOriginalMultipartBacking=async()=>assert.fail('history must not reserve backing');
+      }
+    }
     // The bounded profile must assemble without a full remote Event reader.
     delete originalPorts.readOriginalSourceEvents;
     if(!source)for(const k of ['readOriginalSourceHostContext','verifyOriginalSourceSubject','verifyOriginalSourceBinding','verifyOriginalSourceEvent'])delete originalPorts[k];
-    const config={role,enableSourceEventWindowRead:true,enableSourceCaptureBinding:true,enableRecipientResultRead:true,technicalWorkspaceId:tech,sourceWorkspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,
+    const config={role,enableSourceEventWindowRead:true,enableSourceCaptureBinding:true,enableRecipientResultRead:true,
+      ...(multipart?{enableOriginalMultipartNegotiation:true,enableOriginalTechnicalObjectHistory:true,
+        ...(source?{enableOriginalCommitOrder:true,enableOriginalDispatchEvidence:true}:{enableOriginalRecipientFrontierCommitOrder:true})}:{}),
+      technicalWorkspaceId:tech,sourceWorkspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,
       scopeRef:SCOPE,ownerEpoch:2,requiredCryptoSuite:SUITE,getMode,originalPorts,
       originalAccess:{registry:f.registry,...f.accessFor,expectedContext:f.context,clock:f.clock},
       originalVault:{localKeyRef:source?localBinding.keyId:remoteBinding.keyId,remoteKeyRef:source?remoteBinding.keyId:localBinding.keyId,
@@ -1452,6 +1465,7 @@ test('K90 complete native T4 profile binds both roles to their exact original si
       assert.equal(o.originalSourceEventWindowReadEnabled,true);
       assert.equal(o.originalSourceCaptureBindingEnabled,true);
       assert.equal(o.originalRecipientResultReadEnabled,true);
+      assert.equal(o.originalMultipartNegotiationEnabled,multipart?true:undefined);
       assert.equal(o.originalLocalRecipientResultVerificationEnabled,p.role==='RECIPIENT'?true:undefined);
       assert.equal(o.originalSignedReplacementHistoryBound,true);assert.equal(o.originalReplacementHistoryCarrierBound,true);
       assert.equal(o.originalTopologyBinding.nativeWireProfile,'INDEXED');
@@ -1491,8 +1505,11 @@ test('K90 complete native T4 profile binds both roles to their exact original si
       while(!done){
         const next=await Promise.race([outcome.then(v=>({done:v})),exchange('next').then(cmd=>({cmd}))]);
         if(next.done){done=next.done;break;}
-        assert.ok(++commands<=8);assert.ok(['getObject','listEventsSince'].includes(next.cmd.method));
-        await exchange('result',{id:next.cmd.id,ok:true,result:next.cmd.method==='getObject'?null:[]});
+        assert.ok(++commands<=12);
+        assert.ok(['getObject','listEventsSince',...(multipart?['listEventCommitWindow','listEventObjectCommitWindow']:[])].includes(next.cmd.method));
+        const result=next.cmd.method==='getObject'?null:next.cmd.method==='listEventsSince'?[]:{
+          entries:[],next_after_event_id:null,has_more:false,order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+        await exchange('result',{id:next.cmd.id,ok:true,result});
       }
       if(done.error)throw done.error;
       assert.equal(done.value.state,'WAITING_FOR_LOCAL_RETIREMENT');assert.equal(done.value.liveNetworkAuthorityGranted,false);
@@ -1657,4 +1674,35 @@ test('K150 negotiated envelope crosses the exact legacy reservation boundary usi
   await assert.rejects(recipient.openOriginalSealedContent({...q.openInput(c.session,{...r,ciphertext:wrong}),
     originalMultipartAgreementDigest:digest}));
   assert.equal(q.unlocks,1);
+});
+
+test('K158 original Vault admits multipart only through a scoped Host binding and cannot reopen with a stale lifetime',{timeout:60000},async()=>{
+  const q=await sealedFixture(),c=captured(Buffer.alloc(600000,37),'event:k158:one','ASSET_PUT');
+  const a=selectedMultipartFor(c.session),request={...c.input,multipartProfile:T4_MULTIPART_OPAQUE_EXTENSION,
+    originalMultipartAgreementDigest:a.agreementDigest};
+  const unbound=createT4OriginalVaultSealedContentPort({...q.common,role:'SOURCE',
+    enableOriginalReplacementBinding:true,enableOriginalMultipartBinding:true});
+  const recipientUnbound=q.recipient({enableOriginalReplacementBinding:true,enableOriginalMultipartBinding:true});
+  assert.equal(unbound.originalMultipartBindingEnabled,true);
+  assert.equal(unbound.originalMultipartAgreementBound,undefined);
+  assert.throws(()=>unbound.forOriginalHostLifetime(()=>true),{code:'SEALED_CONTENT_MULTIPART_HOST_BINDING_REQUIRED'});
+  assert.throws(()=>q.source.forOriginalHostLifetime(()=>true,{readOriginalMultipartAgreement:async()=>a}),
+    {code:'SEALED_CONTENT_MULTIPART_HOST_BINDING_REQUIRED'});
+  await assert.rejects(unbound.readOriginalSealedContent(request),{code:'SEALED_CONTENT_MULTIPART_AGREEMENT_REQUIRED'});
+  let alive=true,reads=0;
+  const scoped={readOriginalMultipartAgreement:async p=>{
+    reads++;assert.deepEqual(p.session,c.session);assert.equal(p.originalSubjectAuthorityGranted,false);return a;}};
+  const sender=unbound.forOriginalHostLifetime(()=>alive,scoped),receiver=recipientUnbound.forOriginalHostLifetime(()=>alive,scoped);
+  assert.equal(sender.originalMultipartAgreementBound,true);assert.equal(receiver.originalReplacementBindingEnabled,true);
+  const sealed=await sender.readOriginalSealedContent(request);
+  const opened=await receiver.openOriginalSealedContent({...q.openInput(c.session,sealed),originalMultipartAgreementDigest:a.agreementDigest});
+  assert.deepEqual(Buffer.from(opened.plaintext),c.content);assert.ok(reads>2);
+  alive=false;const before=reads,unlocks=q.unlocks;
+  await assert.rejects(sender.readOriginalSealedContent(request),{code:'ORIGINAL_HOST_LIFETIME_ENDED'});
+  await assert.rejects(receiver.openOriginalSealedContent({...q.openInput(c.session,sealed),originalMultipartAgreementDigest:a.agreementDigest}),
+    {code:'ORIGINAL_HOST_LIFETIME_ENDED'});
+  assert.equal(reads,before);assert.equal(q.unlocks,unlocks);
+  const cold=recipientUnbound.forOriginalHostLifetime(()=>true,scoped);
+  assert.deepEqual(Buffer.from((await cold.openOriginalSealedContent({...q.openInput(c.session,sealed),
+    originalMultipartAgreementDigest:a.agreementDigest})).plaintext),c.content);
 });
