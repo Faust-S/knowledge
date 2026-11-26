@@ -9,6 +9,8 @@ import type { CommandsFacade, KernelFacade } from "../../../../workspace-contrac
 import type { OperationId } from "../../../../kernel-client";
 import type { ViewerRegistry } from "../../../../workspace-host/registries/ViewerRegistry";
 import { WorkspaceMaterialCanvas } from "./WorkspaceMaterialCanvas";
+import { WorkspaceMethodEditor } from "./WorkspaceMethodEditor";
+import { createWorkspaceMethodDraft, type WorkspaceMethodDraft } from "./workspace-project-method.mjs";
 import { formatWorkspaceDate } from "../workspaces/workspace-format";
 import {
   RICH_WORKSPACE_RECEIPTS_BOUNDARY,
@@ -55,6 +57,14 @@ type RestoredViewState = {
   workspaceId: string;
   profileId: string;
   presentation: WorkspaceViewPresentation;
+};
+
+type MethodDraftState = {
+  workspaceId: string;
+  profileId: string;
+  kernel?: KernelFacade;
+  open: boolean;
+  draft: WorkspaceMethodDraft;
 };
 
 type SavedViewEdit = {
@@ -117,6 +127,8 @@ export function RichWorkspaceReadModel(props: {
   const [areaId, setAreaId] = useState<string | null>(null);
   const [mode, setMode] = useState<WorkspaceMode>("browse");
   const [canvasLayout, setCanvasLayout] = useState<WorkspaceCanvasLayout>(() => reconcileWorkspaceCanvasLayout([]));
+  const [methodState, setMethodState] = useState<MethodDraftState | null>(null);
+  const [methodError, setMethodError] = useState("");
   const [windowOffset, setWindowOffset] = useState(0);
   const [detailState, setDetailState] = useState<{ workspaceId: string; objectId: string | null }>({
     workspaceId: workspace.workspace_id,
@@ -165,6 +177,32 @@ export function RichWorkspaceReadModel(props: {
       workspaceMutationGeneration.current += 1;
     };
   }, [workspace.workspace_id, profileDefinition.id]);
+
+  useEffect(() => {
+    setMethodState(null);
+    setMethodError("");
+  }, [workspace.workspace_id, profileDefinition.id, props.kernel]);
+
+  const activeMethod = methodState?.workspaceId === workspace.workspace_id
+    && methodState.profileId === profileDefinition.id && methodState.kernel === props.kernel
+    ? methodState : null;
+  const toggleMethod = () => {
+    setMethodError("");
+    if (activeMethod) {
+      setMethodState({ ...activeMethod, open: !activeMethod.open });
+      return;
+    }
+    try {
+      setMethodState({ workspaceId: workspace.workspace_id, profileId: profileDefinition.id,
+        kernel: props.kernel, open: true, draft: createWorkspaceMethodDraft() });
+    } catch {
+      setMethodError("Не удалось подготовить черновик методики.");
+    }
+  };
+  const updateMethodDraft = (draft: WorkspaceMethodDraft) => {
+    if (!activeMethod) return;
+    setMethodState({ ...activeMethod, draft });
+  };
 
   const restoredPresentation = useMemo(() =>
     restoredViewState?.workspaceId === workspace.workspace_id && restoredViewState.profileId === profileDefinition.id
@@ -648,7 +686,11 @@ export function RichWorkspaceReadModel(props: {
         {([["browse", "Объекты"], ["canvas", "Полотно"], ["queues", "Очереди"], ["compare", "Сравнение"], ["receipts", "Receipts"]] as const).map(([value, title]) => (
           <button key={value} type="button" aria-pressed={mode === value} onClick={() => changeWorkspaceMode(value)} className="px-3 py-1.5 text-xs rounded border border-slate-700 min-h-[44px]">{title}</button>
         ))}
+        <button type="button" aria-expanded={Boolean(activeMethod?.open)} onClick={toggleMethod} className="px-3 py-1.5 text-xs rounded border border-emerald-800 min-h-[44px]">
+          {activeMethod?.open ? "Скрыть методику" : activeMethod ? "Продолжить методику" : "Методика"}
+        </button>
       </nav>
+      {methodError && <p role="alert" className="text-xs text-rose-200">{methodError}</p>}
       {restoredPresentation && (restoredPresentation.changedCount > 0 || restoredPresentation.unavailableCount > 0) && (
         <div className="border border-amber-900/60 rounded p-2 space-y-2 text-xs" data-testid="rich-workspace-view-restoration-warning">
           <p role="status" className="text-amber-200">Изменилось материалов: {restoredPresentation.changedCount}. Недоступно: {restoredPresentation.unavailableCount}. Они не включены в выбор.</p>
@@ -656,6 +698,7 @@ export function RichWorkspaceReadModel(props: {
         </div>
       )}
 
+      {(mode === "canvas" || activeMethod?.open) && <div className={mode === "canvas" && activeMethod?.open ? "grid gap-3 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : "space-y-3"}>
       {mode === "canvas" && <WorkspaceMaterialCanvas
         key={JSON.stringify([workspace.workspace_id, profileDefinition.id])}
         workspaceId={workspace.workspace_id} profileId={profileDefinition.id} objects={objects}
@@ -671,6 +714,12 @@ export function RichWorkspaceReadModel(props: {
         onMove={(id, direction) => replaceCanvasSelection(moveWorkspaceCanvasMaterial(selectedObjectIds, id, direction))}
         onOpenObject={onOpenObject} onRefreshObjects={onRefreshObjects}
       />}
+      {activeMethod?.open && <WorkspaceMethodEditor
+        workspaceId={workspace.workspace_id} draft={activeMethod.draft} objects={objects}
+        selectedObjectIds={selectedObjectIds} selectionNeedsReview={restorationNeedsReview}
+        onChange={updateMethodDraft}
+      />}
+      </div>}
 
       {mode === "browse" ? (
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.72fr)]" data-testid="rich-workspace-master-detail">
@@ -826,6 +875,7 @@ export function RichWorkspaceReadModel(props: {
             {editingView && <button type="button" disabled={persistedViewBusy !== null} onClick={cancelSavedViewEdit} className="px-3 py-1.5 text-xs rounded border border-slate-700 min-h-[44px] disabled:opacity-40">Отменить изменение</button>}
           </div>
           {editingView && <p role="status" className="text-xs text-emerald-300">Изменение сохранённого представления. Название и фильтр будут сохранены в той же записи.</p>}
+          {activeMethod && <p className="text-[11px] text-slate-400">Сохранение представления не сохраняет черновик методики.</p>}
           <p className="text-[11px] text-slate-500">Текущий вид: {VIEW_MODE_TITLES[mode]}; материалов выбрано {selectedObjectIds.length}; область {areaId ?? "все"}; поиск {query.trim() ? `«${query.trim()}»` : "без поиска"}. Локальный вид живёт только в текущей вкладке; сохранённый вид использует существующий owner.</p>
           {persistedViewError && <p role="alert" className="text-xs text-rose-200" data-testid="rich-workspace-persisted-view-error">Не удалось изменить сохранённое представление: {persistedViewError}</p>}
           {persistedViews.views.length > 0 && (
