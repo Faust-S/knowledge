@@ -30,6 +30,7 @@ import {prepareT4CandidateOpaqueChunks,assembleT4CandidateOpaqueChunks} from '..
 import {createT4OriginalVaultNodeSignaturePort} from '../src/network/original-vault-node-signature.mjs';
 import {createT4OriginalNativeHostNetworkOwner} from '../src/network/original-native-host-network-owner.mjs';
 import {createT4OriginalNativeHostNetworkProfile} from '../src/network/original-native-host-network-profile.mjs';
+import {createT4OriginalProductProfileFactory} from '../src/network/original-product-network-profile.mjs';
 import {createT4OriginalSignedReplacementHistoryAccess,isT4OriginalSignedReplacementHistoryAccess} from '../src/network/original-signed-replacement-history-access.mjs';
 import {createT4OriginalReplacementOwnerHistoryRequest} from '../src/network/original-network-replacement-owner-history.mjs';
 import {createT4OriginalReplacementOwnerEligibilityRequest} from '../src/network/original-network-replacement-owner-eligibility.mjs';
@@ -1450,6 +1451,26 @@ for(const multipart of [false,true])test(multipart?'K158 selected multipart prof
     return {config,technical,local,peer};
   };
   const a=makeConfig('SOURCE'),b=makeConfig('RECIPIENT');
+  // Use the canonical production profile constructor through the product
+  // factory with the SAME actual Registry/evaluator and real actor proof.
+  // The underlying Kernel and owner data callbacks are still test fixtures.
+  for(const item of [a,b]){
+    const {originalAccess,originalPorts,...options}=item.config;
+    const {resolveOriginalAccess,...ports}=originalPorts;
+    const productScope={schema:'IWXA_T4_INSTALLED_NATIVE_NETWORK_SCOPE/1',role:options.role,sourceWorkspaceId:WS,
+      technicalWorkspaceId:options.technicalWorkspaceId,registryWorkspaceId:REG};
+    const create=createT4OriginalProductProfileFactory({scope:productScope,registryObjectId:OBJECT,
+      readOriginalOwnerInputs:()=>({registry:f.registry,profile:{...options,originalPorts:ports},
+        networkAccess:{expectedContext:f.context,currentContext:()=>f.context,clock:f.clock,
+          personal:{signProof:({request,challenge,asOf})=>makeProof(request,challenge,Date.parse(asOf),f.actor.provider)}},
+        resolveOriginalKernelAccess:()=>null})});
+    const product=await create({registryKernel:f.kernel,sessionId:'s'.repeat(43),contextEpoch:1,isHostActive:()=>true});
+    try{
+      assert.equal(product.role,options.role);
+      assert.equal(product.networkOwner.originalSignedTopologyAccess,true);
+      assert.equal(product.networkOwner.originalDurableNetworkKeyBinding,true);
+    }finally{product.close();}
+  }
   assert.throws(()=>createT4OriginalNativeHostNetworkProfile({...a.config,originalPorts:{...a.config.originalPorts,authorizeOriginalReplacementSourceAckConfirmation:null}}),
     {code:'NATIVE_NETWORK_OWNER_REPLACEMENT_SOURCE_ACK_PROFILE_INVALID'});
   assert.throws(()=>createT4OriginalNativeHostNetworkProfile({...a.config,originalPorts:{...a.config.originalPorts,signOriginalNodeBytes:allow}}),

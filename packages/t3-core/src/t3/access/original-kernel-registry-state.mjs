@@ -15,9 +15,15 @@ export const ORIGINAL_REGISTRY_SCHEMA="iwxa.t3.access.signed-registry";
 export const ORIGINAL_REGISTRY_EVENT="t3.access.signed_registry.persisted";
 // A product gate must be bound to the actual pinned original Kernel registry,
 // not to a caller-supplied object pretending to provide readState().
-const originalPorts=new WeakSet();
+const originalPorts=new WeakMap();
 export function isOriginalKernelRegistryStatePort(value) {
   return !!value&&typeof value==="object"&&originalPorts.has(value);
+}
+// Native product composition must prove the exact existing Kernel port and
+// technical Object, not merely the same policy or similarly shaped registry.
+export function isOriginalKernelRegistryStatePortForKernel(value,kernel,{workspaceId,objectId="t3.access.signed-registry"}={}){
+  const binding=originalPorts.get(value);
+  return !!binding&&binding.kernel===kernel&&binding.workspaceId===workspaceId&&binding.objectId===objectId;
 }
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
@@ -613,6 +619,6 @@ export function createOriginalKernelRegistryStatePort({
       return Object.freeze({sequences:copy(state.statusFloor),
         policy_digest:digest(state.policy),root_policy_digest:trustedHash});},
   });
-  originalPorts.add(port);
+  originalPorts.set(port,Object.freeze({kernel,workspaceId,objectId}));
   return port;
 }
