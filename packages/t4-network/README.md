@@ -26,6 +26,12 @@ Run `npm ci --ignore-scripts --no-audit --no-fund` in this package, then
 `npm run check`. That check enumerates JS files under src/scripts/tests and
 retains Python and independent wire-vector checks. It is not runtime evidence.
 
+The network qualification uses a single-worker Apache prefork instance for
+the limited pilot. It tests distinct device credentials in one mailbox,
+concurrent conflicting create-only indexes, exact winning signed readback,
+and idempotent same-index retries. A general parallel or distributed WebDAV
+backend is not qualified by these observations.
+
 The exact candidate must pass addressed integration tests, the original
 Kernel/Access/Vault route, Linux/Windows qualification, and a real two-device
 pilot before production activation. Existing results for older trees are

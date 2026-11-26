@@ -647,3 +647,57 @@ test('K25 real HTTPS migrates an existing signed source announcement without rew
     assert.ok(requests.every(r=>r.method==='GET'));assert.equal(b.replay.size,1);
   }finally{legacy.close();indexed.close();incoming.close();}
 });
+
+test('T4 RC1 real single-worker Apache serializes competing immutable native indexes and keeps exact winning signed bytes',async()=>{
+  const {t4NativeSessionFrameIndexKey}=await import('../../src/network/original-network-frame-address.mjs');
+  assert.ok(process.env.T4_TEST_PEER_AUTH,'Run with the qualified pilot Apache fixture and a distinct peer credential');
+  assert.notEqual(process.env.T4_TEST_PEER_AUTH,process.env.T4_TEST_AUTH);
+  const statuses=[];
+  const transport=auth=>createWebDavPackageTransport({
+    baseUrl:process.env.T4_TEST_URL,locationRef:'test-webdav',placementPolicy:policy,
+    keySuffix:'.t4n',candidateNetworkWire:true,indexedNetworkWire:true,getMode:()=> 'T4_NETWORK',
+    authorize:async()=>true,getAuthorizationHeader:async()=>auth,
+    fetchImpl:async(url,options)=>{
+      const response=await fetch(url,options);
+      if(options.method==='PUT'&&new URL(url).pathname.endsWith('.t4i')){
+        assert.equal(options.headers['If-None-Match'],'*');
+        statuses.push(response.status);
+      }
+      return response;
+    }});
+  const a=transport(process.env.T4_TEST_AUTH),b=transport(process.env.T4_TEST_PEER_AUTH);
+  const peer=host('recipient',b);
+  const hashes=[];
+  async function prepare(sessionRef){
+    const bytes=await makeBytes('HEADS',{sessionRef,sequence:1});
+    const sha256=createHash('sha256').update(bytes).digest('hex');
+    await a.putSnapshot({key:sha256+'.t4n',bytes,expectedSha256:sha256,createOnly:true});
+    return sha256;
+  }
+  try{
+    for(let i=0;i<8;i++){
+      const sessionRef='session:pilot-contention:'+randomUUID(),selector={sourceNodeRef:'node:one',ownerEpoch:2,sessionRef,messageType:'HEADS',sequence:1};
+      const key=t4NativeSessionFrameIndexKey({...selector,recipientNodeRef:'node:two',scopeRef:'scope:opaque'});
+      const first=await prepare(sessionRef),second=await prepare(sessionRef);
+      assert.notEqual(first,second);assert.equal(await a.getNativeFrameIndex({key}),null);
+      statuses.length=0;
+      const result=await Promise.allSettled([a.putNativeFrameIndex({key,frameSha256:first}),b.putNativeFrameIndex({key,frameSha256:second})]);
+      assert.deepEqual([...statuses].sort((a,b)=>a-b),[201,412]);
+      assert.equal(result.filter(v=>v.status==='fulfilled').length,1);
+      assert.equal(result.find(v=>v.status==='rejected').reason.code,'REMOTE_INDEX_SLOT_CONFLICT');
+      const winner=result[0].status==='fulfilled'?first:second;
+      assert.equal((await a.getNativeFrameIndex({key})).frameSha256,winner);
+      assert.equal((await b.getNativeFrameIndex({key})).frameSha256,winner);
+      const observed=await peer.wire.discoverUniqueSignedFrame({selector,requiredCryptoSuite:suite});
+      assert.equal(observed.state,'FOUND');assert.equal(observed.receipt.sha256,winner);
+      hashes.push(winner);
+      // A retry of the SAME exact index is idempotent, never a replacement.
+      statuses.length=0;
+      assert.equal((await b.putNativeFrameIndex({key,frameSha256:winner})).frameSha256,winner);
+      assert.deepEqual(statuses,[412]);
+      assert.equal((await a.getNativeFrameIndex({key})).frameSha256,winner);
+    }
+    assert.equal(new Set(hashes).size,8);assert.equal(peer.replay.size,8);
+    console.log('T4_RC1_SERIAL_APACHE_INDEX_CONTENTION_PASS',JSON.stringify({competingPairs:8,exactWinnerReadbacks:8,idempotentRetries:8,independentCredentials:2,distributedCASProven:false}));
+  }finally{a.close();b.close();}
+});

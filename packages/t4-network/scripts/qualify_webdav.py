@@ -12,21 +12,28 @@ with tempfile.TemporaryDirectory(prefix='iwxa-t4-dav-') as temp:
  for folder in ['data','data/person-a','data/person-b','locks']:
   p=d/folder;p.mkdir();p.chmod(0o777) # Test-only temporary files; never deploy these permissions.
  with socket.socket() as s: s.bind(('127.0.0.1',0));port=s.getsockname()[1]
- passwords=[secrets.token_urlsafe(24),secrets.token_urlsafe(24)]
- for i,person in enumerate(('person-a','person-b')):
+ # Two independent pilot devices may share one explicitly admitted mailbox.
+ # The unrelated operator retains its own isolated namespace.
+ passwords=[secrets.token_urlsafe(24) for _ in range(3)]
+ for i,person in enumerate(('person-a','person-b','person-a-peer')):
   run(['htpasswd','-i','-B']+(['-c'] if i==0 else [])+[str(d/'passwd'),person],input=passwords[i]+'\n')
  (d/'passwd').chmod(0o644)
  run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',str(d/'key.pem'),'-out',str(d/'cert.pem'),'-subj','/CN=localhost','-addext','subjectAltName=IP:127.0.0.1,DNS:localhost'])
- mods=['mpm_event','authn_core','authn_file','authz_core','authz_user','auth_basic','dav','dav_fs','ssl','socache_shmcb']
+ # Apache event MPM is not a distributed create-only CAS: the conditional
+ # check and write may race. Qualify the limited single-worker pilot,
+ # not a parallel server with unproven immutable-slot semantics.
+ mods=['mpm_prefork','authn_core','authn_file','authz_core','authz_user','auth_basic','dav','dav_fs','ssl','socache_shmcb']
  config=[f'ServerRoot "{d}"',f'PidFile "{d}/httpd.pid"','ServerName localhost',f'Listen 127.0.0.1:{port}']
  config += [f'LoadModule {m}_module /usr/lib/apache2/modules/mod_{m}.so' for m in mods]
- config += ['User www-data','Group www-data',f'ErrorLog "{d}/error.log"','LogLevel warn',f'DocumentRoot "{d}/data"',f'DavLockDB "{d}/locks/dav"','SSLEngine on',f'SSLCertificateFile "{d}/cert.pem"',f'SSLCertificateKeyFile "{d}/key.pem"','SSLSessionCache none','FileETag MTime Size','<Directory />','Require all denied','</Directory>']
+ config += ['ServerLimit 1','StartServers 1','MinSpareServers 1','MaxSpareServers 1',
+  'MaxRequestWorkers 1','MaxConnectionsPerChild 0','KeepAlive Off','User www-data','Group www-data',f'ErrorLog "{d}/error.log"','LogLevel warn',f'DocumentRoot "{d}/data"',f'DavLockDB "{d}/locks/dav"','SSLEngine on',f'SSLCertificateFile "{d}/cert.pem"',f'SSLCertificateKeyFile "{d}/key.pem"','SSLSessionCache none','FileETag MTime Size','<Directory />','Require all denied','</Directory>']
  for person in ('person-a','person-b'):
-  config += [f'<Directory "{d}/data/{person}">','Dav On','Options None','AllowOverride None','AuthType Basic','AuthName "IWXA T4 isolated test"',f'AuthUserFile "{d}/passwd"',f'Require user {person}','</Directory>']
+  config += [f'<Directory "{d}/data/{person}">','Dav On','Options None','AllowOverride None','AuthType Basic','AuthName "IWXA T4 isolated test"',f'AuthUserFile "{d}/passwd"','Require user person-a person-a-peer' if person=='person-a' else f'Require user {person}','</Directory>']
  (d/'httpd.conf').write_text('\n'.join(config)+'\n');run(['apache2','-t','-f',str(d/'httpd.conf')])
  env=os.environ.copy();env.update(NODE_EXTRA_CA_CERTS=str(d/'cert.pem'),T4_TEST_URL=f'https://127.0.0.1:{port}/person-a/',T4_TEST_CHECKPOINT=str(d/'checkpoint.json'))
  env['T4_TEST_AUTH']='Basic '+base64.b64encode(('person-a:'+passwords[0]).encode()).decode()
  env['T4_TEST_OTHER_AUTH']='Basic '+base64.b64encode(('person-b:'+passwords[1]).encode()).decode()
+ env['T4_TEST_PEER_AUTH']='Basic '+base64.b64encode(('person-a-peer:'+passwords[2]).encode()).decode()
  def start():
   p=subprocess.Popen(['apache2','-f',str(d/'httpd.conf'),'-DFOREGROUND'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
   ctx=ssl.create_default_context(cafile=str(d/'cert.pem'))
@@ -55,6 +62,8 @@ with tempfile.TemporaryDirectory(prefix='iwxa-t4-dav-') as temp:
     totals[parts[1]]=int(parts[2])
   if totals.get('tests') is None or totals.get('pass')!=totals['tests'] or totals.get('fail')!=0:
    raise RuntimeError('Network TAP summary missing or inconsistent')
+  if 'T4_RC1_SERIAL_APACHE_INDEX_CONTENTION_PASS' not in suite.stdout:
+   raise RuntimeError('Native immutable-index contention witness missing')
   original_run_passed=False
   if os.environ.get('IWXA_T2_QUALIFIED_KERNEL_DIST'):
    migration=subprocess.run(['node','--experimental-strip-types','--test',
@@ -96,8 +105,8 @@ if(r.bytes.toString('base64')!==c.text)throw Error('cold mismatch');t.close();co
   untrusted=env.copy();untrusted.pop('NODE_EXTRA_CA_CERTS',None)
   negative=run(['node','--input-type=module','-e',"try { await fetch(process.env.T4_TEST_URL);process.exit(2); } catch(e) { if(!String(e.cause?.code).match(/CERT|SELF_SIGNED/)) throw e;console.log('UNTRUSTED_TLS_REJECTED'); }"],cwd=ROOT,env=untrusted)
   (OUT/'tls-negative.log').write_text(negative.stdout)
-  paths=['src/network/webdav-package-transfer.mjs','src/contracts/hosted-context-boundary.mjs','tests/network/webdav-package-transfer.test.mjs','scripts/qualify_webdav.py','scripts/transfer_cli.mjs']
-  summary={'schema':'IWXA_T4_NETWORK_QUALIFICATION/1.0','date':datetime.date.today().isoformat(),'environment':'Linux container; real Apache HTTPS/WebDAV; loopback','node':run(['node','--version']).stdout.strip(),'apache':run(['apache2','-v']).stdout.splitlines()[0],'tests_passed':totals['pass'],'tests_failed':totals['fail'],'cli_checks_passed':3,'cold_server_restart_and_fresh_node':'PASS','untrusted_tls':'REJECTED','payload':'OPAQUE_TRANSPORT_FIXTURES_NOT_ORIGINAL_IWXA','original_kernel_webdav_readback':'PASS' if original_run_passed else 'NOT_RUN','original_owner_binding':'PUBLIC_ORIGINAL_T2_KERNEL_NOT_PRIVATE_SIGNED_ISSUER' if original_run_passed else 'NOT_RUN','physical_remote_device':'NOT_RUN','nextcloud':'NOT_RUN','windows':'SEPARATE_WINDOWS_CONTRACT_JOB','full_existing_t4_suite':'NOT_RUN','T4_READY':False,'source_sha256':{p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in paths}}
+  paths=['src/network/webdav-package-transfer.mjs','src/contracts/hosted-context-boundary.mjs','tests/network/webdav-package-transfer.test.mjs','tests/network/standard-network-native-webdav.test.mjs','scripts/qualify_webdav.py','scripts/transfer_cli.mjs']
+  summary={'schema':'IWXA_T4_NETWORK_QUALIFICATION/1.0','date':datetime.date.today().isoformat(),'environment':'Linux; isolated single-worker Apache prefork HTTPS/WebDAV; loopback','native_index_contention':'PASS','native_index_contention_scope':'single worker only; no distributed CAS claim','node':run(['node','--version']).stdout.strip(),'apache':run(['apache2','-v']).stdout.splitlines()[0],'tests_passed':totals['pass'],'tests_failed':totals['fail'],'cli_checks_passed':3,'cold_server_restart_and_fresh_node':'PASS','untrusted_tls':'REJECTED','payload':'OPAQUE_TRANSPORT_FIXTURES_NOT_ORIGINAL_IWXA','original_kernel_webdav_readback':'PASS' if original_run_passed else 'NOT_RUN','original_owner_binding':'PUBLIC_ORIGINAL_T2_KERNEL_NOT_PRIVATE_SIGNED_ISSUER' if original_run_passed else 'NOT_RUN','physical_remote_device':'NOT_RUN','nextcloud':'NOT_RUN','windows':'SEPARATE_WINDOWS_CONTRACT_JOB','full_existing_t4_suite':'NOT_RUN','T4_READY':False,'source_sha256':{p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in paths}}
   (OUT/'summary.json').write_text(json.dumps(summary,indent=2)+'\n');print(result.stdout.strip());print(negative.stdout.strip())
  finally:
   if process is not None:stop(process)
