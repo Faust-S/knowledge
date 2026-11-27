@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_T3_T4_ONE_CORE_CONVERGENCE_STAGE/1",
-  "state": "NATIVE_ORIGINAL_CUSTODY_AND_EXPLICIT_SOURCE_PACKAGE_STAGED",
+  "state": "NATIVE_LAYOUT_VAULT_AND_PEER_STARTUP_STAGED",
   "mergeBase": "fd927a1efb083219442d9504285f75fa738dbdda",
   "corporateT3": "8db847058cab231d2d39c34df46024b60564d2ad",
   "networkT4": "896515f361611e311b0df22dbcfebfefa8e58fa0",
@@ -27,10 +27,10 @@
   "networkWireUnchanged": true,
   "accepted": false,
   "blocking": [
-    "Execute exact corrected original K036 qualification with authorized local Git snapshots using Center 9d224c1c, or restore authorized public Center access. Complete corporate return archive remains FAIL on accepted K036; corrected candidate NOT_RUN.",
-    "Finish installed canonical module-root resolution and supply actual SOURCE/RECIPIENT provider, existing signed Registry history, original signed native grant selection and authenticated port configuration. No fallback, bootstrapping or automatic grant issuance.",
-    "Provision real original device grants, existing durable keys/Vault, separate technical workspace and authenticated peer topology.",
-    "Qualify actual DB9 and installed two-node pilot.",
+    "Execute exact corrected original K036 qualification from authorized local Git snapshots using Center 4ec94afe, or restore authorized public Center access. Complete corporate return archive remains FAIL on accepted K036; corrected candidate NOT_RUN.",
+    "Complete real installed SOURCE/RECIPIENT profile provider, including signed enrollment and grant selection, authentic existing credential and topology readers, and original operation ports. Layout resolution source is implemented, full Windows build/mount NOT_RUN; unconfigured SOURCE is still rejected. No fallback or automatic grant issuance.",
+    "Provision original signed device grants, durable keys and TLS certificate custody, separate technical workspace, authenticated topology; use explicit CONNECT/LISTEN on an existing reachable route. TLS connection alone is not peer owner readiness. Require both original owners READY before subject traffic.",
+    "Qualify original peer carrier after startup change, actual DB9 and installed two-node pilot, disconnect/reconnect and measured performance.",
     "Independent final acceptance."
   ],
   "notes": [
@@ -52,7 +52,8 @@
     "2026-11-27: exact local K036 qualification route published, tested launcher only; no authorized local full source checkout in this environment.",
     "Native original private owner aligned byte-for-byte with canonical Access/Vault/strict JSON modules; actual crypto and legacy compatibility addressed, full private Runtime NOT_RUN.",
     "Explicit SOURCE forwarded by qualified Agent builder and CLI. Agent build-only packaging admits a single canonical sibling layout, pinned native owner, canonical SOURCE passport and unaccepted package metadata; actual Windows build and native mount NOT_RUN. Existing local owner still refuses pilot passport.",
-    "All 66 original frozen network source blobs unchanged; five integration additions. No new Actions or Codex."
+    "All 66 original frozen network source blobs unchanged; five integration additions. No new Actions or Codex.",
+    "2026-11-27: all 66 original frozen T4 network source blobs still byte-identical; six integration modules. Existing release branches untouched. Source candidate 513a11bf has actual TLS startup helper tests, but new product factory glue and combined canonical carrier test require full checkout. No new Actions or Codex."
   ],
   "additionalTests": {
     "packages/t4-network/tests/original-native-network-product-activation.test.mjs": "9f1fd80a9f76a2dd9f99d7367d804cc1acfe0f02",
@@ -224,7 +225,7 @@
     "commit": "6e542f5d28386c39a6fd9b5206c7d3fa79414c31",
     "originalBlobs": 66,
     "changed": 0,
-    "additionalProductIntegrationModules": 5
+    "additionalProductIntegrationModules": 6
   },
   "nativePilot": {
     "scope": "LIMITED_ONE_WRITER_TWO_NODE_DEVELOPMENT_ONLY",
@@ -356,6 +357,75 @@
       "codexUsed": false,
       "realDeviceGrants": "NOT_PROVISIONED",
       "independentAcceptance": "NOT_RUN",
+      "T4_READY": false,
+      "FEATURE_FREEZE": true
+    },
+    "latestNativeImplementation": {
+      "date": "2026-11-27",
+      "state": "STAGED_NOT_ACCEPTED",
+      "sourceCandidate": {
+        "commit": "513a11bff20138f96875a0a0c13186d9ba7931e0",
+        "tree": "a5f9cf47974426dcd7bdc083342ae5972cb32633"
+      },
+      "agent": {
+        "commit": "6e6626cfb5fd5029f6c48b74c9457baf2fe4c75d",
+        "tree": "0cf39d3939faef45687832aa0c7d919a1f189c06",
+        "layoutCommit": "3d5f3891f2c06d3f5dfdf5c775df122da03d9154",
+        "pinCommit": "4b118b1386f64913d8f68171ae7fcf170cfd05a3",
+        "local": {
+          "python": 18,
+          "node": 5,
+          "fail": 0,
+          "scope": "Exact installed inventory and legacy/sibling layout fixtures, real ESM identity on fixture modules. Final pins rerun Python 18."
+        },
+        "windowsBuild": "NOT_RUN",
+        "installedMount": "NOT_RUN",
+        "provider": "NOT_CONFIGURED"
+      },
+      "nativeOwner": {
+        "commit": "9d45f993e0b5e3609879d4c203f9345684400d65",
+        "tree": "06ffe1600f05340be5d1e3577f293ebb3e445fd7",
+        "local": {
+          "pass": 31,
+          "fail": 0,
+          "actualVaultCryptoCases": 8,
+          "modeledCompositionCases": 23
+        },
+        "fullRuntime": "NOT_RUN",
+        "realDeviceGrants": "NOT_PROVISIONED",
+        "runtimeVaultKeyRefresh": "Reopen owner after actual key provisioning; full provisioning/rotation integration unqualified"
+      },
+      "peerStartup": {
+        "helperBlob": "81802395b65f482ac988a9c0044bf2531beadf32",
+        "testsBlob": "90394f8304e19f927ea57cc2f204c5ec00609e4d",
+        "productFactoryBlob": "0bd01b4d8f2155435cc86c983fab24b16ea2286c",
+        "canonicalCarrierTestBlob": "b95aa2bf40cefa1873712811a6b0558bdeb40a3c",
+        "local": {
+          "pass": 10,
+          "fail": 0,
+          "repeatedFinalRuns": 3,
+          "scope": "Real Node TLS 1.3 loopback with ephemeral certificates and injected handoff; not an original signed T4 product transfer. Earlier test fixture closed the client before server secureConnection, fixed fixture ordering."
+        },
+        "canonicalCarrierAfterChange": "NOT_RUN",
+        "productFactoryAfterChange": "NOT_RUN",
+        "scope": "One explicitly selected CONNECT or LISTEN endpoint; one connection, no automatic retry; owner supplies existing cert/key/CA and live authorization; not a new network protocol. Both original owners must be READY before traffic."
+      },
+      "localQualification": {
+        "commit": "4ec94afe47aeebcd4b512b1170977dee5ce2adf5",
+        "tree": "006e405cb5ce43bac8d77ec82ed1e77d7de7ca2e",
+        "localLauncher": {
+          "python": 10,
+          "node": 5,
+          "fail": 0
+        },
+        "originalFull": "NOT_RUN"
+      },
+      "newPublicActions": 0,
+      "newPrivateActions": 0,
+      "codexUsed": false,
+      "actualDb9": "NOT_RUN",
+      "actualTwoNode": "NOT_RUN",
+      "accepted": false,
       "T4_READY": false,
       "FEATURE_FREEZE": true
     }
