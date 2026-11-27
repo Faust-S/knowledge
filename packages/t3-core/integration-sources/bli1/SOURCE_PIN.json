@@ -56,7 +56,7 @@
     },
     {
       "file": "src/engine.mjs",
-      "blob": "2a49f7ba28eb998b3d130d7a769f2c8c83b38b7c",
+      "blob": "1f6b875b013a87a3d3689f71aac2ed85b16dac07",
       "upstream_blob": "5ae5c79f4421df46157d3798defff66fb6cad0b9"
     },
     {
@@ -74,7 +74,7 @@
     }
   ],
   "executable_owner": "Faust-S/knowledge",
-  "purpose": "hash-pinned T3-owned BLI runtime with three versioned multilingual profiles; exact upstream WebLLM variants and repository revisions; no credentials or weights; bounded native JSON grammar for explicit selected form fields; explicit developer profile replacement and previous revision cache maintenance; typed Worker rejection and explicit recovery from unusable model session",
+  "purpose": "hash-pinned T3-owned BLI runtime with three versioned multilingual profiles; exact upstream WebLLM variants and repository revisions; no credentials or weights; bounded native JSON grammar for explicit selected form fields; explicit developer profile replacement and previous revision cache maintenance; typed Worker rejection and explicit recovery from unusable model session; live generation is stopped by explicit cancellation or real failure, not elapsed wall-clock time",
   "source_role": "HISTORICAL_BLI1_BASE_WITH_FIRST_PARTY_T3_D5_MODEL_CHOICE",
-  "source_revision": "Faust-S/knowledge@c1d720650acd28a9d7510b2068700e59633db205"
+  "source_revision": "Faust-S/knowledge@92ba6c314725a46f8f0ac0a6fd1a4ee9d315d60e"
 }

@@ -1,7 +1,7 @@
 name: T3 original Host route snapshot portable candidate
 on:
   push:
-    branches: [work/2026-11-24-t3-mobile-model-catalog, qualification/2026-11-27-t3-original-route-portable]
+    branches: [work/2026-11-24-t3-mobile-model-catalog, qualification/2026-11-27-t3-original-route-portable, fix/2026-11-27-t3-local-generation-wallclock]
     paths:
       - packages/t3-core/scripts/package-t3-portable-platform.mjs
       - .github/workflows/t3-mobile-portable-candidate.yml
@@ -30,7 +30,7 @@ jobs:
           npm run typecheck
           npm run test:product:core
           npm run test:product:workspace
-          node --test tests/t3-activity/*.test.mjs tests/t3-mobile-model-catalog.test.mjs tests/t3-domain-offline.test.mjs tests/t3-pwa-install.test.mjs tests/t3-d5-model-install-cancellation.test.mjs
+          node --test tests/t3-activity/*.test.mjs tests/t3-mobile-model-catalog.test.mjs tests/t3-domain-offline.test.mjs tests/t3-pwa-install.test.mjs tests/t3-d5-model-install-cancellation.test.mjs tests/t3-d5-live-generation.test.mjs
       - name: Compile original generic Host with the exact candidate shared BLI
         working-directory: packages/t3-core
         run: node scripts/qualify-bli-inherited-host.mjs
