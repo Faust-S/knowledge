@@ -1,0 +1,9 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-domain-assistant-032",
+  "preparedSha": "51439e7f0a83e62cfb63d494a43429250b13986f",
+  "originalAssistant": "ce79b696739efb7183cc52b281009fddeab95949",
+  "cehovodSite": "c8f6ba983230c4c0448e3f108edb07a7a5b44f55",
+  "stableBase": "d7f439fe974fab1709270e515721da72d887240f",
+  "scope": "UI_SUCCESSOR_PUBLIC_PLATFORM_AND_PRIVATE_SITE_EXISTING_BROWSER_ROUTES"
+}
