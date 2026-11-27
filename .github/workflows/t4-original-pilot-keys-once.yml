@@ -1,0 +1,31 @@
+name: T4 original pilot key and Vault qualification
+on:
+  push:
+    branches:
+      - 'ci/once/t4-pilot-keys/9bbef4d7b63f'
+permissions:
+  contents: read
+jobs:
+  original-enrollment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 9bbef4d7b63f6bec7d28c1f392a05780b103ddf8
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact source and install existing locked transport dependencies
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "9bbef4d7b63f6bec7d28c1f392a05780b103ddf8"
+          test "$(git rev-parse HEAD^{tree})" = "44ab2dbbf36f5289a9f8f12f52d8ee61decdef1d"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Exact issuer, existing Vault and original Registry lifecycle
+        run: |
+          node --check packages/t3-core/src/t3/access/original-employee-enrollment.mjs
+          node --check packages/t3-core/src/t3/access/original-network-key-lifecycle.mjs
+          node --test packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs
+          node --experimental-strip-types --test packages/t4-network/tests/original-network-key-lifecycle.test.mjs
