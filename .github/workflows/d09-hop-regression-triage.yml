@@ -1,4 +1,4 @@
-name: D09 HOP baseline regression triage
+name: D09 HOP regression after capture-time correction
 on:
   push:
     branches: ['ci/once/d09-hop-regression-triage/**']
@@ -17,12 +17,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - lane: baseline
-            sha: 54bbb39c57a04967183f9b3f2718e2c5d6039a6c
-            tree: 2e8915ede5dd58329e9dbbd4f65df66752b3a9bf
-          - lane: candidate
-            sha: f731467bc159337736f179b67514829207df692c
-            tree: 6fb21bf068030eeaa3d29bbfa4eb96f202b62beb
+          - lane: corrected
+            sha: fd644c1b7cce1724d09d604de70b8c42a10b1f91
+            tree: 33ff618abb8607c42bf92c81b82ffa7853dd750e
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
     steps:
@@ -34,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable source comparison
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-regression-triage --profile hop-regression-node24 --revision baseline=54bbb39c57a04967183f9b3f2718e2c5d6039a6c --revision site=f731467bc159337736f179b67514829207df692c
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-regression-triage --profile hop-regression-node24 --revision site=fd644c1b7cce1724d09d604de70b8c42a10b1f91 --revision subject=0236cd93fa220ba11ab669d1b7eaa11b35762892
       - name: Checkout exact site source
         uses: actions/checkout@v4
         with:
@@ -111,14 +108,32 @@ jobs:
             if(a.status!=="failed")continue;
             const category=classify(a.failureMessages), id=createHash("sha256").update(basename(f.name??"")+":"+a.fullName).digest("hex").slice(0,16);
             categories[category]=(categories[category]??0)+1;byCategory[category]=(byCategory[category]??0)+1;failed++;
-            console.log("D09_REGRESSION_CASE "+basename(f.name??"unknown").replace(/[^a-zA-Z0-9_.-]/g,"_")+" "+id+" "+category);
+            const message=(a.failureMessages??[]).join("\n");
+            const file=basename(f.name??"unknown").replace(/[^a-zA-Z0-9_.-]/g,"_");
+            const loc=message.split("\n").filter(l=>l.includes(file)).map(l=>l.match(/:(\d+):(\d+)\)?\s*$/)).find(Boolean);
+            // Only known primitive assertions and fixed error signatures,
+            // never raw messages, assertion objects, prompts or private data.
+            const first=message.split("\n")[0]??"";
+            const primitive=first.match(/expected (true|false|null|undefined|\d{1,6}|'(?:valid|valid-with-warnings|rejected|read-only|error|committed|ok|cancelled)') to (?:strictly )?(?:be|equal) (true|false|null|undefined|\d{1,6}|'(?:valid|valid-with-warnings|rejected|read-only|error|committed|ok|cancelled)')/i);
+            const tags=[
+              ["VALIDATOR_NOT_FUNCTION",/validate is not a function|validator is not a function/i],
+              ["FORMATS_NOT_FUNCTION",/formats\d* is not a function/i],
+              ["AJV_MISSING_REF",/can't resolve reference|MissingRefError/i],
+              ["EXPECTED_FILE_METHOD",/\.arrayBuffer is not a function|\.text is not a function/i],
+              ["EXPECTED_SUMMARY_IDENTITY",/expected .* to be .*\/\/ Object\.is equality/i],
+              ["SCHEMA_REJECTED",/SCHEMA_VIOLATION|MISSING_REQUIRED|schema violation|schema_validation/i],
+              ["PNG_METHOD",/ImageData|createImageBitmap|\.toBlob is not a function/i],
+              ["MISSING_EXPORT",/No "[^"]+" export is defined on the .*mock/i]
+            ];
+            const signature=tags.find(([,re])=>re.test(first))?.[0]??(primitive?"PRIMITIVE_ASSERTION":"UNCLASSIFIED");
+            console.log("D09_REGRESSION_CASE "+file+" "+id+" "+category+" "+(loc?loc[1]+":"+loc[2]:"no-loc")+" "+signature+(primitive?" "+primitive[1]+"->"+primitive[2]:""));
            }
            if(!Object.keys(categories).length){
             const category=classify([f.message??""]);categories[category]=1;byCategory[category]=(byCategory[category]??0)+1;
            }
            console.log("D09_REGRESSION_FILE "+basename(f.name??"unknown").replace(/[^a-zA-Z0-9_.-]/g,"_")+" "+JSON.stringify(categories));
           }
-          console.log("D09_REGRESSION_TOTALS="+JSON.stringify({passed:r.numPassedTests,failed:r.numFailedTests,files:r.numTotalTestSuites,failedFiles:r.numFailedTestSuites,classified:failed,categories:byCategory}));
+          console.log("D09_REGRESSION_TOTALS="+JSON.stringify({passed:r.numPassedTests,failed:r.numFailedTests,files:(r.testResults??[]).length,failedFiles:(r.testResults??[]).filter(f=>f.status==="failed").length,classified:failed,categories:byCategory}));
           D09_REPORT
           else
             echo D09_REGRESSION_UNIT_REPORT=UNAVAILABLE
