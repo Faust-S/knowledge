@@ -1,0 +1,26 @@
+name: T4 original pilot key enrollment
+on:
+  push:
+    branches:
+      - 'ci/once/t4-pilot-keys/afe49ede230c'
+permissions:
+  contents: read
+jobs:
+  original-enrollment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: afe49ede230c5e775aec28c3d8ce7884258375f1
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact issuer, three device keys and existing Registry
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "afe49ede230c5e775aec28c3d8ce7884258375f1"
+          test "$(git rev-parse HEAD^{tree})" = "eca98721de490207ff1ac3cd2e70f7211e3fa61c"
+          node --check packages/t3-core/src/t3/access/original-employee-enrollment.mjs
+          node --test packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs packages/t4-network/tests/original-network-key-lifecycle.test.mjs
