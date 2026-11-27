@@ -1,0 +1,124 @@
+name: T3 rc.6 original universal Workspace delivery and remaining routes
+on:
+  push:
+    branches: ['ci/once/t3-rc6-owner-delivery/**']
+    paths: ['.github/ci-requests/t3-rc6-owner-delivery.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: t3-rc6-owner-delivery
+  cancel-in-progress: false
+jobs:
+  user-routes:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: packages/t3-core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+          architecture: x64
+      - name: Admit exact owner-delivery request, retain original rc.6 executable tree
+        working-directory: .
+        shell: bash
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Faust-S/knowledge
+          test "$GITHUB_REF_NAME" = "ci/once/t3-rc6-owner-delivery/$BEFORE"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $BEFORE"
+          test "$(git rev-list --parents -n 1 "$BEFORE")" = "$BEFORE 4da9c4fe43694b3884123f316dce5f166106eee1"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = "$(printf 'A\t.github/ci-requests/t3-rc6-owner-delivery.json')"
+          test "$(git rev-parse HEAD:packages/t3-core/src)" = ddfe22f54e622d89522146c40aa726577edaae95
+          git diff --quiet 3e8c40fc5a80866f32f4547f1780ebef525c964c HEAD -- packages/t3-core/integration-sources packages/t3-core/qualified-runtime packages/t3-core/package.json packages/t3-core/package-lock.json
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('.github/ci-requests/t3-rc6-owner-delivery.json','utf8'));
+          assert.equal(r.preparedSha,process.env.BEFORE);delete r.preparedSha;
+          assert.deepEqual(r,{"schema":"iwxa.ci.once/1","workflow":"t3-rc6-owner-delivery","source":"3e8c40fc5a80866f32f4547f1780ebef525c964c","deliveryRevision":"4da9c4fe43694b3884123f316dce5f166106eee1","platformRun":46048628242,"platformArtifact":15222879527,"archiveSha256":"bc52020b421acd334b7c5a8db8672e153933c767159609db06239f784e6ee13e","manifestSha256":"9a39448eefb9ceffd8e898a6faa395fc993df7481e01fe9228ff5e10c7e4f290","reason":"COMPLETE_RC6_USER_ROUTES_WITH_ORIGINAL_UNIVERSAL_WORKSPACE_PASSPORT"});
+          NODE
+      - uses: actions/download-artifact@v4
+        with:
+          name: t3-rc6-exact-platform
+          run-id: 46048628242
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/rc6-platform
+      - name: Materialize corrected candidate and original local transport
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $platform=Join-Path $env:RUNNER_TEMP 'rc6-platform'
+          $candidate=Join-Path $platform 'candidate-receipt.json'
+          $r=Get-Content $candidate -Raw | ConvertFrom-Json
+          if ($r.sourceCommit -ne '3e8c40fc5a80866f32f4547f1780ebef525c964c' -or $r.version -ne '0.3.1-rc.6' -or $r.qualificationRun -ne 46048628242) { throw 'EXACT_RC6_RECEIPT_REQUIRED' }
+          if ($r.archiveSha256 -ne 'bc52020b421acd334b7c5a8db8672e153933c767159609db06239f784e6ee13e' -or $r.manifestSha256 -ne '9a39448eefb9ceffd8e898a6faa395fc993df7481e01fe9228ff5e10c7e4f290') { throw 'EXACT_RC6_DIGEST_REQUIRED' }
+          if ((Get-FileHash (Join-Path $platform 'platform-inputs.zip')).Hash.ToLowerInvariant() -ne $r.archiveSha256) { throw 'RC6_ARCHIVE_CHANGED' }
+          $dest=Join-Path $env:RUNNER_TEMP 'rc6-delivery'
+          node scripts/prepare-t3-rc5-acceptance.mjs (Join-Path $platform 'platform-inputs.zip') $dest 'http://localhost:18443' $candidate
+          if ($LASTEXITCODE -ne 0) { throw 'RC6_MATERIALIZATION_FAILED' }
+          $oldZip=Join-Path $env:RUNNER_TEMP 'acceptance-host-loopback-windows-x64.zip'
+          gh release download t3-platform-v0.3.1-rc.5 --pattern acceptance-host-loopback-windows-x64.zip --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_DELIVERY_DOWNLOAD_FAILED' }
+          if ((Get-FileHash $oldZip).Hash.ToLowerInvariant() -ne '42144034304a756d77219501e73458486bc0fd72fafa883590392215b9d93618') { throw 'ORIGINAL_DELIVERY_CHANGED' }
+          $old=Join-Path $env:RUNNER_TEMP 'rc5-delivery'
+          Expand-Archive $oldZip -DestinationPath $old
+          Copy-Item (Join-Path $old 'runtime'),(Join-Path $old 'examples') -Destination $dest -Recurse
+          Copy-Item acceptance/rc5/loopback/START.cmd,acceptance/rc5/loopback/serve-acceptance.mjs -Destination $dest
+          $readme=Get-Content acceptance/rc5/loopback/README-RU.md -Raw
+          $readme=$readme.Replace('0.3.1-rc.5','0.3.1-rc.6').Replace('a50d40dafc2e029fcc7668dece925f7fc38cc510',$r.sourceCommit).Replace('381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4',$r.archiveSha256).Replace('t3-platform-v0.3.1-rc.5','t3-platform-v0.3.1-rc.6')
+          $readme += "`nGeneric trusted Workspace owner: iwxa.integration.workspace. Full Workspace backup and restore use the original Kernel workspace scope. Use only a separate test browser profile. No changes to domain-service permissions.`n"
+          Set-Content (Join-Path $dest 'README-RU.md') -Value $readme -Encoding utf8NoBOM
+          & (Join-Path $dest 'runtime/node.exe') --check (Join-Path $dest 'serve-acceptance.mjs')
+          if ($LASTEXITCODE -ne 0) { throw 'LOCAL_SERVER_SYNTAX_FAILED' }
+          npm ci --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'LOCKED_TEST_DEPS_FAILED' }
+          npx --no-install playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'BROWSER_INSTALL_FAILED' }
+      - name: Complete existing file chooser and cold-offline witness on corrected delivery
+        run: |
+          node acceptance/rc5/loopback/final-user-routes.mjs (Join-Path $env:RUNNER_TEMP 'rc6-delivery') (Join-Path $env:RUNNER_TEMP 'rc6-user-route-results') (Join-Path $env:RUNNER_TEMP 'rc6-platform/candidate-receipt.json')
+          if ($LASTEXITCODE -ne 0) { throw 'RC6_USER_ROUTES_FAILED' }
+      - name: Package the exact tested local delivery
+        run: |
+          $dest=Join-Path $env:RUNNER_TEMP 'rc6-delivery'
+          $zip=Join-Path $env:RUNNER_TEMP 'acceptance-host-loopback-windows-x64.zip'
+          Remove-Item $zip
+          Compress-Archive -Path (Join-Path $dest '*') -DestinationPath $zip -CompressionLevel Optimal
+          $receipt=Get-Content (Join-Path $dest 'acceptance-receipt.json') -Raw | ConvertFrom-Json
+          $receipt | Add-Member -NotePropertyName deliveryRun -NotePropertyValue ([long]$env:GITHUB_RUN_ID)
+          $receipt | Add-Member -NotePropertyName deliveryArchiveSha256 -NotePropertyValue (Get-FileHash $zip).Hash.ToLowerInvariant()
+          $receipt | Add-Member -NotePropertyName exampleSha256 -NotePropertyValue (Get-FileHash (Join-Path $dest 'examples/workspace-original.iwxa')).Hash.ToLowerInvariant()
+          $receipt | Add-Member -NotePropertyName fileCount -NotePropertyValue @(Get-ChildItem -File -Recurse $dest).Count
+          $receipt | Add-Member -NotePropertyName deliveryBrowserSmoke -NotePropertyValue 'PASS'
+          $receipt | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $env:RUNNER_TEMP 'acceptance-host-loopback-receipt.json') -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: t3-rc6-qualified-loopback-delivery
+          path: |
+            ${{ runner.temp }}/acceptance-host-loopback-windows-x64.zip
+            ${{ runner.temp }}/acceptance-host-loopback-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t3-rc6-final-user-routes-evidence
+          path: |
+            ${{ runner.temp }}/rc6-user-route-results/result.json
+            ${{ runner.temp }}/rc6-user-route-results/failure.png
+            ${{ runner.temp }}/rc6-user-route-results/workspace-exported.iwxa
+          if-no-files-found: ignore
+          retention-days: 30
