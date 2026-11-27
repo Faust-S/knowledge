@@ -15,14 +15,13 @@
 import {
   lazy,
   Suspense,
-  useEffect,
   useMemo,
-  useState,
   type ComponentType,
 } from "react";
 import type { WorkspaceModuleContext } from "@/workspace-contract";
 import { useWorkspaceHostRuntimeHandle } from "../runtime/WorkspaceHostRuntimeProvider";
 import type { HostRouteMatch } from "../router";
+import { useHostRouteMatch } from "../router/use-host-route-match";
 import { ModuleRouteBoundary } from "./ModuleRouteBoundary";
 import { ModuleRouteLoading } from "./ModuleRouteLoading";
 import { ModuleRouteNotFound } from "./ModuleRouteNotFound";
@@ -53,18 +52,7 @@ const lazyByRouteRefId = new WeakMap<
 
 export function ModuleRouteOutlet(props: ModuleRouteOutletProps) {
   const runtime = useWorkspaceHostRuntimeHandle();
-  const [match, setMatch] = useState<HostRouteMatch | null>(
-    runtime ? runtime.router.currentMatch() : null,
-  );
-
-  useEffect(() => {
-    if (!runtime) {
-      setMatch(null);
-      return;
-    }
-    setMatch(runtime.router.currentMatch());
-    return runtime.router.subscribe((m) => setMatch(m));
-  }, [runtime]);
+  const match = useHostRouteMatch(runtime?.router ?? null);
 
   if (!runtime) {
     return <ModuleRouteLoading presentation={props.presentation} />;
