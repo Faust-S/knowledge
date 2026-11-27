@@ -921,7 +921,7 @@ export function RichWorkspaceReadModel(props: {
 
       <div className="space-y-2" data-testid="rich-workspace-timeline">
         <div className="flex flex-wrap items-baseline gap-2"><h5 className="text-xs font-medium text-slate-200">Лента событий</h5><span className="text-[11px] text-amber-200">Порядок показа не является семантическим порядком событий.</span></div>
-        <p className="text-[11px] text-slate-500">Runtime 1.2 не предоставляет отдельные effective-time / knowledge-time; они не подменяются occurred_at.</p>
+        <p className="text-[11px] text-slate-500">Runtime 1.3 не предоставляет отдельные effective-time / knowledge-time; они не подменяются occurred_at.</p>
         {!historyReady ? <p className="text-xs text-slate-500" role="status" data-testid="rich-workspace-history-status">
           {historyState === "idle" ? "История не загружена. Выберите «Загрузить историю»."
             : historyState === "loading" ? "Загрузка истории…"

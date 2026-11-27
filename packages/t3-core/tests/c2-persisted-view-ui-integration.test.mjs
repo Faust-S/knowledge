@@ -29,7 +29,15 @@ test('Rich Workspace persisted views use existing owner commands and refresh loa
   assert.ok(source.includes('WORKSPACE_VIEW_STATE_COMMANDS.save'));
   assert.ok(source.includes('WORKSPACE_VIEW_STATE_COMMANDS.delete'));
   assert.ok(source.includes('commands.invoke'));
-  assert.ok(source.includes('baseRevision: existing?.baseRevision ?? 0'));
+  // Save uses the original observed revision selected by the existing
+  // preparation helper, not a freshly inferred latest revision.
+  assert.ok(source.includes('prepareWorkspacePersistedViewSave({'));
+  assert.ok(source.includes('edit: editingView'));
+  assert.ok(source.includes('viewId: prepared.viewId'));
+  assert.ok(source.includes('baseRevision: prepared.baseRevision'));
+  assert.ok(projection.includes('view.baseRevision !== edit.baseRevision'));
+  assert.ok(projection.includes("return target(view.viewId, edit.baseRevision, 'UPDATE')"));
+  assert.ok(projection.includes("return target(viewId, 0, 'CREATE')"));
   assert.ok(source.includes('onRefreshObjects'));
   assert.ok(projection.includes("source: 'WORKSPACE_VIEW_STATE_OWNER'"));
   assert.equal(source.includes('localStorage'),false);
