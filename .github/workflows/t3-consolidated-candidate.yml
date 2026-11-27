@@ -72,7 +72,7 @@ jobs:
           npm run typecheck
           npm run test:product:core
           npm run test:product:workspace
-          node --test tests/t3-activity/*.test.mjs tests/t3-mobile-model-catalog.test.mjs tests/t3-domain-offline.test.mjs tests/t3-pwa-install.test.mjs tests/t3-d5-model-install-cancellation.test.mjs
+          node --test tests/t3-activity/*.test.mjs tests/exchange/*.test.mjs tests/t3-mobile-model-catalog.test.mjs tests/t3-domain-offline.test.mjs tests/t3-pwa-install.test.mjs tests/t3-d5-model-install-cancellation.test.mjs
       - name: Five route regressions with exact original negative control
         run: |
           node node_modules/vitest/vitest.mjs run --config vitest.t3-product.config.mjs tests/host-route-snapshot.dom.test.tsx
@@ -148,7 +148,21 @@ jobs:
           unzip -q "$RUNNER_TEMP/t3-platform-candidate/platform-inputs.zip" -d "$RUNNER_TEMP/t3-platform-extract"
           cd "$RUNNER_TEMP/t3-platform-extract"
           sha256sum -c t3-platform-inputs.sha256
-          node --input-type=module -e 'import("./scripts/materialize-t3-domain-mode.mjs").then(x=>{if(typeof x.materializeDomainMode!=="function")process.exit(1);console.log("T3_PORTABLE_MATERIALIZER_IMPORT_PASS")})'
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          const entries=[
+            ['./scripts/materialize-t3-domain-mode.mjs','materializeDomainMode'],
+            ['./scripts/assemble-signed-control-dist.mjs','assembleSignedControlDist'],
+            ['./scripts/prepare-t3-one-dist-candidate.mjs','prepareT3OneDistCandidate'],
+            ['./src/t3/workspace-method-stage-reader.mjs',null],
+            ['./src/t3/workspace-method-personal-draft.mjs',null]
+          ];
+          for(const [path,entry] of entries){
+            const loaded=await import(path);
+            if(entry)assert.equal(typeof loaded[entry],'function',path);
+          }
+          console.log('T3_PORTABLE_MATERIALIZER_AND_ORIGINAL_OWNER_IMPORTS_PASS');
+          NODE
       - name: Retain public-only exact portable candidate input, no private domain
         uses: actions/upload-artifact@v4
         with:
@@ -386,7 +400,7 @@ jobs:
           log="$RUNNER_TEMP/private-mobile-host.log"
           if ! (node "$core/scripts/stage-t2-external-module.mjs" "$core" "$GITHUB_WORKSPACE/private-club/runtime/club-module" iwxa.domain.club club && node "$core/scripts/qualify-bli-inherited-host.mjs" --assistant-source "$GITHUB_WORKSPACE/private-bli/browser-local-inference/domain-assistant" --quality-witness) > "$log" 2>&1; then
             echo T3_MOBILE_CANDIDATE_CLUB_HOST_FAIL
-            grep -oE 'T3_D5_[A-Z0-9_]+' "$log" | sort -u | tail -20 || true
+            grep -oE 'T3_D5_[A-Z0-9_]+|TS[0-9]{4}|T2_EXTERNAL_MODULE_[A-Z0-9_]+|T2_ACTIVE_RUNTIME_CONTRACT_[A-Z0-9_]+' "$log" | sort -u | tail -20 || true
             exit 1
           fi
           grep '^T3_MOBILE_CANDIDATE_ORIGINAL_ASSISTANT_SHARED_ENGINE_PASS$' "$log"

@@ -70,6 +70,7 @@
     "packages/t3-core/scripts/installed-kernel-selection.mjs",
     "packages/t3-core/scripts/k036-c3-owner-qualification-adapter.mjs",
     "packages/t3-core/scripts/materialize-original-admin-t2-product.mjs",
+    "packages/t3-core/scripts/package-t3-portable-platform.mjs",
     "packages/t3-core/scripts/probe-k036-attached-history.mjs",
     "packages/t3-core/scripts/probe-k036-c3-mapping.mjs",
     "packages/t3-core/scripts/probe-k036-current-object-history.mjs",
@@ -193,5 +194,32 @@
   ],
   "qualification": "required; prior individual branch results are not combined evidence",
   "version": "0.3.1-rc.3",
-  "snapshot": "Exact owner inputs frozen for cumulative qualification; later development requires a subsequent explicit update."
+  "snapshot": "Exact owner inputs frozen for cumulative qualification; later development requires a subsequent explicit update.",
+  "qualificationAttempts": [
+    {
+      "candidate": "f3d0404da883c98fed4188fdff9006aa43c07eec",
+      "run": 45992353171,
+      "status": "FAIL",
+      "passed": {
+        "assistant": "PASS",
+        "canonicalSource": 256,
+        "additionalSource": 26,
+        "originalKernelMapping": "PASS"
+      },
+      "failed": {
+        "platform": "TS2304_PLAIN_FILE_INPUT_REF",
+        "sharedHost": "BUILD_FAILED_NO_FINITE_DIAGNOSTIC"
+      }
+    }
+  ],
+  "integrationFixes": [
+    {
+      "scope": "original corporate file picker",
+      "fix": "Pass the existing React input ref into renderImport; preserve both installed-company and Android handling."
+    },
+    {
+      "scope": "portable source closure",
+      "fix": "Retain original assembly selector and public Workflow dependencies; verify imports from fresh archive."
+    }
+  ]
 }
