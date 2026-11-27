@@ -33,7 +33,7 @@ function audit(ts, root) {
       if (ts.isConditionalExpression(node)) {value(node.whenTrue,kind);value(node.whenFalse,kind);return;}
       if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
         const p = node.text.split(/[?#]/,1)[0];
-        if (p !== '/' && !p.endsWith('/') && routes.has(p+'/')) emit(node, kind+'_KNOWN_NO_SLASH');
+        if (p.startsWith('/') && !p.startsWith('//') && p !== '/' && !p.endsWith('/') && routes.has(p+'/')) emit(node, kind+'_KNOWN_NO_SLASH');
         return;
       }
       if (ts.isTemplateExpression(node)) {
