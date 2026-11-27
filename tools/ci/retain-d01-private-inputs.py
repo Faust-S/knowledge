@@ -35,7 +35,18 @@ def git(*args, auth=False, allow_empty=False):
     result = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", *args],
                             cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode:
-        raise ValueError("GIT_OPERATION_FAILED")
+        # Report the failed command and a fixed category, never the raw output,
+        # token, private file names or remote response details.
+        command = next((x for x in args if x in {"rev-parse", "ls-remote", "add", "diff", "hash-object", "write-tree", "commit-tree", "push", "reset"}), "other")
+        err = result.stderr.decode("utf-8", errors="replace").lower()
+        category = ("ACCESS_DENIED" if any(x in err for x in ("403", "permission denied", "authentication failed", "write access", "not authorized", "repository not found")) else
+                    "FILE_SIZE_LIMIT" if any(x in err for x in ("file size limit", "large files detected", "gh001", "exceeds")) else
+                    "REPOSITORY_POLICY" if any(x in err for x in ("protected branch", "repository rule", "gh013", "pre-receive hook declined")) else
+                    "IGNORED_INPUT" if "ignored" in err else
+                    "SHALLOW_HISTORY" if "shallow" in err else
+                    "TRANSPORT" if any(x in err for x in ("rpc failed", "http/2", "connection", "could not resolve", "remote end hung up", "timed out")) else
+                    "OTHER")
+        raise ValueError("GIT_" + command.upper().replace("-", "_") + "_" + category)
     out = result.stdout
     require(allow_empty or bool(out.strip()), "EMPTY_GIT_RESULT")
     return out

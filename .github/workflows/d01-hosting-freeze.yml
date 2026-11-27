@@ -1,4 +1,4 @@
-name: D01 real local model generation
+name: D01 retain qualified private build inputs
 on:
   workflow_dispatch:
   push:
@@ -7,7 +7,7 @@ on:
     paths:
       - '.github/ci-requests/d01-hosting-freeze.json'
 concurrency:
-  group: d01-learn-real-model
+  group: d01-learn-retain-build
   # Finish the running candidate. GitHub keeps at most one pending run in
   # this group, replacing an older pending candidate when a new one is queued.
   cancel-in-progress: false
@@ -18,11 +18,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
     name: Exact Learn T3 ${{ matrix.lane }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 80
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        lane: [model]
+        lane: [functional]
     permissions:
       contents: read
       actions: read
@@ -41,7 +41,7 @@ jobs:
         run: |
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-hosting-freeze \
-            --profile learn-final-real-local-generation \
+            --profile learn-retain-qualified-build \
             --revision site=7c36a4cdcd01f924090601bf5001c2aa6d7de58e \
             --revision subject=77336a8a481005dda0c10c0df9a9f56655fb3fc6 \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1 \
@@ -174,134 +174,12 @@ jobs:
           grep '^D01_T3_ORIGINAL_KERNEL_PASSPORTS=' "$RUNNER_TEMP/d01-t3-build.log"
           npm run verify:hosting-dist
           npm run audit:links
-      - name: Isolated retained-input build witness tests
-        if: matrix.lane == 'functional'
-        working-directory: private/site
-        shell: bash
-        run: |
-          node --test --test-reporter=tap scripts/test-learn-t3-reproducibility.mjs >"$RUNNER_TEMP/d01-t3-repro-tests.log" 2>&1 || { echo D01_T3_REPRO_UNIT_FAIL; grep -E '^(not ok|# (tests|pass|fail) )' "$RUNNER_TEMP/d01-t3-repro-tests.log" | cut -c1-180; exit 1; }
-          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d01-t3-repro-tests.log"
-      - name: Two isolated ordinary builds with original checkouts unavailable
-        if: matrix.lane == 'functional'
-        working-directory: private/site
-        timeout-minutes: 25
-        shell: bash
-        run: |
-          set -eu
-          # A private mount namespace masks the original source trees and
-          # prepared temporary Host; the network namespace has loopback only.
-          # The tested site keeps its own retained, verified inputs.
-          sudo -n unshare --mount --net --propagation private -- bash -euc '
-            ip link set lo up
-            empty=$(mktemp -d)
-            chmod 755 "$empty"
-            trap "rmdir \"$empty\"" EXIT
-            for p in "$3/original" "$3/private/assistant" "$3/private/t2" "$3/private/domain" "$4/d01-t3-host"; do
-              test -d "$p" || exit 1
-              mount --bind "$empty" "$p"
-            done
-            runuser -u "$1" -- "$2" scripts/verify-learn-t3-reproducibility.mjs
-          ' _ "$(id -un)" "$(command -v node)" "$GITHUB_WORKSPACE" "$RUNNER_TEMP" >"$RUNNER_TEMP/d01-t3-repro.log" 2>&1 || {
-            echo D01_T3_REPRO_FAIL
-            grep -Eo '(D01_|T3_|ERR_)[A-Z0-9_]+(:[A-Z0-9_]+)*|AssertionError|TypeError|ReferenceError|SyntaxError|ENOENT|EACCES|MODULE_NOT_FOUND|Operation not permitted' "$RUNNER_TEMP/d01-t3-repro.log" | sort -u | head -80 || true
-            grep -Eo 'D01_T3_REPRO_DIST_MISMATCH:\{"added":[0-9]+,"removed":[0-9]+,"changed":[0-9]+\}' "$RUNNER_TEMP/d01-t3-repro.log" | head -5 || true
-            exit 1
-          }
-          grep '^D01_T3_REPRODUCTION=' "$RUNNER_TEMP/d01-t3-repro.log"
-
       - name: Preserve verified build inputs only in the private Learn repository
         if: matrix.lane == 'functional'
         id: retained
-        continue-on-error: true
         working-directory: private/site
         env:
           D01_SITE_TOKEN: ${{ secrets.DOMEN }}
           D01_SITE_REVISION: '7c36a4cdcd01f924090601bf5001c2aa6d7de58e'
         shell: bash
         run: python3 "$GITHUB_WORKSPACE/ci-harness/tools/ci/retain-d01-private-inputs.py"
-      - name: Browser prerequisites for exact Learn runtime
-        id: browser
-        timeout-minutes: 12
-        shell: bash
-        run: |
-          cd "$D01_T2_SOURCE"
-          npm ci --no-audit --no-fund >"$RUNNER_TEMP/d01-assistant-browser-deps.log" 2>&1 || { echo D01_ASSISTANT_BROWSER_DEPS_FAIL; exit 1; }
-          npx playwright install --with-deps chromium >"$RUNNER_TEMP/d01-assistant-browser-install.log" 2>&1 || { echo D01_ASSISTANT_BROWSER_INSTALL_FAIL; exit 1; }
-      - name: Actual Learn assistant, query routing, explicit form and result context
-        if: matrix.lane == 'functional'
-        timeout-minutes: 12
-        working-directory: private/site
-        shell: bash
-        run: |
-          set +e
-          node qa/d01-product-witness-2026-10-26/t3-assistant-environment-witness.mjs >"$RUNNER_TEMP/d01-assistant-browser.log" 2>&1
-          code=$?
-          set -e
-          grep -E '^D01_T3_ASSISTANT_' "$RUNNER_TEMP/d01-assistant-browser.log" | cut -c1-1000 || true
-          exit "$code"
-      - name: Every native first-user learning journey on both viewports
-        id: journeys
-        if: ${{ always() && !cancelled() && matrix.lane == 'functional' && steps.browser.outcome == 'success' }}
-        timeout-minutes: 24
-        working-directory: private/site
-        shell: bash
-        run: |
-          set +e
-          node scripts/audit-first-user.mjs >"$RUNNER_TEMP/d01-first-user.log" 2>&1
-          code=$?
-          set -e
-          grep -E '^D01_FIRST_USER_(PASS|FAIL|RESULT)=' "$RUNNER_TEMP/d01-first-user.log" | cut -c1-1200 || true
-          exit "$code"
-      - name: Real autonomous T3, assistant proposal, cold restart and independent archive import
-        id: offline
-        if: ${{ always() && !cancelled() && matrix.lane == 'functional' && steps.browser.outcome == 'success' }}
-        timeout-minutes: 18
-        working-directory: private/site
-        shell: bash
-        run: |
-          set +e
-          node qa/d01-product-witness-2026-10-26/t3-offline-witness.mjs >"$RUNNER_TEMP/d01-offline.log" 2>&1
-          code=$?
-          set -e
-          grep -E '^D01_T3_(OFFLINE_|STORE_METADATA|SNAPSHOT_INSTALLED|INDEPENDENT_RECIPIENT_INSTALLED|KERNEL_PROBE|ROUTE_TRANSIENT)' "$RUNNER_TEMP/d01-offline.log" | cut -c1-1200 || true
-          exit "$code"
-      - name: Bounded known-link diagnostic, not full acceptance
-        if: matrix.lane == 'audit'
-        timeout-minutes: 12
-        working-directory: private/site
-        env:
-          D01_BROWSER_AUDIT_BUDGET_MS: '540000'
-        shell: bash
-        run: |
-          set -o pipefail
-          set +e
-          sudo -n unshare --net -- bash -euc '
-            ip link set lo up
-            runuser -u "$1" -- env CI=true D01_T3_REQUIRE_STABLE_HOST=1 D01_T2_SOURCE="$3" GITHUB_STEP_SUMMARY="$4" D01_BROWSER_AUDIT_BUDGET_MS="$5" "$2" scripts/audit-browser-navigation.mjs --diagnose-known-links
-          ' _ "$(id -un)" "$(command -v node)" "$D01_T2_SOURCE" "$GITHUB_STEP_SUMMARY" "$D01_BROWSER_AUDIT_BUDGET_MS" 2>&1 |
-            tee "$RUNNER_TEMP/d01-navigation.log" |
-            awk '/^D01_DIAGNOSTIC_LINK=|^D01_BROWSER_(REALM_COVERAGE|PAGE_COVERAGE|NAV_AUDIT|DIAGNOSTIC|CHECKPOINT|NAV_FINDING|LINK_PLAN|LINK_PROGRESS|DIRECT_LOOPBACK_REQUESTS)=/ {print substr($0,1,2400); fflush()}'
-          code=$?
-          set -e
-          echo "D01_BROWSER_DIAGNOSTIC_EXIT=$code"
-          if [ "$code" -ne 0 ]; then
-            grep -Eo 'D01_BROWSER_[A-Z0-9_]+|D01_PRODUCT_MOUNT_FAILED|Operation not permitted|TimeoutError' "$RUNNER_TEMP/d01-navigation.log" | sort -u | head -30 || true
-          fi
-          exit "$code"
-      - name: Actual model installation, answer and cold-offline answer
-        if: matrix.lane == 'model'
-        timeout-minutes: 65
-        working-directory: private/site
-        env:
-          D01_T3_ALLOW_REAL_MODEL: '1'
-          D01_T3_MODEL_PROFILE: 'light'
-          D01_T3_REVIEW_CONSULTATIONS: '0'
-        shell: bash
-        run: |
-          set +e
-          node qa/d01-product-witness-2026-10-26/t3-real-model-witness.mjs >"$RUNNER_TEMP/d01-real-model.log" 2>&1
-          code=$?
-          set -e
-          grep -E '^D01_T3_(MODEL_DEVICE|REAL_MODEL_|CONSULTATION_GENERATED|CONSULTATION_QUALITY)=' "$RUNNER_TEMP/d01-real-model.log" | cut -c1-240 || true
-          grep -E '^D01_T3_(REAL_MODEL_[A-Z_]+|MODEL_DEVICE|MODEL_ANSWER_STATE|CONSULTATION_[A-Z_]+)=' "$RUNNER_TEMP/d01-real-model.log" | cut -c1-240 || true
-          exit "$code"
