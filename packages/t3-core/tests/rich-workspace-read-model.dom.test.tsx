@@ -566,4 +566,35 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     expect(recoverPersonalDraft).toHaveBeenCalledExactlyOnceWith(expected);
   });
 
+  it("checks explicitly selected original accepted personal Task without saving a draft or claiming Work completion",async()=>{
+    const f=fixture(),original=await f.previewHandoff({workspaceId:"w",projectId:"research",expected:f.binding.expected,stepId:"analyse"});
+    const materialEvidence:WorkspaceMethodMaterialEvidence={
+      schema:"IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1",state:"VISIBLE_MATERIAL_CONTENT_OBSERVED",
+      stageInput:makeInspection("analyse").stageInput,materialEvidenceDigest:"d".repeat(64),
+      observation:{materials:[],counts:{materials:1,assets:0,assetBytes:0,canonicalBytes:9}},
+      atomicSnapshot:false,allAssetsProven:false,contentBindingProven:false,exactInputBindingProven:false,
+      writeAuthorized:false,executionAuthority:false,resultReuseProven:false,dispatchAuthorized:false};
+    const digest="e".repeat(64),taskId="TASK-fixture";
+    f.previewHandoff.mockResolvedValueOnce({...original,subjectKind:"PERSONAL",candidateDigest:digest,materialEvidenceRequested:true,materialEvidence});
+    const createPersonalDraft=vi.fn(async()=>{throw Error("must not save");});
+    const inspectPersonalTask=vi.fn(async()=>({state:"ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED" as const,
+      taskId,candidateDigest:digest,workspaceId:"w",projectId:"research",stepId:"analyse",agentWorkspaceId:"personal",
+      resultId:"RES-fixture",taskDigest:digest,reviewId:"REV-fixture",acceptedDigest:digest,acceptedSummarySha256:digest,
+      snapshotId:"CSN-fixture",snapshotDigest:digest,projectionDigest:digest,bundleDigest:digest,
+      declaredDraftInputsVerified:true as const,allAssetsProven:false as const,exactInputBindingProven:false as const,
+      workCompleted:false as const,resultReuseProven:false as const,executionAuthority:false as const,writeAuthorized:false as const}));
+    const binding={...f.binding,personalTaskId:taskId,reader:{...f.binding.reader,inspectMaterialEvidence:vi.fn(async()=>materialEvidence),
+      createPersonalDraft,recoverPersonalDraft:createPersonalDraft,inspectPersonalTask}};
+    const view=render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:"Подготовить передачу"}));
+    fireEvent.click(await screen.findByRole("button",{name:"Проверить принятую задачу Agent"}));
+    await screen.findByTestId("workflow-personal-task-match");
+    expect(inspectPersonalTask).toHaveBeenCalledExactlyOnceWith({workspaceId:"w",projectId:"research",expected:f.binding.expected,
+      stepId:"analyse",resultSelections:[],expectedCandidateDigest:digest,taskId});
+    expect(createPersonalDraft).not.toHaveBeenCalled();
+    view.rerender(<WorkspaceMethodWorkflowPanel binding={{...binding,personalTaskId:"TASK-other"}} objects={[]} selectedObjectIds={[]}/>);
+    expect(screen.queryByTestId("workflow-personal-task-match")).toBeNull();
+  });
+
 });

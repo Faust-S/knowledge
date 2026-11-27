@@ -109,7 +109,8 @@ export async function inspectOriginalPersonalWorkflowTask({plan,taskId,composer,
     check(task?.task_id===taskId&&result?.task_id===taskId&&snapshot?.task_id===taskId
       &&acceptedSource?.task_id===taskId&&acceptedSource.workspace_ref===binding.agentWorkspaceId
       &&acceptedSource.contract_version==='PA.K01_ACCEPTED_RESULT_SOURCE/0.1.0'
-      &&acceptedSource.state==='accepted'&&acceptedSource.read_only===true
+      &&acceptedSource.state==='accepted'&&acceptedSource.kind==='result'&&acceptedSource.source_ref==='agent-result:'+taskId
+      &&acceptedSource.read_only===true
       &&acceptedSource.commercial_approval_claimed===false&&acceptedSource.result_id===result.result_id
       &&HEX.test(result.task_digest??'')&&HEX.test(acceptedSource.accepted_artifact_digest??'')
       &&typeof acceptedSource.review_id==='string'&&acceptedSource.review_id.startsWith('REV-')

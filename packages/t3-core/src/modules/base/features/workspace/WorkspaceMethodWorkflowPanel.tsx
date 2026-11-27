@@ -2,13 +2,15 @@ import { useEffect,useMemo,useRef,useState } from "react";
 import type { ObjectRecord } from "../../../../kernel-client/contracts/runtime-1.3.0";
 import type { WorkspaceMethodReaderSelection,WorkspaceMethodStageReader,WorkspaceMethodInputOverview,
   WorkspaceMethodPublishedResultRef,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,
-  WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence,WorkspaceMethodPersonalDraftReceipt } from "../../../../t3/workspace-method-stage-reader.mjs";
+  WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence,WorkspaceMethodPersonalDraftReceipt,WorkspaceMethodPersonalTaskInspection } from "../../../../t3/workspace-method-stage-reader.mjs";
 
 /** Trusted Host supplies this selection only after original source readback.
  * contextEpoch changes on subject/grant/session changes. Never derive it or
  * the exact source selection from the method draft or browser persistence. */
 export type WorkspaceMethodWorkflowBinding = WorkspaceMethodReaderSelection & Readonly<{
   contextEpoch:string;reader:WorkspaceMethodStageReader;nativeRecipientLabel?:string;
+  // Explicit Task selection from the original Agent surface, never inferred.
+  personalTaskId?:string;
 }>;
 const button="min-h-[44px] px-3 py-1.5 rounded border border-slate-700 text-xs disabled:opacity-40";
 const states:Record<WorkspaceMethodOverviewStage["state"],string>={
@@ -72,7 +74,7 @@ type Detail = {kind:"handoff";value:WorkspaceMethodHandoffPreview}|{kind:"native
   |{kind:"material";value:WorkspaceMethodMaterialEvidence};
 function bindingKey(binding:WorkspaceMethodWorkflowBinding){
   return JSON.stringify([binding.contextEpoch,binding.workspaceId,binding.projectId,binding.expected.projectRef,
-    [...binding.expected.workRefs].sort((a,b)=>a.objectId.localeCompare(b.objectId))]);
+    [...binding.expected.workRefs].sort((a,b)=>a.objectId.localeCompare(b.objectId)),binding.personalTaskId??null]);
 }
 export function WorkspaceMethodWorkflowPanel(props:{
   binding:WorkspaceMethodWorkflowBinding;objects:readonly ObjectRecord[];selectedObjectIds:readonly string[];
@@ -90,18 +92,19 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
   const [selections,setSelections]=useState<Record<string,string>>({});
   const [nativeStep,setNativeStep]=useState("");
   const [detail,setDetail]=useState<{reader:WorkspaceMethodStageReader;key:string;report:Detail}|null>(null);
+  const [taskInspection,setTaskInspection]=useState<{reader:WorkspaceMethodStageReader;key:string;digest:string;value:WorkspaceMethodPersonalTaskInspection}|null>(null);
   const [draftAttempt,setDraftAttempt]=useState<{reader:WorkspaceMethodStageReader;key:string;digest:string;state:WorkspaceMethodPersonalDraftReceipt['state']|null}|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const sequence=useRef(0),liveReader=useRef(reader),liveObjects=useRef(objects);
   liveReader.current=reader;liveObjects.current=objects;
-  useEffect(()=>{sequence.current++;setOverview(null);setDetail(null);setDraftAttempt(null);setSelections({});setFocus("");setNativeStep("");setBusy(false);setError("");
+  useEffect(()=>{sequence.current++;setOverview(null);setDetail(null);setDraftAttempt(null);setTaskInspection(null);setSelections({});setFocus("");setNativeStep("");setBusy(false);setError("");
     return ()=>{sequence.current++;};},[reader]);
   const materialKey=useMemo(()=>overview?materialCatalogKey(overview.value,objects):null,[overview,objects]);
   const overviewStale=overview!==null&&materialKey!==overview.materialKey;
   useEffect(()=>{
     if(!overviewStale)return;
-    sequence.current++;setOverview(null);setDetail(null);setDraftAttempt(null);setSelections({});setNativeStep("");setFocus("");setBusy(false);
+    sequence.current++;setOverview(null);setDetail(null);setDraftAttempt(null);setTaskInspection(null);setSelections({});setNativeStep("");setFocus("");setBusy(false);
     setError("Материалы изменились. Проверьте входы заново.");
   },[overviewStale]);
   const visible=overview?.reader===reader&&!overviewStale?overview.value:null;
@@ -128,7 +131,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
   useEffect(()=>{
     // Even an externally removed selection that later returns cannot
     // resurrect a pending or completed preview for the earlier selection.
-    sequence.current++;setDetail(null);setDraftAttempt(null);setSelections({});setNativeStep("");setBusy(false);
+    sequence.current++;setDetail(null);setDraftAttempt(null);setTaskInspection(null);setSelections({});setNativeStep("");setBusy(false);
   },[candidateKey]);
   const detailKey=JSON.stringify([stage?.stepId??null,resultSelections,nativeStep,candidateKey]);
   const liveDetailKey=useRef(detailKey);liveDetailKey.current=detailKey;
@@ -137,13 +140,18 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     &&visibleDetail.value.materialEvidence?.observation&&stage?.actor==='agent'&&stage.directPredecessorStepIds.length===0
     &&reader.createPersonalDraft&&reader.recoverPersonalDraft?visibleDetail.value.candidateDigest:null;
   const visibleAttempt=draftAttempt?.reader===reader&&draftAttempt.key===detailKey&&draftAttempt.digest===draftDigest?draftAttempt:null;
+  const personalTaskId=binding.personalTaskId;
+  const inspectableTask=draftDigest&&reader.inspectPersonalTask&&typeof personalTaskId==='string'
+    &&/^TASK-[A-Za-z0-9_-]{1,120}$/.test(personalTaskId)?personalTaskId:null;
+  const visibleTask=taskInspection?.reader===reader&&taskInspection.key===detailKey&&taskInspection.digest===draftDigest
+    &&taskInspection.value.taskId===inspectableTask?taskInspection.value:null;
   const request:WorkspaceMethodReaderSelection={workspaceId:binding.workspaceId,projectId:binding.projectId,expected:binding.expected};
   function invalidateDetail(){
-    sequence.current++;setDetail(null);setDraftAttempt(null);setBusy(false);setError("");
+    sequence.current++;setDetail(null);setDraftAttempt(null);setTaskInspection(null);setBusy(false);setError("");
   }
   const checkOverview=async()=>{
     const epoch=++sequence.current,startObjects=objects;
-    setBusy(true);setError("");setDetail(null);setDraftAttempt(null);setOverview(null);setSelections({});setNativeStep("");
+    setBusy(true);setError("");setDetail(null);setDraftAttempt(null);setTaskInspection(null);setOverview(null);setSelections({});setNativeStep("");
     try{
       const report=await reader.overview(request);
       if(sequence.current!==epoch||liveReader.current!==reader)return;
@@ -160,7 +168,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     if((mode==="preview"||mode==="recover")&&!resultSelections.some(row=>row.stepId===nativeStep))return;
     if(mode==="material"&&typeof reader.inspectMaterialEvidence!=="function")return;
     const epoch=++sequence.current,key=detailKey;
-    setBusy(true);setError("");setDetail(null);setDraftAttempt(null);
+    setBusy(true);setError("");setDetail(null);setDraftAttempt(null);setTaskInspection(null);
     const stillCurrent=()=>sequence.current===epoch&&liveReader.current===reader&&liveDetailKey.current===key;
     const args={...request,stepId:stage.stepId,resultSelections};
     try{
@@ -206,6 +214,25 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
       setDetail({reader,key,report});
     }catch(err){if(stillCurrent())setError(message(err));}
     finally{if(sequence.current===epoch&&liveReader.current===reader)setBusy(false);}
+  };
+  const inspectTask=async()=>{
+    if(busy||!stage||!draftDigest||!inspectableTask||!reader.inspectPersonalTask)return;
+    const epoch=++sequence.current,key=detailKey,digest=draftDigest,taskId=inspectableTask;
+    setBusy(true);setError("");setTaskInspection(null);
+    const current=()=>sequence.current===epoch&&liveReader.current===reader&&liveDetailKey.current===key;
+    try{
+      const value=await reader.inspectPersonalTask({...request,stepId:stage.stepId,resultSelections:[],
+        expectedCandidateDigest:digest,taskId});
+      if(!current())return;
+      if(value.state!=='ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED'||value.taskId!==taskId||value.candidateDigest!==digest
+          ||value.workspaceId!==binding.workspaceId||value.projectId!==binding.projectId||value.stepId!==stage.stepId
+          ||!/^(personal|AREA-[0-9a-f]{18})$/.test(value.agentWorkspaceId)
+          ||value.declaredDraftInputsVerified!==true||value.exactInputBindingProven!==false||value.allAssetsProven!==false
+          ||value.workCompleted!==false||value.resultReuseProven!==false||value.executionAuthority!==false||value.writeAuthorized!==false)
+        throw Object.assign(Error("invalid"),{code:"METHOD_TASK_MISMATCH"});
+      setTaskInspection({reader,key,digest,value});
+    }catch(err){if(current())setError(message(err));}
+    finally{if(current())setBusy(false);}
   };
   const saveDraft=async(recoverOnly:boolean)=>{
     if(busy||!stage||!draftDigest||!reader.createPersonalDraft||!reader.recoverPersonalDraft
@@ -310,6 +337,11 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
           {!visibleAttempt&&<button type="button" className={button} disabled={busy} onClick={()=>void saveDraft(false)}>Передать в черновик Agent</button>}
           {visibleAttempt?.state&&<p role="status" className="text-slate-200">{draftLabels[visibleAttempt.state]}</p>}
           {visibleAttempt?.state==='OUTCOME_UNKNOWN'&&<button type="button" className={button} disabled={busy} onClick={()=>void saveDraft(true)}>Проверить черновик Agent</button>}
+          {inspectableTask&&<div className="space-y-1 border-t border-slate-800 pt-2">
+            <p className="break-words text-slate-400">Выбранная задача Agent: {inspectableTask}</p>
+            <button type="button" className={button} disabled={busy} onClick={()=>void inspectTask()}>Проверить принятую задачу Agent</button>
+            {visibleTask&&<p role="status" data-testid="workflow-personal-task-match" className="text-slate-200">Сохранённые входы принятой задачи совпадают. Выполнение работы не засчитано.</p>}
+          </div>}
         </div>}
       </div>}
       {visibleDetail?.kind==="native"&&<div data-testid="workflow-native-receipt" className="space-y-1 rounded border border-slate-800 p-2 text-xs">

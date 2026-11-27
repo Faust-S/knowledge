@@ -519,7 +519,7 @@ async function personalTaskFixture(){
       bundle_digest:'c'.repeat(64),retrieval_refs:[],source_items:plan.draft.attachments.map((a,i)=>({
         path:'attachments/'+String(i+1).padStart(2,'0')+'-'+a.name,origin:'interaction_attachment',sha256:hash(a.text),bytes:Buffer.byteLength(a.text)}))},
     acceptedSource:{task_id:taskId,workspace_ref:'personal',contract_version:'PA.K01_ACCEPTED_RESULT_SOURCE/0.1.0',
-      state:'accepted',read_only:true,commercial_approval_claimed:false,result_id:'RES-fixture',review_id:'REV-fixture',
+      state:'accepted',kind:'result',source_ref:'agent-result:'+taskId,read_only:true,commercial_approval_claimed:false,result_id:'RES-fixture',review_id:'REV-fixture',
       accepted_artifact_digest:'e'.repeat(64),revision:'sha256:'+hash(summary),content:summary}};
   let reads=0,documents=0,hook=null;
   const taskOwner={readAcceptedRun:async(id,binding)=>{assert.equal(id,taskId);assert.equal(binding.agentWorkspaceId,'personal');reads++;return structuredClone(run);},
