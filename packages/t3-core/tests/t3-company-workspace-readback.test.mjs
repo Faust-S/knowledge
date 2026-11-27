@@ -73,6 +73,12 @@ test('exact signed Task readback selects its returned Result, uses original Obje
   assert.equal(observed.task.text,'Inspect manufacturing route');
   assert.deepEqual(observed.results.map(r=>r.text),['Verified route']);
   assert.equal(observed.signedReceiptVerified,false);
+  const selected=await readOriginalCompanyTaskRecords({kernel:f.kernel,...scope,
+    selectedResultObjectId:f.rows[1].object_id});
+  assert.deepEqual(selected.results,observed.results);
+  assert.deepEqual(selected.selectedEvidence,{object:f.rows[1],events:[f.events[1]]});
+  await assert.rejects(readOriginalCompanyTaskRecords({kernel:f.kernel,...scope,
+    selectedResultObjectId:objectId}),{code:'T3_COMPANY_READBACK_SIGNED_TASK_MISMATCH'});
   assert.deepEqual((await readOriginalCompanyTaskRecords({kernel:f.kernel,...scope,
     taskRevisionId:'c'.repeat(64)})).results,[]);
   f.rows[1].data.text='altered';
