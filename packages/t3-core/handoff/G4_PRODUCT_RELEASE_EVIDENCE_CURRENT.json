@@ -2781,7 +2781,7 @@
             "compiled_host_and_bli": "EXACT_RC5_BYTES_REQUIRED",
             "kernel": "ORIGINAL_ACCEPTED_0.3.6_UNCHANGED_REQUIRED",
             "scope": "FOCUSED_EXISTING_OFFLINE_TESTS_AND_REAL_UI_IMPORT_REPEAT_EXPORT_INDEPENDENT_RESTORE_COLD_OFFLINE_ON_NEW_CANDIDATE",
-            "publication": "PENDING_EXACT_ASSET_PUBLICATION",
+            "publication": "PUBLISHED_ENGINEERING_QUALIFIED_PRERELEASE",
             "package": {
               "run": 46048628242,
               "artifact": 15222879527,
@@ -2869,7 +2869,15 @@
               "completion": "OWNER_DIRECTED_SELF_TESTING_ON_PUBLIC_GITHUB",
               "hardware": "INHERITED_FROM_RC5_EXACT_UNCHANGED_BLI_AND_COMPILED_ASSETS; NOT_RERUN_ON_RC6",
               "corporate_and_installed_products": "SEPARATE",
-              "stable_release": "0.3.0_UNCHANGED_PENDING_VERSION_PROMOTION"
+              "stable_release": "PROMOTION_0.3.1_METADATA_ONLY_PREPARING"
+            },
+            "release": {
+              "id": 460965498,
+              "tag": "t3-platform-v0.3.1-rc.6",
+              "url": "https://github.com/Faust-S/knowledge/releases/tag/t3-platform-v0.3.1-rc.6",
+              "run": 46053077770,
+              "conclusion": "SUCCESS",
+              "exact_asset_digests_verified": true
             }
           }
         }

@@ -1,6 +1,6 @@
 {
   "schema": "iwxa.t3.consolidation-sources/1",
-  "status": "SOURCE_CANDIDATE_NOT_QUALIFIED",
+  "status": "ENGINEERING_QUALIFIED_STABLE_INPUTS_PENDING_PUBLICATION",
   "base": "3056eef0665fb3503294d49b89d937af2ea060e2",
   "rc2": "4b3314079600f5d95b3dd9e0defe3be8e845378e",
   "corporate": "8db847058cab231d2d39c34df46024b60564d2ad",
@@ -203,8 +203,8 @@
     "packages/t3-core/docs/EXCHANGE_RECEIPT_EXISTING_RECORDS_2026_11_27_RU.md"
   ],
   "qualification": "Generic T3 exact Host, accepted Kernel, complete .iwxa restore, cold autonomy, BLI and portable artifact. Separate original corporate installed A-B-A qualification remains open, not a domain/platform release prerequisite.",
-  "version": "0.3.1-rc.6",
-  "snapshot": "rc.5 published platform + one noncompiled domain-mode layout correction; all compiled Host, BLI and accepted Kernel bytes inherited unchanged.",
+  "version": "0.3.1",
+  "snapshot": "Metadata-only stable promotion of published engineering-qualified rc.6. All executable files, compiled Host/BLI, original Kernel and domain materialization mechanisms are unchanged.",
   "qualificationAttempts": [
     {
       "candidate": "f3d0404da883c98fed4188fdff9006aa43c07eec",
@@ -399,5 +399,21 @@
     "qualificationRun": 46009939031,
     "status": "FAILED_SELECTED_WORK_DECLARATIONS_NOT_ADOPTED",
     "retained": "196e3cd824f2a21078f75576f09c1153a6b17d17"
+  },
+  "stablePromotion": {
+    "from": "0.3.1-rc.6",
+    "sourceCommit": "3e8c40fc5a80866f32f4547f1780ebef525c964c",
+    "archiveSha256": "bc52020b421acd334b7c5a8db8672e153933c767159609db06239f784e6ee13e",
+    "qualification": {
+      "sourceAndHardwareRun": 46014698884,
+      "consolidatedSourceRun": 46012582910,
+      "layoutAndPackageRun": 46048628242,
+      "finalUserRoutesRun": 46050260479,
+      "publicationRun": 46053077770,
+      "conclusion": "PASS_ENGINEERING_UNIVERSAL_PLATFORM"
+    },
+    "independentCodex": "PARTIAL_ON_RC5_OWNER_DIRECTED_ENGINEERING_COMPLETION",
+    "nativeCorporateProducts": "SEPARATE_NOT_IMPLIED_ACCEPTED",
+    "migrationAutoAuthorized": false
   }
 }

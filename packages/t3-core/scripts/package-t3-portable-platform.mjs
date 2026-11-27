@@ -30,7 +30,8 @@ export function packagePortablePlatform({output,sourceCommit,qualificationRun}={
  const pkg=JSON.parse(readFileSync(join(core,"package.json"),"utf8"));
  const lock=JSON.parse(readFileSync(join(core,"package-lock.json"),"utf8"));
  const version=pkg.version;
- if(pkg.name!=="@iwxa/t3-core"||!/^0\.\d+\.\d+-rc\.[1-9]\d*$/.test(version)||
+ const stable=!version.includes("-rc.");
+ if(pkg.name!=="@iwxa/t3-core"||!/^0\.\d+\.\d+(?:-rc\.[1-9]\d*)?$/.test(version)||
     version!==lock.version||version!==lock.packages[""].version||
     pkg.dependencies["@mlc-ai/web-llm"]!=="0.2.87"||lock.packages["node_modules/@mlc-ai/web-llm"]?.version!=="0.2.87")
   fail("VERSION_OR_LOCK");
@@ -102,7 +103,7 @@ export function packagePortablePlatform({output,sourceCommit,qualificationRun}={
   webllm:"0.2.87",lockSha256:hash(readFileSync(join(core,"package-lock.json"))),
   originalT2SourceCommit:originalT2,originalKernel:"0.3.6",runtimeContract:"1.3.0",
   originalKernelArtifact:artifactId,releaseSubject:"LOCAL_BUILD_INPUT_FOR_ONE_PRODUCT_OWNED_FINAL_DIST",
-  status:"TECHNOLOGY_CANDIDATE_NOT_RELEASED",nativeSignerIncluded:false,modelWeightsIncluded:false,
+  status:stable?"TECHNOLOGY_QUALIFIED_PORTABLE_INPUTS":"TECHNOLOGY_CANDIDATE_NOT_RELEASED",nativeSignerIncluded:false,modelWeightsIncluded:false,
   installedProductAccepted:false,domainMigrationAutoAuthorized:false,files};
  const bytes=Buffer.from(JSON.stringify(manifest,null,2)+"\n");
  const manifestSha256=hash(bytes);
@@ -121,7 +122,7 @@ export function packagePortablePlatform({output,sourceCommit,qualificationRun}={
    lockSha256:manifest.lockSha256,qualificationRun,
    archiveSha256:hash(readFileSync(zip)),manifestSha256,manifestFiles:files.length,
    originalT2SourceCommit:originalT2,kernel:"0.3.6",contract:"1.3.0",kernelArtifact:artifactId,
-   kernelArchiveSha256:kernelHash,status:"TECHNOLOGY_CANDIDATE_DOMAIN_NOT_ACCEPTED",
+   kernelArchiveSha256:kernelHash,status:stable?"TECHNOLOGY_QUALIFIED_DOMAIN_NOT_ACCEPTED":"TECHNOLOGY_CANDIDATE_DOMAIN_NOT_ACCEPTED",
    privateDomainIncluded:false,modelWeightsIncluded:false};
   writeFileSync(join(dest,"candidate-receipt.json"),JSON.stringify(receipt,null,2)+"\n",{flag:"wx"});
   console.log("T3_PORTABLE_PLATFORM_CANDIDATE_PASS "+JSON.stringify(receipt));
