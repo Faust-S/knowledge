@@ -1,0 +1,166 @@
+name: D01 exact encrypted hosting delivery
+on:
+  workflow_dispatch:
+  push:
+    branches: ['ci/once/d01-encrypted-delivery/**']
+    paths: ['.github/ci-requests/d01-encrypted-delivery.json']
+concurrency:
+  group: d01-learn-real-model
+  cancel-in-progress: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  delivery:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout public request guard only
+        uses: actions/checkout@v4
+        with:
+          path: ci-harness
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify deliberate immutable request before private checkout
+        working-directory: ci-harness
+        run: |
+          python3 tools/ci/verify_once_request.py \
+            --repository Faust-S/knowledge --workflow d01-encrypted-delivery \
+            --profile learn-exact-encrypted-delivery \
+            --revision site=6935c9f23de6369d5af3a05064883556135e523c \
+            --revision witness=539458557c08aab01e545fd2d724da2195cf43ca \
+            --revision core=29a536b2374935a67f802be7f7870fdbf608fcb2 \
+            --revision assistant=5419dacf855d81ec089acc23bae0c7aa11713a54
+      - name: Read completed exact model witness, not an additional acceptance gate
+        id: witness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run="$(gh api repos/Faust-S/knowledge/actions/runs/46006287351)"
+          test "$(jq -r .head_sha <<<"$run")" = 539458557c08aab01e545fd2d724da2195cf43ca
+          test "$(jq -r .status <<<"$run")" = completed
+          conclusion="$(jq -r .conclusion <<<"$run")"
+          case "$conclusion" in success|failure) ;; *) exit 1;; esac
+          job="$(gh api repos/Faust-S/knowledge/actions/jobs/140530146840)"
+          test "$(jq -r .run_id <<<"$job")" = 46006287351
+          test "$(jq -r '[.steps[] | select(.name=="T3 exact complete hosting build and offline manifest" and .conclusion=="success")] | length' <<<"$job")" = 1
+          echo "conclusion=$conclusion" >>"$GITHUB_OUTPUT"
+          echo "D01_PRIOR_MODEL_WITNESS=$conclusion"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/learn.iwxa.ru
+          ref: 6935c9f23de6369d5af3a05064883556135e523c
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 29a536b2374935a67f802be7f7870fdbf608fcb2
+          persist-credentials: false
+          path: original/core
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 5419dacf855d81ec089acc23bae0c7aa11713a54
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/assistant
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Verify original source pins
+        shell: bash
+        run: |
+          set -eu
+          test "$(git -C private/site rev-parse HEAD)" = 6935c9f23de6369d5af3a05064883556135e523c
+          test "$(git -C original/core rev-parse HEAD)" = 29a536b2374935a67f802be7f7870fdbf608fcb2
+          test "$(git -C private/assistant rev-parse HEAD)" = 5419dacf855d81ec089acc23bae0c7aa11713a54
+      - name: Obtain the original pinned portable T3 input
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: Faust-S/knowledge
+          run-id: 46005718948
+          name: iwxa-t3-mobile-portable-candidate-29a536b2374935a67f802be7f7870fdbf608fcb2
+          path: original/artifact
+      - name: T3 prepare one compiled original Host and retained inputs
+        id: prepare
+        timeout-minutes: 45
+        working-directory: private/site
+        shell: bash
+        run: |
+          set -eu
+          expected=e9c73afe3f29e1e01cc040c5550bb8db7ddb6ef0674a803fb185dee44271a33a
+          mapfile -t archives < <(find "$GITHUB_WORKSPACE/original/artifact" -type f -name '*.zip' -print0 | xargs -0 -r sha256sum | awk -v expected="$expected" '$1==expected {print substr($0,67)}')
+          test "${#archives[@]}" = 1 || { echo D01_T3_EXACT_INNER_ARCHIVE_MISSING; exit 1; }
+          archive="${archives[0]}"
+          npm run t3:host:prepare -- "$GITHUB_WORKSPACE/original/core/packages/t3-core" "$RUNNER_TEMP/d01-t3-host" "$archive" "$GITHUB_WORKSPACE/private/assistant" >"$RUNNER_TEMP/d01-t3-host.log" 2>&1 || { echo D01_T3_PREPARE_FAILED; grep -Eo '[A-Za-z0-9_.-]+\.(tsx?|mts|cts)\([0-9]+,[0-9]+\): error TS[0-9]+' "$RUNNER_TEMP/d01-t3-host.log" | sort -u | head -40 || true; grep -Eo 'D01_[A-Z0-9_]+|T3_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d01-t3-host.log" | sort -u | tail -20 || true; exit 1; }
+          npm run t3:inputs:retain -- "$RUNNER_TEMP/d01-t3-host" "$archive" >"$RUNNER_TEMP/d01-t3-retain.log" 2>&1 || { echo D01_T3_RETAIN_FAILED; exit 1; }
+          echo D01_T3_EXACT_INPUTS_RETAINED
+      - name: T3 exact complete hosting build and offline manifest
+        id: t3build
+        timeout-minutes: 25
+        working-directory: private/site
+        shell: bash
+        run: |
+          npm run build:product:t3 >"$RUNNER_TEMP/d01-t3-build.log" 2>&1 || {
+            echo D01_T3_BUILD_FAILED
+            grep '^D01_OFFLINE_LINK=' "$RUNNER_TEMP/d01-t3-build.log" | python3 -c 'import json,sys; pairs=set(); [pairs.add((x.get("tag"),x.get("target"),x.get("canonical"))) for line in sys.stdin if (x:=json.loads(line.split("=",1)[1])) and all(isinstance(x.get(k),str) and len(x[k])<200 and not any(c in x[k] for c in ("?","#","\n","\r")) for k in ("tag","target","canonical"))]; print(json.dumps(sorted(pairs),ensure_ascii=True))' || true
+            grep -E '^(✖|not ok|ℹ (tests|pass|fail|skipped) |# (tests|pass|fail|skipped) )' "$RUNNER_TEMP/d01-t3-build.log" | cut -c1-160 | head -40 || true
+            grep -Eo '(D01_|T3_|ERR_)[A-Z0-9_]+(:[A-Z0-9_]+)*|[A-Za-z0-9_.-]+\.(mjs|js|tsx?|mts|cts):[0-9]+:[0-9]+|AssertionError|TypeError|ReferenceError|SyntaxError|ENOENT|EACCES|MODULE_NOT_FOUND' "$RUNNER_TEMP/d01-t3-build.log" | sort -u | head -80 || true
+            exit 1
+          }
+          grep -E '^(# |ℹ )(tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-build.log" || true
+          grep '^D01_T3_ORIGINAL_KERNEL_PASSPORTS=' "$RUNNER_TEMP/d01-t3-build.log"
+          npm run verify:hosting-dist
+          npm run audit:links
+      - name: Package existing dist and retained original build inputs
+        env:
+          MODEL_WITNESS: ${{ steps.witness.outputs.conclusion }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          packer="$GITHUB_WORKSPACE/ci-harness/qualification/d01/assembly/package-d01-delivery.py"
+          echo "32e36b77d8c8e23f7588b202872743ee5353b5531043b2c47771482720d83126  $packer" | sha256sum -c - >/dev/null
+          python3 "$packer" "$GITHUB_WORKSPACE/private/site" "$RUNNER_TEMP/d01-private-delivery" 6935c9f23de6369d5af3a05064883556135e523c 29a536b2374935a67f802be7f7870fdbf608fcb2 46006287351 "$MODEL_WITNESS" >"$RUNNER_TEMP/d01-package.log" 2>&1 || { echo D01_DELIVERY_PACKAGE_FAIL; exit 1; }
+          grep '^D01_DELIVERY_PACKAGED=PASS$' "$RUNNER_TEMP/d01-package.log"
+      - name: Encrypt before any public artifact upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          cert="$GITHUB_WORKSPACE/ci-harness/qualification/d01/assembly/recipient-6935c9f2.pem"
+          test "$(openssl x509 -in "$cert" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':')" = '5D215501CE8EE42CC1B1BF027F7DFF627C2B9C5751E9DD907EB8039B72C1319F'
+          mkdir "$RUNNER_TEMP/d01-encrypted"
+          openssl cms -encrypt -binary -aes-256-gcm -outform DER \
+            -in "$RUNNER_TEMP/d01-private-delivery.zip" \
+            -out "$RUNNER_TEMP/d01-delivery.cms" \
+            -recip "$cert" -keyopt rsa_padding_mode:oaep -keyopt rsa_oaep_md:sha256
+          openssl cms -cmsout -inform DER -in "$RUNNER_TEMP/d01-delivery.cms" -print | grep -E 'contentType:|algorithm:' > "$RUNNER_TEMP/d01-cms-structure.txt"
+          grep -q 'id-smime-ct-authEnvelopedData' "$RUNNER_TEMP/d01-cms-structure.txt"
+          grep -q 'aes-256-gcm' "$RUNNER_TEMP/d01-cms-structure.txt"
+          grep -q 'rsaesOaep' "$RUNNER_TEMP/d01-cms-structure.txt"
+          split -b 4M -d -a 4 "$RUNNER_TEMP/d01-delivery.cms" "$RUNNER_TEMP/d01-encrypted/part-"
+          (cd "$RUNNER_TEMP/d01-encrypted" && sha256sum part-* > parts.sha256)
+          sha256sum "$RUNNER_TEMP/d01-delivery.cms" | cut -d' ' -f1 > "$RUNNER_TEMP/d01-encrypted/ciphertext.sha256"
+          rm -rf "$RUNNER_TEMP/d01-private-delivery" "$RUNNER_TEMP/d01-private-delivery.zip" "$RUNNER_TEMP/d01-delivery.cms"
+          echo D01_ENCRYPTED_DELIVERY_READY
+      - name: Upload only temporary authenticated ciphertext
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: d01-learn-6935c9f2-encrypted-delivery
+          path: ${{ runner.temp }}/d01-encrypted/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Remove disposable private build and delivery data
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/private" "$RUNNER_TEMP/d01-t3-host" "$RUNNER_TEMP/d01-private-delivery" "$RUNNER_TEMP/d01-encrypted"
+          rm -f "$RUNNER_TEMP/d01-private-delivery.zip" "$RUNNER_TEMP/d01-delivery.cms" "$RUNNER_TEMP"/d01-*.log "$RUNNER_TEMP/d01-cms-structure.txt"
