@@ -40,6 +40,7 @@ export class HostRouter {
   private readonly reservedStaticBases: ReadonlySet<string>;
   private readonly enforceActive: boolean;
   private lastMatch: HostRouteMatch | null;
+  private lastDeclaredMatch: HostRouteMatch | null;
   private disposed = false;
   private readonly listeners = new Set<(m: HostRouteMatch | null) => void>();
   private readonly unsubscribeDriver: () => void;
@@ -52,7 +53,9 @@ export class HostRouter {
     const bases = new Set<string>(opts.reservedStaticBases ?? []);
     bases.add(this.driver.current().pathname);
     this.reservedStaticBases = bases;
-    this.lastMatch = this.pickMatch(this.driver.current());
+    const initialLocation = this.driver.current();
+    this.lastMatch = this.pickMatch(initialLocation);
+    this.lastDeclaredMatch = this.registry.match(initialLocation);
     this.unsubscribeDriver = this.driver.subscribe((loc) => {
       this.refreshMatch(loc);
     });
@@ -69,6 +72,11 @@ export class HostRouter {
 
   currentMatch(): HostRouteMatch | null {
     return this.lastMatch;
+  }
+
+  /** Diagnostic projection only: never authorizes navigation or a loader. */
+  currentDeclaredMatch(): HostRouteMatch | null {
+    return this.lastDeclaredMatch;
   }
 
   currentRouteRef(): RouteRef | null {
@@ -123,6 +131,7 @@ export class HostRouter {
     if (this.disposed) return;
     this.disposed = true;
     this.lastMatch = null;
+    this.lastDeclaredMatch = null;
     this.unsubscribeDriver();
     this.unsubscribeRegistry();
     this.listeners.clear();
@@ -131,12 +140,15 @@ export class HostRouter {
   private refreshMatch(loc: HostLocation): void {
     if (this.disposed) return;
     const next = this.pickMatch(loc);
-    const previousId = this.lastMatch?.binding.routeRef.id ?? null;
-    const nextId = next?.binding.routeRef.id ?? null;
-    const previousParams = JSON.stringify(this.lastMatch?.params ?? {});
-    const nextParams = JSON.stringify(next?.params ?? {});
-    if (previousId === nextId && previousParams === nextParams) return;
-    this.lastMatch = next;
+    const declared = this.registry.match(loc);
+    const same = (a: HostRouteMatch | null, b: HostRouteMatch | null) =>
+      a?.binding === b?.binding &&
+      JSON.stringify(a?.params ?? {}) === JSON.stringify(b?.params ?? {});
+    const activeChanged = !same(this.lastMatch, next);
+    const declaredChanged = !same(this.lastDeclaredMatch, declared);
+    if (!activeChanged && !declaredChanged) return;
+    if (activeChanged) this.lastMatch = next;
+    if (declaredChanged) this.lastDeclaredMatch = declared;
     for (const listener of [...this.listeners]) listener(this.lastMatch);
   }
 

@@ -10,6 +10,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 interface Props {
   routeRefId: string;
   moduleId?: string;
+  contextIdentity?: object;
   children: ReactNode;
   onError?: (error: Error, info: ErrorInfo) => void;
 }
@@ -30,7 +31,8 @@ export class ModuleRouteBoundary extends Component<Props, State> {
   }
 
   componentDidUpdate(prev: Props): void {
-    if (prev.routeRefId !== this.props.routeRefId && this.state.error) {
+    if (this.state.error && (prev.routeRefId !== this.props.routeRefId ||
+      prev.moduleId !== this.props.moduleId || prev.contextIdentity !== this.props.contextIdentity)) {
       this.setState({ error: null });
     }
   }

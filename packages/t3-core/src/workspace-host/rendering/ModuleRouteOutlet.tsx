@@ -19,12 +19,17 @@ import {
   type ComponentType,
 } from "react";
 import type { WorkspaceModuleContext } from "@/workspace-contract";
+import type { WorkspaceHostRuntimeHandle } from "../runtime/types";
+import { BASE_ROUTE_INVENTORY } from "@/modules/base/routes";
+import { EXCHANGE_ROUTE_INVENTORY } from "@/modules/exchange/routes";
+import { LIFECYCLE_ROUTE_INVENTORY } from "@/modules/lifecycle/routes";
+import { hostRouteRefs } from "../router/host-route-refs";
 import { useWorkspaceHostRuntimeHandle } from "../runtime/WorkspaceHostRuntimeProvider";
 import type { HostRouteMatch } from "../router";
 import { useHostRouteMatch } from "../router/use-host-route-match";
 import { ModuleRouteBoundary } from "./ModuleRouteBoundary";
 import { ModuleRouteLoading } from "./ModuleRouteLoading";
-import { ModuleRouteNotFound } from "./ModuleRouteNotFound";
+import { ModuleRouteNotFound, type RouteUnavailableReason } from "./ModuleRouteNotFound";
 import {
   ModuleRuntimeProvider,
   type ModuleRuntimeSnapshot,
@@ -50,9 +55,40 @@ const lazyByRouteRefId = new WeakMap<
   ComponentType<Record<string, never>>
 >();
 
+/** Classify only from the original declared route inventories and current
+ * module status; never infer an access denial from an arbitrary missing URL.
+ * These reasons are presentation only. The active registry still owns access.
+ */
+function unavailableReason(runtime: WorkspaceHostRuntimeHandle, routeRefId: string): RouteUnavailableReason {
+  const base = BASE_ROUTE_INVENTORY.find(r => r.routeRef.id === routeRefId);
+  const exchange = EXCHANGE_ROUTE_INVENTORY.find(r => r.routeRef.id === routeRefId);
+  const lifecycle = LIFECYCLE_ROUTE_INVENTORY.find(r => r.routeRef.id === routeRefId);
+  const domain = routeRefId === hostRouteRefs.domain.home.id
+    ? (runtime.moduleSnapshot ?? []).filter(m => m.moduleId.startsWith("iwxa.domain.") && m.declaredState === "active")
+    : [];
+  const owner = base ? "iwxa.workspace.base"
+    : exchange ? "iwxa.workspace.exchange"
+    : lifecycle ? "iwxa.workspace.lifecycle"
+    : domain.length === 1 ? domain[0]?.moduleId : undefined;
+  if (runtime.diagnostics?.modules.some(d => String(d.code) === "module-registry-start-failed")) return "module-error";
+  const status = owner ? runtime.moduleRegistry?.getStatus(owner) : null;
+  if (!status || status.status === "planned" || status.status === "disabled") return "unavailable";
+  if (["missing-level", "missing-operation", "missing-capability"].includes(status.status)) return "forbidden";
+  if (status.status !== "activated") {
+    if (status.diagnostics.some(d => ["route-operation-missing", "route-capability-missing"].includes(
+      (d.details as { hubCode?: string } | undefined)?.hubCode ?? ""))) return "forbidden";
+    return "module-error";
+  }
+  const granted = new Set(runtime.grantedOperations);
+  if ((base && !base.requiredOperations.every(op => granted.has(op))) ||
+      (exchange && !exchange.requiredOperations.some(op => granted.has(op))) ||
+      (lifecycle && !lifecycle.anyOperations.some(op => granted.has(op)))) return "forbidden";
+  return "unavailable";
+}
+
 export function ModuleRouteOutlet(props: ModuleRouteOutletProps) {
   const runtime = useWorkspaceHostRuntimeHandle();
-  const match = useHostRouteMatch(runtime?.router ?? null);
+  const match = useHostRouteMatch(runtime?.router ?? null, true);
 
   if (!runtime) {
     return <ModuleRouteLoading presentation={props.presentation} />;
@@ -62,43 +98,50 @@ export function ModuleRouteOutlet(props: ModuleRouteOutletProps) {
   }
 
   const routeRefId = match.binding.routeRef.id;
+  // A declared but inactive route can explain a failure, never render it.
+  if (!runtime.router.currentMatch()) {
+    return <ModuleRouteNotFound routeRefId={routeRefId} reason={unavailableReason(runtime, routeRefId)} />;
+  }
   const found = runtime.hub.getRouteContribution(routeRefId);
   if (!found) {
-    return <ModuleRouteNotFound routeRefId={routeRefId} />;
+    return <ModuleRouteNotFound routeRefId={routeRefId} reason="module-error" />;
   }
 
   return (
-    <ActiveModuleRoute
+    <ModuleRouteBoundary
       routeRefId={routeRefId}
-      match={match}
-      hostProfileId={props.hostProfileId}
-      profileFallback={props.profileFallback}
-      presentation={props.presentation}
-      onModuleError={props.onModuleError}
-    />
+      moduleId={found.moduleId}
+      contextIdentity={runtime}
+      onError={(err) => props.onModuleError?.(routeRefId, err)}
+    >
+      <ActiveModuleRoute
+        runtime={runtime}
+        found={found}
+        match={match}
+        hostProfileId={props.hostProfileId}
+        profileFallback={props.profileFallback}
+        presentation={props.presentation}
+      />
+    </ModuleRouteBoundary>
   );
 }
 
 interface ActiveModuleRouteProps {
-  routeRefId: string;
+  runtime: WorkspaceHostRuntimeHandle;
+  found: NonNullable<ReturnType<WorkspaceHostRuntimeHandle["hub"]["getRouteContribution"]>>;
   match: HostRouteMatch;
   hostProfileId: string;
   profileFallback: boolean;
   presentation?: "host" | "product";
-  onModuleError?: (routeRefId: string, error: Error) => void;
 }
 
 function ActiveModuleRoute(props: ActiveModuleRouteProps) {
-  const runtime = useWorkspaceHostRuntimeHandle();
-  const found = runtime?.hub.getRouteContribution(props.routeRefId) ?? null;
+  const { runtime, found } = props;
 
-  const context: WorkspaceModuleContext | null = useMemo(() => {
-    if (!runtime || !found) return null;
-    return runtime.contextProvider.createContext(found.moduleId);
-  }, [runtime, found]);
+  const context: WorkspaceModuleContext = useMemo(() =>
+    runtime.contextProvider.createContext(found.moduleId), [runtime, found.moduleId]);
 
   const LazyComponent = useMemo(() => {
-    if (!found) return null;
     let existing = lazyByRouteRefId.get(found.contribution);
     if (!existing) {
       existing = lazy(found.contribution.loader as never);
@@ -107,11 +150,7 @@ function ActiveModuleRoute(props: ActiveModuleRouteProps) {
     return existing;
   }, [found]);
 
-  if (!runtime || !found || !context || !LazyComponent) {
-    return <ModuleRouteNotFound routeRefId={props.routeRefId} />;
-  }
-
-  const snapshot: ModuleRuntimeSnapshot = Object.freeze({
+   const snapshot: ModuleRuntimeSnapshot = Object.freeze({
     moduleId: found.moduleId,
     context,
     routeRef: props.match.binding.routeRef,
@@ -121,16 +160,10 @@ function ActiveModuleRoute(props: ActiveModuleRouteProps) {
   });
 
   return (
-    <ModuleRouteBoundary
-      routeRefId={props.routeRefId}
-      moduleId={found.moduleId}
-      onError={(err) => props.onModuleError?.(props.routeRefId, err)}
-    >
-      <Suspense fallback={<ModuleRouteLoading presentation={props.presentation} />}>
-        <ModuleRuntimeProvider value={snapshot}>
-          <LazyComponent />
-        </ModuleRuntimeProvider>
-      </Suspense>
-    </ModuleRouteBoundary>
+    <Suspense fallback={<ModuleRouteLoading presentation={props.presentation} />}>
+      <ModuleRuntimeProvider value={snapshot}>
+        <LazyComponent />
+      </ModuleRuntimeProvider>
+    </Suspense>
   );
 }

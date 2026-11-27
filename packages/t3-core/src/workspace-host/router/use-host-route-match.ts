@@ -10,11 +10,12 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { HostRouter } from "./HostRouter";
 import type { HostRouteMatch } from "./host-route-state";
 
-export function useHostRouteMatch(router: HostRouter | null): HostRouteMatch | null {
+export function useHostRouteMatch(router: HostRouter | null, includeInactive = false): HostRouteMatch | null {
   const subscribe = useCallback((notify: () => void) => {
     return router ? router.subscribe(notify) : () => {};
   }, [router]);
-  const getSnapshot = useCallback(() => router?.currentMatch() ?? null, [router]);
+  const getSnapshot = useCallback(() => router?.currentMatch() ??
+    (includeInactive ? router?.currentDeclaredMatch?.() ?? null : null), [router, includeInactive]);
   // React also rechecks the snapshot when subscribing, covering a route
   // change between the initial render and subscription registration.
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
