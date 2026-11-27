@@ -737,6 +737,76 @@
       "actualTwoNode": "NOT_RUN",
       "T4_READY": false,
       "FEATURE_FREEZE": true
+    },
+    "latestRegistryExchangeConvergence": {
+      "date": "2026-11-27",
+      "state": "STAGED_NOT_ACCEPTED",
+      "core": {
+        "commit": "826d65917e05f3048e367427ca371910abe227db",
+        "tree": "76320aab510fbcd38c0a05fb645371d75a8bfe61"
+      },
+      "owner": {
+        "commit": "5a8ea4af64fbf021ef1a01cceaed33f617c7142a",
+        "tree": "067ccbadf73cea7a3db5a7dbcc2c1021e2819bd6"
+      },
+      "agent": {
+        "commit": "c75542f7e15106a16b882df1c6b09f10c69a1d09",
+        "tree": "e65e46754ebd97b24fd383098236aebc38dc71a1",
+        "compatibilityCommit": "f76b248bc3588a0d0f1a3ff4e78c0bc4fc89ebd1",
+        "localNodePass": 8,
+        "build": "NOT_RUN"
+      },
+      "center": {
+        "commit": "c67df15496185d8d801033b2486d83d4cc1590c0",
+        "tree": "233a3fb9f4004b933adf33363f8211f821e2d37b",
+        "fullQualification": "NOT_RUN"
+      },
+      "registryExchange": {
+        "run": 46009493367,
+        "job": 140541065717,
+        "source": "aa3e2acc6595258d44bc68f6492f6ce3963c5166",
+        "pass": 44,
+        "fail": 0,
+        "newTests": 4,
+        "scope": "Original signed Registry, modeled original T2 Exchange ports; archive and actual IndexedDB not executed."
+      },
+      "relay": {
+        "run": 46010003858,
+        "job": 140542792176,
+        "pass": 85,
+        "fail": 0,
+        "typecheck": "PASS",
+        "newTests": 4,
+        "scope": "Cumulative public original Registry/employee and existing Relay fixtures, including private scoped T2 Exchange command negotiation before READY; models Kernel ports. 44 earlier cases included."
+      },
+      "nativeComposition": {
+        "pass": 29,
+        "fail": 0,
+        "newTests": 3,
+        "scope": "Exact published module and tests, isolated V8 with adapted Node test/assert/Buffer/structuredClone; original owner composition uses modeled ports. Full private runtime and signed carrier end-to-end not executed."
+      },
+      "registryDelivery": "IMPLEMENTED_COMPONENT_QUALIFIED_NOT_INSTALLED",
+      "decisions": [
+        "Use existing original signed invitation .iwxa and original T2 Exchange, not new registry, kernel, transport, or wire format.",
+        "First pilot requires clean dedicated Registry Workspace with one registry object and its original Event history; unrelated management content rejected.",
+        "Import before SOURCE READY, same original Relay slot; no ordinary UI Exchange access to Registry.",
+        "Keep advanced DB9 outside first release gate and never fall back to LOCAL_T3."
+      ],
+      "open": [
+        "Original K036 actual ZIP/full/merge import and IndexedDB revision/event readback; real Workspace creation event and clean partition compatibility",
+        "Cold ambiguous import recovery across separate host lifetimes; absence of readback must not be interpreted as proof of nonexecution",
+        "Native Admin bootstrap and technical Workspace provisioning on original owner",
+        "Real installed product provider/endpoint credentials and explicit activation",
+        "Windows builds and real two-node pilot with physical server; performance and independent final acceptance"
+      ],
+      "newPublicActions": 2,
+      "newPrivateActions": 0,
+      "codexUsed": false,
+      "originalKernelChanges": 0,
+      "networkWireChanges": 0,
+      "actualTwoNode": "NOT_RUN",
+      "T4_READY": false,
+      "FEATURE_FREEZE": true
     }
   }
 }
