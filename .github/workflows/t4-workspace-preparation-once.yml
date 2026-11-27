@@ -1,0 +1,28 @@
+name: T4 original first-use Workspace qualification
+on:
+  push:
+    branches:
+      - 'ci/once/t4-workspace-preparation/be8d05866f33'
+permissions:
+  contents: read
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: be8d05866f336b599b8fe6cd1ba5a961f994ced8
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Original HTTP, Registry, Workspace preparation and activation
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "be8d05866f336b599b8fe6cd1ba5a961f994ced8"
+          test "$(git rev-parse HEAD^{tree})" = "1dbfa4119ef612db0343ca726bddb119079161af"
+          node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs packages/t4-network/tests/original-native-network-product-activation.test.mjs packages/t4-network/tests/original-installed-control-factories.test.mjs packages/t4-network/tests/original-installed-control-http.test.mjs packages/t4-network/tests/original-installed-fixed-profile.test.mjs
+      - run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - working-directory: packages/t3-core
+        run: npx --no-install tsc --noEmit
