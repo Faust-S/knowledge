@@ -2,6 +2,7 @@
 // binding, original scoped Project/Work owner and already-installed
 // original Agent readAccepted. No UI-selected owner, no new IAM, Task,
 // Store or native dispatch. Do not mount before product owner adoption.
+import {createHash} from 'node:crypto';
 import { canonicalClone,canonicalStringify } from '../persistence/canonical-codec.mjs';
 import { createSubjectKernelBinding } from './subject-access-binding.mjs';
 import { inspectWorkspaceMethodAgentPredecessorResults,readWorkspaceMethodInputOverview,
@@ -36,6 +37,7 @@ function createReader({kernel,accessForRead,currentWorkspace,
     &&(corporateTaskOwner===null||typeof corporateTaskOwner.readSignedTask==='function')
     &&(corporateResultOwner===null||typeof corporateResultOwner.readAccepted==='function'||typeof corporateResultOwner.readAcceptedForInputs==='function')
     &&typeof isHostActive==='function'&&(!nativeCorporateOnly||corporateTaskOwner!==null),'T3_METHOD_STAGE_TRUSTED_HOST_REQUIRED');
+  if(nativeCorporateOnly)check(typeof corporateTaskOwner.verifyTextInputs==='function','T3_METHOD_CORPORATE_TASK_INPUT_VERIFIER_REQUIRED');
   let personalDraftInFlight=false;
   async function personalDraft(input,mode){
     check(!personalDraftInFlight,'T3_METHOD_PERSONAL_DRAFT_IN_PROGRESS');
@@ -204,12 +206,37 @@ function createReader({kernel,accessForRead,currentWorkspace,
             // port, D1 Workspace read and signed reference are not that grant.
             if(mode==='corporate-inputs'&&corporateChain)
               preparedArgs.readCorporateAcceptedResult=selected=>guarded(()=>corporateResultOwner.readAcceptedForInputs(selected,context,first));
-            const prepared=await prepare(preparedArgs),last=await readReference();
-            check(canonicalStringify(first)===canonicalStringify(last),'T3_METHOD_CORPORATE_TASK_REVISION_CHANGED');
-            check(canonicalStringify(last.workflowInput)===canonicalStringify(prepared.workflowInput),'T3_METHOD_CORPORATE_TASK_REFERENCE_MISMATCH');
-            report=mode==='corporate-inputs'?Object.freeze({...prepared,...last,declaredReferenceMatched:true}):Object.freeze({state:'SIGNED_CORPORATE_TASK_CURRENT_REFERENCE_MATCHED',...last,
-              ...(recovering?{recoveredFromOriginalTask:true}:{}),declaredReferenceMatched:true,exactInputBindingProven:false,allAssetsProven:false,workCompleted:false,
-              executionAuthority:false,writeAuthorized:false,resultReuseProven:false});
+            const prepared=await prepare(preparedArgs);
+            if(mode==='corporate-inputs'){
+              // The original Task owner now performs the final selected
+              // signed-carrier read AND independently verifies every byte.
+              // Keep two owner observations, no additional full Asset read.
+              check(canonicalStringify(first.workflowInput)===canonicalStringify(prepared.workflowInput),
+                'T3_METHOD_CORPORATE_TASK_REFERENCE_MISMATCH');
+              const attachmentDigest=createHash('sha256').update(canonicalStringify(prepared.attachments),'utf8').digest('hex');
+              const verified=canonicalClone(await guarded(()=>corporateTaskOwner.verifyTextInputs({
+                taskId:first.taskId,taskRevisionId:first.taskRevisionId,packageSha256:first.packageSha256,
+                attachments:canonicalClone(prepared.attachments)},context)));
+              check(verified?.taskId===first.taskId&&verified.taskRevisionId===first.taskRevisionId
+                &&verified.packageSha256===first.packageSha256&&verified.originalContextEpoch===first.originalContextEpoch,
+                'T3_METHOD_CORPORATE_TASK_REVISION_CHANGED');
+              check(verified.state==='WORKFLOW_TEXT_INPUT_SNAPSHOT_MATCHED'
+                &&verified.candidateDigest===first.workflowInput.candidateDigest&&verified.attachmentDigest===attachmentDigest
+                &&verified.declaredSnapshotBytesVerified===true&&verified.sourceCurrentnessProven===false
+                &&verified.allAssetsProven===false&&verified.disclosureAuthorized===false&&verified.executionAuthorized===false
+                &&verified.exactInputBindingProven===false&&verified.workCompleted===false
+                &&['materials','assets','attachments','attachmentBytes'].every(k=>verified.counts?.[k]===prepared.counts[k])
+                &&verified.counts?.results===(prepared.counts.results??0),'T3_METHOD_CORPORATE_TASK_INPUT_VERIFICATION_FAILED');
+              report=Object.freeze({...prepared,...first,declaredReferenceMatched:true,
+                declaredSnapshotBytesVerified:true,attachmentDigest});
+            }else{
+              const last=await readReference();
+              check(canonicalStringify(first)===canonicalStringify(last),'T3_METHOD_CORPORATE_TASK_REVISION_CHANGED');
+              check(canonicalStringify(last.workflowInput)===canonicalStringify(prepared.workflowInput),'T3_METHOD_CORPORATE_TASK_REFERENCE_MISMATCH');
+              report=Object.freeze({state:'SIGNED_CORPORATE_TASK_CURRENT_REFERENCE_MATCHED',...last,
+                ...(recovering?{recoveredFromOriginalTask:true}:{}),declaredReferenceMatched:true,exactInputBindingProven:false,allAssetsProven:false,workCompleted:false,
+                executionAuthority:false,writeAuthorized:false,resultReuseProven:false});
+            }
           }
         }else if(personalMode){
           const observer=(personalChain||recoverTask)?await createOriginalPersonalWorkflowTaskObserver({workspaceId:request.workspaceId,

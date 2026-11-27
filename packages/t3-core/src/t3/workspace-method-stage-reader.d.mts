@@ -120,6 +120,7 @@ export type WorkspaceMethodCorporateTextInputs=Readonly<{
   state:'CORPORATE_TASK_TEXT_INPUTS_PREPARED';task:string;workflowInput:WorkspaceMethodCorporateTaskReference;
   taskId:string;taskRevisionId:string;packageSha256:string;recipientId:string;organizationId:string;workspaceId:string;
   originalContextEpoch:number;declaredReferenceMatched:true;observedMaterialBytesVerified:true;
+  declaredSnapshotBytesVerified:true;attachmentDigest:string;
   attachments:readonly Readonly<{name:string;text:string}>[];
   counts:Readonly<{materials:number;assets:number;attachments:number;attachmentBytes:number;results?:number}>;
   allAssetsProven:false;exactInputBindingProven:false;taskCreated:false;executionAuthority:false;

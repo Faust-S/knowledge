@@ -130,11 +130,24 @@ function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=(
     receipt:async()=>received,readback:async()=>received?{...received,state:'PERSISTED'}:null};
   const nativeContinuation=withNative?createTrustedNativeContinuation({kernel,accessForRead:async()=>access,currentWorkspace,nativeOwner,
     confirmHuman:async()=>{confirmations++;return true;},isHostActive:()=>active}):null;
+  // Controlled native Task-owner verifier. Cross-repository qualification
+  // uses the actual original T3 verifier instead of this fixture port.
+  const nativeTaskOwner=corporateTaskOwner?{...corporateTaskOwner,verifyTextInputs:corporateTaskOwner.verifyTextInputs??(async(request,ctx)=>{
+    const last=await corporateTaskOwner.readSignedTask(request.taskId,ctx);
+    const manifest=JSON.parse(request.attachments.at(-1).text),counts=manifest.materialEvidence.counts;
+    return {state:'WORKFLOW_TEXT_INPUT_SNAPSHOT_MATCHED',taskId:last.taskId,taskRevisionId:last.taskRevisionId,
+      packageSha256:last.packageSha256,originalContextEpoch:last.originalContextEpoch,candidateDigest:last.workflowReference.workflowInput.candidateDigest,
+      attachmentDigest:createHash('sha256').update(canonicalStringify(request.attachments),'utf8').digest('hex'),
+      counts:{materials:counts.materials,assets:counts.assets,results:manifest.handoff.predecessorResults.length,
+        attachments:request.attachments.length,attachmentBytes:request.attachments.reduce((sum,a)=>sum+Buffer.byteLength(a.text,'utf8'),0)},
+      declaredSnapshotBytesVerified:true,sourceCurrentnessProven:false,allAssetsProven:false,disclosureAuthorized:false,
+      executionAuthorized:false,exactInputBindingProven:false,workCompleted:false};
+  })}:null;
   const ports={kernel,accessForRead:async()=>access,currentWorkspace,sourceOwner:f.owner,
     originalAgentResultOwner:withAgent?{readAccepted:async ref=>{if(hook)await hook();return f.readAccepted(ref);}}:null,
     nativeContinuation,nativeRecipientId:withNative?recipientId:null,personalComposer,confirmPersonalDraft,personalTaskOwner,corporateTaskOwner,corporateResultOwner,isHostActive:()=>active};
   const reader=createTrustedWorkspaceMethodStageReader(ports);
-  const nativeInputs=corporateTaskOwner?createTrustedWorkspaceMethodCorporateInputReader(ports):null;
+  const nativeInputs=nativeTaskOwner?createTrustedWorkspaceMethodCorporateInputReader({...ports,corporateTaskOwner:nativeTaskOwner}):null;
   const changeSelection=()=>{chosen={...workspace};for(const notify of listeners)notify();};
   return {reader,nativeInputs,context,deny:()=>{allowed=false;},changeSelection,dispose:()=>{active=false;},hook:fn=>{hook=fn;},
     nativeHook:fn=>{nativeHook=fn;},nativeContinuation,inspections:()=>inspections,receives:()=>receives,confirmations:()=>confirmations};
@@ -940,6 +953,8 @@ test('native-only corporate root inputs include actual selected Object and Asset
   assert.equal(actual.task,p.task);assert.deepEqual(actual.workflowInput,p.workflowInput);
   assert.equal(actual.recipientId,h.context.actor_id);assert.equal(actual.organizationId,h.context.organization_id);
   assert.equal(actual.declaredReferenceMatched,true);assert.equal(actual.observedMaterialBytesVerified,true);
+  assert.equal(actual.declaredSnapshotBytesVerified,true);
+  assert.equal(actual.attachmentDigest,createHash('sha256').update(canonicalStringify(actual.attachments),'utf8').digest('hex'));
   assert.equal(actual.allAssetsProven,false);assert.equal(actual.exactInputBindingProven,false);
   assert.equal(actual.executionAuthority,false);assert.equal(actual.taskCreated,false);
   assert.deepEqual(actual.attachments.map(a=>a.name),['material-001.json','attachment-001.txt','workflow-inputs.json']);
@@ -1112,4 +1127,22 @@ test('native corporate dependency input read cannot borrow original recipient pl
   const denied=trusted(x.f,{subjectKind:'CORP',withAssets:true,corporateResultOwner:{readAccepted:async()=>clone(x.a)}});
   denied.deny();
   await assert.rejects(denied.reader.previewHandoff({...request,includeMaterialEvidence:true}),code('T3_ACCESS_NOT_PERMITTED'));
+});
+
+test('native corporate preparation cannot return payload without original exact-byte Task-owner verification',async()=>{
+  const f=await setup();let stored=null,verifiedCalls=0,assetReads=0;
+  const h=trusted(f,{subjectKind:'CORP',withAssets:true,assetHook:op=>{if(op==='get')assetReads++;},
+    corporateTaskOwner:{readSignedTask:async()=>clone(stored),verifyTextInputs:async()=>{verifiedCalls++;
+      return {state:'WORKFLOW_TEXT_INPUT_SNAPSHOT_MATCHED',taskId:stored.taskId,taskRevisionId:stored.taskRevisionId,
+        packageSha256:stored.packageSha256,originalContextEpoch:stored.originalContextEpoch,
+        candidateDigest:stored.workflowReference.workflowInput.candidateDigest,attachmentDigest:'f'.repeat(64),
+        declaredSnapshotBytesVerified:true,executionAuthorized:false};}}});
+  const input=corporateRoot(f),preview=await h.reader.previewHandoff({...input,includeMaterialEvidence:true});
+  stored=signedRoot(await h.reader.prepareCorporateTaskReference({...input,expectedCandidateDigest:preview.candidateDigest}));
+  const before=assetReads;
+  await assert.rejects(h.nativeInputs.readInputs({...input,taskId:'task:workflow'}),code('T3_METHOD_CORPORATE_TASK_INPUT_VERIFICATION_FAILED'));
+  assert.equal(verifiedCalls,1);assert.equal(assetReads-before,2);
+  // The ordinary reference reader still does not need or invoke the native verifier.
+  assert.equal((await h.reader.recoverCorporateTaskReference({...input,taskId:'task:workflow'})).recoveredFromOriginalTask,true);
+  assert.equal(verifiedCalls,1);
 });
