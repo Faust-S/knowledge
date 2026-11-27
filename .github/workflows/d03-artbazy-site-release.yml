@@ -281,6 +281,17 @@ jobs:
           console.log('ORIGINAL_KERNEL_BYTES=PASS');
           console.log('ARTBAZY_ONE_DIST=BUILT_NOT_PRODUCT_ACCEPTED');
           JS
+      - name: Verify actual release ZIP against exact source tree and offline manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          stage="$RUNNER_TEMP/artbazy-release"
+          python3 -m unittest discover -s ci-harness/tools/ci/artbazy-delivery -p 'test_verify_artbazy_zip.py' >"$stage/independent-verifier-tests.log" 2>&1 || { echo D03_DELIVERY_VERIFIER_TESTS=FAIL; exit 1; }
+          echo D03_DELIVERY_VERIFIER_TESTS=PASS
+          python3 ci-harness/tools/ci/artbazy-delivery/verify_artbazy_zip.py "$stage/ArtBazy-site.zip" --site-checkout "$GITHUB_WORKSPACE/private-site" >"$stage/independent-verification.json" 2>"$stage/independent-verification.log" || { echo D03_DELIVERY_VERIFICATION=FAIL; grep -Eo 'ARTBAZY_DELIVERY_FAIL: [A-Z_]+' "$stage/independent-verification.log" | head -1 || true; exit 1; }
+          cat "$stage/independent-verification.json"
+          echo D03_DELIVERY_VERIFICATION=PASS
       - name: Seal only the verified ArtBazy delivery ZIP
         shell: bash
         env:
