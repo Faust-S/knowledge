@@ -167,6 +167,7 @@
     "packages/t3-core/tests/rich-workspace-read-model.dom.test.tsx",
     "packages/t3-core/tests/rich-workspace-read-model.test.ts",
     "packages/t3-core/tests/single-canonical-store-source-gate.test.mjs",
+    "packages/t3-core/tests/t3-club-assistant-browser-candidate.mjs",
     "packages/t3-core/tests/t3-company-original-runtime-roundtrip.test.mjs",
     "packages/t3-core/tests/t3-company-workspace-readback.test.mjs",
     "packages/t3-core/tests/t3-corporate-business-exchange.test.mjs",
@@ -217,18 +218,28 @@
     {
       "candidate": "3ac68cb036200b7d3312859cd15dfbe9992a52f0",
       "run": 46005456198,
-      "status": "FAILED_SOURCE_JOB_OTHER_JOBS_OBSERVED_SEPARATELY",
+      "status": "FAIL",
       "passed": {
         "node": 1208,
         "typecheck": "PASS",
         "assistant": "PASS",
         "canonicalSource": "PASS",
         "originalKernelMapping": "PASS",
-        "sharedHostBuild": "PASS"
+        "sharedHostBuild": "PASS",
+        "browserLayouts": 4,
+        "allFormShortcuts": {
+          "mobile": 26,
+          "desktop": 26
+        }
       },
       "failed": {
         "node": 1,
-        "reason": "QUALIFIED_ORIGINAL_T2_REQUIRED; witness not given explicit runtime inputs"
+        "reason": "QUALIFIED_ORIGINAL_T2_REQUIRED; witness not given explicit runtime inputs",
+        "browser": {
+          "phase": "FAMILY_COMPARISON",
+          "tested": 3,
+          "reason": "Timeout before selecting future rent: original domain filters rent by assessment date; test initially awaited option before setting historical scenario date."
+        }
       }
     }
   ],
@@ -252,6 +263,10 @@
     {
       "scope": "W05.49 current Workflow source cut",
       "fix": "Reuse whole-Workspace grants, distinct Task metadata grant, shared Result Object/Event read; preserve corporate seat controls and canonical company record helpers. Native installed acceptance remains open."
+    },
+    {
+      "scope": "existing Club browser family result scenario",
+      "fix": "Set historical assessment date through the real assistant before awaiting native future-rent option. Preserve manual selection, exact native result, all 13 result hints and no model/network activity requirements. No production logic changed."
     }
   ],
   "workflowOwnerQualification": {

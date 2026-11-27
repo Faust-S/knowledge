@@ -479,11 +479,15 @@ try{
    await verify("data-cash-payday-result");
    phase="FAMILY_COMPARISON";
    const rent=form("data-family-options-form").locator('[name="rentEntry"]');
-   await page.waitForFunction(()=>document.querySelector('[data-family-options-form] [name="rentEntry"]')?.options.length>1);
-   const rentId=await rent.locator("option").nth(1).getAttribute("value");
+   // Set the scenario assessment date before looking for future rent.
+   // The native form defaults to today, which moves across CI runs.
+   phase="FAMILY_ASSESSMENT_DATE";
    await assistantFill("data-family-options-form","Дата оценки 24.11.2026. Новая дата аренды 02.12.2026.","0",{asOfDate:"2026-11-24",rentNewDate:"2026-12-02"});
    // The assistant does not select an existing rent record or invent work.
    check(await rent.inputValue()==="","FAMILY_RELATION_MANUAL");
+   phase="FAMILY_SELECT_NATIVE_RENT";
+   await page.waitForFunction(()=>document.querySelector('[data-family-options-form] [name="rentEntry"]')?.options.length>1);
+   const rentId=await rent.locator("option").nth(1).getAttribute("value");
    await rent.selectOption(rentId);
    check(await form("data-family-options-form").locator('[name="sideHours"]').inputValue()==="0","OPTIONAL_SIDE_WORK_ZERO");
    await submit("data-family-options-form");
