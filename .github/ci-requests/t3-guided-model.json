@@ -1,0 +1,11 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-guided-model",
+  "preparedSha": "88dd7a656a08ee1691cceb92266b69f28333706c",
+  "originalAssistant": "4352674513ccfe9480dc5d761de4e70c4bf7ab9e",
+  "cehovodSite": "0b587ab02ce107a652fdf3403745b04313f64f83",
+  "canonicalSubject": "6852d55ae8e7100b480b2d5c0a10b92de1c7d467",
+  "retainedPlatformArtifact": 15227050568,
+  "scope": "EXISTING_CANONICAL_SITE_ROUTES_PLUS_EXISTING_REAL_LIGHT_PROFILE_WITNESS",
+  "hardwareAcceptance": false
+}
