@@ -531,6 +531,54 @@ export function createOriginalKernelNativeRelay({
     state.localSourceMethods=state.localSourceReady?state.network.localSource.methods.filter(m=>
       m!=='commitObjectGraph'||request.localSourceGraphVersion===1):[];
   };
+  // First-use provisioning is a native Host action, not a T4 frame or
+  // subject write grant. The installed profile can prepare only its own
+  // deterministic technical Workspace, after original enrollment readback.
+  // No browser method or arbitrary Workspace identifier is exposed.
+  const prepareNetworkWorkspace=async(state,task,{confirmed=false}={})=>{
+    const scope=activation?.installedScope,lease=registryContext?.getStore();
+    const active=()=>liveState(state)&&scope&&activationTask===task&&!task.abort.signal.aborted&&
+      lease?.state===state&&lease.active()&&!state.networkReady;
+    check(active()&&typeof confirmed==="boolean","T3_ORIGINAL_NETWORK_PREPARATION_LIFETIME_ENDED");
+    check(!registryBusy()&&!pending&&!reservation&&state.grants.granted_operations.includes(METHODS.getWorkspace),
+      "T3_ORIGINAL_NETWORK_PREPARATION_KERNEL_REQUIRED");
+    const held={};registryCommand=held;
+    const current=async()=>check(await currentEpoch()===state.epoch&&active()&&registryCommand===held,
+      "T3_ORIGINAL_NETWORK_PREPARATION_LIFETIME_ENDED");
+    const read=async id=>{
+      await current();
+      let row;
+      try{row=await enqueue("getWorkspace",[id],false);}
+      catch(e){if(e?.code!=="WORKSPACE_NOT_FOUND")throw e;row=null;}
+      await current();
+      if(row==null)return null;
+      check(row.workspace_id===id&&row.deleted_at==null&&row.read_only!==true,
+        "T3_ORIGINAL_NETWORK_PREPARATION_WORKSPACE_INVALID");
+      return row;
+    };
+    try{
+      // The existing company Workspace is prepared through the original
+      // signed business route. Never create or overwrite it here.
+      const business=await read(scope.sourceWorkspaceId);
+      check(business!==null,"T3_ORIGINAL_NETWORK_BUSINESS_WORKSPACE_REQUIRED");
+      let technical=await read(scope.technicalWorkspaceId),created=false;
+      if(technical===null){
+        check(confirmed&&state.grants.granted_operations.includes(METHODS.createWorkspace)&&!task.workspaceCreateAttempted,
+          "T3_ORIGINAL_NETWORK_TECHNICAL_WORKSPACE_CONFIRMATION_REQUIRED");
+        task.workspaceCreateAttempted=true;
+        await current();
+        try{await enqueue("createWorkspace",[{workspace_id:scope.technicalWorkspaceId,profile:"generic"}],false);}
+        catch{/* A lost response is not proof of failure. Read the exact original address. */}
+        await current();
+        technical=await read(scope.technicalWorkspaceId);
+        check(technical!==null,"T3_ORIGINAL_NETWORK_TECHNICAL_WORKSPACE_OUTCOME_UNKNOWN");
+        created=true;
+      }
+      check(technical.profile==="generic","T3_ORIGINAL_NETWORK_PREPARATION_WORKSPACE_INVALID");
+      await current();
+      return Object.freeze({workspaceId:scope.technicalWorkspaceId,created,originalReadback:true});
+    }finally{if(registryCommand===held)registryCommand=null;}
+  };
   // A genuine Registry read cannot complete during attach: the browser has
   // no session token and cannot yet poll the command slot. Use the EXISTING
   // next/result loop, then announce admission once. No network frame, second
@@ -547,7 +595,8 @@ export function createOriginalKernelNativeRelay({
         await withRegistryReads(state,active,async()=>{
           await requireCurrent();
           profile=await activation.createProfile(Object.freeze({registryKernel:state.registryKernel,
-            sessionId:state.sessionId,contextEpoch:state.epoch,isHostActive:()=>liveState(state),activationSignal:task.abort.signal}));
+            sessionId:state.sessionId,contextEpoch:state.epoch,isHostActive:()=>liveState(state),activationSignal:task.abort.signal,
+            ...(activation.installedScope?{prepareOriginalTechnicalWorkspace:input=>prepareNetworkWorkspace(state,task,input)}:{})}));
           await requireCurrent();
           check(profile?.schema==='IWXA_T4_ORIGINAL_NATIVE_HOST_NETWORK_PROFILE_V1'&&profile.role===activation.role&&
             typeof profile.close==='function'&&typeof profile.bindOriginalPeerHistoryReceiver==='function'&&

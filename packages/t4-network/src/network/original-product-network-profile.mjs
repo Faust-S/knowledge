@@ -94,7 +94,16 @@ export function createT4OriginalProductProfileFactory({scope,registryObjectId='t
         enableRecipientResultRead:options.enableRecipientResultRead??false});
       const resolver=bindT4OriginalProductKernelAccess({registry,scope:selected,lifetime:{...lifetime,isHostActive:active},
         resolveOriginalKernelAccess:input.resolveOriginalKernelAccess});
-      const {originalPeerTls,...nativeOptions}=options;
+      // The explicit native first-use selection may prepare the local
+      // technical Workspace. Existing instances merely read it; the business
+      // Workspace is never created through this path.
+      const {originalPeerTls,prepareLocalTechnicalWorkspace=false,...nativeOptions}=options;
+      if(typeof prepareLocalTechnicalWorkspace!=='boolean'||typeof lifetime.prepareOriginalTechnicalWorkspace!=='function')
+        fail('T4_INSTALLED_PRODUCT_WORKSPACE_PREPARATION_REQUIRED');
+      const prepared=await lifetime.prepareOriginalTechnicalWorkspace({confirmed:prepareLocalTechnicalWorkspace});
+      requireActive();
+      if(prepared?.originalReadback!==true||prepared.workspaceId!==selected.technicalWorkspaceId)
+        fail('T4_INSTALLED_PRODUCT_WORKSPACE_PREPARATION_UNCONFIRMED');
       if(originalPeerTls!==undefined){
         if(!obj(originalPeerTls)||Object.hasOwn(options,'originalPeerHistory')||
           Object.keys(originalPeerTls).some(k=>!['endpoint','readOriginalCredentials','authorizeOriginalPeerConnection',
