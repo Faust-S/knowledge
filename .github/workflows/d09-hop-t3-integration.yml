@@ -1,4 +1,4 @@
-name: D09 HOP released T3 0.3.2 product and production dist
+name: D09 HOP T3 0.3.2 root restoration and complete authoring readiness
 on:
   push:
     branches: ['ci/once/d09-hop-t3-integration/**']
@@ -24,8 +24,8 @@ jobs:
             origin: https://hop.iwxa.ru
             preview: '0'
     env:
-      SITE_PIN: 446e21f1e3c61d00171fa89ae6d2bc675ea1c12b
-      SUBJECT_PIN: 162e3eb77d6d106b647a7acc07bc3fec105b3142
+      SITE_PIN: d96e5cae7c771aae8d5cb792e1c73eb526557a64
+      SUBJECT_PIN: 6f5fd6592a7678a77767635635758fe1d74e1e73
       T3_PIN: 8e26076ce66f0c26693a647e061fcd568e055b77
       ASSISTANT_PIN: 2c247482306f218a7d5be668de11e98f168862d4
       D09_ORIGIN: ${{ matrix.origin }}
@@ -41,7 +41,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable domain request
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=446e21f1e3c61d00171fa89ae6d2bc675ea1c12b --revision subject=162e3eb77d6d106b647a7acc07bc3fec105b3142 --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=d96e5cae7c771aae8d5cb792e1c73eb526557a64 --revision subject=6f5fd6592a7678a77767635635758fe1d74e1e73 --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
       - name: Checkout HOP site
         uses: actions/checkout@v4
         with:
@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for spec in "private-site $SITE_PIN c8d5f5d5e9fe16c22a272b007c34ba1cf35866d2" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
+          for spec in "private-site $SITE_PIN 80373c916a3aca6fa69d1aefce59651352671f4f" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
             read -r dir sha tree <<< "$spec"
             test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
             test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
@@ -196,7 +196,7 @@ jobs:
             echo D09_T3_USER_ROUTES=FAIL
             failed=1
           fi
-          grep -E '^D09_PRODUCT_ROUTE_STATE |^D09_PRODUCT_ROUTE_FAIL |^D09_PRODUCT_ROUTE_MATRIX=' "$RUNNER_TEMP/d09-t3/USER_ROUTES.log" | cut -c1-240 | tail -30 || true
+          grep -E '^D09_PRODUCT_ROUTE_PHASE |^D09_PRODUCT_ROUTE_STATE |^D09_PRODUCT_ROUTE_FAIL |^D09_PRODUCT_ROUTE_MATRIX=' "$RUNNER_TEMP/d09-t3/USER_ROUTES.log" | cut -c1-240 | tail -30 || true
           if NODE_OPTIONS="--test-reporter=tap" npm run test:d09 > "$RUNNER_TEMP/d09-t3/CONTRACTS.log" 2>&1; then
             echo D09_T3_CONTRACTS=PASS
           else
