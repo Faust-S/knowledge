@@ -1,0 +1,28 @@
+name: T4 first-use original Admin Registry export
+on:
+  push:
+    branches:
+      - 'ci/once/t4-first-use/4250756351d8'
+permissions:
+  contents: read
+jobs:
+  original-first-use:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4250756351d8b46dde6224a813255527e9a0e007
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Original HTTP, Registry and activation
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "4250756351d8b46dde6224a813255527e9a0e007"
+          test "$(git rev-parse HEAD^{tree})" = "4ea824b55a136e95974f5808807f062da4c1257c"
+          node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs packages/t4-network/tests/original-native-network-product-activation.test.mjs packages/t4-network/tests/original-installed-control-factories.test.mjs
+      - run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - working-directory: packages/t3-core
+        run: npx --no-install tsc --noEmit
