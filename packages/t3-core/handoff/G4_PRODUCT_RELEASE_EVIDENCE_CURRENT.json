@@ -2738,7 +2738,7 @@
         "launcher": "Cannot find drive Cert; CurrentUser Root trust not confirmed; port 18443 not listening; ERR_CONNECTION_REFUSED",
         "scenario_A_F": "NOT_RUN_BLOCKED_BEFORE_HOST",
         "product_defects_confirmed": false,
-        "remedy": "CERTIFICATE_FREE_EXACT_LOOPBACK_ACCEPTANCE_DELIVERY_IN_PROGRESS",
+        "remedy": "CERTIFICATE_FREE_EXACT_LOOPBACK_ACCEPTANCE_DELIVERY_PUBLISHED_SUCCESS",
         "stable_release": "0.3.0",
         "loopback_delivery": {
           "run": 46034089610,
@@ -2746,10 +2746,33 @@
           "prepared_commit": "a357d78ccbc168b9822c3963777945b1f465a464",
           "windows_job": 140624999747,
           "origin": "http://localhost:18443",
-          "status": "IN_PROGRESS",
+          "status": "SUCCESS",
           "scope": "LOCAL_ONLY_ORIGINAL_COMPILED_HOST_KERNEL_BLI_NO_CERTIFICATE_STORE_OR_BROWSER_FLAGS",
           "publication_asset": "acceptance-host-loopback-windows-x64.zip",
-          "independent_acceptance": "BLOCKED_UNTIL_ACTUAL_BROWSER_ACCESS"
+          "independent_acceptance": "PENDING_RETRY_ON_ACCESSIBLE_LOCALHOST",
+          "retain_job": 140625833732,
+          "release_assets": {
+            "archive": "acceptance-host-loopback-windows-x64.zip",
+            "archive_bytes": 40692832,
+            "archive_sha256": "42144034304a756d77219501e73458486bc0fd72fafa883590392215b9d93618",
+            "receipt": "acceptance-host-loopback-receipt.json",
+            "receipt_sha256": "ac880e2d81d71b68dcefebc7d65a28edad75fe1aa80870fa4949402bf529511a",
+            "file_count": 102,
+            "example_sha256": "5ba186c640054d8d4108242fc123f4506470bc63982193321d31c4096e52c51e",
+            "offline_manifest_sha256": "4c2e7d80116a9bef8c7d75591de97595fe72d4d34898587935f7e25aac9e3d1e"
+          },
+          "evidence": {
+            "actual_start_cmd": true,
+            "secure_context_default_browser": true,
+            "original_kernel": true,
+            "original_bli_panel": true,
+            "original_iwxa_export": true,
+            "offline_readback": true,
+            "certificate_store_dependency": false,
+            "browser_security_override": false,
+            "model_inference_in_delivery_test": false
+          },
+          "next": "RETRY_INDEPENDENT_USER_SCENARIOS_A_F_WITH_CODEX_BUILT_IN_BROWSER_ON_ACTUALLY_RUNNING_LOCALHOST"
         }
       },
       "corporate_aba": "SEPARATE_OPEN_ACCEPTED_KERNEL_EVENT_COLLISION",
