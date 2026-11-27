@@ -537,6 +537,7 @@ test('original empty Workspace roundtrip admits identical shared T4 creation pre
     assert.equal(sourceInitial.length,1);
     const outbound=await exportEmpty(a);
     assertHistoryContains(await history(a),sourceInitial);
+    console.log('T4_ORIGINAL_SOURCE_HISTORY='+JSON.stringify((await history(a)).map(e=>({type:e.event_type,payload:e.payload}))));
     await source.runtime.__resetKernelStoreForTests();
     const b=await activate(recipient);
     await b.product.t1.createWorkspace({workspace_id:ws,profile:'generic'});
@@ -545,6 +546,7 @@ test('original empty Workspace roundtrip admits identical shared T4 creation pre
     assert.notEqual(recipientInitial[0].event_id,sourceInitial[0].event_id);
     await importEmpty(b,outbound);
     const merged=await history(b);
+    console.log('T4_ORIGINAL_RECIPIENT_HISTORY='+JSON.stringify(merged.map(e=>({type:e.event_type,payload:e.payload}))));
     assertHistoryContains(merged,[...sourceInitial,...recipientInitial]);
     const proposal=readT4OriginalFreshWorkspaceBaselineSelection({workspaceId:ws,originalEvents:merged});
     assert.equal(proposal.confirmed,false);assert.equal(proposal.creationAnchors.length,2);
