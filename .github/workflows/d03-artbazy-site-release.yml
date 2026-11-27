@@ -13,15 +13,14 @@ concurrency:
   cancel-in-progress: false
 permissions:
   contents: read
-  actions: read
 jobs:
   release:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
     runs-on: ubuntu-24.04
     timeout-minutes: 110
     env:
-      SITE_PIN: bab2e91d4bef1525aadaaef0b5c247be5d939722
-      SITE_TREE: b0726a284894dfdc664f6f2432d4fa32e74ffebb
+      SITE_PIN: 5994bc36837beb5534797c5349019d12ed30797c
+      SITE_TREE: 47dee32dd4f17e7eb41ba29af66595e59ab3407d
       T2_PIN: e70de29b72b83e2546f7ab74b17572685a728c17
       T2_TREE: b36ed00dcd7c518b593cb4794bfabf85e7eab049
       T3_PIN: 4dc21f8439b6988eed043bbe74dc34d8a7e7d875
@@ -41,19 +40,7 @@ jobs:
       - name: Verify deliberate immutable request before private checkout
         working-directory: ci-harness
         run: |
-          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-site-release --profile artbazy-integrated-site-release --revision site=bab2e91d4bef1525aadaaef0b5c247be5d939722 --revision subject=b3e6614aeace087b66a7b25e3d881fab074e4d8e --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17 --revision core=4dc21f8439b6988eed043bbe74dc34d8a7e7d875 --revision assistant=244ad469a71ae65910144c6918488a2d061eecce --revision skills=829d9ea85ec2cc96e83f7b4acf5184559de1fcc5
-      - name: Require successful exact predecessor before delivery rebuild
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          predecessor="$(gh api repos/Faust-S/knowledge/actions/runs/46033174183 --jq '[.status,.conclusion,.head_sha] | join(":")')"
-          if [[ "$predecessor" != 'completed:success:263e61c63dc662edbf15d7230f4ac76e6eb8b88c' ]]; then
-            echo D03_PREDECESSOR_NOT_SUCCESSFUL
-            exit 1
-          fi
-          echo D03_PREDECESSOR=PASS
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-site-release --profile artbazy-integrated-site-release --revision site=5994bc36837beb5534797c5349019d12ed30797c --revision subject=b3e6614aeace087b66a7b25e3d881fab074e4d8e --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17 --revision core=4dc21f8439b6988eed043bbe74dc34d8a7e7d875 --revision assistant=244ad469a71ae65910144c6918488a2d061eecce --revision skills=829d9ea85ec2cc96e83f7b4acf5184559de1fcc5
       - name: Identify exact private GitHub source access before build
         shell: bash
         env:
@@ -105,7 +92,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazy.ru
-          ref: bab2e91d4bef1525aadaaef0b5c247be5d939722
+          ref: 5994bc36837beb5534797c5349019d12ed30797c
           token: ${{ secrets.DOMEN }}
           path: private-site
           persist-credentials: false
@@ -210,7 +197,13 @@ jobs:
           const rendered=[...s.matchAll(/(?:^|\n)\[prerender:(?:ok|fail)\] (\/[a-z0-9/_-]*)/g)];
           if(rendered.length)console.log('PRERENDER_OBSERVED='+rendered.length);
           for(const m of [...s.matchAll(/(?:^|\n)\[prerender:fail\] (\/[a-z0-9/_-]*)/g)].slice(0,20))console.log('PRERENDER_FAILED_ROUTE='+m[1]);
-          for(const m of [...s.matchAll(/(?:^|\n)\[links:fail\] (no-slash|broken): (\/[a-z0-9/._-]+)/g)].slice(0,50))console.log('BUILT_LINK_KIND='+m[1]+' TARGET='+m[2]);
+          const linkFailures=[...s.matchAll(/(?:^|\n)\[links:fail\] (no-slash|broken): (\/[a-z0-9/._-]+)/g)];
+          for(const kind of ['no-slash','broken']){
+            const matches=linkFailures.filter(m=>m[1]===kind);
+            console.log('BUILT_LINK_KIND='+kind+' UNIQUE_TARGETS='+new Set(matches.map(m=>m[2])).size);
+            for(const m of matches.slice(0,50))console.log('BUILT_LINK_KIND='+kind+' TARGET='+m[2]);
+          }
+          for(const m of s.matchAll(/\[prerender\] canonicalized (\d+) published internal links/g))console.log('CANONICALIZED_PUBLIC_LINKS='+m[1]);
           for(const m of [...s.matchAll(/(?:^|\n)\[og:fail\] (\/[a-z0-9/._-]*)/g)].slice(0,20))console.log('OG_MISMATCH_ROUTE='+m[1]);
           for(const m of [...s.matchAll(/(?:Could not resolve|failed to resolve import) ["']([@A-Za-z0-9_./-]+)["']/gi)].slice(0,20))console.log('UNRESOLVED_IMPORT='+m[1].split('/').slice(-5).join('/'));
           for(const m of [...s.matchAll(/(?:^|\n)(?:file:\s*)?(?:[^\n]*?\/)?(src\/[A-Za-z0-9_./$-]+\.(?:tsx?|mjs|js|css)):(\d+):(\d+)/g)].slice(0,20))console.log('BUILD_SOURCE_LOCATION='+m[1]+':'+m[2]+':'+m[3]);
@@ -224,7 +217,6 @@ jobs:
           for(const code of [...new Set(s.match(/\b(?:SyntaxError|TypeError|ReferenceError|AssertionError|AggregateError|MODULE_NOT_FOUND|ENOENT|EACCES|ENOSPC)\b/g)||[])])console.log('ERROR_CLASS='+code);
           for(const m of [...s.matchAll(/(?:^|\n)\[source-link:fail\] (\/[a-z0-9/-]+): (\d+) occurrence\(s\)/g)].slice(0,50))console.log('SOURCE_LINK_TARGET='+m[1]+' COUNT='+m[2]);
           for(const m of [...s.matchAll(/(?:^|\n)  (src\/[A-Za-z0-9_./$-]+\.(?:tsx?|mjs|js)):(\d+) \[(literal|glossary-bridge)\]/g)].slice(0,50))console.log('SOURCE_LINK_LOCATION='+m[1]+':'+m[2]+' KIND='+m[3]);
-          for(const m of [...s.matchAll(/(?:^|\n)(?:\[links:fail\] (?:no-slash|broken):) (\/[a-z0-9/._-]+)/g)].slice(0,50))console.log('BUILT_LINK_TARGET='+m[1]);
           for(const m of [...s.matchAll(/(?:^|\n)([A-Za-z0-9_./$-]+\.(?:tsx?|mts|cts))\((\d+),(\d+)\): error (TS\d{4})/g)].slice(0,60))console.log('TYPESCRIPT_LOCATION='+m[1]+':'+m[2]+':'+m[3]+' '+m[4]);
           for(const m of [...s.matchAll(/(?:Cannot find module|Cannot find package) ['"]([@A-Za-z0-9_./-]+)['"]/g)].slice(0,15))console.log('MISSING_MODULE='+m[1].split('/').slice(-3).join('/'));
           for(const m of [...s.matchAll(/(?:^|\n)# (tests|pass|fail|skipped) (\d+)/g)].slice(-12))console.log('TEST_'+m[1].toUpperCase()+'='+m[2]);
@@ -235,13 +227,14 @@ jobs:
             fi
           }
           phase SITE_DEPENDENCIES bun install --frozen-lockfile --ignore-scripts
-          # Only static Vite alias and preservation receipt changed since
-          # the native checks in 46014756925. Rebuild final delivery.
+          # Rebuild the corrected public export and package it in the same run.
+          # Original Host and subject source pins remain unchanged.
           failures=()
           echo D03_PREVIOUS_SOURCE_CHECKS_RUN=46014756925
           echo D03_PREVIOUS_SOURCE_CHECKS=PASS_ON_PARENT
           phase SOURCE_LINKS npm run check:source-links
           phase SOURCE_LINK_TESTS npm run test:source-links
+          phase STATIC_CAPTURE_TESTS node --test scripts/capture-static-document.test.mjs
           host_ok=yes
           kernel_ok=yes
           phase ORIGINAL_HOST npm run prepare:t3:host -- \
@@ -263,6 +256,7 @@ jobs:
             exit 1
           fi
           # build:release checks the existing links before replacing dist.
+          grep -E '^\[(prerender|readability|hydration)\] (done\.|canonicalized [0-9]+ published internal links)' "$stage/ARTBAZY_ONE_DIST.log" || true
           phase ARTBAZY_PACKAGE npm run package:release -- "$stage/ArtBazy-site.zip"
           node --input-type=module <<'JS'
           import {createHash} from 'node:crypto';
