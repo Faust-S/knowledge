@@ -1,0 +1,81 @@
+name: T3 rc.5 delivered archive real WebGPU offline generation
+on:
+  push:
+    branches: ['ci/once/t3-rc5-delivered-hardware/**']
+    paths: ['.github/ci-requests/t3-rc5-delivered-hardware.json']
+permissions:
+  contents: read
+concurrency:
+  group: t3-rc5-delivered-hardware
+  cancel-in-progress: false
+jobs:
+  hardware:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: macos-latest
+    timeout-minutes: 35
+    env:
+      BEFORE: ${{ github.event.before }}
+      SOURCE: 'a50d40dafc2e029fcc7668dece925f7fc38cc510'
+      T3_D5_REQUIRE_HARDWARE_GPU: '1'
+      T3_D5_MODEL_ID: 'Qwen2.5-0.5B-Instruct-q4f32_1-MLC'
+      IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/t3-rc5-kernel
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - name: Admit exactly one request for the already published candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Faust-S/knowledge
+          test "$GITHUB_REF_NAME" = "ci/once/t3-rc5-delivered-hardware/$BEFORE"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $BEFORE"
+          test "$(git rev-list --parents -n 1 "$BEFORE")" = "$BEFORE $SOURCE"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = "$(printf 'A\t.github/ci-requests/t3-rc5-delivered-hardware.json')"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=json.loads(Path('.github/ci-requests/t3-rc5-delivered-hardware.json').read_text())
+          assert r.pop('preparedSha')==os.environ['BEFORE']
+          assert r==json.loads('{"schema":"iwxa.ci.once/1","workflow":"t3-rc5-delivered-hardware","source":"a50d40dafc2e029fcc7668dece925f7fc38cc510","releaseTag":"t3-platform-v0.3.1-rc.5","archiveSha256":"381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4","model":"Qwen2.5-0.5B-Instruct-q4f32_1-MLC","reason":"QUALIFY_ONLY_MISSING_REAL_HARDWARE_AND_COLD_OFFLINE_GENERATION_FROM_PUBLISHED_ARCHIVE"}')
+          PY
+          test "$(git rev-parse HEAD:packages/t3-core/src)" = "3a391777a51012e51356b61b9d61bc94c511de67"
+          test "$(git rev-parse HEAD:packages/t3-core/qualified-runtime)" = 1594274dbf5e38214b8422ba11e8c7114bd5425c
+          test "$(git rev-parse HEAD:packages/t3-core/integration-sources/bli1/engine.mjs)" = 1f6b875b013a87a3d3689f71aac2ed85b16dac07
+      - name: Download the exact existing public release and verify all files
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLsS "https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.1-rc.5/platform-inputs.zip" -o "$RUNNER_TEMP/t3-rc5.zip"
+          echo "381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4  $RUNNER_TEMP/t3-rc5.zip" | shasum -a 256 -c -
+          mkdir "$RUNNER_TEMP/t3-rc5-input" "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+          unzip -q "$RUNNER_TEMP/t3-rc5.zip" -d "$RUNNER_TEMP/t3-rc5-input"
+          cd "$RUNNER_TEMP/t3-rc5-input"
+          echo "ef5824279883296d836eacb7ba00f352be357d0dd5c49e26b32ec1a02a336e48  t3-platform-inputs.json" | shasum -a 256 -c -
+          shasum -a 256 -c t3-platform-inputs.sha256
+          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip" | shasum -a 256 -c -
+          unzip -q qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip -d "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+          cd "$GITHUB_WORKSPACE/packages/t3-core"
+          test ! -e dist
+          cp -R "$RUNNER_TEMP/t3-rc5-input/dist" dist
+          cp "$RUNNER_TEMP/t3-rc5-input/package.json" "$RUNNER_TEMP/t3-rc5-input/package-lock.json" .
+          cmp integration-sources/bli1/engine.mjs "$RUNNER_TEMP/t3-rc5-input/integration-sources/bli1/engine.mjs"
+          echo T3_RC5_PUBLISHED_ARTIFACT_EXACT_PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Install only existing locked qualification dependencies
+        working-directory: packages/t3-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx --no-install playwright install chromium
+          if ! brew list --versions openssl@3 >/dev/null 2>&1; then
+            brew install openssl@3
+          fi
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+      - name: Existing D5 hardware and cold offline original Kernel witness, no build
+        working-directory: packages/t3-core
+        run: node tests/t3-d5-full-bli.browser.mjs
