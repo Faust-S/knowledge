@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_T3_T4_ONE_CORE_CONVERGENCE_STAGE/1",
-  "state": "NATIVE_LAYOUT_VAULT_AND_PEER_STARTUP_STAGED",
+  "state": "NATIVE_SIGNED_GRANT_AND_READY_LIFETIME_STAGED",
   "mergeBase": "fd927a1efb083219442d9504285f75fa738dbdda",
   "corporateT3": "8db847058cab231d2d39c34df46024b60564d2ad",
   "networkT4": "896515f361611e311b0df22dbcfebfefa8e58fa0",
@@ -27,10 +27,10 @@
   "networkWireUnchanged": true,
   "accepted": false,
   "blocking": [
-    "Execute exact corrected original K036 qualification from authorized local Git snapshots using Center 4ec94afe, or restore authorized public Center access. Complete corporate return archive remains FAIL on accepted K036; corrected candidate NOT_RUN.",
-    "Complete real installed SOURCE/RECIPIENT profile provider, including signed enrollment and grant selection, authentic existing credential and topology readers, and original operation ports. Layout resolution source is implemented, full Windows build/mount NOT_RUN; unconfigured SOURCE is still rejected. No fallback or automatic grant issuance.",
-    "Provision original signed device grants, durable keys and TLS certificate custody, separate technical workspace, authenticated topology; use explicit CONNECT/LISTEN on an existing reachable route. TLS connection alone is not peer owner readiness. Require both original owners READY before subject traffic.",
-    "Qualify original peer carrier after startup change, actual DB9 and installed two-node pilot, disconnect/reconnect and measured performance.",
+    "Execute exact corrected original K036 qualification from authorized local Git snapshots using Center 16f9802f. Accepted K036 full corporate return archive remains FAIL; corrected candidate NOT_RUN; do not rerun blocked public Center without authorized access.",
+    "Finish actual installed SOURCE/RECIPIENT provider using existing signed native owner, enrolled grants, genuine credential and topology readers, original operation ports. SOURCE rejects unconfigured provider. Both native owner full execution and Windows build/mount NOT_RUN.",
+    "Provision existing original signed grants for explicit role/operation scopes, device keys, separate technical workspace and authenticated peer topology. Extra mutation actions need explicit policy admission; no automatic grant issuance or fallback. Original TLS handshake alone is not peer owner READY.",
+    "Qualify full original carrier/Relay activation after current changes, actual DB9, installed physical two-node transfer, disconnect/reconnect and measured performance.",
     "Independent final acceptance."
   ],
   "notes": [
@@ -53,7 +53,8 @@
     "Native original private owner aligned byte-for-byte with canonical Access/Vault/strict JSON modules; actual crypto and legacy compatibility addressed, full private Runtime NOT_RUN.",
     "Explicit SOURCE forwarded by qualified Agent builder and CLI. Agent build-only packaging admits a single canonical sibling layout, pinned native owner, canonical SOURCE passport and unaccepted package metadata; actual Windows build and native mount NOT_RUN. Existing local owner still refuses pilot passport.",
     "All 66 original frozen network source blobs unchanged; five integration additions. No new Actions or Codex.",
-    "2026-11-27: all 66 original frozen T4 network source blobs still byte-identical; six integration modules. Existing release branches untouched. Source candidate 513a11bf has actual TLS startup helper tests, but new product factory glue and combined canonical carrier test require full checkout. No new Actions or Codex."
+    "2026-11-27: all 66 original frozen T4 network source blobs still byte-identical; six integration modules. Existing release branches untouched. Source candidate 513a11bf has actual TLS startup helper tests, but new product factory glue and combined canonical carrier test require full checkout. No new Actions or Codex.",
+    "2026-11-27: native startup lifetime, receiver-ready transition and shared signed grant selection staged at 4335694c/9800854e. Exact scoped helper tests PASS (TLS 14, native owner composition 44, Agent 24, launcher 15; reruns include previous tests), full integrated Relay/owner/Kernel and Windows qualification NOT_RUN. All 66 frozen source blobs compared unchanged. Existing accepted branches untouched; no Actions or Codex."
   ],
   "additionalTests": {
     "packages/t4-network/tests/original-native-network-product-activation.test.mjs": "9f1fd80a9f76a2dd9f99d7367d804cc1acfe0f02",
@@ -425,6 +426,92 @@
       "codexUsed": false,
       "actualDb9": "NOT_RUN",
       "actualTwoNode": "NOT_RUN",
+      "accepted": false,
+      "T4_READY": false,
+      "FEATURE_FREEZE": true
+    },
+    "latestNativeReadyAndGrantImplementation": {
+      "date": "2026-11-27",
+      "state": "STAGED_NOT_ACCEPTED",
+      "sourceCandidate": {
+        "commit": "4335694c895dae93f8c7ea57e20e452019834586",
+        "tree": "675e5610561cce1ecab9f340908e563f9e8d9b3e"
+      },
+      "peerStartup": {
+        "commit": "d5d02be145959a3fbf9a4908f120ababf3b84331",
+        "helperBlob": "2488b753a2c8a0df53742041e64abb3db820b1ca",
+        "testBlob": "a16bc90439b28cf398f9cfd1d2bbd24f79098956",
+        "local": {
+          "pass": 14,
+          "fail": 0,
+          "scope": "Exact published Node TLS 1.3 startup/hold/abort helper on real loopback sockets with ephemeral certificates and modeled carrier handoff; includes previous 10 tests."
+        },
+        "originalCarrierIntegration": "NOT_RUN",
+        "relayIntegration": "NOT_RUN"
+      },
+      "readyTransition": {
+        "commit": "4335694c895dae93f8c7ea57e20e452019834586",
+        "relayBlob": "55effb9719568696170a5cd189b7718b67ee06d1",
+        "profileBlob": "732260f6df12c272fbd3abff72d5baf11f0af654",
+        "testBlob": "e563601053e53cc2159aefb2c100598f58e8ada8",
+        "scope": "Bind receiver during activation; release held input only at original READY announcement after activation slot is cleared. Failed release returns DENIED and cleans up.",
+        "addedIntegrationScenarios": 2,
+        "qualification": "NOT_RUN"
+      },
+      "nativeOwner": {
+        "commit": "9800854ec3aba3b55f2d42b3219c92574e4dbcc4",
+        "tree": "2bcae0958f90ef03894eb5635798203aa47da6a0",
+        "local": {
+          "pass": 44,
+          "fail": 0,
+          "scope": "17 product Registry selection, 7 native signed grant, 5 Admin Vault composition, 7 Admin Registry and 8 native Vault port tests. Real original Access signatures/evaluation and crypto; modeled enrollment verifier and external owner/kernel ports."
+        },
+        "grantSelectorBlob": "b0101c6c87bc8cdaaf58d61f309663245e07cc8f",
+        "sharedRegistryBlob": "95fd8bb13ee31c692618f46381177237e8a479f1",
+        "runtimeBlob": "fbd20fd2450f12f945e91306f8e0b839cd02fe20",
+        "adminMountBlob": "64479d9ebdd5b01746d3b8dc7cd42120828d4942",
+        "fullRuntime": "NOT_RUN",
+        "policyProvisioning": "Explicitly enrolled existing DATA/ACTION grants, separate technical putObject, role-specific graph and independent operation-named additional mutation actions; no automatic issuance or widening of old grant.",
+        "actualDeviceGrants": "NOT_PROVISIONED"
+      },
+      "agent": {
+        "commit": "0a81f70c64e57a68b55ee0e1efb2be0062bb93f8",
+        "tree": "edb7a0c2fa140a2695b0dd070992682b6c3255db",
+        "local": {
+          "python": 19,
+          "node": 5,
+          "fail": 0,
+          "scope": "Exact package inventory and runtime layout fixtures; original module presence checks and final source pins."
+        },
+        "windowsBuild": "NOT_RUN",
+        "installedMount": "NOT_RUN",
+        "provider": "NOT_CONFIGURED"
+      },
+      "qualification": {
+        "commit": "16f9802f30c4408c4abdce0b5334a95a6a39bb95",
+        "tree": "864d0f88ba7e8cfa367cecf66279a9646354d90e",
+        "localLauncher": {
+          "python": 10,
+          "node": 5,
+          "fail": 0
+        },
+        "fullCorrectedK036": "NOT_RUN",
+        "fullPrivateOwner": "NOT_RUN",
+        "fullPeerActivation": "NOT_RUN",
+        "scope": "Exact local snapshots; native grant/Vault/Registry tests and peer/activation tests precede original K036 witness. Launcher fixtures only executed locally."
+      },
+      "frozenNetworkSource": {
+        "commit": "6e542f5d28386c39a6fd9b5206c7d3fa79414c31",
+        "originalBlobs": 66,
+        "changed": 0,
+        "additionalProductIntegrationModules": 6
+      },
+      "newPublicActions": 0,
+      "newPrivateActions": 0,
+      "codexUsed": false,
+      "actualDb9": "NOT_RUN",
+      "physicalTwoNode": "NOT_RUN",
+      "independentAcceptance": "NOT_RUN",
       "accepted": false,
       "T4_READY": false,
       "FEATURE_FREEZE": true
