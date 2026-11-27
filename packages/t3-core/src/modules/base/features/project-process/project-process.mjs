@@ -189,7 +189,7 @@ function normalizeMethodAlternativeOrigin(value,projectId){
   methodRecord(value,['version','workspaceId','projectId','projectRef','workRefs'],'alternative origin');
   if(value.version!==1||typeof value.workspaceId!=='string'||!value.workspaceId||value.workspaceId.length>128
       ||value.workspaceId.trim()!==value.workspaceId||/[\u0000-\u001f]/u.test(value.workspaceId)
-      ||!METHOD_STAGE_ID.test(value.projectId)||value.projectId===projectId)methodError('alternative origin scope');
+      ||typeof value.projectId!=='string'||!METHOD_STAGE_ID.test(value.projectId)||value.projectId===projectId)methodError('alternative origin scope');
   const workspace=encodeURIComponent(value.workspaceId),originProject=value.projectId;
   const ids=new Set(),records=new Set();
   const normalizeRef=(ref,kind)=>{

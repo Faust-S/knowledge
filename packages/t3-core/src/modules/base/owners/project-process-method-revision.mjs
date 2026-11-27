@@ -420,7 +420,7 @@ function captureRestoreCatalog(objects){
   if(!Array.isArray(objects))fail('METHOD_RESTORE_MATERIAL_CATALOG_INVALID','Original admitted catalog required');
   // Snapshot only the fields used by the existing material admission.
   // Do not clone material content; a deleted record is not current.
-  return objects.filter(row=>row?.deleted!==true).map(row=>row==null?null:Object.freeze({
+  return objects.filter(row=>row?.deleted!==true&&row?.deleted_at==null).map(row=>row==null?null:Object.freeze({
     workspace_id:row.workspace_id,object_id:row.object_id,revision:row.revision,
     schema_id:row.schema_id,schemaId:row.schemaId,family:row.family}));
 }

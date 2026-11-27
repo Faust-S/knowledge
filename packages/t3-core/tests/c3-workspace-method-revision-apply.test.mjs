@@ -506,7 +506,8 @@ test('restore never silently rebinds a changed, unavailable or deleted historica
   const second=(await applyWorkspaceMethodRevision(request(owner,base))).method;
   const args=restoreRequest(owner,second,base),ok=await previewWorkspaceMethodRestore(args);
   for(const catalog of [objects.map(o=>o.object_id==='model'?{...o,revision:99}:o),
-      objects.filter(o=>o.object_id!=='model'),objects.map(o=>o.object_id==='model'?{...o,deleted:true}:o)]){
+      objects.filter(o=>o.object_id!=='model'),objects.map(o=>o.object_id==='model'?{...o,deleted:true}:o),
+      objects.map(o=>o.object_id==='model'?{...o,deleted_at:time}:o)]){
     const bad={...args,objects:catalog},p=await previewWorkspaceMethodRestore(bad);
     assert.equal(p.state,'MATERIAL_REVIEW_REQUIRED');assert.equal(p.confirmationDigest,null);
     await assert.rejects(applyWorkspaceMethodRestore({...bad,confirmationDigest:ok.confirmationDigest}),code('METHOD_MATERIAL_REVIEW_REQUIRED'));
@@ -608,10 +609,10 @@ test('forged alternative content or missing exact origin is refused before any w
   const altered={...p.draft,steps:p.draft.steps.map(s=>s.id==='analyse'?{...s,instruction:'Forged source'}:s)};
   const ids={project:'forged-project',works:Object.fromEntries(altered.steps.map(s=>[target+'.'+s.id,'forged-'+s.id]))};
   await assert.rejects(createWorkspaceMethodThroughSourceOwner({owner,workspaceId,objects,draft:altered,recordIds:ids,
-    knowledgeAt,alternativeOrigin:p.origin}),code('METHOD_ALTERNATIVE_ORIGIN_MISMATCH'));
+    knowledgeAt:time,alternativeOrigin:p.origin}),code('METHOD_ALTERNATIVE_ORIGIN_MISMATCH'));
   const fakeOrigin={...p.origin,projectRef:{...p.origin.projectRef,recordId:'not-found'}};
   await assert.rejects(createWorkspaceMethodThroughSourceOwner({owner,workspaceId,objects,draft:p.draft,recordIds:ids,
-    knowledgeAt,alternativeOrigin:fakeOrigin}),e=>e.code==='METHOD_HISTORY_INCOMPLETE'||e.code==='METHOD_HISTORY_REF_INVALID');
+    knowledgeAt:time,alternativeOrigin:fakeOrigin}),e=>e.code==='METHOD_HISTORY_INCOMPLETE'||e.code==='METHOD_HISTORY_REF_INVALID');
   assert.equal((await owner.audit()).length,5);
 });
 test('direct original Project owner cannot forge exact origin by bypassing alternative operation',async()=>{
@@ -623,7 +624,7 @@ test('direct original Project owner cannot forge exact origin by bypassing alter
       intendedActor:w.methodology.intendedActor,instruction:w.methodology.instruction,materialRefs:w.methodology.materialRefs,
       predecessorWorkIds:w.dependencies.map(dep=>dep.predecessorWorkId)}))};
   await assert.rejects(owner.create('project',{...plan.projectInput,name:'Forged Project',recordId:creation.projectRecordId,
-    knowledgeAt,methodology:{...plan.projectInput.methodology,creation}}),code('METHOD_ALTERNATIVE_ORIGIN_MISMATCH'));
+    knowledgeAt:time,methodology:{...plan.projectInput.methodology,creation}}),code('METHOD_ALTERNATIVE_ORIGIN_MISMATCH'));
   assert.equal((await owner.audit()).length,5);
 });
 test('interrupted alternative resumes through saved original creation plan including origin',async()=>{
@@ -668,4 +669,17 @@ test('complete owner history qualification requires closure over exact alternati
   assert.equal(qualifyProjectProcessSameWorkspaceHistory({workspaceId,records:all}).referencedHeadsClosed,true);
   const lineage=await readWorkspaceMethodAlternativeOrigin({owner,workspaceId,projectId:args.targetProjectId,expected:result.method});
   assert.equal(lineage.state,'ORIGIN_VERIFIED');assert.deepEqual(lineage.source.projectRef,base.projectRef);
+});
+
+
+test('foreign or malformed alternative origin is refused before original owner creation',async()=>{
+  const {owner,base}=await setup();
+  const target='scope-alternative',p=await previewWorkspaceMethodAlternative(alternativeRequest(owner,base,{targetProjectId:target}));
+  const ids={project:'scope-project',works:Object.fromEntries(p.draft.steps.map(s=>[target+'.'+s.id,'scope-'+s.id]))};
+  for(const origin of [{...p.origin,workspaceId:'foreign'},{...p.origin,projectId:123},
+      {...p.origin,workRefs:p.origin.workRefs.map((r,i)=>i===0?{...r,objectId:'work:foreign:method-project.prepare'}:r)}]){
+    await assert.rejects(createWorkspaceMethodThroughSourceOwner({owner,workspaceId,objects,draft:p.draft,recordIds:ids,
+      knowledgeAt:time,alternativeOrigin:origin}),code('INVALID_PROJECT_PROCESS_METHODOLOGY'));
+  }
+  assert.equal((await owner.audit()).length,5);
 });

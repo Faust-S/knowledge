@@ -11,6 +11,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { qualifyOriginalC3OwnerOnK036 } from "./qualify-k036-c3-original-owner.mjs";
+import { probeCurrentObjectHistoryCandidate } from "./probe-k036-current-object-history.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const archive = join(root, "qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip");
@@ -322,7 +323,11 @@ try {
   same("duplicate new-Workspace import cannot roll back target history",await readChain(fresh,liveTarget),advancedTarget);
   same("duplicate new-Workspace import cannot add or remove target records/events",await snapshot(fresh,liveTarget),beforeDuplicate);
   same("expanded probe still uses only original iwxa-local DB",(await indexedDB.databases()).map(d=>d.name),["iwxa-local"]);
-  report.observations.originalOwner=await qualifyOriginalC3OwnerOnK036({client:fresh,
+  const currentObjectHistory=await probeCurrentObjectHistoryCandidate({writer:fresh,reader:await connect(readerId),
+    openEmpty:async()=>{runtime.__resetKernelStoreForTests();globalThis.indexedDB=new IDBFactory();return {writer:await connect(),reader:await connect(readerId)};},
+    schemaId:revisionSchema,schemaVersion:version,serviceId:writerId,check,same,expectReject});
+  report.observations.currentObjectHistoryCandidate=currentObjectHistory.observations;
+  report.observations.originalOwner=await qualifyOriginalC3OwnerOnK036({client:currentObjectHistory.writer,
     openEmpty:async()=>{runtime.__resetKernelStoreForTests();globalThis.indexedDB=new IDBFactory();return connect();},
     anchorSchema,revisionSchema,schemaVersion:version,serviceId:writerId,check,same,expectReject});
   report.status="PASS_PRIMITIVES_AND_OWNER_FIXTURE_ONLY";
