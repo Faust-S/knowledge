@@ -864,4 +864,93 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     expect(screen.queryByTestId("workflow-corporate-reference-recovered")).toBeNull();
   });
 
+
+  function dependentCorporateFixture(){
+    const f=corporateFixture(),c={family:"iwxa.work",objectId:"research.finish",recordId:"finish-1",revision:1};
+    const all:WorkspaceMethodInputOverview={...report,stages:[...report.stages.map(row=>({...row,actor:"agent" as const})),
+      {stepId:"finish",name:"Заключение",actor:"agent",workRef:c,state:"PREDECESSOR_RESULTS_REQUIRED",
+        inputBasisDigest:"c".repeat(64),directPredecessorStepIds:["review"],prerequisiteCount:2,materialIssues:[]}],
+      counts:{total:3,inputReferencesVerified:3,materialReviewRequired:0,predecessorResultsRequired:2,rootInputsVerified:1}};
+    f.overview.mockResolvedValue(all);
+    const inspection:WorkspaceMethodStageInspection={...makeInspection("review"),stageInput:{
+      state:"INPUT_REFERENCES_VERIFIED",basis:{workspaceId:"w",projectId:"research",stepId:"finish",stageRef:c},inputBasisDigest:"c".repeat(64)}};
+    const selections=[
+      {stepId:"analyse",acceptanceId:"1".repeat(64),resultRevisionId:"2".repeat(64)},
+      {stepId:"review",acceptanceId:"3".repeat(64),resultRevisionId:"4".repeat(64)}];
+    const evidence={...selections[1],packageSha256:"5".repeat(64),taskId:"task:review",taskRevisionId:"6".repeat(64),
+      taskPackageSha256:"7".repeat(64),resultSha256:"8".repeat(64),organizationId:"org:example",workspaceId:"w",executorId:"person:worker",
+      workflowInput:{...f.receipt.workflowInput,stepId:"review",workRef:b,inputBasisDigest:"b".repeat(64)},
+      exactInputBindingProven:false as const,workCompleted:false as const};
+    const preview:WorkspaceMethodHandoffPreview={...f.preview,state:"CORPORATE_PRIOR_RESULTS_OBSERVED_SIGNED_REFERENCES_MATCHED",inspection,
+      materialEvidence:{...f.preview.materialEvidence!,stageInput:inspection.stageInput},corporateResultSelections:selections,
+      corporateResults:[{stepId:"review",canonicalWorkRef:b,acceptedResult:evidence}]};
+    f.previewHandoff.mockResolvedValue(preview);
+    const receipt:WorkspaceMethodCorporateTaskReferenceInspection={...f.receipt,workflowInput:{...f.receipt.workflowInput,
+      stepId:"finish",workRef:c,inputBasisDigest:"c".repeat(64)}};
+    f.inspectCorporateTaskReference.mockResolvedValue(receipt);
+    const recoverCorporateTaskReference=vi.fn(async()=>({...receipt,recoveredFromOriginalTask:true as const}));
+    const binding:WorkspaceMethodWorkflowBinding={...f.binding,expected:{projectRef,workRefs:[a,b,c]},
+      corporateResultSelections:selections,reader:{...f.binding.reader,recoverCorporateTaskReference}};
+    return {...f,binding,selections,preview,receipt,recoverCorporateTaskReference};
+  }
+  async function selectCorporateFinish(){
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));await screen.findByText(/Работ: 3/);
+    fireEvent.click(screen.getByRole("button",{name:/Заключение/}));
+  }
+  it("shows selected exact corporate accepted Result lineage, not Atlas publication controls, and forwards complete selections",async()=>{
+    const f=dependentCorporateFixture();
+    render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[source]} selectedObjectIds={[source.object_id]}/>);
+    await selectCorporateFinish();
+    const choices=screen.getByTestId("workflow-corporate-prerequisites");
+    expect(choices.textContent).toContain("Анализ материалов: Результат 222222222222");
+    expect(choices.textContent).toContain("Проверка результатов: Результат 444444444444");
+    expect(screen.queryByLabelText("Результат: Проверка результатов")).toBeNull();
+    expect(screen.queryByLabelText("Предшественник для проверки передачи")).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"Подготовить передачу"}));
+    await screen.findByText("Проверено принятых редакций предшествующих работ: 2.");
+    expect(f.previewHandoff).toHaveBeenCalledExactlyOnceWith({workspaceId:"w",projectId:"research",expected:f.binding.expected,
+      stepId:"finish",resultSelections:[],corporateResultSelections:f.selections,includeMaterialEvidence:true});
+    fireEvent.click(screen.getByRole("button",{name:"Сопоставить подписанное задание"}));
+    await screen.findByTestId("workflow-corporate-reference-match");
+    expect(f.inspectCorporateTaskReference).toHaveBeenCalledExactlyOnceWith({workspaceId:"w",projectId:"research",expected:f.binding.expected,
+      stepId:"finish",resultSelections:[],corporateResultSelections:f.selections,taskId:f.receipt.taskId,expectedCandidateDigest:f.digest});
+    expect(screen.queryByTestId("workflow-personal-draft")).toBeNull();expect(f.recoverContinuation).not.toHaveBeenCalled();
+  });
+  it("requires all original corporate ancestor selections, including indirect, and never falls back to the canvas",async()=>{
+    const f=dependentCorporateFixture();
+    render(<WorkspaceMethodWorkflowPanel binding={{...f.binding,corporateResultSelections:[f.selections[1]]}}
+      objects={[source]} selectedObjectIds={[source.object_id]}/>);
+    await selectCorporateFinish();
+    expect(screen.getByTestId("workflow-corporate-prerequisites").textContent).toContain("Анализ материалов: Не выбран");
+    expect((screen.getByRole("button",{name:"Подготовить передачу"}) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button",{name:"Восстановить связь с подписанным заданием"}) as HTMLButtonElement).disabled).toBe(true);
+    expect(f.previewHandoff).not.toHaveBeenCalled();expect(f.recoverCorporateTaskReference).not.toHaveBeenCalled();
+  });
+  it("discards the exact corporate reference when an accepted predecessor selection changes while reading",async()=>{
+    const f=dependentCorporateFixture();let release:(value:WorkspaceMethodCorporateTaskReferenceInspection&{recoveredFromOriginalTask:true})=>void=()=>{};
+    f.recoverCorporateTaskReference.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
+    const ui=render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[]} selectedObjectIds={[]}/>);
+    await selectCorporateFinish();
+    fireEvent.click(screen.getByRole("button",{name:"Восстановить связь с подписанным заданием"}));
+    expect(f.recoverCorporateTaskReference).toHaveBeenCalledExactlyOnceWith({workspaceId:"w",projectId:"research",
+      expected:f.binding.expected,stepId:"finish",resultSelections:[],corporateResultSelections:f.selections,taskId:f.receipt.taskId});
+    ui.rerender(<WorkspaceMethodWorkflowPanel binding={{...f.binding,corporateResultSelections:[
+      f.selections[0],{...f.selections[1],resultRevisionId:"9".repeat(64)}]}} objects={[]} selectedObjectIds={[]}/>);
+    release({...f.receipt,recoveredFromOriginalTask:true});
+    await waitFor(()=>expect(screen.queryByTestId("workflow-corporate-reference-recovered")).toBeNull());
+    expect(f.previewHandoff).not.toHaveBeenCalled();
+  });
+  it("refuses original accepted Result metadata for a different selected revision rather than showing a matched handoff",async()=>{
+    const f=dependentCorporateFixture();
+    const row=f.preview.corporateResults![0];
+    f.previewHandoff.mockResolvedValue({...f.preview,corporateResults:[{...row,acceptedResult:{...row.acceptedResult,resultRevisionId:"9".repeat(64)}}]});
+    render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[]} selectedObjectIds={[]}/>);
+    await selectCorporateFinish();
+    fireEvent.click(screen.getByRole("button",{name:"Подготовить передачу"}));
+    await screen.findByRole("alert");
+    expect(screen.queryByTestId("workflow-handoff-preview")).toBeNull();
+    expect(f.inspectCorporateTaskReference).not.toHaveBeenCalled();
+  });
+
+
 });
