@@ -1,0 +1,140 @@
+name: D09 HOP baseline regression triage
+on:
+  push:
+    branches: ['ci/once/d09-hop-regression-triage/**']
+    paths: ['.github/ci-requests/d09-hop-regression-triage.json']
+permissions:
+  contents: read
+concurrency:
+  group: d09-hop-regression-triage
+  cancel-in-progress: false
+jobs:
+  compare:
+    if: github.event.created == false && github.event.deleted == false && github.event.forced == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: baseline
+            sha: 54bbb39c57a04967183f9b3f2718e2c5d6039a6c
+            tree: 2e8915ede5dd58329e9dbbd4f65df66752b3a9bf
+          - lane: candidate
+            sha: f731467bc159337736f179b67514829207df692c
+            tree: 6fb21bf068030eeaa3d29bbfa4eb96f202b62beb
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - name: Checkout public request guard
+        uses: actions/checkout@v4
+        with:
+          path: ci-harness
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit immutable source comparison
+        working-directory: ci-harness
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-regression-triage --profile hop-regression-node24 --revision baseline=54bbb39c57a04967183f9b3f2718e2c5d6039a6c --revision site=f731467bc159337736f179b67514829207df692c
+      - name: Checkout exact site source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/hop.iwxa.ru
+          ref: ${{ matrix.sha }}
+          token: ${{ secrets.DOMEN }}
+          path: private-site
+          persist-credentials: false
+          show-progress: false
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Compare identical locked environments
+        working-directory: private-site
+        shell: bash
+        env:
+          PIN: ${{ matrix.sha }}
+          TREE: ${{ matrix.tree }}
+          LANE: ${{ matrix.lane }}
+          npm_config_cache: ${{ runner.temp }}/d09-regression/npm-cache
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "$PIN"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$TREE"
+          test "$(git rev-parse HEAD:package-lock.json)" = 414a5877e7892f8045469b29faee80e4916071b3
+          mkdir -p "$RUNNER_TEMP/d09-regression"
+          echo "D09_REGRESSION_LANE=$LANE"
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-regression/npm.log" 2>&1 || { echo D09_REGRESSION_NPM=FAIL; exit 1; }
+          echo D09_REGRESSION_NPM=PASS
+          failed=0
+          if npm run typecheck > "$RUNNER_TEMP/d09-regression/types.log" 2>&1; then
+            echo D09_REGRESSION_TYPES=PASS
+          else
+            echo D09_REGRESSION_TYPES=FAIL
+            grep -E '^([[:alnum:]_./-]+\.(tsx?|mjs)\([0-9]+,[0-9]+\): error TS[0-9]+:)' "$RUNNER_TEMP/d09-regression/types.log" | cut -c1-160 | head -25 || true
+            failed=1
+          fi
+          if npm test -- --reporter=json --outputFile="$RUNNER_TEMP/d09-regression/vitest.json" > "$RUNNER_TEMP/d09-regression/vitest.log" 2>&1; then
+            echo D09_REGRESSION_UNIT=PASS
+          else
+            echo D09_REGRESSION_UNIT=FAIL
+            failed=1
+          fi
+          if test -f "$RUNNER_TEMP/d09-regression/vitest.json"; then
+            node --input-type=module - "$RUNNER_TEMP/d09-regression/vitest.json" <<'D09_REPORT'
+          import {readFileSync} from "node:fs";
+          import {basename} from "node:path";
+          import {createHash} from "node:crypto";
+          const r=JSON.parse(readFileSync(process.argv[2],"utf8"));
+          const rules=[
+           ["MOCK_MISSING_EXPORT",/No "[^"]+" export is defined on the .*mock|not defined on the .*mock/i],
+           ["CRYPTO_SUBTLE",/crypto\.subtle|subtle\.(digest|importKey)|Cannot read properties of undefined \(reading 'digest'\)/i],
+           ["BUFFER_SOURCE_REALM",/not of type ['"]?(BufferSource|ArrayBuffer|ArrayBufferView)|ArrayBufferView|not an instance of (Uint8Array|ArrayBuffer)|not of type.*ArrayBuffer/i],
+           ["BLOB_METHOD",/\.arrayBuffer is not a function|\.text is not a function/i],
+           ["STRUCTURED_CLONE",/DataCloneError|could not be cloned|structuredClone is not defined/i],
+           ["TEXT_ENCODING",/TextEncoder is not defined|TextDecoder is not defined/i],
+           ["MISSING_COMMAND",/UNKNOWN_TYPE|unknown command type|NO_SESSION|no active session/i],
+           ["MODULE_RESOLUTION",/Cannot find (module|package)|Failed to resolve|not exported|ERR_MODULE_NOT_FOUND/i],
+           ["BROWSER_API",/not implemented|ResizeObserver|matchMedia|PointerEvent|ImageData|HTMLCanvasElement/i],
+           ["DUPLICATE_TESTID",/Found multiple elements by|Found multiple elements with/i],
+           ["MISSING_ELEMENT",/Unable to find an element|Unable to find role|Unable to find a label/i],
+           ["STALE_EXPECTATION",/AssertionError|expected.*(to be|to equal|to have|but got)|Received:|Expected:/i],
+           ["TIMEOUT",/timed out|timeout/i],
+           ["SCHEMA",/schema|validation/i],
+           ["TYPE_ERROR",/TypeError|is not a function|Cannot read properties/i]
+          ];
+          const classify=messages=>{const msg=(messages??[]).join("\n");return rules.find(([,re])=>re.test(msg))?.[0]??"OTHER"};
+          const byCategory={};let failed=0;
+          for(const f of r.testResults??[]){
+           if(f.status!=="failed")continue;
+           const categories={};
+           for(const a of f.assertionResults??[]){
+            if(a.status!=="failed")continue;
+            const category=classify(a.failureMessages), id=createHash("sha256").update(basename(f.name??"")+":"+a.fullName).digest("hex").slice(0,16);
+            categories[category]=(categories[category]??0)+1;byCategory[category]=(byCategory[category]??0)+1;failed++;
+            console.log("D09_REGRESSION_CASE "+basename(f.name??"unknown").replace(/[^a-zA-Z0-9_.-]/g,"_")+" "+id+" "+category);
+           }
+           if(!Object.keys(categories).length){
+            const category=classify([f.message??""]);categories[category]=1;byCategory[category]=(byCategory[category]??0)+1;
+           }
+           console.log("D09_REGRESSION_FILE "+basename(f.name??"unknown").replace(/[^a-zA-Z0-9_.-]/g,"_")+" "+JSON.stringify(categories));
+          }
+          console.log("D09_REGRESSION_TOTALS="+JSON.stringify({passed:r.numPassedTests,failed:r.numFailedTests,files:r.numTotalTestSuites,failedFiles:r.numFailedTestSuites,classified:failed,categories:byCategory}));
+          D09_REPORT
+          else
+            echo D09_REGRESSION_UNIT_REPORT=UNAVAILABLE
+          fi
+          if NODE_OPTIONS="--test-reporter=tap" npm run test:d09 > "$RUNNER_TEMP/d09-regression/contracts.log" 2>&1; then
+            echo D09_REGRESSION_CONTRACTS=PASS
+          else
+            echo D09_REGRESSION_CONTRACTS=FAIL
+            grep -E '^not ok [0-9]+ - |^# (tests|pass|fail) [0-9]+$' "$RUNNER_TEMP/d09-regression/contracts.log" | cut -c1-180 | head -80 || true
+            grep -oE '(ERR_[A-Z0-9_]+|D09_[A-Z0-9_]+|--test-reporter is not allowed in NODE_OPTIONS)' "$RUNNER_TEMP/d09-regression/contracts.log" | sort -u | head -35 || true
+            failed=1
+          fi
+          exit "$failed"
+      - name: Remove private inputs and logs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/private-site" "$RUNNER_TEMP/d09-regression"
+          echo D09_PRIVATE_ARTIFACT_UPLOADS=NONE
