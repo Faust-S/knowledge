@@ -39,6 +39,7 @@ export function packagePortablePlatform({output,sourceCommit,qualificationRun}={
  if(hash(readFileSync(join(core,kernelFile)))!==kernelHash)fail("ORIGINAL_KERNEL_HASH");
  const roots=["dist",kernelFile,"integration-sources/bli1",
    "package.json","package-lock.json",
+   "docs/t3-consolidation-sources.json",
    "scripts/assemble-signed-control-dist.mjs","scripts/register-t3-local-inference.mjs",
    "scripts/materialize-t3-domain-mode.mjs","scripts/t3-pwa-manifest.mjs",
    "scripts/prepare-t3-one-dist-candidate.mjs","scripts/zip-store.mjs","scripts/real-kernel-e2e.mjs",

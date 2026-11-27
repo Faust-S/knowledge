@@ -69,7 +69,16 @@ if (archived.length !== excluded.size) {
   console.error("T3_ARCHIVAL_TEST_SET_MISMATCH", [...excluded].filter(n=>!all.includes(n)));
   process.exit(2);
 }
-const selected = all.filter(name => !excluded.has(name));
+// The original cross-product runtime witness needs its own verified Kernel,
+// locked IndexedDB test substrate and compiled native-control UI. It is
+// NOT an archival exclusion and remains a separate mandatory CI job.
+const runtimeWitnesses = ["t3-company-original-runtime-roundtrip.test.mjs"];
+if(runtimeWitnesses.some(name=>!all.includes(name)||excluded.has(name))){
+  console.error("T3_ORIGINAL_RUNTIME_WITNESS_SET_MISMATCH");
+  process.exit(2);
+}
+console.log("T3_SEPARATE_ORIGINAL_RUNTIME_WITNESSES",JSON.stringify(runtimeWitnesses));
+const selected = all.filter(name => !excluded.has(name)&&!runtimeWitnesses.includes(name));
 if (!selected.length) {
   console.error("T3_PRODUCT_TEST_SET_EMPTY");
   process.exit(2);

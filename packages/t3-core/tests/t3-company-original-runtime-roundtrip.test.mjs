@@ -100,17 +100,31 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
     'QUALIFIED_ORIGINAL_T2_REQUIRED');
   assert.ok(idbModule&&existsSync(idbModule),'TEST_INDEXEDDB_PLATFORM_REQUIRED');
   const idb=await import(pathToFileURL(resolve(idbModule)).href);
-  for(const [name,value] of Object.entries(idb))if(name.startsWith('IDB')&&typeof value==='function')
+  // A Node BroadcastChannel owns a ref'ed MessagePort; close only the
+  // channels created inside this browser-platform test realm on exit.
+  const globals=new Map(),channels=new Set();
+  const setGlobal=(name,value)=>{
+    if(!globals.has(name))globals.set(name,Object.getOwnPropertyDescriptor(globalThis,name));
     Object.defineProperty(globalThis,name,{value,writable:true,configurable:true});
+  };
+  const PlatformBroadcastChannel=globalThis.BroadcastChannel;
+  if(typeof PlatformBroadcastChannel==='function'){
+    setGlobal('BroadcastChannel',class extends PlatformBroadcastChannel{
+      constructor(name){super(name);channels.add(this);}
+      close(){try{super.close();}finally{channels.delete(this);}}
+    });
+  }
+  for(const [name,value] of Object.entries(idb))if(name.startsWith('IDB')&&typeof value==='function')
+    setGlobal(name,value);
   // Sequential source test: real runtime's lock callback is executed once
   // per request. No concurrency or native OS locking claim is made.
-  Object.defineProperty(globalThis,'navigator',{value:{locks:{
+  setGlobal('navigator',{locks:{
     request:async(_name,options,callback)=>typeof options==='function'
-      ?options({name:_name}):callback({name:_name})}},configurable:true});
-  Object.defineProperty(globalThis,'window',{value:globalThis,configurable:true});
+      ?options({name:_name}):callback({name:_name})}});
+  setGlobal('window',globalThis);
   const tmp=mkdtempSync(join(tmpdir(),'iwxa-company-runtime-'));
   let active=null;
-  const originalFetch=globalThis.fetch;
+  const staged=[];
   try{
     const verified=assertQualifiedKernelArtifact(qualified,{kernel:'0.3.6',contract:'1.3.0',artifactId});
     const qualificationKernelCandidate=candidateSelection(verified);
@@ -175,10 +189,11 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
       }else assert.equal(assembled.original_qualified_artifact,artifactId);
       const runtimePath=join(dist,'_iwxa/runtime/0.3.6/runtime.js');
       const runtime=await import(pathToFileURL(runtimePath).href);
-      return {runtime,serviceId,origin,dist,db:new idb.IDBFactory(),domain:json(dist,'_iwxa/domain.json'),current:json(dist,'_iwxa/current.json')};
+      const productStage={runtime,serviceId,origin,dist,db:new idb.IDBFactory(),domain:json(dist,'_iwxa/domain.json'),current:json(dist,'_iwxa/current.json')};
+      staged.push(productStage);return productStage;
     }
     const source=await stage('agent'),recipient=await stage('admin');
-    globalThis.fetch=async(input)=>{
+    setGlobal('fetch',async(input)=>{
       assert.ok(active,'ORIGINAL_RUNTIME_TEST_ORIGIN_MISSING');
       const url=new URL(typeof input==='string'?input:input.url??String(input),active.origin);
       if(url.origin!==active.origin||!url.pathname.startsWith('/_iwxa/')||url.pathname.includes('..'))
@@ -186,11 +201,11 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
       const file=join(active.dist,...url.pathname.slice(1).split('/'));
       return existsSync(file)?new Response(readFileSync(file),{status:200,
         headers:{'Content-Type':url.pathname.endsWith('.json')?'application/json':'application/octet-stream'}}):new Response('',{status:404});
-    };
+    });
     async function activate(s){
       active=s;
-      Object.defineProperty(globalThis,'indexedDB',{value:s.db,writable:true,configurable:true});
-      Object.defineProperty(globalThis,'location',{value:new URL(s.origin+'/workspace/'),configurable:true});
+      setGlobal('indexedDB',s.db);
+      setGlobal('location',new URL(s.origin+'/workspace/'));
       const ctx={domain:s.domain,current:s.current,origin:s.origin};
       const product=await s.runtime.connect({service_id:s.serviceId,required_levels:['T1','T2']},ctx);
       const exchange=await s.runtime.connect({service_id:companyExchangeServiceId(s.serviceId),required_levels:['T1','T2']},ctx);
@@ -371,7 +386,15 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
     assert.ok(returnedRelation.relations.outgoing.some(r=>r.relation_id==='relation:roundtrip'));
     await source.runtime.__resetKernelStoreForTests();
   }finally{
-    globalThis.fetch=originalFetch;
-    rmSync(tmp,{recursive:true,force:true});
+    try{
+      for(const product of staged)await product.runtime.__resetKernelStoreForTests();
+    }finally{
+      for(const channel of [...channels])channel.close();
+      for(const [name,descriptor] of [...globals].reverse()){
+        if(descriptor)Object.defineProperty(globalThis,name,descriptor);
+        else delete globalThis[name];
+      }
+      rmSync(tmp,{recursive:true,force:true});
+    }
   }
 });
