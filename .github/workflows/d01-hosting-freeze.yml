@@ -27,7 +27,6 @@ jobs:
       D01_EXPECTED_T2_HEAD: 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
       D01_EXPECTED_SITE_HEAD: 906328d9d4264eb6a1a7f63ca8ca626791426186
       D01_T2_SOURCE: ${{ github.workspace }}/private/t2/t2/current/final-successor/canonical-source
-      D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
       D01_CASE_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-001-workplace-numeracy.json
       D01_CASE_002_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-002-price-label-check.json
     steps:
@@ -253,6 +252,7 @@ jobs:
         timeout-minutes: 55
         env:
           D01_QUALIFICATION_PHASE: build
+          D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
         run: node private/site/qa/d01-product-witness-2026-10-26/ci-real-screens.mjs
       - name: T2 static hosting and complete link audit
         id: links
@@ -270,6 +270,7 @@ jobs:
         timeout-minutes: 20
         env:
           D01_QUALIFICATION_PHASE: browser-setup
+          D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
         run: node private/site/qa/d01-product-witness-2026-10-26/ci-real-screens.mjs
       - name: T2 first-use and Workspace start
         id: first
@@ -277,6 +278,7 @@ jobs:
         timeout-minutes: 45
         env:
           D01_QUALIFICATION_PHASE: first-use
+          D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
         run: node private/site/qa/d01-product-witness-2026-10-26/ci-real-screens.mjs
       - name: T2 saved Study objects and original Kernel cold restart
         id: saved
@@ -284,6 +286,7 @@ jobs:
         timeout-minutes: 40
         env:
           D01_QUALIFICATION_PHASE: saved
+          D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
         run: node private/site/qa/d01-product-witness-2026-10-26/ci-real-screens.mjs
       - name: T2 browser sweep of every built page at desktop and phone widths
         id: sweep
