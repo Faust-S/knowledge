@@ -634,6 +634,256 @@ export function createOriginalEmployeeEnrollmentOwner({
       taskSigned:false,taskDelivered:false});
   }
 
+  // The four baseline permissions and optional return-export permission
+  // are existing original AccessRegistry grants. The
+  // employee's work.prepare or package.export NEVER implies these T2 rights.
+  // Use a distinct evidence marker: the original two-grant enrollment
+  // reconstruction remains unchanged and survives cold compatibility.
+  const workspaceRights=Object.freeze([
+    {key:'readAccess',rightClass:'DATA',action:'workspace.read',
+      purpose:'workspace.read'},
+    {key:'writeAccess',rightClass:'ACTION',action:'object.write',
+      purpose:'workspace.work'},
+    {key:'createAccess',rightClass:'ACTION',action:'workspace.create',
+      purpose:'workspace.onboarding'},
+    {key:'importAccess',rightClass:'ACTION',action:'workspace.exchange.import',
+      purpose:'workspace.exchange.import'},
+  ]);
+  const returnExportRight=Object.freeze({key:'exportAccess',rightClass:'DATA',
+    action:'workspace.exchange.export',purpose:'workspace.exchange.export'});
+  const workspaceMarker=enrollmentId=>'employee-workspace-rights:'+enrollmentId;
+  const relatedWorkspaceGrants=(saved,enrollmentId,employeePersonId)=>
+    Object.values(saved.grants).filter(env=>
+      env?.payload?.holderId===employeePersonId&&
+      env.payload.principalId===pinnedOrganization.organizationId&&
+      env.payload.authorityId===pinnedOrganization.issuerAuthorityId&&
+      env.payload.evidenceRefs?.includes(workspaceMarker(enrollmentId)));
+  function workspaceAttachment({spec,env,saved,enrolled,status,at}){
+    const g=env.payload,memberId='member:'+spec.key+':'+enrolled.enrollmentId;
+    const org=pinnedOrganization,issuer=org.issuerAuthorityId;
+    const membership=original('StaffMembership',{
+      membershipId:memberId,organizationId:org.organizationId,
+      personId:enrolled.employeePersonId,workspaceId:trustedWorkspaceId,
+      roleId:g.roleId,grantId:g.id,issuerAuthorityId:issuer,
+      membershipEpoch:org.membershipEpoch,notBefore:g.notBefore,
+      expiresAt:g.expiresAt,status:'ACTIVE',statusObservedAt:status.issuedAt,
+      statusValidUntil:status.validUntil,
+    });
+    const binding=original('OrganizationGrant',{
+      organizationId:org.organizationId,membershipId:memberId,
+      grantId:g.id,authorityId:issuer,realmId:org.realmId,
+      holderPersonId:enrolled.employeePersonId,roleId:g.roleId,
+      membershipEpoch:org.membershipEpoch,
+      resources:g.resources,actions:g.actions,purposes:g.purposes,
+      notBefore:g.notBefore,expiresAt:g.expiresAt,
+      signedEnvelopeDigest:digest(env),
+    });
+    const credential=original('AdminIssuedCredential',{
+      credentialId:'credential:'+spec.key+':'+enrolled.credentialPublicKeyRef,
+      organizationId:org.organizationId,membershipId:memberId,
+      issuerAuthorityId:issuer,holderPersonId:enrolled.employeePersonId,
+      publicKeyRef:enrolled.credentialPublicKeyRef,custody:'HOLDER_ORG_SCOPED',
+      personalKeySource:false,notBefore:g.notBefore,expiresAt:g.expiresAt,
+      status:'ACTIVE',
+    });
+    const enrollment=signOrganizationEnrollment({
+      schema:'IWXA_T3_ORGANIZATION_ENROLLMENT_CLAIMS/1',
+      organizationId:org.organizationId,realmId:org.realmId,
+      issuerAuthorityId:issuer,personId:enrolled.employeePersonId,
+      workspaceId:trustedWorkspaceId,membershipId:memberId,
+      credentialId:credential.credentialId,
+      credentialPublicKeyRef:enrolled.credentialPublicKeyRef,
+      grantId:g.id,signedGrantDigest:digest(env),
+      organizationDataRootId:org.organizationDataRootId,
+      membershipEpoch:org.membershipEpoch,issuedAt:g.issuedAt,
+      notBefore:g.notBefore,expiresAt:g.expiresAt,
+    },issuerSigner);
+    verifyOrganizationEnrollment(enrollment,saved,org,at);
+    return Object.freeze({grantId:g.id,membership,binding,
+      credential,enrollment});
+  }
+  async function readWorkspaceGrantSet({organizationId,employeePersonId,
+    enrollmentId}={}){
+    id(organizationId);id(employeePersonId);id(enrollmentId);
+    check(organizationId===pinnedOrganization.organizationId,
+      'T3_EMPLOYEE_WORKSPACE_SCOPE_CHANGED');
+    const at=now(),saved=await state();
+    return workspaceGrantReadback({organizationId,employeePersonId,enrollmentId,saved,at});
+  }
+  function workspaceGrantReadback({organizationId,employeePersonId,enrollmentId,saved,at}){
+    const enrolled=reconstruct({saved,employeePersonId,enrollmentId,at});
+    const rows=relatedWorkspaceGrants(saved,enrollmentId,employeePersonId);
+    const base={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS/1',
+      organizationId,employeePersonId,enrollmentId,
+      workspaceId:trustedWorkspaceId,originalReadback:true,
+      safeToReissue:false};
+    if(rows.length===0)return Object.freeze({
+      ...base,state:'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_NOT_FOUND',
+      returnExportAvailable:false});
+    // Old four-grant enrollments remain valid. A fifth row is accepted only
+    // if it is the exact separately signed Workspace export DATA right.
+    const hasReturnExport=rows.length===workspaceRights.length+1;
+    check(rows.length===workspaceRights.length||hasReturnExport,
+      'T3_EMPLOYEE_WORKSPACE_SIGNED_GRANT_SET_INCOMPLETE');
+    const specs=hasReturnExport?[...workspaceRights,returnExportRight]:workspaceRights;
+    const status=validateStatusSnapshot(pinnedOrganization.issuerAuthorityId,
+      saved,at);
+    const attachments={};
+    const ids=new Set();
+    for(const spec of specs){
+      const match=rows.filter(row=>{
+        const g=row.payload;
+        return g.actions?.length===1&&g.actions[0]===spec.action;
+      });
+      check(match.length===1,
+        'T3_EMPLOYEE_WORKSPACE_SIGNED_GRANT_SET_CHANGED');
+      const env=match[0],g=env.payload;
+      check(!ids.has(g.id)&&g.rightClass===spec.rightClass&&
+        g.roleId==='worker'&&g.purposes.length===1&&
+        g.purposes[0]===spec.purpose&&
+        g.resources.length===1&&g.resources[0]===trustedWorkspaceId&&
+        env.keyId===issuerSigner.keyId&&
+        !g.evidenceRefs.includes('employee-enrollment:'+enrollmentId),
+        'T3_EMPLOYEE_WORKSPACE_SIGNED_GRANT_SCOPE_CHANGED');
+      ids.add(g.id);
+      verifyRecord(env,saved.policy,at,'GRANT');
+      verifiedChain(g.id,saved,at);
+      check(status.entries.some(item=>item.grantId===g.id&&
+        item.state==='ACTIVE')&&!hasRecordedTombstone(saved,g.id),
+        'T3_EMPLOYEE_WORKSPACE_RIGHT_REVOKED_OR_UNKNOWN');
+      attachments[spec.key]=workspaceAttachment({
+        spec,env,saved,enrolled,status,at});
+    }
+    return Object.freeze({...base,state:'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE',
+      statusSequence:status.sequence,grantIds:Object.freeze([...ids]),
+      returnExportAvailable:hasReturnExport,
+      attachments:Object.freeze(attachments)});
+  }
+  let workspaceRightsAttempted=false;
+  async function issueWorkspaceGrantSet({organizationId,employeePersonId,
+    enrollmentId,managerPersonId,managerGrantId,confirmed=false,returnExport=false}={}){
+    check(confirmed===true,'T3_EMPLOYEE_WORKSPACE_EXPLICIT_APPROVAL_REQUIRED');
+    check(typeof returnExport==='boolean','T3_EMPLOYEE_WORKSPACE_RETURN_EXPORT_OPTION_INVALID');
+    check(!workspaceRightsAttempted,
+      'T3_EMPLOYEE_WORKSPACE_OUTCOME_UNKNOWN_READBACK');
+    id(organizationId);id(employeePersonId);id(enrollmentId);
+    id(managerPersonId);id(managerGrantId);
+    check(organizationId===pinnedOrganization.organizationId&&
+      employeePersonId!==managerPersonId,
+      'T3_EMPLOYEE_WORKSPACE_TRUSTED_SCOPE_REQUIRED');
+    const at=now(),saved=await state(),org=pinnedOrganization;
+    const enrolled=reconstruct({saved,employeePersonId,enrollmentId,at});
+    const existing=relatedWorkspaceGrants(saved,enrollmentId,employeePersonId);
+    let requested=returnExport?[...workspaceRights,returnExportRight]:workspaceRights;
+    if(existing.length!==0){
+      check(returnExport&&existing.length===workspaceRights.length,
+        'T3_EMPLOYEE_WORKSPACE_RIGHTS_EXIST_USE_READBACK');
+      // Upgrade an intact historical set from the same registry snapshot.
+      // Never replace baseline rights or sign an implicit export right.
+      const prior=workspaceGrantReadback({organizationId,employeePersonId,
+        enrollmentId,saved,at});
+      check(prior.state==='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE'&&
+        prior.returnExportAvailable===false,
+        'T3_EMPLOYEE_WORKSPACE_RIGHTS_EXIST_USE_READBACK');
+      requested=[returnExportRight];
+    }
+    const authority=saved.policy.authorities[org.issuerAuthorityId];
+    check(authority?.principalId===organizationId&&
+      authority.roles.includes('worker')&&
+      authority.resources.includes(trustedWorkspaceId)&&
+      requested.every(spec=>
+        authority.rightClasses.includes(spec.rightClass)&&
+        authority.actions.includes(spec.action)&&
+        authority.purposes.includes(spec.purpose)&&
+        saved.policy.actionCatalog[spec.action]===spec.rightClass),
+      'T3_EMPLOYEE_WORKSPACE_RIGHTS_POLICY_CEILING_REQUIRED');
+    const manager=saved.grants[managerGrantId]?.payload;
+    check(manager?.holderId===managerPersonId&&
+      manager.principalId===organizationId&&
+      manager.authorityId===org.issuerAuthorityId&&
+      manager.rightClass==='ADMINISTRATION'&&
+      manager.actions.includes('grant.issue')&&
+      manager.resources.includes('authority:'+org.issuerAuthorityId),
+      'T3_EMPLOYEE_WORKSPACE_MANAGER_GRANT_REQUIRED');
+    const issuerKey=saved.policy.keys[issuerSigner.keyId];
+    check(issuerKey?.status==='ACTIVE'&&
+      issuerKey.uses.includes('GRANT')&&issuerKey.uses.includes('STATUS')&&
+      timestamp(issuerKey.notBefore)<=at&&at<timestamp(issuerKey.expiresAt),
+      'T3_EMPLOYEE_WORKSPACE_ISSUER_NOT_ACTIVE');
+    const request={
+      id:'employee-workspace-grants:'+randomUUID(),
+      actorId:managerPersonId,principalId:organizationId,
+      roleId:manager.roleId,grantId:managerGrantId,
+      audience:manager.audience,resource:'authority:'+org.issuerAuthorityId,
+      action:'grant.issue',purpose:'access-administration',
+      realmId:org.realmId,
+      operationDigest:digest({schema:'IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_INTENT/1',
+        organizationId,employeePersonId,enrollmentId,
+        managerPersonId,managerGrantId,
+        workGrantId:enrolled.grantIds.work,
+        existingGrantIds:existing.map(row=>row.payload.id).sort(),
+        rights:requested.map(x=>[x.action,x.purpose,x.rightClass])}),
+    };
+    const challenge=randomUUID()+randomUUID();
+    const proof=await proveManager({request:copy(request),challenge,
+      asOf:iso(at),managerPersonId,organizationId});
+    const decision=evaluate(request,saved,{
+      now:iso(at),challenge,proof,timeAssurance:'LOCAL_BEST_EFFORT'});
+    check(decision.allowed===true&&decision.outcome==='PERMITTED',
+      'T3_EMPLOYEE_WORKSPACE_MANAGER_NOT_AUTHORIZED');
+    const ttlSeconds=Math.min(authority.maxTtlSeconds,86400,
+      Math.floor((timestamp(enrolled.workGrant.payload.expiresAt)-at)/1000),
+      Math.floor((timestamp(manager.expiresAt)-at)/1000),
+      Math.floor((timestamp(issuerKey.expiresAt)-at)/1000));
+    check(ttlSeconds>0,'T3_EMPLOYEE_WORKSPACE_GRANT_EXPIRY');
+    const next=copy(saved),authorityId=org.issuerAuthorityId;
+    const granted=[];
+    for(const spec of requested){
+      const grant=coreGrant(saved,{
+        id:'grant:'+randomUUID(),organization:org,
+        employeePersonId,roleId:'worker',
+        rightClass:spec.rightClass,actions:[spec.action],
+        purposes:[spec.purpose],resources:[trustedWorkspaceId],
+        ttlSeconds,enrollmentId,now:at,
+        credentialKeyId:enrolled.credentialPublicKeyRef,
+        employeeProofDigest:'workspace-grants-manager-proof',
+        evidenceRefs:[workspaceMarker(enrollmentId),
+          'employee-credential:'+enrolled.credentialPublicKeyRef,
+          'manager-approval:'+digest(decision)],
+      });
+      const signed=signRecord(grant,issuerSigner);
+      verifyRecord(signed,saved.policy,at,'GRANT');
+      next.grants[grant.id]=signed;
+      granted.push(grant);
+    }
+    const prior=next.statuses[authorityId].payload,sequence=prior.sequence+1;
+    const until=Math.min(at+saved.policy.offlineMaxAgeSeconds*1000,
+      timestamp(issuerKey.expiresAt));
+    check(until>at,'T3_EMPLOYEE_WORKSPACE_STATUS_WINDOW_INVALID');
+    next.statuses[authorityId]=signRecord({...prior,
+      id:'status:'+randomUUID(),sequence,
+      issuedAt:iso(at),validUntil:iso(until),
+      entries:[...prior.entries,...granted.map(g=>({
+        grantId:g.id,state:'ACTIVE',effectiveAt:iso(at),
+        evidenceRef:workspaceMarker(enrollmentId),
+      }))].sort((a,b)=>a.grantId.localeCompare(b.grantId)),
+    },issuerSigner);
+    next.statusFloor[authorityId]=sequence;
+    // The original signed-registry Kernel commit is the only write. If its
+    // reply is lost, this process will refuse reissue until cold readback.
+    workspaceRightsAttempted=true;
+    const kernelReceipt=await registry.commitSignedState(next);
+    const recovered=await readWorkspaceGrantSet({
+      organizationId,employeePersonId,enrollmentId});
+    check(recovered.state==='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE'&&
+      recovered.statusSequence===sequence&&
+      recovered.returnExportAvailable===returnExport&&
+      granted.every(g=>recovered.grantIds.includes(g.id)),
+      'T3_EMPLOYEE_WORKSPACE_RIGHTS_ORIGINAL_READBACK_UNKNOWN');
+    workspaceRightsAttempted=false;
+    return Object.freeze({...recovered,kernelReceipt});
+  }
+
   return Object.freeze({begin,complete,readEnrollment,cancelPending,
-    issueTaskGrant,readTaskGrant});
+    issueTaskGrant,readTaskGrant,issueWorkspaceGrantSet,readWorkspaceGrantSet});
 }
