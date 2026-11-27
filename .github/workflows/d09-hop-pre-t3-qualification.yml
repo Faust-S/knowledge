@@ -16,9 +16,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     env:
-      SITE_PIN: 880ee6d2342e2a69fbe0a62d3dd96908afb3630d
-      SITE_TREE: c4b34d491c46853e20cb7f48db6e11c5eaeb624f
-      SUBJECT_PIN: 5fbfe9210b1c9369f828d469e52380f31918a4e6
+      SITE_PIN: 54bbb39c57a04967183f9b3f2718e2c5d6039a6c
+      SITE_TREE: 2e8915ede5dd58329e9dbbd4f65df66752b3a9bf
+      SUBJECT_PIN: 91f2237267d1242d0302ef4335bb0683dfdf3461
       T2_PIN: 9c64951cd78411283e8a416641c36d71e169fc1d
       T2_TREE: 56e55a9458aeb3ce540ef87dbc2dd9549ae2fcb2
       D09_ORIGIN: https://hop.iwxa.ru:9443
@@ -35,7 +35,7 @@ jobs:
       - name: Admit the explicit immutable request
         working-directory: ci-harness
         run: |
-          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-pre-t3-qualification --profile hop-integrated-pre-t3 --revision site=880ee6d2342e2a69fbe0a62d3dd96908afb3630d --revision subject=5fbfe9210b1c9369f828d469e52380f31918a4e6 --revision t2=9c64951cd78411283e8a416641c36d71e169fc1d
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-pre-t3-qualification --profile hop-integrated-pre-t3 --revision site=54bbb39c57a04967183f9b3f2718e2c5d6039a6c --revision subject=91f2237267d1242d0302ef4335bb0683dfdf3461 --revision t2=9c64951cd78411283e8a416641c36d71e169fc1d
       - name: Checkout exact HOP site using existing domain credential
         uses: actions/checkout@v4
         with:
@@ -114,6 +114,21 @@ jobs:
             else
               echo "D09_$id=FAIL"
               grep -oE '(D09_[A-Z0-9_]+|error TS[0-9]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-$id.log" | sort -u | head -20 || true
+              # Report stable test phases and assertion identifiers, not source.
+              if [ "$id" = E2E ] && [ -f technical/browser-e2e-report.json ]; then
+                node --input-type=module -e '
+                  import {readFileSync} from "node:fs";
+                  const r=JSON.parse(readFileSync("technical/browser-e2e-report.json","utf8"));
+                  for(const s of r.steps||[]) if(s.status==="fail") {
+                    const id=String(s.step_id);
+                    if(/^[a-z0-9_-]+$/i.test(id)) console.log("D09_E2E_FAILED_STEP="+id);
+                  }
+                  console.log("D09_E2E_TOTALS="+JSON.stringify(r.totals));
+                ' || true
+              fi
+              if [ "$id" = PIXEL_MOTION ]; then
+                grep -E '^D09_MOTION_[A-Z0-9_]+=(PASS|FAIL)$' "$RUNNER_TEMP/d09-$id.log" | tail -12 || true
+              fi
               failed=1
               return 1
             fi
@@ -147,6 +162,7 @@ jobs:
               failed=1
             fi
           }
+          check D09_CONTRACTS npm run test:d09
           check VERIFY npm run verify
           if [ ! -f dist/_iwxa/domain.json ]; then
             if ! grep -q 'node scripts/build-d09-site-only.mjs' "$RUNNER_TEMP/d09-VERIFY.log" || {
