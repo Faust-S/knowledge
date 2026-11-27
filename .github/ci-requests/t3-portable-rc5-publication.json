@@ -1,0 +1,14 @@
+{
+  "preparedSha": "34190be41337a799fda75aaaad6764799a9b98c2",
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-portable-rc5-publication",
+  "source": "a50d40dafc2e029fcc7668dece925f7fc38cc510",
+  "qualificationRun": 46012582910,
+  "qualificationHead": "4c6061f9fbf5452b0f10ba8f34375dbda2a4d73d",
+  "artifactId": 15203239524,
+  "artifactName": "iwxa-t3-mobile-portable-candidate-a50d40dafc2e029fcc7668dece925f7fc38cc510",
+  "artifactSha256": "4d397282cc704f61fd7966394ddbbffe88e124c2d3e5a75d12bdc726f9ae0dd4",
+  "archiveSha256": "381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4",
+  "manifestSha256": "ef5824279883296d836eacb7ba00f352be357d0dd5c49e26b32ec1a02a336e48",
+  "tag": "t3-platform-v0.3.1-rc.5"
+}
