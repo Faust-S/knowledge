@@ -1,4 +1,4 @@
-name: D09 HOP immutable history and validator interoperability
+name: D09 HOP imported root and current template regression
 on:
   push:
     branches: ['ci/once/d09-hop-regression-triage/**']
@@ -18,8 +18,8 @@ jobs:
       matrix:
         include:
           - lane: corrected
-            sha: bec29c1bb13b091b7841d9f3aa999e7ef475eea5
-            tree: 88bb4d4c22b289b53c3286aa1c042c464e118a71
+            sha: d96e5cae7c771aae8d5cb792e1c73eb526557a64
+            tree: 80373c916a3aca6fa69d1aefce59651352671f4f
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
     steps:
@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable source comparison
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-regression-triage --profile hop-regression-node24 --revision site=bec29c1bb13b091b7841d9f3aa999e7ef475eea5 --revision subject=162e3eb77d6d106b647a7acc07bc3fec105b3142
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-regression-triage --profile hop-regression-node24 --revision site=d96e5cae7c771aae8d5cb792e1c73eb526557a64 --revision subject=6f5fd6592a7678a77767635635758fe1d74e1e73
       - name: Checkout exact site source
         uses: actions/checkout@v4
         with:
