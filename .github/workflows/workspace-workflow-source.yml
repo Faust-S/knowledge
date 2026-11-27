@@ -1,16 +1,5 @@
 name: Workspace Workflow source qualification
 on:
-  push:
-    branches:
-      - work/2026-11-26-workspace-workflow-development
-    paths:
-      - 'packages/t3-core/src/**'
-      - 'packages/t3-core/tests/**'
-      - 'packages/t3-core/scripts/**'
-      - 'packages/t3-core/package*.json'
-      - 'packages/t3-core/tsconfig.json'
-      - 'packages/t3-core/vitest*.mjs'
-      - '.github/workflows/workspace-workflow-source.yml'
   workflow_dispatch:
 
 permissions:
@@ -18,7 +7,7 @@ permissions:
 
 concurrency:
   group: workspace-workflow-source-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   canonical-source:
