@@ -1,0 +1,9 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d03-artbazy-hosting-delivery",
+  "prepared_sha": "d4a622f17b27a54178315dbd5f71514c61be4dce",
+  "profile": "hosting-delivery-qualification",
+  "revisions": {
+    "site": "91ce9dc83a0836eb4e40a2c2746e647588413713"
+  }
+}
