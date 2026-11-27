@@ -1,11 +1,13 @@
 // Exact released K036 + original Project/Work owner qualification witness.
+import { createHash } from 'node:crypto';
 import { canonicalStringify } from '../src/persistence/canonical-codec.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from '../src/modules/base/owners/project-process-method-readback.mjs';
 import { applyWorkspaceMethodRevision,inspectWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
 import { openK036C3QualificationOwner,captureK036C3CopyFixture,verifyK036C3CopyFixture } from './k036-c3-owner-qualification-adapter.mjs';
 import { projectProcessSourceObjectId } from '../src/modules/base/owners/project-process-source-owner.mjs';
-import { readWorkspaceMethodStageInputBasis,readWorkspaceMethodInputOverview,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodMaterialEvidence,buildWorkspaceMethodPersonalTaskDraft } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
+import { readWorkspaceMethodStageInputBasis,readWorkspaceMethodInputOverview,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodMaterialEvidence,buildWorkspaceMethodPersonalTaskDraft,prepareWorkspaceMethodPersonalChain } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
+import { createOriginalPersonalWorkflowTaskObserver,recoverOriginalPersonalWorkflowTaskSelection,recoverOriginalPersonalWorkflowTaskSelections,personalWorkflowTaskInspection } from '../src/t3/workspace-method-personal-draft.mjs';
 import { compareWorkspaceMethodAlternatives } from '../src/modules/base/owners/project-process-method-comparison.mjs';
 import { previewWorkspaceMethodAlternative,createWorkspaceMethodAlternativeThroughSourceOwner,readWorkspaceMethodAlternativeOrigin } from '../src/modules/base/owners/project-process-method-alternative.mjs';
 
@@ -279,9 +281,12 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   const personal=await createWorkspaceMethodThroughSourceOwner({owner:reopened.owner,workspaceId:ws,objects:[personalMaterial],
     draft:{templateId:'personal-root',templateRevision:'1',projectId:personalProjectId,name:'Personal research',
       objective:'Analyse source',domainApplicability:['generic'],materials:[{object_id:materialId,revision:personalMaterial.revision}],
-      steps:[{id:'analyse',name:'Analyse',actor:'agent',instruction:'Prepare analysis',dependsOn:[],materialIds:[materialId]}]},
-    recordIds:{project:'personal-root-project@1',works:{[personalProjectId+'.analyse']:'personal-root-analyse@1'}},knowledgeAt:time});
-  const actualText='Original K036 text attachment\n';
+      steps:[{id:'analyse',name:'Analyse',actor:'agent',instruction:'Prepare analysis',dependsOn:[],materialIds:[materialId]},
+        {id:'review',name:'Review',actor:'agent',instruction:'Review analysis',dependsOn:['analyse'],materialIds:[]},
+        {id:'finish',name:'Finish',actor:'agent',instruction:'Write conclusion',dependsOn:['review'],materialIds:[]}]},
+    recordIds:{project:'personal-root-project@1',works:{[personalProjectId+'.analyse']:'personal-root-analyse@1',
+      [personalProjectId+'.review']:'personal-root-review@1',[personalProjectId+'.finish']:'personal-root-finish@1'}},knowledgeAt:time});
+  const actualText='Original K036 text attachment\r\nЁмкость ячейки: 42 Ω\n';
   await reopenedClient.t1.putAsset({workspace_id:ws,object_id:materialId,asset_id:'personal-root-text',
     mime:'text/plain',bytes:new TextEncoder().encode(actualText),base_revision:0,event:{event_type:'qualification.personal-text',
       idempotency_key:'qualification-personal-text'}});
@@ -294,11 +299,80 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   same('original K036 root personal draft retains original object data',exact(JSON.parse(personalPlan.draft.attachments[0].text).data),exact(personalMaterial.data));
   same('original K036 root personal draft provenance binds observed material digest',
     JSON.parse(personalPlan.draft.attachments[2].text).handoff.materialEvidenceDigest,personalPreview.materialEvidence.materialEvidenceDigest);
+  // W05.19: exact released K036 persisted source, real Asset bytes and
+  // same-ID .iwxa restore. Accepted Task ports remain controlled fixtures;
+  // separate Center qualification exercises the actual Agent.
+  const hash=text=>createHash('sha256').update(text,'utf8').digest('hex');
+  const runs=new Map(),taskReads=[];
+  const acceptFixture=(plan,taskId,summary)=>{
+    const suffix=taskId.slice(5);
+    const value={task:{task_id:taskId,objective:plan.draft.text.trim()},result:{task_id:taskId,result_id:'RES-'+suffix,
+      task_digest:hash(taskId),context_projection_digest:hash(taskId+'projection'),run_bundle_digest:hash(taskId+'bundle'),
+      performed_external_actions:false,summary},
+      snapshot:{task_id:taskId,snapshot_id:'CSN-'+suffix,snapshot_digest:hash(taskId+'snapshot'),
+        projection_digest:hash(taskId+'projection'),bundle_digest:hash(taskId+'bundle'),retrieval_refs:[],
+        source_items:plan.draft.attachments.map((a,i)=>({path:'attachments/'+String(i+1).padStart(2,'0')+'-'+a.name,
+          origin:'interaction_attachment',sha256:hash(a.text),bytes:Buffer.byteLength(a.text,'utf8')}))},
+      acceptedSource:{task_id:taskId,workspace_ref:'personal',contract_version:'PA.K01_ACCEPTED_RESULT_SOURCE/0.1.0',
+        state:'accepted',kind:'result',source_ref:'agent-result:'+taskId,read_only:true,commercial_approval_claimed:false,
+        result_id:'RES-'+suffix,review_id:'REV-'+suffix,accepted_artifact_digest:hash(taskId+summary),
+        revision:'sha256:'+hash(summary),content:summary}};
+    runs.set(taskId,{value,attachments:structuredClone(plan.draft.attachments)});
+  };
+  const observer=await createOriginalPersonalWorkflowTaskObserver({workspaceId:ws,
+    composer:{currentBinding:async()=>({subjectKind:'PERSONAL',sourceWorkspaceId:ws,agentWorkspaceId:'personal',contextEpoch:'fixture'})},
+    taskOwner:{readAcceptedRun:async taskId=>{taskReads.push(taskId);return structuredClone(runs.get(taskId)?.value);},
+      taskDocumentSource:async(taskId,snapshotId,path,sha256)=>({task_id:taskId,snapshot_id:snapshotId,path,sha256,
+        text:runs.get(taskId).attachments[Number(path.slice(12,14))-1].text})},guarded:fn=>fn()});
+  const rootSummary='Accepted original analysis\r\nСохранённый результат\n';
+  acceptFixture(personalPlan,'TASK-k036-root',rootSummary);
+  let assetReads=0;
+  const chain=(c,o,stepId,personalResultSelections,extra={})=>prepareWorkspaceMethodPersonalChain({...personalArgs,
+    owner:o,stepId,personalResultSelections,readObject:(...a)=>c.t1.getObject(...a),
+    listAssets:q=>c.t1.listAssets(q),getAsset:(...a)=>{assetReads++;return c.t1.getAsset(...a);},
+    readVerifiedPersonalResult:observer.read,
+    resolvePersonalResultSelections:selections=>recoverOriginalPersonalWorkflowTaskSelections({workspaceId:ws,
+      projectId:personalProjectId,expected:personal.method,observer,selections}),...extra});
+  const rootSelection=[{stepId:'analyse',taskId:'TASK-k036-root'}];
+  const review=await chain(reopenedClient,reopened.owner,'review',rootSelection);
+  same('original K036 dependent Work receives exact accepted fixture text',review.plan.draft.attachments.find(a=>a.name==='result-001.txt').text,rootSummary);
+  same('original K036 dependent Work shares attachment reads',assetReads,2);
+  const reviewSummary='Accepted review conclusion\n';
+  acceptFixture(review.plan,'TASK-k036-review',reviewSummary);
+  const direct=[{stepId:'review',taskId:'TASK-k036-review'}];
+  const final=await chain(reopenedClient,reopened.owner,'finish',direct);
+  same('original K036 direct choice recovers exact prior fixture identities',final.resolvedSelections,[...rootSelection,...direct]);
+  same('original K036 final Work receives only direct result',final.plan.draft.attachments.filter(a=>a.name.startsWith('result-')).map(a=>a.text),[reviewSummary]);
+  acceptFixture(final.plan,'TASK-k036-finish','Accepted final conclusion');
+  const chainPackage=await exportAll(reopenedClient,ws),chainClient=await openEmpty();
+  await importAll(chainClient,chainPackage.bytes,{mode:'full'});
+  const chainOwner=await open(chainClient,ws);
+  const recovered=await recoverOriginalPersonalWorkflowTaskSelection({workspaceId:ws,projectId:personalProjectId,
+    stepId:'finish',taskId:'TASK-k036-finish',expected:personal.method,observer});
+  same('original K036 same-ID restore retains canonical Work identity',recovered.canonicalWorkRef.recordId,'personal-root-finish@1');
+  const beforeAssetReads=assetReads,beforeTaskReads=taskReads.length;
+  const restoredChain=await chain(chainClient,chainOwner.owner,'finish',recovered.personalResultSelections,
+    {expectedCandidateDigest:recovered.candidateDigest,targetTaskId:'TASK-k036-finish'});
+  same('original K036 same-ID restore preserves exact dependent draft',exact(restoredChain.plan.draft),exact(final.plan.draft));
+  same('original K036 same-ID restore preserves candidate digest',restoredChain.plan.candidateDigest,final.plan.candidateDigest);
+  same('original K036 restored accepted-chain verification uses two shared Asset reads',assetReads-beforeAssetReads,2);
+  same('original K036 restored accepted-chain verifies each fixture Task twice',taskReads.length-beforeTaskReads,6);
+  const accepted=personalWorkflowTaskInspection(restoredChain.plan,restoredChain.targetAccepted);
+  check('original K036 accepted-chain witness never claims completion or authority',accepted.declaredDraftInputsVerified===true&&accepted.workCompleted===false&&accepted.resultReuseProven===false);
+  await chainClient.t1.putAsset({workspace_id:ws,object_id:materialId,asset_id:'personal-root-text',
+    mime:'text/plain',bytes:new TextEncoder().encode(actualText+'Changed actual bytes'),base_revision:1,
+    event:{event_type:'qualification.personal-text.changed',idempotency_key:'qualification-personal-text-changed'}});
+  same('original K036 Asset edit leaves selected material Object revision unchanged',
+    (await chainClient.t1.getObject(ws,materialId)).object.revision,personalMaterial.revision);
+  await expectReject('original K036 changed actual attachment invalidates accepted chain without changing Object revision',
+    ()=>chain(chainClient,chainOwner.owner,'finish',direct),['T3_METHOD_PERSONAL_TASK_INPUT_CHANGED']);
   same('fixture owner and Exchange use only original database',(await indexedDB.databases()).map(d=>d.name),['iwxa-local']);
   return {status:'PASS_ORIGINAL_OWNER_FIXTURE_ONLY',recordCount:9,restoredPartial:true,copyBinding:'EXPLICIT_EPHEMERAL_FIXTURE_PASS_PRODUCTION_BLOCKED',
     currentMethodAddressedReads:{before:beforeReads,after:afterReads},unfilteredCatalog:{before:catalogBefore,after:catalogAfter},
     additionalHistoryRevisions:64,alternativeLineageRestored:true,
     copiedMethodLocalProjection:true,copyOfCopyLocalProjection:true,durableCopyProvenance:false,
     stageInputBasisVerified:true,selectedStageAddressedReads:{before:beforeStageReads,after:afterStageReads},
-    completeOverviewAddressedReads:{before:beforeOverviewReads,after:afterOverviewReads},rootHandoffPreview:true,physicalBrowser:false,productionAdapterApproved:false};
+    completeOverviewAddressedReads:{before:beforeOverviewReads,after:afterOverviewReads},rootHandoffPreview:true,
+    personalChainOriginalK036:{sameIdRestore:true,directSelection:true,sharedAssetReads:2,changedAssetRejected:true,
+      acceptedTaskOwner:'CONTROLLED_FIXTURE_ONLY',workCompleted:false},physicalBrowser:false,productionAdapterApproved:false};
 }
