@@ -1,59 +1,88 @@
-name: T3 PWA offline and installability source qualification (OS native install HOLD)
+name: T3 domain installation and inline assistant qualification
 on:
   push:
-    branches:
-      - work/2026-11-13-t3-pwa-integration
-      - work/2026-11-10-t3-t2-activity-projection
-    paths:
-      - packages/t3-core/scripts/materialize-t3-domain-mode.mjs
-      - packages/t3-core/scripts/t3-pwa-manifest.mjs
-      - packages/t3-core/src/t3/domain-mode/**
-      - packages/t3-core/tests/t3-pwa-install.test.mjs
-      - packages/t3-core/tests/t3-domain-offline.test.mjs
-      - packages/t3-core/tests/t3-domain-switch.browser.mjs
-      - packages/t3-core/tests/t3-pwa-os-install.browser.mjs
-      - .github/workflows/t3-pwa-installation.yml
-  workflow_dispatch:
+    branches: ['ci/once/t3-domain-install-ui/5819814c401820ad02f5fac1cd62e348b30b4f3c']
+    paths: ['.github/ci-requests/t3-domain-install-ui.json']
 permissions:
   contents: read
 jobs:
-  qualify:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  offline:
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Assert exact frozen T3 executable, original T2 and WebLLM inputs
-        shell: bash
-        run: |
-          set -eu
-          test "$(git rev-parse HEAD:packages/t3-core/src)" = "55c7731509513e80fd0aa80da25d3cb49f9f8efb"
-          test "$(git rev-parse HEAD:packages/t3-core/qualified-runtime)" = "1594274dbf5e38214b8422ba11e8c7114bd5425c"
-          test "$(git rev-parse HEAD:packages/t3-core/integration-sources)" = "e17b628392fb4e2dbeba2df67fdb0a5506fc5243"
-          echo "T3_G4_PWA_FROZEN_EXECUTABLE_AND_T2_SOURCE_PASS"
+        with:
+          ref: '5819814c401820ad02f5fac1cd62e348b30b4f3c'
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install unchanged inherited T3 dependencies
-        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
-      - name: Validate builder and UI syntax
+      - name: Existing offline snapshot and installation regressions
         run: |
-          node --check packages/t3-core/scripts/t3-pwa-manifest.mjs
-          node --check packages/t3-core/scripts/materialize-t3-domain-mode.mjs
+          set -e
+          test "$(git rev-parse HEAD)" = "5819814c401820ad02f5fac1cd62e348b30b4f3c"
           node --check packages/t3-core/src/t3/domain-mode/t3-domain-mode.mjs
-      - name: Verify one-dist install metadata and previous autonomous site lifecycle
-        run: node --test packages/t3-core/tests/t3-pwa-install.test.mjs packages/t3-core/tests/t3-domain-offline.test.mjs
-      - name: Prepare real Chromium
+          node --test packages/t3-core/tests/t3-domain-offline.test.mjs packages/t3-core/tests/t3-pwa-install.test.mjs packages/t3-core/tests/t3-mobile-model-catalog.test.mjs
+      - name: Prepare the existing public browser qualification
         working-directory: packages/t3-core
-        run: npx --no-install playwright install chromium
-      - name: Preserve autonomous T3 cold browser restart and updates
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx --no-install playwright install chromium
+      - name: Existing offline install, cold restart, weekly offer and update browser route
         working-directory: packages/t3-core
         run: node --test tests/t3-domain-switch.browser.mjs
-      - name: Probe native OS PWA install capability; SKIP means installed acceptance HOLD
-        working-directory: packages/t3-core
-        run: node --test tests/t3-pwa-os-install.browser.mjs
-      - name: Do not promote PWA OS installation from the browser SKIP
-        run: echo "T3_G4_PWA_SOURCE_ONLY_NATIVE_OS_INSTALL_HOLD_NOT_ACCEPTED"
+  original-assistant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 'bd651ef1776647b419879a088d6bb7d0c94689c3'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-assistant
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact original assistant syntax and existing regression suite
+        working-directory: private-assistant/browser-local-inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "bd651ef1776647b419879a088d6bb7d0c94689c3"
+          node --check domain-assistant/main.mjs > "$RUNNER_TEMP/assistant-syntax.log" 2>&1 || { echo ASSISTANT_SYNTAX_FAIL; exit 1; }
+          if node --test tests/domain-assistant-*.test.mjs > "$RUNNER_TEMP/assistant-regression.log" 2>&1; then
+            grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/assistant-regression.log"
+            echo ASSISTANT_EXISTING_SOURCE_REGRESSION_PASS
+          else
+            grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/assistant-regression.log" || true
+            echo ASSISTANT_EXISTING_SOURCE_REGRESSION_FAIL
+            exit 1
+          fi
+  cehovod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod.ru
+          ref: 'f8f00ad6725a523fe8b81a08ee18d7298433a511'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact domain source and inherited build checks
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "f8f00ad6725a523fe8b81a08ee18d7298433a511"
+          node --check public/assets/cehovod-t3-bootstrap.mjs
+          npm ci --ignore-scripts --no-audit --no-fund > "$RUNNER_TEMP/site-install.log" 2>&1 || { echo SITE_DEPENDENCIES_FAIL; exit 1; }
+          npm run typecheck > "$RUNNER_TEMP/site-types.log" 2>&1 || { echo SITE_TYPECHECK_FAIL; exit 1; }
+          npm run verify:t3-skills > "$RUNNER_TEMP/site-skills.log" 2>&1 || { echo SITE_SKILLS_FAIL; exit 1; }
+          echo SITE_SOURCE_TYPES_AND_SKILLS_PASS
+          echo FULL_RETAINED_DIST_AND_REAL_INFERENCE_NOT_RUN

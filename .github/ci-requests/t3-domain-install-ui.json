@@ -1,0 +1,8 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-domain-install-ui",
+  "preparedSha": "5819814c401820ad02f5fac1cd62e348b30b4f3c",
+  "originalAssistant": "bd651ef1776647b419879a088d6bb7d0c94689c3",
+  "cehovodSite": "f8f00ad6725a523fe8b81a08ee18d7298433a511",
+  "scope": "EXISTING_SOURCE_REGRESSIONS_PUBLIC_OFFLINE_BROWSER_NO_PRIVATE_OUTPUT"
+}
