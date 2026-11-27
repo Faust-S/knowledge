@@ -1,0 +1,172 @@
+name: T3 grounded native consultation on original hardware profiles
+on:
+  push:
+    branches: ['ci/once/t3-grounded-native-result/708b2586358fa57b39f4f384b0abe78729ffbee1']
+    paths: ['.github/ci-requests/t3-grounded-native-result.json']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-assistant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: '56b0f953e7d0e46d3f194d1fce51e07df42e7e61'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-assistant
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Existing original assistant source regressions
+        working-directory: private-assistant/browser-local-inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "56b0f953e7d0e46d3f194d1fce51e07df42e7e61"
+          node --check domain-assistant/main.mjs > "$RUNNER_TEMP/assistant-syntax.log" 2>&1 || { echo ASSISTANT_SYNTAX_FAIL; exit 1; }
+          if node --test tests/domain-assistant-*.test.mjs > "$RUNNER_TEMP/assistant-regression.log" 2>&1; then
+            grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/assistant-regression.log"
+            echo ASSISTANT_EXISTING_SOURCE_REGRESSION_PASS
+          else
+            grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/assistant-regression.log" || true
+            echo ASSISTANT_EXISTING_SOURCE_REGRESSION_FAIL
+            exit 1
+          fi
+
+  grounded-profile:
+    needs: [original-assistant]
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [light, balanced]
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      SOURCE: '0a2cd84af5d56e148e003326bada030da8fb62e2'
+      ASSISTANT: '56b0f953e7d0e46d3f194d1fce51e07df42e7e61'
+      SITE: '708b2586358fa57b39f4f384b0abe78729ffbee1'
+      PLATFORM_ARTIFACT: '15229796119'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '0a2cd84af5d56e148e003326bada030da8fb62e2'
+          persist-credentials: false
+          path: original-core
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: '56b0f953e7d0e46d3f194d1fce51e07df42e7e61'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-assistant
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod.ru
+          ref: '708b2586358fa57b39f4f384b0abe78729ffbee1'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod
+          ref: '6852d55ae8e7100b480b2d5c0a10b92de1c7d467'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-subject
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: iwxa-t3-platform-inputs-0.3.2-rc.2-0a2cd84af5d56e148e003326bada030da8fb62e2
+          path: ${{ runner.temp }}/platform
+          github-token: ${{ github.token }}
+          run-id: 46062741580
+      - name: Explicit candidate input import, exact owner bytes
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SITE"
+          test "$(git -C ../original-core rev-parse HEAD)" = "$SOURCE"
+          test "$(git -C ../private-assistant rev-parse HEAD)" = "$ASSISTANT"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          import {createHash} from 'node:crypto';
+          const root='runtime/t3-platform',active=JSON.parse(readFileSync(join(root,'active.json'),'utf8'));
+          assert.equal(active.version,'0.3.2-rc.2');
+          const pin=JSON.parse(readFileSync(join(root,active.version,'release.json'),'utf8'));
+          const ap=JSON.parse(readFileSync(join(root,active.version,'domain-assistant.json'),'utf8'));
+          const sp=JSON.parse(readFileSync(join(root,active.version,'domain-skills.json'),'utf8'));
+          const r=JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,'platform','candidate-receipt.json'),'utf8'));
+          assert.equal(r.sourceCommit,process.env.SOURCE);assert.equal(pin.sourceCommit,r.sourceCommit);
+          assert.equal(pin.archiveSha256,r.archiveSha256);assert.equal(pin.manifestSha256,r.manifestSha256);
+          assert.equal(pin.portableArtifactId,Number(process.env.PLATFORM_ARTIFACT));
+          assert.equal(ap.sourceCommit,process.env.ASSISTANT);assert.equal(ap.sharedEngineSource,r.sourceCommit);
+          assert.equal(sp.sourceCommit,'6852d55ae8e7100b480b2d5c0a10b92de1c7d467');assert.equal(sp.sourceBlob,'15c4e99fbbf2a5c842bcbc810da03effff725230');
+          assert.equal(createHash('sha256').update(readFileSync(join(process.env.RUNNER_TEMP,'platform','platform-inputs.zip'))).digest('hex'),r.archiveSha256);
+          NODE
+          echo CEHOVOD_EXPLICIT_CANDIDATE_INPUT_PIN_READY
+          if [ -x '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' ]; then
+            echo 'PUPPETEER_EXECUTABLE_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' >> "$GITHUB_ENV"
+          fi
+      - name: Existing site build and original shared Host
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_private() {
+            local label="$1"; shift
+            local log="$RUNNER_TEMP/cehovod-$label.log"
+            if "$@" > "$log" 2>&1; then
+              echo "CEHOVOD_${label}_PASS"
+            else
+              grep -Eo 'CEHOVOD_[A-Z0-9_]{5,100}|T3_PORTABLE_PLATFORM_[A-Z0-9_]+|error TS[0-9]+' "$log" | sort -u | tail -40 || true
+              echo "CEHOVOD_${label}_FAIL"
+              exit 1
+            fi
+          }
+          run_private DEPENDENCIES npm ci --ignore-scripts --no-audit --no-fund
+          run_private SOURCE_TYPES npm run typecheck
+          run_private SKILLS npm run verify:t3-skills
+          run_private PLATFORM_IMPORT npm run import:t3-platform -- "$RUNNER_TEMP/platform/platform-inputs.zip"
+          run_private HOST npm run prepare:t3-host -- "$GITHUB_WORKSPACE/original-core/packages/t3-core" "$RUNNER_TEMP/domain-host" "$RUNNER_TEMP/platform/platform-inputs.zip" "$GITHUB_WORKSPACE/private-assistant" https://127.0.0.1:18443
+          run_private RETAIN npm run retain:t3-inputs -- "$RUNNER_TEMP/domain-host" "$RUNNER_TEMP/platform/platform-inputs.zip"
+          run_private ONE_DIST npm run build:product:t3
+          run_private PRODUCT_STRUCTURE npm run verify:product:t3
+      - name: Prepare existing genuine WebGPU model witness
+        working-directory: original-core/packages/t3-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund > "$RUNNER_TEMP/model-browser-deps.log" 2>&1 || { echo MODEL_BROWSER_DEPENDENCIES_FAIL; exit 1; }
+          npx --no-install playwright install chromium
+          if ! brew list --versions openssl@3 >/dev/null 2>&1; then brew install openssl@3; fi
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+      - name: Existing real Qwen profile, exact native result and cold offline advice
+        working-directory: private-site
+        shell: bash
+        env:
+          D05_T2_WITNESS_COPY: ${{ github.workspace }}/original-core/packages/t3-core
+          D05_T3_MODEL_EVALUATION_SOURCE: ${{ github.workspace }}/private-subject/tests/assistant-answer-diagnostic.mjs
+          D05_T3_MODEL_PROFILE: ${{ matrix.profile }}
+          D05_T3_REQUIRE_HARDWARE_GPU: '1'
+          D05_T3_MODEL_GROUNDED_ADVICE: '1'
+          D05_T3_MODEL_CROSS_SERVICE: '1'
+        run: |
+          set -euo pipefail
+          test "$(git -C ../private-subject rev-parse HEAD)" = "6852d55ae8e7100b480b2d5c0a10b92de1c7d467"
+          node --check scripts/d05-t3-real-model-witness.mjs
+          # Only the existing finite evidence records, never private code,
+          # raw prompts, user data or raw generated text, leave the runner.
+          set +e
+          node scripts/d05-t3-real-model-witness.mjs 2>&1 | grep -E '^D05_T3_(MODEL_[A-Z_]+|REAL_MODEL_[A-Z_]+)( |$)'
+          outcome=${PIPESTATUS[0]}
+          set -e
+          exit "$outcome"

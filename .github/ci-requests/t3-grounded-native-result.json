@@ -1,0 +1,17 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-grounded-native-result",
+  "preparedSha": "0a2cd84af5d56e148e003326bada030da8fb62e2",
+  "originalAssistant": "56b0f953e7d0e46d3f194d1fce51e07df42e7e61",
+  "cehovodSite": "708b2586358fa57b39f4f384b0abe78729ffbee1",
+  "canonicalSubject": "6852d55ae8e7100b480b2d5c0a10b92de1c7d467",
+  "retainedPlatformArtifact": 15229796119,
+  "priorHardwareRun": 46062741580,
+  "scope": "EXISTING_SEVEN_NATIVE_RESULT_ADVICE_SCENARIOS_THROUGH_ORDINARY_HELP",
+  "profiles": [
+    "light",
+    "balanced"
+  ],
+  "hardwareRequired": true,
+  "productAccepted": false
+}
