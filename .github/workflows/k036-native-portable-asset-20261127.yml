@@ -1,0 +1,50 @@
+name: K036 native return portable contract and Exchange UI
+on:
+  push:
+    branches: ['ci/once/k036-native-portable-asset-20261127/**']
+    paths: ['.github/ci-requests/k036-native-portable-asset-20261127.json']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: k036-final-native-product-qualification
+  cancel-in-progress: false
+jobs:
+  native-return:
+    if: ${{ github.event_name == 'workflow_dispatch' || (!github.event.created && !github.event.deleted && !github.event.forced) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Validate one immutable request before private access
+        run: node qualification/k036-native-portable-asset-20261127/verify-request.mjs
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 'c4ae63d36d0ee64013b333368d930d477be0213c'
+          path: private-t2
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: '39a0b3205ea45a55c3db45b99f5bcf4f0283aef1'
+          path: private-t2-main
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run native original API and separate UI qualification
+        run: node qualification/k036-native-portable-asset-20261127/run.mjs native
+      - name: Remove disposable private files
+        if: always()
+        run: rm -rf private-t2 private-t2-main "$RUNNER_TEMP/k036-native-portable-asset-20261127-native"
