@@ -1,0 +1,9 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d03-artbazy-kernel-connect",
+  "prepared_sha": "257e9d2af68a232596daa0d3ceff54968e1e55c0",
+  "profile": "original-kernel-connect",
+  "revisions": {
+    "site": "3af58d0efa74fb91e22afbddf913f76c6484a3ed"
+  }
+}
