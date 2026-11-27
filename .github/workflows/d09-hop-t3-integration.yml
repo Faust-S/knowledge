@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      SITE_PIN: e5a5860e9604f9513bfbccb066198622601bf364
-      SUBJECT_PIN: b5e3d2eb9271ca58ba39161952441e8536f5cf6d
+      SITE_PIN: f731467bc159337736f179b67514829207df692c
+      SUBJECT_PIN: 2ffa32c2837bc4949eb3ac592dc76e90826c940a
       T3_PIN: a50d40dafc2e029fcc7668dece925f7fc38cc510
       ASSISTANT_PIN: 5419dacf855d81ec089acc23bae0c7aa11713a54
       D09_ORIGIN: https://hop.iwxa.ru:9443
@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable domain request
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-rc5 --revision site=e5a5860e9604f9513bfbccb066198622601bf364 --revision subject=b5e3d2eb9271ca58ba39161952441e8536f5cf6d --revision platform=a50d40dafc2e029fcc7668dece925f7fc38cc510 --revision assistant=5419dacf855d81ec089acc23bae0c7aa11713a54
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-rc5 --revision site=f731467bc159337736f179b67514829207df692c --revision subject=2ffa32c2837bc4949eb3ac592dc76e90826c940a --revision platform=a50d40dafc2e029fcc7668dece925f7fc38cc510 --revision assistant=5419dacf855d81ec089acc23bae0c7aa11713a54
       - name: Checkout HOP site
         uses: actions/checkout@v4
         with:
@@ -65,7 +65,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for spec in "private-site $SITE_PIN 87832c4e8c731b2cbea4874a4402010dd6c8ad04" "original-platform $T3_PIN d375181e1fd79953cdb9ef4e414936e76b584100" "private-assistant $ASSISTANT_PIN 4b4a84cec91aa268048184a477b91efe94ebdea3"; do
+          for spec in "private-site $SITE_PIN 6fb21bf068030eeaa3d29bbfa4eb96f202b62beb" "original-platform $T3_PIN d375181e1fd79953cdb9ef4e414936e76b584100" "private-assistant $ASSISTANT_PIN 4b4a84cec91aa268048184a477b91efe94ebdea3"; do
             read -r dir sha tree <<< "$spec"
             test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
             test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
@@ -90,6 +90,7 @@ jobs:
         with:
           node-version: '24'
       - name: Locked HOP dependencies
+        id: dependencies
         working-directory: private-site
         shell: bash
         run: |
@@ -113,16 +114,56 @@ jobs:
             grep -E '^([[:alnum:]_./-]+\.(tsx?|mjs)\([0-9]+,[0-9]+\): error TS[0-9]+:)' "$RUNNER_TEMP/d09-t3/typecheck.log" | cut -c1-180 | head -30 || true
             failed=1
           fi
-          if npm run test > "$RUNNER_TEMP/d09-t3/vitest.log" 2>&1; then
+          if npm run test -- --reporter=json --outputFile="$RUNNER_TEMP/d09-t3/vitest.json" > "$RUNNER_TEMP/d09-t3/vitest.log" 2>&1; then
             echo D09_T3_UNIT_TESTS=PASS
           else
             echo D09_T3_UNIT_TESTS=FAIL
             failed=1
           fi
-          sed -E 's/\x1B\[[0-9;]*[mK]//g' "$RUNNER_TEMP/d09-t3/vitest.log" | grep -E '^ *Test Files |^ *Tests ' | cut -c1-120 | tail -4 || true
+          # Publish only bounded failure categories and test basenames. Never
+          # print assertion values, source snippets, stacks or private reports.
+          if test -f "$RUNNER_TEMP/d09-t3/vitest.json"; then
+            node --input-type=module - "$RUNNER_TEMP/d09-t3/vitest.json" <<'D09_REPORT'
+          import {readFileSync} from "node:fs";
+          import {basename} from "node:path";
+          const r=JSON.parse(readFileSync(process.argv[2],"utf8"));
+          const classify=s=>{
+            if(/TextEncoder|TextDecoder|Uint8Array|ArrayBuffer|instanceof|cross.realm/i.test(s))return "BYTE_REALM";
+            if(/structuredClone|DataCloneError|could not be cloned/i.test(s))return "CLONE";
+            if(/crypto|subtle|randomUUID/i.test(s))return "CRYPTO";
+            if(/Cannot find (module|package)|Failed to resolve|not exported/i.test(s))return "MODULE";
+            if(/no active session|NO_SESSION|UNKNOWN_TYPE|unknown command type/i.test(s))return "SESSION_COMMAND";
+            if(/not implemented|canvas|ImageData|ResizeObserver|matchMedia|PointerEvent/i.test(s))return "BROWSER_API";
+            if(/timeout|timed out/i.test(s))return "TIMEOUT";
+            if(/TypeError|is not a function|Cannot read properties/i.test(s))return "TYPE_ERROR";
+            if(/validation|schema|invalid/i.test(s))return "VALIDATION";
+            if(/AssertionError|expected|toBe|toEqual/i.test(s))return "ASSERTION";
+            return "OTHER";
+          };
+          console.log("D09_T3_UNIT_TOTALS="+JSON.stringify({files:r.numTotalTestSuites,failedFiles:r.numFailedTestSuites,tests:r.numTotalTests,passed:r.numPassedTests,failed:r.numFailedTests}));
+          const totals={};
+          for(const f of r.testResults??[]){
+            if(f.status!=="failed")continue;
+            const categories={};
+            for(const a of f.assertionResults??[]){
+              if(a.status!=="failed")continue;
+              const c=classify((a.failureMessages??[]).join("\n"));
+              categories[c]=(categories[c]??0)+1;totals[c]=(totals[c]??0)+1;
+            }
+            if(!Object.keys(categories).length){
+              const c=classify(f.message??"");categories[c]=1;totals[c]=(totals[c]??0)+1;
+            }
+            const name=basename(f.name??"unknown").replace(/[^A-Za-z0-9_.-]/g,"_").slice(0,100);
+            console.log("D09_T3_UNIT_FAIL "+name+" "+JSON.stringify(categories));
+          }
+          console.log("D09_T3_UNIT_FAILURE_CATEGORIES="+JSON.stringify(totals));
+          D09_REPORT
+          else
+            echo D09_T3_UNIT_REPORT=UNAVAILABLE
+          fi
           exit "$failed"
       - name: Prepare ONE original T3 Host with HOP editor and assistant
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         id: prepare
         working-directory: private-site
         shell: bash
@@ -141,6 +182,7 @@ jobs:
             exit 1
           fi
       - name: Build from local prepared T3 inputs only
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         id: build
         working-directory: private-site
         shell: bash
@@ -195,7 +237,7 @@ jobs:
             failed=1
           fi
           grep -E '^D09_PRODUCT_ROUTE_STATE |^D09_PRODUCT_ROUTE_FAIL |^D09_PRODUCT_ROUTE_MATRIX=' "$RUNNER_TEMP/d09-t3/USER_ROUTES.log" | cut -c1-240 | tail -30 || true
-          if npm run test:d09 > "$RUNNER_TEMP/d09-t3/CONTRACTS.log" 2>&1; then
+          if NODE_OPTIONS="--test-reporter=tap" npm run test:d09 > "$RUNNER_TEMP/d09-t3/CONTRACTS.log" 2>&1; then
             echo D09_T3_CONTRACTS=PASS
           else
             echo D09_T3_CONTRACTS=FAIL
