@@ -1,4 +1,4 @@
-name: D01 original T3 assistant domain context qualification
+name: D01 original T3 natural consultation qualification
 on:
   workflow_dispatch:
   push:
@@ -21,14 +21,14 @@ jobs:
           fetch-depth: 2
       - name: Verify deliberate immutable request before private checkout
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d01-hosting-freeze --profile assistant-domain-context-source --revision assistant=244ad469a71ae65910144c6918488a2d061eecce
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d01-hosting-freeze --profile assistant-natural-consultation-source --revision assistant=8d7990ec47565939c1c853919cefef56f5cfdda0
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 244ad469a71ae65910144c6918488a2d061eecce
+          ref: 8d7990ec47565939c1c853919cefef56f5cfdda0
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
-          fetch-depth: 3
+          fetch-depth: 5
           path: private/assistant
       - uses: actions/setup-node@v4
         with:
@@ -38,7 +38,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git rev-parse HEAD)" = 244ad469a71ae65910144c6918488a2d061eecce
+          test "$(git rev-parse HEAD)" = 8d7990ec47565939c1c853919cefef56f5cfdda0
           node --check browser-local-inference/domain-assistant/main.mjs
           node --test --test-reporter=tap browser-local-inference/tests/domain-assistant-*.test.mjs >"$RUNNER_TEMP/assistant.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/assistant.log" | cut -c1-160 || true; exit 1; }
           grep -E '^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/assistant.log"
@@ -58,3 +58,19 @@ jobs:
           grep -q '^not ok .*domain voice and its boundaries' "$RUNNER_TEMP/negative.log"
           grep -q '^# fail 1$' "$RUNNER_TEMP/negative.log"
           echo D01_ORIGINAL_UNBOUND_VOICE_NEGATIVE_CONTROL=PASS
+      - name: Original previous ranking must fail the new natural wording regression
+        working-directory: private/assistant
+        shell: bash
+        run: |
+          set -eu
+          file=browser-local-inference/domain-assistant/skill-runtime.mjs
+          git show 244ad469a71ae65910144c6918488a2d061eecce:$file > "$file"
+          set +e
+          node --test --test-reporter=tap --test-name-pattern='unphrased requests retrieve' browser-local-inference/tests/domain-assistant-skill-runtime.test.mjs > "$RUNNER_TEMP/retrieval-negative.log" 2>&1
+          code=$?
+          set -e
+          grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/retrieval-negative.log" | cut -c1-160 || true
+          test "$code" = 1
+          grep -q '^not ok .*unphrased requests retrieve' "$RUNNER_TEMP/retrieval-negative.log"
+          grep -q '^# fail 1$' "$RUNNER_TEMP/retrieval-negative.log"
+          echo D01_ORIGINAL_NATURAL_RETRIEVAL_NEGATIVE_CONTROL=PASS
