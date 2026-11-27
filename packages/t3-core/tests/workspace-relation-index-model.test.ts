@@ -291,3 +291,51 @@ describe("relation request cancellation", () => {
     expect(result).toEqual([]);
   });
 });
+
+
+describe("explicit relation source windows", () => {
+  it.each([0, 1, 100, 101, 1000, 10000])("visits every one of %i sources once without expanding a read batch", count => {
+    const rows = Array.from({ length: count }, (_, i) => object("id-" + String(count - i).padStart(5, "0")));
+    const first = selectRelationIndexSources(rows, { workspaceId:"w" });
+    const ids: string[] = [];
+    for (let page = 0; page < first.totalPages; page++) {
+      const window = selectRelationIndexSources(rows, { workspaceId:"w", page });
+      expect(window.objects.length).toBeLessThanOrEqual(100);
+      expect(window.totalCount).toBe(count);
+      expect(window.isTruncated).toBe(count > 100);
+      ids.push(...window.objects.map(row => row.object_id));
+    }
+    expect(ids).toEqual(rows.map(row => row.object_id).sort());
+    expect(new Set(ids).size).toBe(count);
+  });
+  it("searches authorized metadata only and reaches sources beyond the first 100", () => {
+    const rows = Array.from({ length: 250 }, (_, i) => object("src-" + String(i).padStart(3,"0")));
+    rows.push({...object("last", "special"),data:{secret:"needle-private"}},object("last-foreign","special","other"));
+    const result = selectRelationIndexSources(rows,{workspaceId:"w",query:" SPECIAL "});
+    expect(result.objects.map(row => row.object_id)).toEqual(["last"]);
+    expect(result.totalCount).toBe(251);
+    expect(result.isTruncated).toBe(true);
+    expect(selectRelationIndexSources(rows,{workspaceId:"w",query:"needle-private"}).objects).toEqual([]);
+  });
+  it("clamps page requests and preserves a true empty result", () => {
+    const rows = Array.from({length:101},(_,i)=>object("src-"+String(i).padStart(3,"0")));
+    expect(selectRelationIndexSources(rows,{page:999}).objects.map(row=>row.object_id)).toEqual(["src-100"]);
+    for (const page of [NaN, Infinity, -Infinity, -1, 1.5]) {
+      expect(selectRelationIndexSources(rows,{page}).page).toBe(0);
+    }
+    const empty = selectRelationIndexSources(rows,{query:"absent",page:9});
+    expect([empty.page,empty.startIndex,empty.endIndex,empty.matchingCount]).toEqual([0,0,0,0]);
+    expect(empty.isTruncated).toBe(true);
+  });
+  it("keeps authorized endpoints outside the inspected window available", async () => {
+    const a = object("a"), b = object("b", "task");
+    const edge = relation("r-late", "b", "a");
+    const window = selectRelationIndexSources([a,b],{workspaceId:"w",query:"b"});
+    const sources = await loadRelationIndexSources({workspaceId:"w",sourceObjects:window.objects,
+      getObject:async (_workspace,id)=>id==="b"?detail(b,[edge]):null});
+    const model = buildWorkspaceRelationIndex({workspaceId:"w",objects:[a,b],sources,isTruncated:window.isTruncated});
+    expect(model.entries.map(entry=>entry.relation.relation_id)).toEqual(["r-late"]);
+    expect(model.loadedSources).toBe(1);
+    expect(model.isTruncated).toBe(true);
+  });
+});

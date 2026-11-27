@@ -7,6 +7,7 @@ import {
   relationIndexHasDiagnostics,
   selectRelationIndexSources,
   type WorkspaceRelationIndexModel,
+  type RelationIndexSourceSelection,
 } from "./relation-index-model";
 
 export type WorkspaceRelationIndexState =
@@ -19,6 +20,7 @@ export type WorkspaceRelationIndexState =
 export interface WorkspaceRelationIndexController {
   state: WorkspaceRelationIndexState;
   model: WorkspaceRelationIndexModel | null;
+  sourceSelection: RelationIndexSourceSelection;
 }
 
 export function useWorkspaceRelationIndex(options: {
@@ -26,21 +28,24 @@ export function useWorkspaceRelationIndex(options: {
   workspaceId: string;
   objects: readonly ObjectRecord[];
   enabled: boolean;
+  sourceQuery?: string;
+  sourcePage?: number;
 }): WorkspaceRelationIndexController {
-  const { kernel, workspaceId, objects, enabled } = options;
+  const { kernel, workspaceId, objects, enabled, sourceQuery = "", sourcePage = 0 } = options;
   const generation = useRef(0);
   const settledInputs = useRef<{
     kernel: KernelFacade;
     workspaceId: string;
     objects: readonly ObjectRecord[];
     enabled: boolean;
+    sourceSelection: RelationIndexSourceSelection;
   } | null>(null);
   const [state, setState] = useState<WorkspaceRelationIndexState>("idle");
   const [model, setModel] = useState<WorkspaceRelationIndexModel | null>(null);
 
   const sourceSelection = useMemo(
-    () => selectRelationIndexSources(objects),
-    [objects],
+    () => selectRelationIndexSources(objects, { workspaceId, query: sourceQuery, page: sourcePage }),
+    [objects, workspaceId, sourceQuery, sourcePage],
   );
 
   useEffect(() => {
@@ -49,12 +54,12 @@ export function useWorkspaceRelationIndex(options: {
     setModel(null);
 
     if (!enabled) {
-      settledInputs.current = { kernel, workspaceId, objects, enabled };
+      settledInputs.current = { kernel, workspaceId, objects, enabled, sourceSelection };
       setState("idle");
       return;
     }
     if (!kernel.hasOperation("t1.getObject")) {
-      settledInputs.current = { kernel, workspaceId, objects, enabled };
+      settledInputs.current = { kernel, workspaceId, objects, enabled, sourceSelection };
       setState("unavailable");
       return;
     }
@@ -79,7 +84,7 @@ export function useWorkspaceRelationIndex(options: {
         sources: results,
         isTruncated: sourceSelection.isTruncated,
       });
-      settledInputs.current = { kernel, workspaceId, objects, enabled };
+      settledInputs.current = { kernel, workspaceId, objects, enabled, sourceSelection };
       setModel(nextModel);
       setState(
         nextModel.isTruncated || relationIndexHasDiagnostics(nextModel.diagnostics)
@@ -101,11 +106,12 @@ export function useWorkspaceRelationIndex(options: {
     settled.kernel === kernel &&
     settled.workspaceId === workspaceId &&
     settled.objects === objects &&
-    settled.enabled === enabled;
+    settled.enabled === enabled &&
+    settled.sourceSelection === sourceSelection;
 
   if (!inputsMatch) {
-    return { state: enabled ? "loading" : "idle", model: null };
+    return { state: enabled ? "loading" : "idle", model: null, sourceSelection };
   }
 
-  return { state, model };
+  return { state, model, sourceSelection };
 }
