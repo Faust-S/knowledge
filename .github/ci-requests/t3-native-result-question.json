@@ -1,0 +1,10 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-native-result-question",
+  "preparedSha": "37f91a5f871fb05b5d0eb9a82785efa82008c358",
+  "originalAssistant": "8c2f3d08037461e6dd3fd4f45dd93b45b734d3a3",
+  "cehovodSite": "2fd0f9fabb1b9f0fa473da338ca332ecff21761d",
+  "retainedPlatformArtifact": 15227050568,
+  "scope": "EXISTING_SOURCE_AND_DOMAIN_ROUTE_DIRECT_RESULT_QUESTION",
+  "modelWitnessUnchangedRun": 46058573231
+}
