@@ -186,6 +186,7 @@
     "packages/t3-core/tests/t3-host-signed-kernel.test.ts",
     "packages/t3-core/tests/t3-local-inference-draft.test.mjs",
     "packages/t3-core/tests/t3-original-company-workspace-persistence.test.mjs",
+    "packages/t3-core/tests/t3-pwa-original-kernel.browser.mjs",
     "packages/t3-core/tests/t3-reconciliation-kernel-apply.test.mjs",
     "packages/t3-core/tests/t3-subject-kernel-scope.test.mjs",
     "packages/t3-core/tests/view-state-command-receipt-authority.test.ts",
@@ -241,6 +242,42 @@
           "reason": "Timeout before selecting future rent: original domain filters rent by assessment date; test initially awaited option before setting historical scenario date."
         }
       }
+    },
+    {
+      "candidate": "b2f6ad361e544c717e53d4af31650128dfd6dc21",
+      "run": 46006887261,
+      "status": "FAIL_PLATFORM_AND_CORPORATE_JOBS_OTHER_JOB_PENDING_AT_RECORDING",
+      "passed": {
+        "node": 1217,
+        "vitest": 1237,
+        "additionalNode": 96,
+        "routeRegressions": 5,
+        "negativeControl": {
+          "expectedFailures": 3,
+          "passed": 2
+        },
+        "typecheck": "PASS",
+        "compiledGenericHost": "PASS",
+        "assistant": "PASS",
+        "canonicalSource": 260,
+        "additionalSource": 26,
+        "exactK036SharedResult": "PASS"
+      },
+      "failed": {
+        "platform": {
+          "phase": "after explicit second-window reload",
+          "error": "Cannot read properties of undefined (reading connect)",
+          "reason": "test did not wait for navigation and original Host readiness"
+        },
+        "corporate": {
+          "stage": "independent return archive to original employee Store",
+          "kernel": "0.3.6 accepted 20261019 qualified.1",
+          "code": "IMPORT_EVENT_ID_COLLISION",
+          "knownUpstreamDefect": true,
+          "job": 140532267873,
+          "upstreamQualification": 46007067538
+        }
+      }
     }
   ],
   "integrationFixes": [
@@ -267,6 +304,10 @@
     {
       "scope": "existing Club browser family result scenario",
       "fix": "Set historical assessment date through the real assistant before awaiting native future-rent option. Preserve manual selection, exact native result, all 13 result hints and no model/network activity requirements. No production logic changed."
+    },
+    {
+      "scope": "existing PWA cold readback witness",
+      "fix": "Observe explicit second-window reload and original Kernel/Host readiness before exact readback. No new reload, delay, retry or changed product semantics."
     }
   ],
   "workflowOwnerQualification": {

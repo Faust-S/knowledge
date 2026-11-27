@@ -287,8 +287,9 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
         linkedEvent:second.event.event_id,
         exported:confirmation.package_digest===archive.package_digest,
         // Transfer the exact original .iwxa bytes to an INDEPENDENT
-        // recipient Store. Reimporting an existing event in the same Store
-        // must fail with IMPORT_EVENT_ID_COLLISION, as designed.
+        // recipient Store, rather than prove recovery by rereading the
+        // source. The corporate A-B-A witness separately exercises identical
+        // Event merge and the known original K036 collision defect.
         archiveBytes:Array.from(archive.bytes)};
     },{SERVICE,workspace,object,title,linkedObject,linkedTitle,relationId,
       assetId,assetText});
@@ -324,9 +325,19 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       "second same-profile Window must see the original Kernel Store");
     await second.getByRole("button",{name:"Применить изменения в этом окне"})
       .waitFor({state:"visible",timeout:15000});
-    await second.getByRole("button",{name:"Применить изменения в этом окне"}).click();
+    // The broadcast can already mark the OLD document autonomous.
+    // Observe the actual user-requested reload, then wait for the original
+    // Kernel loader and Host in the new document before reading its Store.
+    await Promise.all([
+      second.waitForEvent("framenavigated",{
+        predicate:frame=>frame===second.mainFrame(),timeout:20000}),
+      second.getByRole("button",{name:"Применить изменения в этом окне"}).click(),
+    ]);
+    await second.waitForLoadState("domcontentloaded");
     await second.waitForFunction(()=>document.documentElement
-      .hasAttribute("data-iwxa-t3-autonomous"),null,{timeout:20000});
+      .hasAttribute("data-iwxa-t3-autonomous")&&
+      typeof window.IWXA?.connect==="function",null,{timeout:20000});
+    await assertHost(second);
     assert.equal((await read(second)).text,title);
 
     await context.close();context=null;
