@@ -3,6 +3,7 @@
 // original KernelFacade (getObject/putObject/listEventsSince) and a pinned,
 // independently trusted policy. No private key, passphrase or issuer is saved.
 // Access decisions continue to use the canonical IWXA T3 evaluate() algorithm.
+import {createHash} from "node:crypto";
 import {
   canonical,digest,snapshot,copy,fields,validatePolicy,validateGrant,verifyRecord,
   validateStatusSnapshot,assertStatusTransitionHistory,iso,signRecord,evaluate,timestamp
@@ -362,6 +363,176 @@ export function originalEmployeeRegistryWorkspaceId({organizationId,authorityId,
   });
 }
 
+
+/**
+ * Portable replica of the ONE original Registry. This uses original T2
+ * Exchange, not a reconstruction of Object revisions or Event identities.
+ * Native owner supplies the already authenticated signed invitation and the
+ * trusted original Kernel port. No new grant, issuer, Store or .iwxa format.
+ */
+const REGISTRY_ARCHIVE_MAX=16*1024*1024;
+const archiveHash=bytes=>createHash("sha256").update(bytes).digest("hex");
+const exactWorkspace=(list,workspaceId)=>Array.isArray(list)&&list.length===1&&list[0]===workspaceId;
+const zeroCounts=counts=>dictionary(counts)&&Object.values(counts).every(value=>value===0);
+function registryArchiveManifest(manifest,workspaceId,eventCount){
+  check(manifest?.format==="iwxa.package"&&["1.0","1.1"].includes(manifest.format_version)&&
+    exactWorkspace(manifest.workspaces,workspaceId)&&manifest.options?.include_history===true&&
+    manifest.options.include_assets===false&&manifest.options.include_relations===false&&
+    manifest.counts?.workspaces===1&&manifest.counts.objects===1&&manifest.counts.events===eventCount&&
+    manifest.counts.assets===0&&manifest.counts.relations===0&&
+    HEX.test(manifest.package_digest??"")&&HEX.test(manifest.semantic_digest??""),
+    "T3_ACCESS_REGISTRY_EXCHANGE_PACKAGE_SCOPE_INVALID");
+}
+function registryPortableRecord(record){
+  return Object.fromEntries(["workspace_id","object_id","schema_id","schema_version","revision","data"]
+    .map(key=>[key,record?.[key]]));
+}
+function sameRegistryRecord(a,b){
+  return !!a&&!!b&&same(registryPortableRecord(a),registryPortableRecord(b));
+}
+function createRegistryWorkspaceExchange({kernel,workspaceId,objectId,trustedPolicy,clock,readDelivery}){
+  const checkDelivery=delivery=>{
+    check(delivery&&same(delivery.rootPolicy,trustedPolicy)&&Array.isArray(delivery.events)&&
+      delivery.events.every(event=>event.event_type===ORIGINAL_REGISTRY_EVENT&&event.payload?.object_id===objectId),
+      "T3_ACCESS_REGISTRY_EXCHANGE_DELIVERY_INVALID");
+    return verifiedRegistryReadback({record:delivery.record,events:delivery.events,pinned:trustedPolicy,
+      workspaceId,objectId,now:validClock(clock)});
+  };
+  const requireOperations=operations=>check(operations.every(op=>
+    typeof kernel[op.slice(3)]==="function"&&kernel.hasOperation(op)),
+    "T3_ACCESS_REGISTRY_EXCHANGE_ORIGINAL_KERNEL_REQUIRED");
+  const readWorkspace=async()=>{
+    try{return await kernel.getWorkspace(workspaceId);}
+    catch(error){if(error?.code==="WORKSPACE_NOT_FOUND")return null;throw error;}
+  };
+  const readReplica=async()=>{
+    const ws=await readWorkspace();
+    if(ws==null)return {workspace:false,record:null,events:[]};
+    check(ws.workspace_id===workspaceId&&ws.profile==="generic"&&ws.deleted_at==null,
+      "T3_ACCESS_REGISTRY_STORAGE_WORKSPACE_INVALID");
+    let result;
+    try{result=await kernel.getObject(workspaceId,objectId);}
+    catch(error){if(error?.code!=="OBJECT_NOT_FOUND")throw error;result=null;}
+    const all=await kernel.listEventsSince(workspaceId);
+    check(Array.isArray(all),"T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_UNAVAILABLE");
+    const events=all.filter(event=>event.event_type===ORIGINAL_REGISTRY_EVENT&&event.payload?.object_id===objectId);
+    // A clean first-pilot management partition may contain its Workspace
+    // creation event. It must not contain other management objects' history.
+    check(all.every(event=>event.workspace_id===workspaceId&&
+      (events.includes(event)||event.event_type==="workspace.created"&&
+        event.object_id==null&&event.payload?.object_id==null)),
+      "T3_ACCESS_REGISTRY_EXCHANGE_UNRELATED_HISTORY");
+    return {workspace:true,record:result?.object??null,events,allCount:all.length};
+  };
+  const exact=(observed,delivery)=>sameRegistryRecord(observed.record,delivery.record)&&
+    same(observed.events,delivery.events);
+  function requirePrefix(observed,delivery){
+    check(observed.events.length<=delivery.events.length&&
+      observed.events.every((event,index)=>same(event,delivery.events[index])),
+      "T3_ACCESS_REGISTRY_EXCHANGE_HISTORY_DIVERGED");
+    if(observed.record===null){
+      check(observed.events.length===0,"T3_ACCESS_REGISTRY_EXCHANGE_HISTORY_DIVERGED");return;
+    }
+    const last=observed.events.at(-1),record=observed.record;
+    check(last&&record.workspace_id===workspaceId&&record.object_id===objectId&&
+      record.schema_id===ORIGINAL_REGISTRY_SCHEMA&&record.schema_version==="1.0.0"&&
+      record.revision===observed.events.length&&last.payload.revision===record.revision&&
+      last.payload.state_digest===digest(record.data),
+      "T3_ACCESS_REGISTRY_EXCHANGE_HISTORY_DIVERGED");
+    check(record.revision<delivery.record.revision,"T3_ACCESS_REGISTRY_EXCHANGE_HISTORY_DIVERGED");
+  }
+  async function exportWorkspace({confirmed=false}={}){
+    check(confirmed===true,"T3_ACCESS_REGISTRY_EXCHANGE_HUMAN_REQUIRED");
+    requireOperations(["t2.exportPackage"]);
+    const delivery=await readDelivery();checkDelivery(delivery);
+    const before=await readReplica();
+    check(exact(before,delivery),"T3_ACCESS_REGISTRY_EXCHANGE_SOURCE_CHANGED");
+    const artifact=await kernel.exportPackage({workspaces:[workspaceId],include_history:true,
+      include_assets:false,include_relations:false,include_schemas:false,scope:{mode:"workspace"}});
+    registryArchiveManifest(artifact?.manifest,workspaceId,before.allCount);
+    const bytes=artifact?.bytes;
+    check(bytes instanceof Uint8Array&&bytes.byteLength>0&&bytes.byteLength<=REGISTRY_ARCHIVE_MAX&&
+      artifact.size===bytes.byteLength&&artifact.validation?.ok===true&&
+      artifact.package_digest===artifact.manifest.package_digest&&
+      artifact.semantic_digest===artifact.manifest.semantic_digest&&zeroCounts(artifact.summary?.excluded_by_permission),
+      "T3_ACCESS_REGISTRY_EXCHANGE_PACKAGE_INVALID");
+    const after=await readReplica();
+    check(exact(after,delivery)&&after.allCount===before.allCount,"T3_ACCESS_REGISTRY_EXCHANGE_SOURCE_CHANGED");
+    return Object.freeze({delivery:copy(delivery),registryArchive:Object.freeze({
+      bytesBase64url:Buffer.from(bytes).toString("base64url"),sha256:archiveHash(bytes),
+      packageDigest:artifact.package_digest,semanticDigest:artifact.semantic_digest,
+      eventCount:before.allCount})});
+  }
+  let inProgress=false;
+  async function importWorkspace({delivery,registryArchive,confirmed=false}={}){
+    check(confirmed===true,"T3_ACCESS_REGISTRY_EXCHANGE_HUMAN_REQUIRED");
+    check(!inProgress,"T3_ACCESS_REGISTRY_EXCHANGE_IN_PROGRESS");
+    inProgress=true;
+    try{
+      const supplied=copy(delivery),archive=copy(registryArchive);
+      const verified=checkDelivery(supplied);
+      check(dictionary(archive)&&Object.keys(archive).length===5&&
+        ["bytesBase64url","sha256","packageDigest","semanticDigest","eventCount"].every(k=>own(archive,k))&&
+        [archive.sha256,archive.packageDigest,archive.semanticDigest].every(x=>HEX.test(x??""))&&
+        Number.isSafeInteger(archive.eventCount)&&archive.eventCount>=supplied.events.length&&
+        typeof archive.bytesBase64url==="string"&&archive.bytesBase64url.length<=Math.ceil(REGISTRY_ARCHIVE_MAX/3)*4,
+        "T3_ACCESS_REGISTRY_EXCHANGE_PACKAGE_INVALID");
+      const bytes=Buffer.from(archive.bytesBase64url,"base64url");
+      check(bytes.length>0&&bytes.length<=REGISTRY_ARCHIVE_MAX&&bytes.toString("base64url")===archive.bytesBase64url&&
+        archiveHash(bytes)===archive.sha256,"T3_ACCESS_REGISTRY_EXCHANGE_PACKAGE_INVALID");
+      const before=await readReplica();
+      const result=state=>Object.freeze({state,originalRevision:verified.revision,workspaceId,
+        stateDigest:digest(verified.state),originalReadback:true,safeToReissue:false});
+      if(exact(before,supplied))return result("ALREADY_CURRENT");
+      requirePrefix(before,supplied);
+      requireOperations(["t2.importPreview","t2.importCommit","t2.importCancel"]);
+      const handle=await kernel.importPreview(bytes);
+      let dispatched=false;
+      try{
+        const p=handle?.preview,mode=before.workspace?"merge":"full";
+        registryArchiveManifest(p?.manifest,workspaceId,archive.eventCount);
+        check(handle.package_digest===archive.packageDigest&&handle.semantic_digest===archive.semanticDigest&&
+          p.package_digest===archive.packageDigest&&p.semantic_digest===archive.semanticDigest&&
+          p.manifest.package_digest===archive.packageDigest&&p.manifest.semantic_digest===archive.semanticDigest&&
+          typeof handle.preview_token==="string"&&handle.preview_token.length>0&&
+          handle.allowed_modes?.includes(mode)&&p.scope_mode==="workspace"&&
+          p.workspaces?.length===1&&p.workspaces[0].workspace_id===workspaceId&&
+          p.workspaces[0].exists_locally===before.workspace&&p.objects?.length===1&&
+          p.objects[0].workspace_id===workspaceId&&p.objects[0].object_id===objectId&&
+          p.objects[0].schema_id===ORIGINAL_REGISTRY_SCHEMA&&p.objects[0].schema_version==="1.0.0"&&
+          p.objects[0].incoming_revision===verified.revision&&
+          p.objects[0].local_revision===(before.record?.revision??null)&&
+          p.totals?.objects===1&&p.totals.workspaces===1&&p.totals.events===archive.eventCount&&
+          p.included?.objects===1&&p.included.events===archive.eventCount&&
+          Array.isArray(p.unsupported)&&p.unsupported.length===0&&zeroCounts(p.invalid)&&zeroCounts(p.excluded_by_permission),
+          "T3_ACCESS_REGISTRY_EXCHANGE_PREVIEW_INVALID");
+        const current=await readReplica();
+        check(current.workspace===before.workspace&&same(current.events,before.events)&&
+          (before.record===null?current.record===null:sameRegistryRecord(before.record,current.record)),
+          "T3_ACCESS_REGISTRY_EXCHANGE_TARGET_CHANGED");
+        dispatched=true;
+        let receipt=null;
+        try{receipt=await kernel.importCommit({preview_token:handle.preview_token,package_digest:handle.package_digest,
+          plan:{mode,conflict:before.record===null?"fail":"overwrite",include_workspaces:[workspaceId],
+            ...(mode==="merge"?{target_workspace:workspaceId}:{}),
+            include_history:true,include_assets:false,include_relations:false}});}
+        catch{/* The original import may have committed. Never repeat blindly. */}
+        let after;
+        try{after=await readReplica();}
+        catch{no("T3_ACCESS_REGISTRY_EXCHANGE_IMPORT_OUTCOME_UNKNOWN");}
+        check(exact(after,supplied),"T3_ACCESS_REGISTRY_EXCHANGE_IMPORT_OUTCOME_UNKNOWN");
+        checkDelivery({...supplied,record:after.record,events:after.events});
+        return result(receipt?.package_digest===archive.packageDigest&&receipt?.semantic_digest===archive.semanticDigest&&
+          receipt.mode===mode&&receipt.cancelled!==true?"ORIGINAL_REGISTRY_IMPORTED":"ORIGINAL_REGISTRY_IMPORT_RECOVERED");
+      }finally{
+        if(!dispatched&&typeof handle?.preview_token==="string")
+          try{await kernel.importCancel(handle.preview_token);}catch{/* no commit was dispatched */}
+      }
+    }finally{inProgress=false;}
+  }
+  return Object.freeze({exportWorkspace,importWorkspace});
+}
+
 // Native Admin only. Resolve actual original Workspace placement before
 // delegating to the existing registry port. No data copying, new state
 // format, new signer, or second Store. Legacy data is still authoritative
@@ -466,7 +637,11 @@ function corporateRegistryPort({kernel,workspaceId,objectId,trustedPolicy,clock,
     check(entry!==null,"T3_ACCESS_REGISTRY_STATE_UNAVAILABLE");
     return entry.port;
   };
+  const exchange=createRegistryWorkspaceExchange({kernel,workspaceId:storageId,objectId,trustedPolicy,clock,
+    readDelivery:async()=> (await bound()).readRegistryDelivery()});
   const api=Object.freeze({
+    exportRegistryWorkspace:exchange.exportWorkspace,
+    importRegistryWorkspace:exchange.importWorkspace,
     // Deterministic expected address, not proof of creation or registry state.
     expectedStorageWorkspaceId:storageId,
     readStoragePlacement:async()=>placement(await locate()),
