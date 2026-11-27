@@ -21,6 +21,23 @@ export function requiredT4ProductNetworkActions({role,enableSourceEventWindowRea
     ...(enableRecipientResultRead?[source?'t4.network.original.recipient.peer.read-result':
       't4.network.original.recipient.owner.read-result']:[])]);
 }
+// The installed 0.1 passport is the accepted DB8 operation surface.
+// Keep optional DB9/multipart and new replacement attempts out of its
+// mandatory runtime path. The generic native owner retains those features.
+export function assertT4InstalledProductProfile(profile){
+  if(!profile||!['SOURCE','RECIPIENT'].includes(profile.role)||
+    typeof profile.getMode!=='function'||profile.getMode()!=='T4_NETWORK')
+    fail('T4_INSTALLED_PRODUCT_NETWORK_MODE_REQUIRED');
+  // Both peers need the same existing independent source/result evidence.
+  if(!['enableSourceEventWindowRead','enableSourceCaptureBinding','enableRecipientResultRead'].every(k=>profile[k]===true))
+    fail('T4_INSTALLED_PRODUCT_ORIGINAL_EVIDENCE_REQUIRED');
+  if(['enableOriginalCommitOrder','enableOriginalTechnicalObjectHistory','enableOriginalObjectCatalogWindow',
+    'enableOriginalRecipientFrontierCommitOrder','enableOriginalDispatchEvidence','enableOriginalMultipartNegotiation',
+    'enableOriginalReplacementMultipartNegotiation','enableOriginalReplacementAttempts'].some(k=>
+      profile[k]!==undefined&&profile[k]!==false))
+    fail('T4_INSTALLED_PRODUCT_EXTENDED_PROFILE_NOT_QUALIFIED');
+  return profile;
+}
 function context(value,workspaceId){
   if(!value||!['PERSONAL','CORP'].includes(value.kind)||
     !FIELDS.filter(k=>!['kind','organization_id','scope_revision'].includes(k)).every(k=>ID(value[k]))||

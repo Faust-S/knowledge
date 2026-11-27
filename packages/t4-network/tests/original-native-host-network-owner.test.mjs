@@ -1050,3 +1050,14 @@ test('K178 replacement multipart cannot implicitly activate or bypass complete o
     }
   }
 });
+
+
+test('fixed installed profile cannot start replacement multipart or accept a non-boolean replacement selection',()=>{
+  for(const role of ['SOURCE','RECIPIENT']){
+    assert.throws(()=>createT4OriginalNativeHostNetworkProfile({role,enableOriginalReplacementAttempts:'false'}),
+      {code:'NATIVE_NETWORK_PROFILE_REPLACEMENT_ATTEMPTS_INVALID'});
+    assert.throws(()=>createT4OriginalNativeHostNetworkProfile({role,enableOriginalReplacementAttempts:false,
+      enableOriginalMultipartNegotiation:true,enableOriginalReplacementMultipartNegotiation:true}),
+      {code:'NATIVE_NETWORK_PROFILE_REPLACEMENT_MULTIPART_REQUIRED'});
+  }
+});

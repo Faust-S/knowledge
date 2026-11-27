@@ -6,6 +6,7 @@ import {isOriginalOrganizationalOperationGateForRegistry} from '../../../t3-core
 import {isOriginalSignedAccessHostPortForEvaluator} from '../../../t3-core/src/t3/signed-access-host-port.mjs';
 import {normalizeOriginalInstalledNetworkScope} from '../../../t3-core/src/t3/original-installed-network-scope.mjs';
 import {createT4OriginalProductNetworkAccess} from './original-product-network-access.mjs';
+import {assertT4InstalledProductProfile} from './original-product-network-selection.mjs';
 import {createT4OriginalNativeHostNetworkProfile} from './original-native-host-network-profile.mjs';
 import {createT4OriginalInstalledControlFactories} from './original-installed-control-factories.mjs';
 import {openT4OriginalNativePeerStartup,releaseT4OriginalNativePeerStartup} from './original-native-peer-startup.mjs';
@@ -71,7 +72,9 @@ export function createT4OriginalProductProfileFactory({scope,registryObjectId='t
       const input=await readOriginalOwnerInputs(lifetime);requireActive();
       if(!obj(input)||!obj(input.profile)||!obj(input.networkAccess)||typeof input.resolveOriginalKernelAccess!=='function')
         fail('T4_INSTALLED_PRODUCT_ORIGINAL_OWNER_REQUIRED');
-      const {registry,networkAccess,profile:options}=input;
+      const {registry,networkAccess}=input;
+      const options=Object.freeze({...input.profile});
+      assertT4InstalledProductProfile(options);
       const registryBound=await resolveOriginalKernelRegistryStatePortForKernel(registry,lifetime.registryKernel,{
         workspaceId:selected.registryWorkspaceId,objectId:registryObjectId});
       requireActive();
@@ -114,7 +117,8 @@ export function createT4OriginalProductProfileFactory({scope,registryObjectId='t
         if(!isT4OriginalPeerHistoryTlsConnection(peerConnection))fail('T4_INSTALLED_PRODUCT_PEER_STARTUP_INVALID');
         nativeOptions.originalPeerHistory=peerConnection;
       }
-      profile=createT4OriginalNativeHostNetworkProfile({...nativeOptions,getMode,originalAccess:authority.originalAccess,
+      profile=createT4OriginalNativeHostNetworkProfile({...nativeOptions,getMode,enableOriginalReplacementAttempts:false,
+        originalAccess:authority.originalAccess,
         originalPorts:{...options.originalPorts,resolveOriginalAccess:resolver}});
       requireActive();
       return Object.freeze({...profile,close,bindOriginalPeerHistoryReceiver(relay){

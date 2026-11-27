@@ -24,9 +24,11 @@ export function createT4OriginalNativeHostNetworkProfile({
   readOriginalBaselineAdmissionInput,readOriginalNetworkResumeInput,onStep,monotonicNow,enableSourceEventWindowRead=false,enableSourceCaptureBinding=false,enableRecipientResultRead=false,
   enableOriginalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,enableOriginalObjectCatalogWindow=false,enableOriginalRecipientFrontierCommitOrder=false,enableOriginalDispatchEvidence=false,
   enableOriginalMultipartNegotiation=false,enableOriginalReplacementMultipartNegotiation=false,
+  enableOriginalReplacementAttempts=true,
 }={}){
+  if(typeof enableOriginalReplacementAttempts!=='boolean')fail('NATIVE_NETWORK_PROFILE_REPLACEMENT_ATTEMPTS_INVALID');
   if(typeof enableOriginalReplacementMultipartNegotiation!=='boolean'||
-    (enableOriginalReplacementMultipartNegotiation&&!enableOriginalMultipartNegotiation))
+    (enableOriginalReplacementMultipartNegotiation&&(!enableOriginalMultipartNegotiation||!enableOriginalReplacementAttempts)))
     fail('NATIVE_NETWORK_PROFILE_REPLACEMENT_MULTIPART_REQUIRED');
   if(typeof enableOriginalMultipartNegotiation!=='boolean'||(enableOriginalMultipartNegotiation&&
     (!['SOURCE','RECIPIENT'].includes(role)||!enableOriginalTechnicalObjectHistory||!enableSourceEventWindowRead||
@@ -84,7 +86,7 @@ export function createT4OriginalNativeHostNetworkProfile({
       ...(!source?{readEncryptedVault,unlockPassphrase}:{}),enableOriginalReplacementBinding:true,
       enableOriginalMultipartBinding:enableOriginalMultipartNegotiation});
     const history=createT4OriginalSignedReplacementHistoryAccess({...common,...signed,technicalWorkspaceId,
-      sourceNodeRef,recipientNodeRef,localNodeRef,enableOriginalEligibilityRead:true,enableOriginalSourceWindowRead:enableSourceEventWindowRead,enableOriginalRecipientResultRead:enableRecipientResultRead});
+      sourceNodeRef,recipientNodeRef,localNodeRef,enableOriginalEligibilityRead:enableOriginalReplacementAttempts,enableOriginalSourceWindowRead:enableSourceEventWindowRead,enableOriginalRecipientResultRead:enableRecipientResultRead});
     const client=createT4OriginalReplacementHistoryClient({...carrier,invokeOriginalPeerHistory});
     transport=openT4NativeTopologyTransport({topology,workspaceId:sourceWorkspaceId,objectFamily,serverNodeRef,
       nativeWireProfile:'INDEXED',getMode,readOriginalTopology,verifyOriginalEndpoint,authorizeOriginalOperation,
@@ -97,9 +99,15 @@ export function createT4OriginalNativeHostNetworkProfile({
       requireSignedTopologyAccess:true,requireOriginalVaultNodeSignature:true,requireDurableNetworkKeyBinding:true,
       requireOriginalVaultSealedContent:true,enablePublicationIndexMigration:true,enableExplicitNetworkResume:true,
       enableLocalSourceCapture:source,enableLocalRecipientResultVerification:!source,enableRecipientResultRead,enableHistoricalAcknowledgementRecovery:source,enableLocalRetiredRecipientRecovery:!source,
-      enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:true,enableSourceEventWindowRead,enableSourceCaptureBinding,enableOriginalCommitOrder,enableOriginalTechnicalObjectHistory,enableOriginalObjectCatalogWindow,enableOriginalRecipientFrontierCommitOrder,enableOriginalDispatchEvidence,enableOriginalMultipartNegotiation,enableOriginalReplacementMultipartNegotiation,
-      enableReplacementSourceAdmission:source,enableReplacementSourceContent:source,enableReplacementSourceAckConfirmation:source,
-      enableReplacementRecipientAdmission:!source,enableReplacementRecipientContent:!source,enableReplacementRecipientApply:!source});
+      enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:enableOriginalReplacementAttempts,enableSourceEventWindowRead,enableSourceCaptureBinding,enableOriginalCommitOrder,enableOriginalTechnicalObjectHistory,enableOriginalObjectCatalogWindow,enableOriginalRecipientFrontierCommitOrder,enableOriginalDispatchEvidence,enableOriginalMultipartNegotiation,enableOriginalReplacementMultipartNegotiation,
+      // Existing terminal evidence remains readable. Only the creation and
+      // advancement of replacement attempts is optional in this composition.
+      enableReplacementSourceAdmission:source&&enableOriginalReplacementAttempts,
+      enableReplacementSourceContent:source&&enableOriginalReplacementAttempts,
+      enableReplacementSourceAckConfirmation:source&&enableOriginalReplacementAttempts,
+      enableReplacementRecipientAdmission:!source&&enableOriginalReplacementAttempts,
+      enableReplacementRecipientContent:!source&&enableOriginalReplacementAttempts,
+      enableReplacementRecipientApply:!source&&enableOriginalReplacementAttempts});
     const close=()=>{if(closed)return;closed=true;try{transport.close();}finally{tlsBinding?.close();}};
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_NATIVE_HOST_NETWORK_PROFILE_V1',role,networkOwner,
       // This receiver is installed on the original authenticated peer channel,
