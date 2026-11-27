@@ -1,0 +1,26 @@
+name: T4 original pilot enrollment
+on:
+  push:
+    branches:
+      - 'ci/once/t4-pilot-enrollment/75796fa2705f'
+permissions:
+  contents: read
+jobs:
+  original-enrollment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 75796fa2705fc5d7294e4a2cc5fb64234d294ebd
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact original issuer and existing Registry
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "75796fa2705fc5d7294e4a2cc5fb64234d294ebd"
+          test "$(git rev-parse HEAD^{tree})" = "ba7f100c24a7a4e064c8ef0e9242f6ba8e3323c0"
+          node --check packages/t3-core/src/t3/access/original-employee-enrollment.mjs
+          node --test packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs
