@@ -2776,12 +2776,39 @@
             "prepared_commit": "515c14dc16d90c5a194f451abeace7bc980c9edf",
             "request_commit": "6b620c9b3257f2f14f86d26e3c9c1cc18d47d691",
             "run": 46048628242,
-            "status": "IN_PROGRESS",
+            "status": "LAYOUT_FIX_PASS_DELIVERY_PROFILE_MISMATCH",
             "product_change": "ONLY_IN_FLOW_RESPONSIVE_FALLBACK_T3_CONTROLS",
             "compiled_host_and_bli": "EXACT_RC5_BYTES_REQUIRED",
             "kernel": "ORIGINAL_ACCEPTED_0.3.6_UNCHANGED_REQUIRED",
             "scope": "FOCUSED_EXISTING_OFFLINE_TESTS_AND_REAL_UI_IMPORT_REPEAT_EXPORT_INDEPENDENT_RESTORE_COLD_OFFLINE_ON_NEW_CANDIDATE",
-            "publication": "NOT_PUBLISHED"
+            "publication": "NOT_PUBLISHED",
+            "package": {
+              "run": 46048628242,
+              "artifact": 15222879527,
+              "archiveSha256": "bc52020b421acd334b7c5a8db8672e153933c767159609db06239f784e6ee13e",
+              "manifestSha256": "9a39448eefb9ceffd8e898a6faa395fc993df7481e01fe9228ff5e10c7e4f290",
+              "compiledAssetsUnchanged": 78
+            },
+            "observed": {
+              "file_chooser": "PASS",
+              "desktop_import": "PASS",
+              "mobile_repeat": "PASS",
+              "download_confirm": "PASS",
+              "independent_restore": "BLOCKED_BY_RESTRICTED_INTEGRATION_SERVICE",
+              "cold_offline": "NOT_RUN"
+            },
+            "cause": {
+              "evidence_artifact": 15223173578,
+              "archive_event_count": 7,
+              "allowed_event_count": 5,
+              "excluded_events": 2,
+              "excluded_type": "iwxa.import.applied",
+              "excluded_owner": "iwxa.kernel",
+              "source_scope": "readable_objects",
+              "target_scope": "writable_objects",
+              "diagnosis": "The restricted integration fixture is not the original universal Workspace owner; its denial of foreign authors is correct. Delivery configuration, not Kernel or Exchange defect."
+            },
+            "next": "REUSE_EXACT_RC6_PLATFORM_MATERIALIZE_ORIGINAL_TRUSTED_WORKSPACE_PASSPORT_NO_KERNEL_OR_PRODUCT_CHANGE"
           }
         }
       },

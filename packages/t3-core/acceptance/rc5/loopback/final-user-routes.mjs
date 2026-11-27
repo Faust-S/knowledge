@@ -11,7 +11,7 @@ import {chromium} from "playwright";
 const [rootArg,resultsArg,candidateArg]=process.argv.slice(2);
 const root=resolve(rootArg),results=resolve(resultsArg),origin="http://localhost:18443";
 mkdirSync(results,{recursive:true});
-const ws="rc5-acceptance-document-review",ids=["review:request","review:conclusion"],service="iwxa.workspace.integration";
+const ws="rc5-acceptance-document-review",ids=["review:request","review:conclusion"];
 const example=join(root,"examples/workspace-original.iwxa");
 const sha=b=>createHash("sha256").update(b).digest("hex");
 const originalReceipt=JSON.parse(readFileSync(join(root,"examples/receipt.json"),"utf8"));
@@ -32,6 +32,11 @@ if(candidateArg){
  assert.equal(delivery.offlineManifestSha256,"4c2e7d80116a9bef8c7d75591de97595fe72d4d34898587935f7e25aac9e3d1e");
 }
 assert.equal(delivery.origin,origin);
+const service=delivery.workspaceServiceId??"iwxa.workspace.integration";
+if(candidateArg){
+ assert.equal(service,"iwxa.integration.workspace");
+ assert.equal(delivery.workspaceImportScope,"workspace");assert.equal(delivery.workspaceExportScope,"workspace");
+}
 const request=path=>new Promise((ok,bad)=>{
  const req=http.get(origin+path,{family:4},r=>{const chunks=[];r.on("data",c=>chunks.push(c));r.on("end",()=>ok({status:r.statusCode,bytes:Buffer.concat(chunks)}));r.on("error",bad);});
  req.setTimeout(2500,()=>req.destroy(Error("HTTP_TIMEOUT:"+path)));req.on("error",bad);
@@ -92,7 +97,7 @@ async function commit(page,mode,digest){
  await page.getByTestId("import-conflict").selectOption("fail");
  if(mode==="merge")await page.getByTestId("import-target-workspace").selectOption(ws);
  for(const key of ["history","assets","relations"])await page.getByTestId("import-include_"+key).check();
- assert.equal(await page.getByTestId("import-scope-blocked").count(),0);
+ assert.equal(await page.getByTestId("import-scope-blocked").count(),0,"IMPORT_SCOPE_BLOCKED: "+await page.getByTestId("import-view").innerText());
  if(candidateArg){
   const box=page.locator("#iwxa-t3-domain-controls");
   await box.waitFor({state:"visible"});
@@ -120,7 +125,7 @@ async function read(page){
   const asset=await k.t1.getAsset(ws,"review-attachment");
   const events=await k.t1.listEventsSince(ws);
   const inventory=await k.t2.exportPreview({workspaces:[ws],include_history:true,include_assets:true,include_relations:true,include_schemas:true});
-  return {docs,asset:{mime:asset?.asset?.mime,text:new TextDecoder().decode(asset.bytes)},eventIds:events.map(e=>e.event_id).sort(),eventTypes:events.map(e=>({id:e.event_id,type:e.event_type})),counts:inventory.counts};
+  return {docs,asset:{mime:asset?.asset?.mime,text:new TextDecoder().decode(asset.bytes)},eventIds:events.map(e=>e.event_id).sort(),eventTypes:events.map(e=>({id:e.event_id,type:e.event_type})),counts:inventory.counts,scope:inventory.summary};
  },{ws,ids,service});
 }
 function verifyData(s){
@@ -130,6 +135,7 @@ function verifyData(s){
  assert.deepEqual(s.asset,{mime:"text/plain",text:"Перечень замечаний: проверить состав и дату документа."});
  assert.equal(s.counts.workspaces,1);assert.equal(s.counts.objects,2);assert.equal(s.counts.assets,1);assert.equal(s.counts.relations,1);assert.ok(s.counts.schemas>=1);
  assert.ok(originalReceipt.events.every(id=>s.eventIds.includes(id)),"ORIGINAL_EVENT_HISTORY_MISSING");
+ if(candidateArg){assert.equal(s.scope.scope_mode,"workspace");assert.equal(s.scope.excluded_by_permission.events,0);assert.equal(s.scope.excluded_by_permission.assets,0);}
 }
 async function exportFile(page,dest){
  await openExchange(page,"export");
@@ -186,11 +192,13 @@ try{
  const empty=await b.page.evaluate(async service=>(await (await IWXA.connect({service_id:service})).t1.listWorkspaces({})).map(w=>w.workspace_id),service);
  assert.ok(!empty.includes(ws),"RECIPIENT_NOT_INDEPENDENT");
  assert.equal(await selectArchive(b.page,dest),exported.digest);
- await commit(b.page,"restore",exported.digest);
+ const restored=await commit(b.page,"restore",exported.digest);
+ assert.equal(Number(restored["Событий"]),after.counts.events,"FULL_HISTORY_NOT_IMPORTED");
  const received=await read(b.page);verifyData(received);
  assert.deepEqual(received.docs,after.docs);assert.deepEqual(received.asset,after.asset);
  assert.ok(after.eventIds.every(id=>received.eventIds.includes(id)),"EXPORTED_HISTORY_NOT_RESTORED");
- pass("INDEPENDENT_PROFILE_RESTORE",{counts:received.counts});
+ assert.equal(received.eventIds.length,after.eventIds.length+1,"EXPECTED_ONLY_ONE_NEW_KERNEL_IMPORT_RECEIPT");
+ pass("INDEPENDENT_PROFILE_RESTORE",{counts:received.counts,receipt:restored,scope:received.scope});
  phase="OFFLINE_INSTALL";current=b.page;
  const sw=b.page.locator("#iwxa-t3-domain-switch");await sw.waitFor({state:"visible"});
  await b.page.waitForFunction(()=>!document.querySelector("#iwxa-t3-domain-switch")?.disabled);

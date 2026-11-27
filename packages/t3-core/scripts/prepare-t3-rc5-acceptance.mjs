@@ -98,6 +98,33 @@ try{
  host.workspaceConfig.host.required_runtime_version=PIN.kernel;
  host.workspaceConfig.host.required_contract_version=PIN.contract;
  registerT3LocalInferenceService({domain:host.domain,workspaceConfig:host.workspaceConfig,passport:host.passport});
+ // The old integration fixture deliberately represents a schema-scoped service.
+ // Its export may read all Workspace history, but its import correctly denies
+ // other authors (including the Kernel's own iwxa.import.applied audit events).
+ // For the generic, isolated local acceptance Host use the original T2
+ // trusted universal Workspace passport, not a modified restricted service.
+ // This is the immutable Kernel's existing workspace owner contract.
+ if(candidate && localAcceptance){
+  const previous=host.passport.service_id;
+  assert.equal(previous,"iwxa.workspace.integration");
+  assert.equal(host.workspaceConfig.workspace_service_id,previous);
+  assert.equal(host.passport.permissions.packages.import_scope,"writable_objects");
+  const owner="iwxa.integration.workspace";
+  assert.equal(host.domain.modules.filter(m=>m.service_id===previous).length,1);
+  assert.equal(host.controlPlane.services.filter(m=>m.service_id===previous).length,1);
+  host.domain.modules.find(m=>m.service_id===previous).service_id=owner;
+  host.workspaceConfig.workspace_service_id=owner;
+  host.passport.service_id=owner;
+  // Original Kernel isTrustedWorkspacePassport requires exactly one "*" on
+  // each list. Do this AFTER the existing BLI schema registration, retaining
+  // every declaration; do not alter domain security or corporate permissions.
+  for(const kind of ["read","write","delete"])host.passport.permissions.objects[kind]=["*"];
+  host.passport.permissions.packages.export_scope="workspace";
+  host.passport.permissions.packages.import_scope="workspace";
+  host.controlPlane.services.find(m=>m.service_id===previous).service_id=owner;
+  json(join(dist,"_iwxa/security/capability-control-plane.json"),host.controlPlane);
+  rmSync(join(dist,"_iwxa/services/"+previous+".json"));
+ }
  json(join(dist,"_iwxa/domain.json"),host.domain);
  json(join(dist,"_iwxa/domain-shell.json"),host.shell);
  json(join(workspace,"workspace.config.json"),host.workspaceConfig);
@@ -125,7 +152,7 @@ try{
  }
  const receipt={schema:"IWXA_T3_RC5_ACCEPTANCE_DELIVERY/1",...PIN,origin:originArg,
   status:candidate?"ENGINEERING_CANDIDATE_NOT_RELEASED":"READY_FOR_INDEPENDENT_BROWSER_ACCEPTANCE_NOT_PRODUCT_ACCEPTED",
-  compiledAssetsUnchanged:true,originalKernelUnchanged:true,localAcceptanceOnly:localAcceptance,offlineVersion:materialized.version,
+  compiledAssetsUnchanged:true,originalKernelUnchanged:true,localAcceptanceOnly:localAcceptance,workspaceServiceId:host.passport.service_id,workspaceImportScope:host.passport.permissions.packages.import_scope,workspaceExportScope:host.passport.permissions.packages.export_scope,offlineVersion:materialized.version,
   offlineManifestSha256:digest(offlinePath),offlineFiles:offline.files.length,
   modelWeightsIncluded:false,privateDomainIncluded:false,installedProductAccepted:false};
  json(join(out,"acceptance-receipt.json"),receipt);
