@@ -858,14 +858,28 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
 });
 
 
-for(const nativePhase of [false,true])test(nativePhase?'fresh compact native phase evidence drains original captures and resumes cold without external phase provider':'K92 original signed native relays drain three causal captures, including two revisions of one object, and resume the remaining backlog cold',{timeout:600000},async()=>{
+for(const nativePhase of [false,true])test(nativePhase?'fresh compact original import and native phase evidence drain three captures and resume cold without external phase provider':'K92 original signed native relays drain three causal captures, including two revisions of one object, and resume the remaining backlog cold',{timeout:600000},async()=>{
   const source=kernelFixture('k92-source'),recipient=kernelFixture('k92-recipient'),wire=wireFixture(true);
   source.technicalWorkspaceId='ws:k92:source:technical';recipient.technicalWorkspaceId='ws:k92:recipient:technical';
   const base=mutation('o:k92:baseline','baseline','business.baseline');
   const creation={workspace_id:WS,event_id:'event:pilot:phase:creation',event_type:'workspace.created',
-    service_id:'iwxa.admin-center.workspace',occurred_at:'2026-11-27T12:00:00.000Z',
+    service_id:'iwxa.personal-agent.workspace',occurred_at:'2026-11-27T12:00:00.000Z',
     payload:{profile:'generic',capabilities:[],read_only:false}};
-  if(nativePhase){source.events.push(clone(creation));recipient.events.push(clone(creation));}
+  if(nativePhase){
+    // This is the actual original K036 first-use history shape observed in
+    // the public original Runtime ZIP test. No artificial return import.
+    source.events.push(clone(creation));recipient.events.push(clone(creation),{
+      ...clone(creation),event_id:'event:pilot:admin:creation',service_id:'iwxa.admin-center.workspace',
+      occurred_at:'2026-11-27T12:00:01.000Z'
+    },{
+      workspace_id:WS,event_id:'event:pilot:import:applied',event_type:'iwxa.import.applied',
+      service_id:'iwxa.kernel',occurred_at:'2026-11-27T12:00:02.000Z',
+      payload:{import_id:'import:pilot',package_digest:'a'.repeat(64),semantic_digest:'b'.repeat(64),
+        mode:'merge',applied:{workspaces:0,objects_inserted:0,objects_updated:0,objects_skipped:0,
+          events:1,relations:0,assets:0,schemas_inserted:0,schemas_reused:0,schemas_rejected:0}}
+    });
+  }
+  const recipientInitialCount=nativePhase?3:1;
   const sourceBaseline=nativePhase?creation:(await source.kernel.putObject(base)).event,
     recipientBaseline=nativePhase?creation:(await recipient.kernel.putObject(base)).event;
   const freshBaseline=nativePhase?{confirmed:true,eventId:creation.event_id,eventDigest:digestT4OriginalEventRecord(creation,WS)}:null;
@@ -969,7 +983,7 @@ for(const nativePhase of [false,true])test(nativePhase?'fresh compact native pha
     const sc=frontier(source,'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_FRONTIER_V1'),rc=frontier(recipient,'IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_FRONTIER_V1');
     assert.equal(sc.revision,i);assert.equal(rc.revision,i);
     assert.deepEqual(sc.data.last.sourceCursorAfter,rc.data.last.sourceCursorAfter);
-    assert.equal(recipient.events.filter(e=>e.workspace_id===WS).length,i+1);
+    assert.equal(recipient.events.filter(e=>e.workspace_id===WS).length,i+recipientInitialCount);
     assert.equal(seals,i);
   };
   try{
@@ -995,7 +1009,8 @@ for(const nativePhase of [false,true])test(nativePhase?'fresh compact native pha
     await transfer(3);
     assert.equal((await recipient.kernel.getObject(WS,c.object_id)).object.data.title,'independent object');
     await drive(sender,'NO_NEXT_ORIGINAL_EVENT');await drive(receiver,'WAITING_FOR_HEADS');
-    assert.equal(source.events.filter(e=>e.workspace_id===WS).length,4);assert.equal(recipient.events.filter(e=>e.workspace_id===WS).length,4);
+    assert.equal(source.events.filter(e=>e.workspace_id===WS).length,4);assert.equal(recipient.events.filter(e=>e.workspace_id===WS).length,recipientInitialCount+3);
+    if(nativePhase)assert.equal(recipient.events.filter(e=>e.workspace_id===WS&&e.event_type==='iwxa.import.applied').length,1);
     assert.equal(recipient.graphInvocations,3);assert.equal(seals,3);assert.ok(opens>=3);assert.equal(wire.lists,0);
     assert.equal([...wire.frames.values()].filter(b=>decodeT4CandidateFrame(b).messageType==='APPLIED_ACK').length,3);
     for(const f of [sender,receiver]){
