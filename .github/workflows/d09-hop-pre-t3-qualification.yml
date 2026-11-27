@@ -16,8 +16,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     env:
-      SITE_PIN: f5ee7d26cf1dc40d2cea31b0be93e7eeceef7694
-      SITE_TREE: 946d2801ce9bc28921508eb42d657469a2391151
+      SITE_PIN: 880ee6d2342e2a69fbe0a62d3dd96908afb3630d
+      SITE_TREE: c4b34d491c46853e20cb7f48db6e11c5eaeb624f
       SUBJECT_PIN: 5fbfe9210b1c9369f828d469e52380f31918a4e6
       T2_PIN: 9c64951cd78411283e8a416641c36d71e169fc1d
       T2_TREE: 56e55a9458aeb3ce540ef87dbc2dd9549ae2fcb2
@@ -35,7 +35,7 @@ jobs:
       - name: Admit the explicit immutable request
         working-directory: ci-harness
         run: |
-          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-pre-t3-qualification --profile hop-integrated-pre-t3 --revision site=f5ee7d26cf1dc40d2cea31b0be93e7eeceef7694 --revision subject=5fbfe9210b1c9369f828d469e52380f31918a4e6 --revision t2=9c64951cd78411283e8a416641c36d71e169fc1d
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-pre-t3-qualification --profile hop-integrated-pre-t3 --revision site=880ee6d2342e2a69fbe0a62d3dd96908afb3630d --revision subject=5fbfe9210b1c9369f828d469e52380f31918a4e6 --revision t2=9c64951cd78411283e8a416641c36d71e169fc1d
       - name: Checkout exact HOP site using existing domain credential
         uses: actions/checkout@v4
         with:
