@@ -1,0 +1,40 @@
+name: T4 original one-way empty Exchange and baseline regression
+on:
+  push:
+    branches: ['ci/once/t4-one-way-empty-exchange/3bb25f61753e']
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '3bb25f61753e35171e314644eb88d4f9b3665456'
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: |
+          test "$(git rev-parse HEAD^{tree})" = "e3114b4bb84214f5277b602a632127dcf70d5655"
+          node --test packages/t4-network/tests/original-network-baseline-admission.test.mjs packages/t4-network/tests/original-installed-fixed-profile.test.mjs packages/t4-network/tests/original-native-network-product-activation.test.mjs packages/t4-network/tests/original-installed-control-factories.test.mjs
+          timeout 120s node --test --test-name-pattern='both native roles admit' packages/t4-network/tests/original-native-host-network-owner.test.mjs
+  original-exchange:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '3bb25f61753e35171e314644eb88d4f9b3665456'
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - working-directory: packages/t3-core
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/t4-idb" --no-audit --no-fund --ignore-scripts --save-exact fake-indexeddb@6.2.4
+          mkdir -p "$RUNNER_TEMP/t4-qualified"
+          unzip -q qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip -d "$RUNNER_TEMP/t4-qualified"
+          IWXA_COMPANY_TEST_QUALIFIED_T2="$RUNNER_TEMP/t4-qualified" IWXA_COMPANY_TEST_IDB_MODULE="$RUNNER_TEMP/t4-idb/node_modules/fake-indexeddb/build/esm/index.js" node --test --test-reporter=tap --test-timeout=180000 --test-name-pattern="original empty Workspace Exchange" tests/t3-company-original-runtime-roundtrip.test.mjs
