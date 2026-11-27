@@ -18,7 +18,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
     name: T3 original platform and offline candidate qualification
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 240
     permissions:
       contents: read
       actions: read
@@ -37,7 +37,7 @@ jobs:
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-hosting-freeze \
             --profile full-hosting-qualification \
-            --revision site=b07665d98fcd87ef06be2edd907b8ad9470f745e \
+            --revision site=b0879a67adb3cc4e3c14370122e56fcc0ddb324c \
             --revision subject=1e8700f4fd6f11c50db154f9f080b2406bef02ec \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1 \
             --revision core=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: b07665d98fcd87ef06be2edd907b8ad9470f745e
+          ref: b0879a67adb3cc4e3c14370122e56fcc0ddb324c
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -69,6 +69,13 @@ jobs:
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/t2
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/learn
+          ref: 1e8700f4fd6f11c50db154f9f080b2406bef02ec
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
       - uses: actions/setup-node@v4
         with:
           node-version: '24.18.1'
@@ -76,7 +83,8 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = b07665d98fcd87ef06be2edd907b8ad9470f745e
+          test "$(git -C private/site rev-parse HEAD)" = b0879a67adb3cc4e3c14370122e56fcc0ddb324c
+          test "$(git -C private/domain rev-parse HEAD)" = 1e8700f4fd6f11c50db154f9f080b2406bef02ec
           test "$(git -C original/core rev-parse HEAD)" = 326f725c44d69ac99f6b912241e9e8a6c3d716a5
           test "$(git -C private/assistant rev-parse HEAD)" = 5e3083788aa541921559de29d3457d4a52bbba00
           test "$(git -C private/t2 rev-parse HEAD)" = 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
@@ -128,8 +136,57 @@ jobs:
           }
           npm run verify:hosting-dist
           npm run audit:links
+      - name: T3 reproducible local build and retained-input failure recovery
+        id: rebuild
+        timeout-minutes: 25
+        working-directory: private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/d01-dist-proof"
+          fingerprint(){ find dist -type f -print0 | sort -z | xargs -0 sha256sum >"$1"; }
+          fingerprint "$proof"
+          hidden="$RUNNER_TEMP/d01-source-isolation"
+          mkdir -p "$hidden" "$RUNNER_TEMP/d01-no-build-tools"
+          restore(){
+            for entry in t2 assistant domain; do
+              if [ -d "$hidden/$entry" ]; then mv "$hidden/$entry" "$GITHUB_WORKSPACE/private/$entry"; fi
+            done
+            if [ -d "$hidden/core" ]; then mv "$hidden/core" "$GITHUB_WORKSPACE/original/core"; fi
+            if [ -d "$hidden/artifact" ]; then mv "$hidden/artifact" "$GITHUB_WORKSPACE/original/artifact"; fi
+            if [ -f "$hidden/host-index" ]; then mv "$hidden/host-index" runtime/t3-platform/0.3.1-rc.1/learn-host/index.html; fi
+          }
+          trap restore EXIT
+          for entry in t2 assistant domain; do mv "$GITHUB_WORKSPACE/private/$entry" "$hidden/$entry"; done
+          mv "$GITHUB_WORKSPACE/original/core" "$hidden/core"
+          mv "$GITHUB_WORKSPACE/original/artifact" "$hidden/artifact"
+          printf '#!/bin/sh\nexit 87\n' >"$RUNNER_TEMP/d01-no-build-tools/git"
+          cp "$RUNNER_TEMP/d01-no-build-tools/git" "$RUNNER_TEMP/d01-no-build-tools/npm"
+          chmod +x "$RUNNER_TEMP/d01-no-build-tools/"*
+          export PATH="$RUNNER_TEMP/d01-no-build-tools:$PATH"
+          for attempt in 1 2; do
+            node scripts/build-learn-t3-local-site.mjs >"$RUNNER_TEMP/d01-rebuild.log" 2>&1 || {
+              echo D01_T3_LOCAL_REBUILD_FAIL
+              grep -Eo 'D01_[A-Z0-9_:-]+|T3_[A-Z0-9_:-]+|ENOENT|EACCES' "$RUNNER_TEMP/d01-rebuild.log" | sort -u | tail -25 || true
+              exit 1
+            }
+            fingerprint "$RUNNER_TEMP/d01-rebuild-$attempt"
+            cmp -s "$proof" "$RUNNER_TEMP/d01-rebuild-$attempt" || { echo D01_T3_LOCAL_REPRODUCIBILITY_FAIL; exit 1; }
+          done
+          echo D01_T3_LOCAL_REPRODUCIBLE_BYTES_PASS
+          host=runtime/t3-platform/0.3.1-rc.1/learn-host/index.html
+          cp "$host" "$hidden/host-index"
+          printf '\n<!-- controlled build-input corruption -->\n' >>"$host"
+          if node scripts/build-learn-t3-local-site.mjs >"$RUNNER_TEMP/d01-corrupt-build.log" 2>&1; then
+            echo D01_T3_CORRUPTED_INPUT_ACCEPTED; exit 1
+          fi
+          mv "$hidden/host-index" "$host"
+          fingerprint "$RUNNER_TEMP/d01-after-corruption"
+          cmp -s "$proof" "$RUNNER_TEMP/d01-after-corruption" || { echo D01_T3_PREVIOUS_DIST_CHANGED; exit 1; }
+          echo D01_T3_DAMAGED_INPUT_REJECTED_DIST_UNCHANGED
       - name: T3 browser prerequisites
         id: t3browser
+        if: ${{ always() && !cancelled() && steps.t3build.outcome == 'success' && steps.rebuild.outcome == 'success' }}
         timeout-minutes: 20
         shell: bash
         run: |
@@ -137,11 +194,57 @@ jobs:
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/d01-t3-browser-deps.log" 2>&1 || { echo D01_T3_BROWSER_DEPS_FAIL; exit 1; }
           npx playwright install --with-deps chromium >"$RUNNER_TEMP/d01-t3-browser-install.log" 2>&1 || { echo D01_T3_BROWSER_INSTALL_FAIL; exit 1; }
       - name: T3 actual offline install, saved Study goal and cold browser restart
+        if: ${{ always() && !cancelled() && steps.t3browser.outcome == 'success' }}
         timeout-minutes: 30
         working-directory: private/site
         shell: bash
         run: |
-          node qa/d01-product-witness-2026-10-26/t3-offline-witness.mjs >"$RUNNER_TEMP/d01-t3-offline.log" 2>&1 || { grep -E '^D01_T3_|^AssertionError|^Error: D01_T3_' "$RUNNER_TEMP/d01-t3-offline.log" | cut -c1-200 | tail -15; exit 1; }
+          node qa/d01-product-witness-2026-10-26/t3-offline-witness.mjs >"$RUNNER_TEMP/d01-t3-offline.log" 2>&1 || { grep -E '^D01_T3_|^AssertionError|^Error: D01_T3_' "$RUNNER_TEMP/d01-t3-offline.log" | cut -c1-1000 | tail -20; exit 1; }
           grep '^D01_T3_' "$RUNNER_TEMP/d01-t3-offline.log"
+      - name: T3 online first-use and Workspace user journeys without a model
+        if: ${{ always() && !cancelled() && steps.t3browser.outcome == 'success' }}
+        working-directory: private/site
+        timeout-minutes: 45
+        shell: bash
+        run: |
+          node scripts/audit-first-user.mjs >"$RUNNER_TEMP/d01-t3-first.log" 2>&1 || {
+            echo D01_T3_FIRST_USER_FAIL
+            grep -E '^D01_FIRST_USER_(PASS|FAIL|AUDIT)=' "$RUNNER_TEMP/d01-t3-first.log" | cut -c1-900 | tail -40 || true
+            exit 1
+          }
+          grep -E '^D01_FIRST_USER_(PASS|AUDIT)=' "$RUNNER_TEMP/d01-t3-first.log" || true
+          echo D01_T3_FIRST_USER_PASS
+      - name: T3 original inherited Kernel saved objects, real case and Exchange
+        if: ${{ always() && !cancelled() && steps.t3browser.outcome == 'success' }}
+        working-directory: private/site
+        timeout-minutes: 45
+        shell: bash
+        env:
+          D01_CASE_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-001-workplace-numeracy.json
+          D01_CASE_002_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-002-price-label-check.json
+          IWXA_T2_PRODUCT_SITE_HEAD: b0879a67adb3cc4e3c14370122e56fcc0ddb324c
+          IWXA_T2_PRODUCT_REPORT_PATH: ${{ runner.temp }}/d01-t3-product/witness.json
+        run: |
+          export IWXA_T2_PRODUCT_SITE_TREE="$(git rev-parse 'HEAD^{tree}')"
+          npm run qualify:browser >"$RUNNER_TEMP/d01-t3-saved.log" 2>&1 || {
+            echo D01_T3_SAVED_BROWSER_FAIL
+            grep -Eo '(D01_|T3_|READBACK_)[A-Z0-9_:-]+|net::ERR_[A-Z0-9_]+|TimeoutError|AssertionError' "$RUNNER_TEMP/d01-t3-saved.log" | tail -45 || true
+            exit 1
+          }
+          echo D01_T3_SAVED_BROWSER_PASS
+      - name: T3 browser page and responsive sweep
+        if: ${{ always() && !cancelled() && steps.t3browser.outcome == 'success' }}
+        working-directory: private/site
+        timeout-minutes: 90
+        shell: bash
+        env:
+          D01_BROWSER_AUDIT_OUTPUT: ${{ runner.temp }}/d01-t3-page-audit
+        run: |
+          node scripts/audit-browser-navigation.mjs >"$RUNNER_TEMP/d01-t3-sweep.log" 2>&1 || {
+            echo D01_T3_BROWSER_SWEEP_FAIL
+            grep -Eo 'D01_[A-Z0-9_:-]+|TimeoutError|AssertionError|net::ERR_[A-Z0-9_]+' "$RUNNER_TEMP/d01-t3-sweep.log" | tail -40 || true
+            exit 1
+          }
+          echo D01_T3_BROWSER_SWEEP_PASS
       # Model installation and real WebGPU inference are separate user-consented
       # device qualifications. No claim of real-model or domain acceptance here.
