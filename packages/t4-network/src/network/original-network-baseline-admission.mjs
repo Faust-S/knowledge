@@ -2,6 +2,7 @@ import {readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHist
 import {createHash} from 'node:crypto';
 import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID} from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
+import {readT4OriginalEventWindow,digestT4OriginalEventRecord} from './original-event-window.mjs';
 
 const RECORD='IWXA_T4_ORIGINAL_NETWORK_BASELINE_ADMISSION_RECORD_V1';
 const EVENT='t4.network.original.baseline.admitted';
@@ -167,4 +168,91 @@ export function createT4OriginalNetworkBaselineAdmissionPort({
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       authorizeOriginalBaselineAdmission,verifyOriginalBaselineEvidence,enableOriginalTechnicalObjectHistory,
     })});
+}
+
+
+// RC.1 first-use of an EMPTY business Workspace copied through original
+// T2 Exchange. Both devices must have the SAME original creation Event,
+// not two independently created Workspaces. Selection is native consent,
+// not a permission. The existing baseline port persists the admission.
+export function normalizeT4OriginalFreshWorkspaceBaseline(selection){
+  if(!selection||typeof selection!=='object'||Array.isArray(selection)||
+    !same(Object.keys(selection).sort(),['confirmed','eventDigest','eventId'])||
+    selection.confirmed!==true||!ID(selection.eventId)||!DIG(selection.eventDigest))
+    fail('BASELINE_FRESH_ORIGINAL_SELECTION_REQUIRED');
+  return Object.freeze({confirmed:true,eventId:selection.eventId,eventDigest:selection.eventDigest});
+}
+export function createT4OriginalFreshWorkspaceBaseline({selection,role,workspaceId,originalWriteOwnerRef,
+  originalKernel,getMode,authorizeOriginalRead,requireCurrent}={}){
+  const selected=normalizeT4OriginalFreshWorkspaceBaseline(selection);
+  if(!['SOURCE','RECIPIENT'].includes(role)||![workspaceId,originalWriteOwnerRef].every(ID)||
+    ![getMode,authorizeOriginalRead,requireCurrent].every(f=>typeof f==='function')||
+    !['listEventsSince','listObjects','listAssets'].every(k=>originalKernel?.hasOperation?.('t1.'+k)===true&&
+      typeof originalKernel[k]==='function'))fail('BASELINE_FRESH_ORIGINAL_KERNEL_REQUIRED');
+  async function current(){
+    if(getMode()!=='T4_NETWORK')fail('BASELINE_ADMISSION_NETWORK_MODE_OFF');
+    await requireCurrent();
+    if(getMode()!=='T4_NETWORK')fail('BASELINE_ADMISSION_NETWORK_MODE_OFF');
+  }
+  async function guard(operation){
+    await current();
+    const proof=Object.freeze({operation,workspaceId,originalWriteOwnerRef,networkReadGrantsCreated:false});
+    if(await authorizeOriginalRead(proof)!==true)fail('BASELINE_ADMISSION_ORIGINAL_ACCESS_DENIED');
+    await current();
+    return true;
+  }
+  async function history(){
+    let events;
+    const projected=await readT4OriginalEventWindow({workspaceId,originalWriteOwnerRef,maxEvents:1,
+      authorizeOriginalRead:p=>guard(p.operation),
+      readOriginalEvents:async()=>{events=clone(await originalKernel.listEventsSince(workspaceId));return events;}});
+    const anchor=events.find(e=>e.event_id===projected.nextCursor?.lastEventId);
+    if(!anchor||anchor.event_id!==selected.eventId||anchor.event_type!=='workspace.created'||
+      anchor.object_id!=null||anchor.revision!=null||typeof anchor.payload?.profile!=='string'||
+      !Array.isArray(anchor.payload.capabilities)||anchor.payload.read_only!==false||
+      digestT4OriginalEventRecord(anchor,workspaceId)!==selected.eventDigest)
+      fail('BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH');
+    await current();
+    return {count:events.length,input:{originalBaselineRef:selected.eventId,
+      originalBaselineDigest:selected.eventDigest,sourceCursor:projected.nextCursor}};
+  }
+  async function read(requireEmpty){
+    const observed=await history();
+    if(requireEmpty){
+      // The installed passport grants workspace-wide Event read. Require
+      // the creation Event alone, PLUS empty subject/asset readback. A
+      // nonempty Workspace needs original materialization evidence.
+      if(observed.count!==1)fail('BASELINE_FRESH_WORKSPACE_NOT_EMPTY');
+      await guard('t1.listObjects');
+      const objects=await originalKernel.listObjects({workspace_id:workspaceId,include_deleted:true});
+      await guard('t1.listObjects');await guard('t1.listAssets');
+      const assets=await originalKernel.listAssets({workspace_id:workspaceId});
+      await guard('t1.listAssets');
+      if(!Array.isArray(objects)||objects.length!==0||!Array.isArray(assets)||assets.length!==0)
+        fail('BASELINE_FRESH_WORKSPACE_NOT_EMPTY');
+      const again=await history();
+      if(again.count!==1||!same(again.input,observed.input))fail('BASELINE_FRESH_WORKSPACE_CHANGED');
+    }
+    await current();return freeze(clone(observed.input));
+  }
+  function matches(proof){
+    return proof?.role===role&&proof.sourceWorkspaceId===workspaceId&&proof.originalWriteOwnerRef===originalWriteOwnerRef&&
+      proof.originalMaterializationWitnessRequired===true&&proof.networkMetadataIsNotAdmission===true&&
+      proof.baseline?.originalBaselineRef===selected.eventId&&proof.baseline.originalBaselineDigest===selected.eventDigest;
+  }
+  return Object.freeze({
+    readOriginalBaselineAdmissionInput:()=>read(true),
+    async verifyOriginalBaselineEvidence(proof){
+      if(!matches(proof)||!['t4.network.original.baseline.admit','t4.network.original.baseline.verify'].includes(proof.operation))
+        return false;
+      // Cold readback verifies the retained original creation prefix.
+      // An admitted Workspace need not stay empty after later mutations.
+      const input=await read(proof.operation.endsWith('.admit'));
+      return same(proof.baseline.sourceCursor,input.sourceCursor);
+    },
+    async authorizeOriginalBaselineAdmission(proof){
+      await current();
+      return matches(proof)&&proof.operation==='t4.network.original.baseline.admit';
+    }
+  });
 }

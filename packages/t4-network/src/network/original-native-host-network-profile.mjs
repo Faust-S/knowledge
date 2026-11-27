@@ -21,7 +21,7 @@ export function createT4OriginalNativeHostNetworkProfile({
   role,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
   scopeRef,ownerEpoch,requiredCryptoSuite,getMode:originalGetMode,
   originalAccess,originalVault,originalTopology,originalPeerHistory,originalPorts,
-  readOriginalBaselineAdmissionInput,readOriginalNetworkResumeInput,onStep,monotonicNow,enableSourceEventWindowRead=false,enableSourceCaptureBinding=false,enableRecipientResultRead=false,
+  readOriginalBaselineAdmissionInput=null,originalFreshWorkspaceBaseline=null,readOriginalNetworkResumeInput,onStep,monotonicNow,enableSourceEventWindowRead=false,enableSourceCaptureBinding=false,enableRecipientResultRead=false,
   enableOriginalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,enableOriginalObjectCatalogWindow=false,enableOriginalRecipientFrontierCommitOrder=false,enableOriginalDispatchEvidence=false,
   enableOriginalMultipartNegotiation=false,enableOriginalReplacementMultipartNegotiation=false,
   enableOriginalReplacementAttempts=true,
@@ -53,7 +53,8 @@ export function createT4OriginalNativeHostNetworkProfile({
       typeof originalPorts?.withOriginalHistoryReadBoundary!=='function')))
     fail('NATIVE_NETWORK_PROFILE_COMMIT_ORDER_REQUIRED');
   if(typeof enableRecipientResultRead!=='boolean'||typeof enableSourceCaptureBinding!=='boolean'||(enableSourceCaptureBinding&&!enableSourceEventWindowRead)||typeof enableSourceEventWindowRead!=='boolean'||!['SOURCE','RECIPIENT'].includes(role)||typeof originalGetMode!=='function'||
-    !originalAccess||!originalVault||!originalPorts||typeof readOriginalBaselineAdmissionInput!=='function'||
+    !originalAccess||!originalVault||!originalPorts||
+    (originalFreshWorkspaceBaseline===null?typeof readOriginalBaselineAdmissionInput!=='function':readOriginalBaselineAdmissionInput!==null)||
     typeof readOriginalNetworkResumeInput!=='function')fail('NATIVE_NETWORK_PROFILE_ORIGINAL_PORTS_REQUIRED');
   requireFunctions(originalVault,['readEncryptedVault','unlockPassphrase']);
   requireFunctions(originalTopology,['readOriginalTopology','verifyOriginalEndpoint','authorizeOriginalOperation','getAuthorizationHeader']);
@@ -95,7 +96,7 @@ export function createT4OriginalNativeHostNetworkProfile({
       originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,requiredCryptoSuite,getMode,originalPorts,
       nativeTopologyTransport:transport,originalVaultNodeSignaturePort:signature,originalVaultSealedContentPort:sealed,
       originalSignedReplacementHistoryAccess:history,originalReplacementHistoryClient:client,
-      readOriginalBaselineAdmissionInput,readOriginalNetworkResumeInput,onStep,monotonicNow,
+      readOriginalBaselineAdmissionInput,originalFreshWorkspaceBaseline,readOriginalNetworkResumeInput,onStep,monotonicNow,
       requireSignedTopologyAccess:true,requireOriginalVaultNodeSignature:true,requireDurableNetworkKeyBinding:true,
       requireOriginalVaultSealedContent:true,enablePublicationIndexMigration:true,enableExplicitNetworkResume:true,
       enableLocalSourceCapture:source,enableLocalRecipientResultVerification:!source,enableRecipientResultRead,enableHistoricalAcknowledgementRecovery:source,enableLocalRetiredRecipientRecovery:!source,

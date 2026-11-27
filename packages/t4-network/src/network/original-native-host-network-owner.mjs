@@ -4,7 +4,8 @@ import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {readT4OriginalCommitHistoryForCompatibility} from './original-event-window.mjs';
 import {bindT4OriginalHistoryBoundary} from './original-history-boundary.mjs';
 import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID as technicalSchemaId} from './original-network-technical-schema.mjs';
-import {createT4OriginalNetworkBaselineAdmissionPort} from './original-network-baseline-admission.mjs';
+import {createT4OriginalNetworkBaselineAdmissionPort,normalizeT4OriginalFreshWorkspaceBaseline,
+  createT4OriginalFreshWorkspaceBaseline} from './original-network-baseline-admission.mjs';
 import {createT4OriginalHostCaptureLedgerPort,digestT4OriginalCaptureCommand} from './original-host-capture-ledger.mjs';
 import {createT4OriginalHostCaptureAdapter} from './original-host-capture-adapter.mjs';
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort}
@@ -72,7 +73,7 @@ const RECIPIENT_PORTS=['authorizeNetworkReceive','authorizeOriginalRecipientSess
 export function createT4OriginalNativeHostNetworkOwner({
   role,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
   recipientNodeRef,scopeRef,ownerEpoch,requiredCryptoSuite,getMode,wireTransport,nativeTopologyTransport=null,
-  originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
+  originalPorts,readOriginalBaselineAdmissionInput=null,originalFreshWorkspaceBaseline=null,onStep=()=>{},
   enableOriginalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,enableOriginalObjectCatalogWindow=false,enableOriginalRecipientFrontierCommitOrder=false,enableOriginalDispatchEvidence=false,enableLocalSourceCapture=false,enablePublicationIndexMigration=false,enableLocalRecipientResultVerification=false,enableRecipientResultRead=false,
   enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,requireSignedTopologyAccess=false,
   enableHistoricalAcknowledgementRecovery=false,enableLocalRetiredRecipientRecovery=false,enableLocalReplacementRecovery=false,
@@ -83,6 +84,15 @@ export function createT4OriginalNativeHostNetworkOwner({
   enableOriginalMultipartNegotiation=false,enableOriginalReplacementMultipartNegotiation=false,
   monotonicNow=()=>performance.now(),
 }={}){
+  const freshBaseline=originalFreshWorkspaceBaseline===null?null:
+    normalizeT4OriginalFreshWorkspaceBaseline(originalFreshWorkspaceBaseline);
+  const baselineCallbacks=['authorizeOriginalBaselineAdmission','verifyOriginalBaselineEvidence'];
+  if(freshBaseline!==null&&(readOriginalBaselineAdmissionInput!==null||
+    baselineCallbacks.some(k=>originalPorts?.[k]!==undefined)||
+    enableOriginalCommitOrder||enableOriginalRecipientFrontierCommitOrder))
+    fail('NATIVE_NETWORK_OWNER_MULTIPLE_BASELINE_PROVIDERS');
+  if(freshBaseline===null&&readOriginalBaselineAdmissionInput===null)readOriginalBaselineAdmissionInput=async()=>null;
+  const commonPorts=COMMON_PORTS.filter(k=>freshBaseline===null||!baselineCallbacks.includes(k));
   // Multipart is an explicit native profile, not a transport-size setting.
   // Its source requires exact durable dispatch/backing; its recipient
   // requires the original ordered frontier and independent source proof.
@@ -260,14 +270,15 @@ export function createT4OriginalNativeHostNetworkOwner({
       recipientNodeRef,scopeRef,requiredCryptoSuite].every(ID)||
     technicalWorkspaceId===sourceWorkspaceId||sourceNodeRef===recipientNodeRef||
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
-    ![getMode,readOriginalBaselineAdmissionInput,onStep,monotonicNow].every(f=>typeof f==='function')||
+    ![getMode,onStep,monotonicNow].every(f=>typeof f==='function')||
+    (freshBaseline===null&&typeof readOriginalBaselineAdmissionInput!=='function')||
     wireTransport?.wireKind!=='T4_NETWORK_CANDIDATE'||
     !['putSnapshot','getSnapshot','inspectOutcome','listNativeFrameAddresses','forOriginalHostLifetime']
       .every(k=>typeof wireTransport[k]==='function')||
-    ![...COMMON_PORTS,...(role==='SOURCE'?SOURCE_PORTS:recipientPorts)]
+    ![...commonPorts,...(role==='SOURCE'?SOURCE_PORTS:recipientPorts)]
       .every(k=>typeof originalPorts?.[k]==='function'))
     fail('NATIVE_NETWORK_OWNER_ORIGINAL_PORTS_REQUIRED');
-  const ports=Object.freeze(Object.fromEntries([...COMMON_PORTS,
+  const ports=Object.freeze(Object.fromEntries([...commonPorts,
     ...(role==='SOURCE'?SOURCE_PORTS:recipientPorts),
     ...(enableLocalSourceCapture?['authorizeOriginalLocalMutation']:[]),
     ...(enableOriginalMultipartNegotiation&&role==='SOURCE'?['authorizeOriginalMultipartAssetCapture','authorizeOriginalMultipartBacking']:[]),
@@ -350,9 +361,13 @@ export function createT4OriginalNativeHostNetworkOwner({
       readOriginalHostContext:context(technicalWorkspaceId),
       authorizeOriginalTechnicalRead:callback('authorizeOriginalTechnicalRead'),
       authorizeOriginalTechnicalWrite:callback('authorizeOriginalTechnicalWrite')};
+    const fresh=freshBaseline===null?null:createT4OriginalFreshWorkspaceBaseline({
+      selection:freshBaseline,role,workspaceId:sourceWorkspaceId,originalWriteOwnerRef,originalKernel,getMode,
+      authorizeOriginalRead:callback('authorizeOriginalRead'),requireCurrent:()=>requireBinding(state,'fresh-baseline')});
+    const readBaselineInput=fresh?.readOriginalBaselineAdmissionInput??readOriginalBaselineAdmissionInput;
     const baseline=createT4OriginalNetworkBaselineAdmissionPort({...tech,role,
-      authorizeOriginalBaselineAdmission:callback('authorizeOriginalBaselineAdmission'),
-      verifyOriginalBaselineEvidence:callback('verifyOriginalBaselineEvidence')});
+      authorizeOriginalBaselineAdmission:fresh?.authorizeOriginalBaselineAdmission??callback('authorizeOriginalBaselineAdmission'),
+      verifyOriginalBaselineEvidence:fresh?.verifyOriginalBaselineEvidence??callback('verifyOriginalBaselineEvidence')});
     const replay=createT4OriginalNetworkReplayPort({...tech,localNodeRef:nodeRef});
     const frameDiscoveryPort=createT4CandidateFrameTransport({
       wireTransport,getMode,readOriginalHostContext:tech.readOriginalHostContext,
@@ -795,7 +810,7 @@ export function createT4OriginalNativeHostNetworkOwner({
               readOriginalReplacementSourceAdmission:async()=>fail('NATIVE_REPLACEMENT_SOURCE_INTENT_ALREADY_RECORDED'),
               verifyOriginalPhaseEvidence:callback('verifyOriginalPhaseEvidence'),verifyOriginalRecipientApplied:callback('verifyOriginalRecipientApplied')})});
       };
-      return {baseline,task,capture:captureRecovery,migrateNextPublication:()=>migrateNextPublication(),
+      return {baseline,readBaselineInput,task,capture:captureRecovery,migrateNextPublication:()=>migrateNextPublication(),
         clearOriginalMultipartPublication:multipartBinding?.clearOriginalPublication,
         continueReplacementSource,continueReplacementSourceContent,
         readLocalOwnerHistory:request=>readLocalOwnerHistory(request,sourceCursorPort,readOriginalCaptureSelection),
@@ -910,7 +925,7 @@ export function createT4OriginalNativeHostNetworkOwner({
             verifyOriginalPhaseEvidence:callback('verifyOriginalPhaseEvidence'),
             verifyOriginalRecipientApplied:verifyApplied({session,received})})});
     };
-    return {baseline,task,migrateNextPublication,clearOriginalMultipartPublication:multipartBinding?.clearOriginalPublication,resetMigration:resetRecipientMigration,continueReplacementRecipient,continueReplacementRecipientContent,readLocalOwnerHistory:request=>readLocalOwnerHistory(request,cursor),readLocalReplacement:()=>readLocalReplacement(cursor.readOriginalVerifiedCursor),
+    return {baseline,readBaselineInput,task,migrateNextPublication,clearOriginalMultipartPublication:multipartBinding?.clearOriginalPublication,resetMigration:resetRecipientMigration,continueReplacementRecipient,continueReplacementRecipientContent,readLocalOwnerHistory:request=>readLocalOwnerHistory(request,cursor),readLocalReplacement:()=>readLocalReplacement(cursor.readOriginalVerifiedCursor),
       completeLocalReplacement:selection=>completeLocalReplacement(selection,cursor),run:retryMissing=>task.runNativeOwnerStep({...signing,retryMissing,useSignedSourceAnnouncement:true,
       createOriginalRecipientPublicationPort:publication,createOriginalRecipientPhasePort:phase,enableOriginalMultipartNegotiation,
       ...(enableLocalRetiredRecipientRecovery?{readOriginalLocalRetiredRecipientSession:proof=>
@@ -1186,7 +1201,7 @@ export function createT4OriginalNativeHostNetworkOwner({
         await requireBinding(state,'wake');
         let result;
         if(await state.baseline.readOriginalAdmittedBaseline()===null){
-          const input=await readOriginalBaselineAdmissionInput(bindingProof(state,'baseline-request'));
+          const input=await state.readBaselineInput(bindingProof(state,'baseline-request'));
           await requireBinding(state,'baseline-request-readback');
           result=input===null?{state:'WAITING_FOR_ORIGINAL_BASELINE'}:await state.baseline.admitOriginalBaseline(input);
         }else{
