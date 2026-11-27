@@ -88,3 +88,116 @@ export async function readWorkspaceMethodStageInputBasis({owner,readObject,works
     materials:Object.freeze(materials),predecessors,requiredResultOwnerReadback:predecessors.length>0,
     atomicSnapshot:false,writeAuthorized:false,executionAuthority:false,resultReuseProven:false});
 }
+
+
+// W05.2: the existing installed original Agent accepted-result owner
+// already exposes readAccepted for a published, explicitly selected
+// original Result. Its current contract binds Work number, signed Task,
+// acceptance and archive, but not the canonical Project/Work recordId or
+// W05 input-basis digest. Never turn that distinction into reuse authority.
+const AGENT_RESULT_SCHEMA='iwxa.agent.accepted-result';
+const HEX=/^[a-f0-9]{64}$/;
+function resultRef(value,workspaceId){
+  if(!value||value.workspace_id!==workspaceId||!text(value.object_id)
+      ||value.schema_id!==AGENT_RESULT_SCHEMA||!Number.isSafeInteger(value.revision)||value.revision<1){
+    fail('METHOD_STAGE_RESULT_SELECTION_INVALID','Exact published original Agent Result reference required');
+  }
+  return Object.freeze({workspace_id:workspaceId,object_id:value.object_id,schema_id:value.schema_id,revision:value.revision});
+}
+function captureResultSelections(values,workspaceId){
+  if(!Array.isArray(values)||values.length>64)fail('METHOD_STAGE_RESULT_SELECTION_INVALID','Explicit predecessor Result selections required');
+  const rows=Array.from(values,row=>{
+    if(!row||typeof row.stepId!=='string'||!/^[A-Za-z0-9_-]{1,63}$/u.test(row.stepId)){
+      fail('METHOD_STAGE_RESULT_SELECTION_INVALID','Exact predecessor stage required');
+    }
+    return Object.freeze({stepId:row.stepId,reference:resultRef(row.reference,workspaceId)});
+  });
+  if(new Set(rows.map(r=>r.stepId)).size!==rows.length||new Set(rows.map(r=>r.reference.object_id)).size!==rows.length){
+    fail('METHOD_STAGE_RESULT_SELECTION_INVALID','Duplicate predecessor or published Result selection');
+  }
+  return Object.freeze(rows);
+}
+function workNumber(value){
+  if(!value||!text(value.projectId)||!text(value.workId)||typeof value.revision!=='string'
+      ||! /^[1-9][0-9]*$/.test(value.revision)||!Number.isSafeInteger(Number(value.revision))){
+    fail('METHOD_STAGE_RESULT_BINDING_INVALID','Original Agent Work revision binding required');
+  }
+  return Object.freeze({projectId:value.projectId,workId:value.workId,revision:value.revision});
+}
+function acceptedMetadata(value,reference){
+  if(!value||value.acceptanceKind!=='HUMAN_ACCEPTED_DRAFT'||value.readOnly!==true
+      ||!equal(resultRef(value.sourceObjectRef,reference.workspace_id),reference)
+      ||!text(value.taskId)||!text(value.resultId)||!HEX.test(value.acceptedDigest??'')||!HEX.test(value.archiveSha256??'')){
+    fail('METHOD_STAGE_RESULT_OWNER_READBACK_INVALID','Exact original accepted Result owner readback required');
+  }
+  return Object.freeze({acceptanceKind:value.acceptanceKind,sourceObjectRef:reference,
+    workRef:workNumber(value.workRef),taskId:value.taskId,resultId:value.resultId,
+    acceptedDigest:value.acceptedDigest,archiveSha256:value.archiveSha256});
+}
+async function observeAgentResult({readObject,readAccepted,workspaceId,projectId,predecessor,reference}){
+  const row=await readObject(workspaceId,reference.object_id);
+  if(row===null)return Object.freeze({stepId:predecessor.stepId,workRef:predecessor.workRef,
+    reference,state:'RESULT_UNAVAILABLE',accepted:null,exactInputBindingProven:false});
+  const o=row?.object;
+  if(!o||o.workspace_id!==workspaceId||o.object_id!==reference.object_id||o.schema_id!==reference.schema_id
+      ||!Number.isSafeInteger(o.revision)||o.revision<1){
+    fail('METHOD_STAGE_RESULT_IDENTITY_MISMATCH','Original Kernel returned a different Result identity');
+  }
+  if(o.deleted===true||o.deleted_at!=null||o.revision!==reference.revision){
+    return Object.freeze({stepId:predecessor.stepId,workRef:predecessor.workRef,reference,
+      state:o.deleted===true||o.deleted_at!=null?'RESULT_UNAVAILABLE':'RESULT_REVISION_CHANGED',
+      accepted:null,exactInputBindingProven:false});
+  }
+  // Only original signed Kernel readback may precede the native owner
+  // call. Neither the published metadata nor a caller assertion is an
+  // acceptance decision. No private Result summary is returned.
+  const accepted=acceptedMetadata(await readAccepted(reference),reference);
+  const published=o.data;
+  if(!published||!equal(workNumber(published.workRef),accepted.workRef)
+      ||['taskId','resultId','acceptedDigest'].some(k=>published[k]!==accepted[k])){
+    fail('METHOD_STAGE_RESULT_OWNER_READBACK_INVALID','Published original Object and accepted owner disagree');
+  }
+  if(accepted.workRef.projectId!==projectId||accepted.workRef.workId!==projectId+'.'+predecessor.stepId){
+    fail('METHOD_STAGE_RESULT_WORK_MISMATCH','Selected Result belongs to another original Work');
+  }
+  return Object.freeze({stepId:predecessor.stepId,workRef:predecessor.workRef,reference,accepted,
+    state:accepted.workRef.revision===String(predecessor.workRef.revision)
+      ?'ACCEPTED_WORK_NUMBER_MATCHED_INPUT_BINDING_UNPROVEN':'ACCEPTED_OLDER_OR_OTHER_WORK_REVISION',
+    exactInputBindingProven:false});
+}
+export async function inspectWorkspaceMethodAgentPredecessorResults({
+  owner,readObject,readAccepted,workspaceId,projectId,expected,stepId,resultSelections=[]
+}={}){
+  if(typeof readAccepted!=='function')fail('METHOD_STAGE_RESULT_OWNER_REQUIRED','Original installed Agent accepted Result read port required');
+  const selected=selection(expected),selections=captureResultSelections(resultSelections,workspaceId);
+  const args={owner,readObject,workspaceId,projectId,expected:selected,stepId};
+  const initial=await readWorkspaceMethodStageInputBasis(args);
+  const byStep=new Map(initial.predecessors.map(row=>[row.stepId,row]));
+  if(selections.some(row=>!byStep.has(row.stepId))){
+    fail('METHOD_STAGE_RESULT_SELECTION_INVALID','Only direct declared predecessor Results may be selected');
+  }
+  const flags={atomicSnapshot:false,executionAuthority:false,resultReuseProven:false,writeAuthorized:false,
+    exactInputBindingProven:false,originalExecutionOwnerRequired:true};
+  if(initial.state!=='INPUT_REFERENCES_VERIFIED'){
+    return Object.freeze({state:'MATERIAL_REVIEW_REQUIRED',stageInput:initial,results:Object.freeze([]),...flags});
+  }
+  const bySelection=new Map(selections.map(row=>[row.stepId,row.reference]));
+  const observe=()=>Promise.all(initial.predecessors.map(predecessor=>{
+    const reference=bySelection.get(predecessor.stepId);
+    return reference?observeAgentResult({readObject,readAccepted,workspaceId,projectId,predecessor,reference})
+      :Object.freeze({stepId:predecessor.stepId,workRef:predecessor.workRef,reference:null,
+        accepted:null,state:'ORIGINAL_RESULT_OWNER_REQUIRED',exactInputBindingProven:false});
+  }));
+  const results=await observe();
+  const final=await readWorkspaceMethodStageInputBasis(args);
+  if(initial.inputBasisDigest!==final.inputBasisDigest||final.state!=='INPUT_REFERENCES_VERIFIED'){
+    fail('METHOD_STAGE_RESULT_BASIS_CHANGED','Exact Work/material basis changed during original Result readback');
+  }
+  const confirmed=await observe();
+  if(!equal(results,confirmed))fail('METHOD_STAGE_RESULT_CHANGED','Original accepted Result observation changed during inspection');
+  verifySelection(selected,await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId}));
+  const state=results.some(r=>['RESULT_UNAVAILABLE','RESULT_REVISION_CHANGED','ACCEPTED_OLDER_OR_OTHER_WORK_REVISION'].includes(r.state))
+    ?'PREDECESSOR_RESULT_REVIEW_REQUIRED':results.some(r=>r.state==='ORIGINAL_RESULT_OWNER_REQUIRED')
+      ?'PREDECESSOR_RESULTS_REQUIRED':results.length?'ACCEPTED_RESULTS_OBSERVED_INPUT_BINDING_UNPROVEN':'NO_PREDECESSOR_RESULTS_REQUIRED';
+  return Object.freeze({state,stageInput:final,results:Object.freeze(results),...flags});
+}

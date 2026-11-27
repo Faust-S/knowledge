@@ -12,6 +12,7 @@ import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { qualifyOriginalC3OwnerOnK036 } from "./qualify-k036-c3-original-owner.mjs";
 import { probeCurrentObjectHistoryCandidate } from "./probe-k036-current-object-history.mjs";
+import { probeAttachedHistoryCandidate } from "./probe-k036-attached-history.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const archive = join(root, "qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip");
@@ -50,7 +51,10 @@ const passport = (id, path, isWriter) => ({
     packages:{export:isWriter,import:isWriter,export_scope:"readable_objects",import_scope:"writable_objects"}
   }
 });
-const passports = [passport(writerId,"/writer/",true),passport(readerId,"/reader/",false)];
+const limitedExporterId="qualification.c3.limited-exporter";
+const limitedPassport=passport(limitedExporterId,"/limited-exporter/",false);
+limitedPassport.permissions.packages.export=true;
+const passports = [passport(writerId,"/writer/",true),passport(readerId,"/reader/",false),limitedPassport];
 const domain = {
   config_schema_version:"1.0.0",config_version:"1.1.0",status:"active",domain_id:"qualification.iwxa.test",
   origin,local_store_name:"iwxa-local",workspace_profile:"personal",brand:{name:"Qualification"},
@@ -327,7 +331,13 @@ try {
     openEmpty:async()=>{runtime.__resetKernelStoreForTests();globalThis.indexedDB=new IDBFactory();return {writer:await connect(),reader:await connect(readerId)};},
     schemaId:revisionSchema,schemaVersion:version,serviceId:writerId,check,same,expectReject});
   report.observations.currentObjectHistoryCandidate=currentObjectHistory.observations;
-  report.observations.originalOwner=await qualifyOriginalC3OwnerOnK036({client:currentObjectHistory.writer,
+  const attachedHistory=await probeAttachedHistoryCandidate({writer:currentObjectHistory.writer,reader:await connect(readerId),
+    limitedExporter:await connect(limitedExporterId),
+    openEmpty:async()=>{runtime.__resetKernelStoreForTests();globalThis.indexedDB=new IDBFactory();
+      return {writer:await connect(),reader:await connect(readerId),limitedExporter:await connect(limitedExporterId)};},
+    schemaId:revisionSchema,schemaVersion:version,check,same,expectReject});
+  report.observations.attachedHistoryCandidate=attachedHistory.observations;
+  report.observations.originalOwner=await qualifyOriginalC3OwnerOnK036({client:attachedHistory.writer,
     openEmpty:async()=>{runtime.__resetKernelStoreForTests();globalThis.indexedDB=new IDBFactory();return connect();},
     anchorSchema,revisionSchema,schemaVersion:version,serviceId:writerId,check,same,expectReject});
   report.status="PASS_PRIMITIVES_AND_OWNER_FIXTURE_ONLY";

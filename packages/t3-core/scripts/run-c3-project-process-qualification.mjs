@@ -47,7 +47,8 @@ function runCurrentNativeSourceTests(){
     'tests/c3-workspace-method-source-lifecycle.test.mjs',
     'tests/c3-workspace-method-comparison.test.mjs',
     'tests/c3-workspace-method-revision-apply.test.mjs',
-    'tests/c3-workspace-method-stage-input.test.mjs'],
+    'tests/c3-workspace-method-stage-input.test.mjs',
+    'tests/c3-workspace-method-stage-results.test.mjs'],
     {cwd:root,encoding:'utf8',maxBuffer:12*1024*1024});
   process.stdout.write(tests.stdout??'');process.stderr.write(tests.stderr??'');
   if(tests.error||tests.status!==0)throw new Error('C3_CURRENT_NATIVE_SOURCE_TESTS_FAILED');
