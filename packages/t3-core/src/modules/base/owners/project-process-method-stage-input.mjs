@@ -361,11 +361,11 @@ export async function inspectWorkspaceMethodAgentPredecessorResults(input={}){
   return inspectStageResults(input,null);
 }
 async function inspectStageResults({
-  owner,readObject,readAccepted,workspaceId,projectId,expected,stepId,resultSelections=[]
+  owner,readObject,readAccepted,workspaceId,projectId,expected,stepId,resultSelections=[],selectedClosureOnly=false
 },nativeRequest,materialRequest=null){
   const selected=selection(expected),selections=captureResultSelections(resultSelections,workspaceId);
   if(selections.length&&typeof readAccepted!=='function')fail('METHOD_STAGE_RESULT_OWNER_REQUIRED','Original installed Agent accepted Result read port required');
-  const args={owner,readObject,workspaceId,projectId,expected:selected,stepId};
+  const args={owner,readObject,workspaceId,projectId,expected:selected,stepId,selectedClosureOnly};
   const observation=await openStageInputObservation(args),initial=observation.report;
   if(materialRequest?.draftCapture&&(initial.basis.intendedActor!=='agent'||initial.predecessors.length!==0)){
     fail(materialRequest.corporateInput?'METHOD_CORPORATE_TASK_ROOT_AGENT_REQUIRED':'METHOD_PERSONAL_DRAFT_ROOT_AGENT_REQUIRED','This original text composer route requires a root Agent Work; native predecessor content and program execution are separate');
