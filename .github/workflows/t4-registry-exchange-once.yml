@@ -1,0 +1,26 @@
+name: T4 original Registry Exchange qualification
+on:
+  push:
+    branches:
+      - 'ci/once/t4-registry-exchange/aa3e2acc6595'
+permissions:
+  contents: read
+jobs:
+  registry-exchange:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: aa3e2acc6595258d44bc68f6492f6ce3963c5166
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Original Registry, Exchange and employee regression
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "aa3e2acc6595258d44bc68f6492f6ce3963c5166"
+          test "$(git rev-parse HEAD^{tree})" = "b56e341b8481a5ef412ec117d1d21a6b4290225e"
+          node --check packages/t3-core/src/t3/access/original-kernel-registry-state.mjs
+          node --test packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs
