@@ -2808,7 +2808,23 @@
               "target_scope": "writable_objects",
               "diagnosis": "The restricted integration fixture is not the original universal Workspace owner; its denial of foreign authors is correct. Delivery configuration, not Kernel or Exchange defect."
             },
-            "next": "REUSE_EXACT_RC6_PLATFORM_MATERIALIZE_ORIGINAL_TRUSTED_WORKSPACE_PASSPORT_NO_KERNEL_OR_PRODUCT_CHANGE"
+            "next": "REUSE_EXACT_RC6_PLATFORM_MATERIALIZE_ORIGINAL_TRUSTED_WORKSPACE_PASSPORT_NO_KERNEL_OR_PRODUCT_CHANGE",
+            "owner_delivery": {
+              "run": 46050260479,
+              "prepared_commit": "85ac78b4df64955cd99557c4d69b66cbc20b3b51",
+              "request_commit": "3c8c27db1972d651102aec6f58a8404cf68ab5db",
+              "delivery_revision": "4da9c4fe43694b3884123f316dce5f166106eee1",
+              "status": "IN_PROGRESS",
+              "source_commit": "3e8c40fc5a80866f32f4547f1780ebef525c964c",
+              "platform_artifact": 15222879527,
+              "original_workspace_service": "iwxa.integration.workspace",
+              "original_scope": "workspace",
+              "no_rebuild": true,
+              "product_source_unchanged": true,
+              "restricted_service_permissions_unchanged": true,
+              "local_browser": "BLOCKED_BY_ADMINISTRATOR_IN_CONTAINER_NOT_PRODUCT_FAILURE",
+              "remaining": "full history restore and cold offline readback"
+            }
           }
         }
       },
