@@ -1,0 +1,10 @@
+{
+  "preparedSha": "af164b19eb231be5c8a1b0b5896a7e9b17b9f44d",
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-rc5-delivered-hardware",
+  "source": "a50d40dafc2e029fcc7668dece925f7fc38cc510",
+  "releaseTag": "t3-platform-v0.3.1-rc.5",
+  "archiveSha256": "381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4",
+  "model": "Qwen2.5-0.5B-Instruct-q4f32_1-MLC",
+  "reason": "QUALIFY_ONLY_MISSING_REAL_HARDWARE_AND_COLD_OFFLINE_GENERATION_FROM_PUBLISHED_ARCHIVE"
+}
