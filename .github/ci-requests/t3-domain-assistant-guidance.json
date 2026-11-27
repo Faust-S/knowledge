@@ -1,0 +1,10 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-domain-assistant-guidance",
+  "preparedSha": "51439e7f0a83e62cfb63d494a43429250b13986f",
+  "originalAssistant": "ba138de6cf40ec61951d0ac98d340bf50332b49f",
+  "cehovodSite": "e8c4ccaa9fdc3a7c03264c9784adad1967fc9992",
+  "canonicalSubject": "6852d55ae8e7100b480b2d5c0a10b92de1c7d467",
+  "retainedPlatformArtifact": 15227050568,
+  "scope": "EXISTING_SOURCE_AND_NATIVE_USER_ROUTE_WITH_FIELD_AND_RESULT_EXPLANATIONS"
+}
