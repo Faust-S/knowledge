@@ -1,4 +1,4 @@
-name: D09 HOP regression after capture-time correction
+name: D09 HOP session isolation and native package regression
 on:
   push:
     branches: ['ci/once/d09-hop-regression-triage/**']
@@ -18,8 +18,8 @@ jobs:
       matrix:
         include:
           - lane: corrected
-            sha: fd644c1b7cce1724d09d604de70b8c42a10b1f91
-            tree: 33ff618abb8607c42bf92c81b82ffa7853dd750e
+            sha: d2bc8aaacc85132da27df2291200ca37779a4edb
+            tree: aa7672f357bfb3dabd99260814fcb5a6d3c524df
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
     steps:
@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable source comparison
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-regression-triage --profile hop-regression-node24 --revision site=fd644c1b7cce1724d09d604de70b8c42a10b1f91 --revision subject=0236cd93fa220ba11ab669d1b7eaa11b35762892
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-regression-triage --profile hop-regression-node24 --revision site=d2bc8aaacc85132da27df2291200ca37779a4edb --revision subject=e5d5e898098bce5079784bab73d462db048a8401
       - name: Checkout exact site source
         uses: actions/checkout@v4
         with:
