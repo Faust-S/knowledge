@@ -2,7 +2,7 @@ import { useEffect,useMemo,useRef,useState } from "react";
 import type { ObjectRecord } from "../../../../kernel-client/contracts/runtime-1.3.0";
 import type { WorkspaceMethodReaderSelection,WorkspaceMethodStageReader,WorkspaceMethodInputOverview,
   WorkspaceMethodPublishedResultRef,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,
-  WorkspaceMethodOverviewStage } from "../../../../t3/workspace-method-stage-reader.mjs";
+  WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence } from "../../../../t3/workspace-method-stage-reader.mjs";
 
 /** Trusted Host supplies this selection only after original source readback.
  * contextEpoch changes on subject/grant/session changes. Never derive it or
@@ -60,7 +60,8 @@ function materialCatalogKey(report:WorkspaceMethodInputOverview,objects:readonly
     .map(row=>[row.object_id,row.schema_id,row.schema_version,row.revision,!!row.deleted,row.deleted_at??null])
     .sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
 }
-type Detail = {kind:"handoff";value:WorkspaceMethodHandoffPreview}|{kind:"native";value:WorkspaceMethodNativeInspection};
+type Detail = {kind:"handoff";value:WorkspaceMethodHandoffPreview}|{kind:"native";value:WorkspaceMethodNativeInspection}
+  |{kind:"material";value:WorkspaceMethodMaterialEvidence};
 function bindingKey(binding:WorkspaceMethodWorkflowBinding){
   return JSON.stringify([binding.contextEpoch,binding.workspaceId,binding.projectId,binding.expected.projectRef,
     [...binding.expected.workRefs].sort((a,b)=>a.objectId.localeCompare(b.objectId))]);
@@ -141,15 +142,17 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     }catch(err){if(sequence.current===epoch&&liveReader.current===reader)setError(message(err));}
     finally{if(sequence.current===epoch&&liveReader.current===reader)setBusy(false);}
   };
-  const inspect=async(mode:"handoff"|"preview"|"recover")=>{
-    if(!stage||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED")return;
-    if(mode!=="handoff"&&!resultSelections.some(row=>row.stepId===nativeStep))return;
+  const inspect=async(mode:"handoff"|"preview"|"recover"|"material")=>{
+    if(!stage||stage.state==="MATERIAL_REVIEW_REQUIRED"||(mode!=="material"&&duplicateResults))return;
+    if((mode==="preview"||mode==="recover")&&!resultSelections.some(row=>row.stepId===nativeStep))return;
+    if(mode==="material"&&typeof reader.inspectMaterialEvidence!=="function")return;
     const epoch=++sequence.current,key=detailKey;
     setBusy(true);setError("");setDetail(null);
     const stillCurrent=()=>sequence.current===epoch&&liveReader.current===reader&&liveDetailKey.current===key;
     const args={...request,stepId:stage.stepId,resultSelections};
     try{
       const report:Detail=mode==="handoff"?{kind:"handoff",value:await reader.previewHandoff(args)}:
+        mode==="material"?{kind:"material",value:await reader.inspectMaterialEvidence!({...args,resultSelections:[]})}:
         {kind:"native",value:await (mode==="preview"?reader.previewContinuation({...args,predecessorStepId:nativeStep}):
           reader.recoverContinuation({...args,predecessorStepId:nativeStep}))};
       if(!stillCurrent())return;
@@ -159,6 +162,12 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
           ||!sameRef(basis.stageRef,stage.workRef)||value.executionAuthority!==false||value.writeAuthorized!==false
           ||report.value.dispatchAuthorized!==false||value.stageInput.inputBasisDigest!==stage.inputBasisDigest)
         throw Object.assign(Error("invalid"),{code:"METHOD_SOURCE_MISMATCH"});
+      if(report.kind==="material"&&(report.value.schema!=="IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1"
+          ||report.value.allAssetsProven!==false||report.value.contentBindingProven!==false
+          ||report.value.exactInputBindingProven!==false||report.value.atomicSnapshot!==false
+          ||report.value.state!=="VISIBLE_MATERIAL_CONTENT_OBSERVED"
+          ||!report.value.observation||!report.value.materialEvidenceDigest))
+        throw Object.assign(Error("invalid"),{code:"METHOD_MATERIAL_EVIDENCE_MISMATCH"});
       if(report.kind==="native"&&report.value.nativeContinuation){
         const native=report.value.nativeContinuation;
         const selected=resultSelections.find(row=>row.stepId===nativeStep)?.reference;
@@ -209,8 +218,12 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
             </label>)}
           </div>}
           {duplicateResults&&<p role="alert" className="text-xs text-amber-200">Один результат нельзя назначить нескольким предшественникам.</p>}
-          <button type="button" className={button} disabled={busy||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED"}
-            onClick={()=>void inspect("handoff")}>Подготовить передачу</button>
+          <div className="flex flex-wrap gap-2">
+            {reader.inspectMaterialEvidence&&<button type="button" className={button} disabled={busy||stage.state==="MATERIAL_REVIEW_REQUIRED"}
+              onClick={()=>void inspect("material")}>Проверить содержимое и вложения</button>}
+            <button type="button" className={button} disabled={busy||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED"}
+              onClick={()=>void inspect("handoff")}>Подготовить передачу</button>
+          </div>
           {binding.nativeRecipientLabel&&stage.directPredecessorStepIds.length>0&&<div className="space-y-2">
             <label className="block text-xs text-slate-300">Предшественник для проверки передачи
               <select className="block mt-1 w-full min-h-[44px] border border-slate-700 rounded bg-slate-950 p-2"
@@ -228,6 +241,11 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
           </div>}
         </div>}
       </div>
+      {visibleDetail?.kind==="material"&&visibleDetail.value.observation&&<div className="space-y-1 rounded border border-slate-800 p-2 text-xs" data-testid="workflow-material-evidence">
+        <p className="text-slate-200">Содержимое доступных материалов и вложений прочитано повторно.</p>
+        <p className="text-slate-300">Материалов: {visibleDetail.value.observation.counts.materials}. Вложений: {visibleDetail.value.observation.counts.assets}.</p>
+        <p className="text-slate-400">Полнота состава и привязка содержимого к задаче требуют подтверждения оригинального владельца.</p>
+      </div>}
       {visibleDetail?.kind==="handoff"&&<div className="space-y-1 rounded border border-slate-800 p-2 text-xs" data-testid="workflow-handoff-preview">
         <p className="text-slate-200">{handoffStates[visibleDetail.value.state]??"Требуется проверка оригинального владельца."}</p>
         {visibleDetail.value.candidateDigest&&<p className="text-slate-400">Состав передачи зафиксирован для проверки.</p>}

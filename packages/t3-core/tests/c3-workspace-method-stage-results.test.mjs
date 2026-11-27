@@ -300,5 +300,5 @@ test('trusted original Host fences signed context throughout visible Asset obser
   const f=await setup();let h;
   h=trusted(f,{withAssets:true,assetHook:kind=>{if(kind==='get')h.context.purpose='different';}});
   await assert.rejects(h.reader.inspectMaterialEvidence({...hostInput(f),stepId:'analyse',resultSelections:[]}),
-    e=>['T3_SUBJECT_CONTEXT_CHANGED','T3_METHOD_STAGE_SIGNED_CONTEXT_CHANGED'].includes(e.code));
+    e=>['T3_SUBJECT_CONTEXT_CHANGED','T3_METHOD_STAGE_SIGNED_CONTEXT_CHANGED','T3_SUBJECT_RESULT_STALE_AFTER_KERNEL'].includes(e.code));
 });

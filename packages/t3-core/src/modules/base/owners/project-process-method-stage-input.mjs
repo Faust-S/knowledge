@@ -204,6 +204,9 @@ async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,works
       seenAssets.add(asset.asset_id);
       budget.assetBytes+=asset.size;
       if(budget.assetBytes>limits.assetBytes)fail('METHOD_MATERIAL_EVIDENCE_BUDGET_EXCEEDED','Visible Asset bytes exceed the observation bound');
+    }
+    // Validate the entire addressed listing before reading attachment bytes.
+    for(const asset of metadata){
       const actual=await getAsset(workspaceId,asset.asset_id);
       if(!actual||!equal(assetMetadata(actual.asset,workspaceId,selected.object_id),asset)
           ||!(actual.bytes instanceof Uint8Array)||actual.bytes.byteLength!==asset.size){

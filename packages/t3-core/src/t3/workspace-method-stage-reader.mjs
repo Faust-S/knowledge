@@ -89,6 +89,7 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
         const assetPort=async operation=>{
           check(kernel.hasOperation(operation)===true,'T3_METHOD_STAGE_ASSET_READ_REQUIRED');
           const original=await guarded(()=>accessForRead(operation));
+          check(original&&typeof original.currentContext==='function','T3_METHOD_STAGE_SIGNED_OWNER_REQUIRED');
           const matches=async()=>check(canonicalStringify(await original.currentContext())===identity,
             'T3_METHOD_STAGE_SIGNED_CONTEXT_CHANGED');
           await guarded(matches);

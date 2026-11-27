@@ -5,7 +5,7 @@ import type { EventRecord, ObjectRecord, WorkspaceRecord } from "../src/kernel-c
 import type { WorkspaceProfileDefinition } from "../src/profiles/definition";
 import { RichWorkspaceReadModel } from "../src/modules/base/features/workspace/RichWorkspaceReadModel";
 import { WorkspaceMethodWorkflowPanel,type WorkspaceMethodWorkflowBinding } from "../src/modules/base/features/workspace/WorkspaceMethodWorkflowPanel";
-import type { WorkspaceMethodInputOverview,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,WorkspaceMethodStageInspection,WorkspaceMethodStageReader } from "../src/t3/workspace-method-stage-reader.mjs";
+import type { WorkspaceMethodInputOverview,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,WorkspaceMethodStageInspection,WorkspaceMethodStageReader,WorkspaceMethodMaterialEvidence } from "../src/t3/workspace-method-stage-reader.mjs";
 
 const profile: WorkspaceProfileDefinition = {
   id: "generic",
@@ -484,6 +484,28 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     fireEvent.click(screen.getByRole("button",{name:"Проверить квитанцию"}));
     await screen.findByRole("alert");
     expect(screen.queryByTestId("workflow-native-receipt")).toBeNull();
+  });
+
+  it("explicitly verifies visible material content without selecting a predecessor or dispatching a task",async()=>{
+    const f=fixture();
+    const inspectMaterialEvidence=vi.fn(async():Promise<WorkspaceMethodMaterialEvidence>=>({
+      schema:"IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1",state:"VISIBLE_MATERIAL_CONTENT_OBSERVED",
+      stageInput:makeInspection("review").stageInput,materialEvidenceDigest:"c".repeat(64),
+      observation:{materials:[{private:"private fixture body"}],counts:{materials:1,assets:2,assetBytes:5,canonicalBytes:9}},
+      atomicSnapshot:false,allAssetsProven:false,contentBindingProven:false,exactInputBindingProven:false,
+      writeAuthorized:false,executionAuthority:false,resultReuseProven:false,dispatchAuthorized:false}));
+    const binding={...f.binding,reader:{...f.binding.reader,inspectMaterialEvidence}};
+    render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:/Проверка результатов/}));
+    fireEvent.click(screen.getByRole("button",{name:"Проверить содержимое и вложения"}));
+    await screen.findByTestId("workflow-material-evidence");
+    expect(screen.getByText("Материалов: 1. Вложений: 2.")).toBeTruthy();
+    expect(screen.queryByText(/private fixture body/)).toBeNull();
+    expect(inspectMaterialEvidence).toHaveBeenCalledWith({workspaceId:"w",projectId:"research",expected:f.binding.expected,
+      stepId:"review",resultSelections:[]});
+    expect(f.previewHandoff).not.toHaveBeenCalled();expect(f.recoverContinuation).not.toHaveBeenCalled();
   });
 
 });

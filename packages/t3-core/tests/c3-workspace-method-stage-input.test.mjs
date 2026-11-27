@@ -307,3 +307,13 @@ test('content evidence never reads Assets for stale material refs or bypasses mi
   await assert.rejects(inspectWorkspaceMethodMaterialEvidence({...e.args,getAsset:undefined}),code('METHOD_MATERIAL_ASSET_OWNER_REQUIRED'));
   await assert.rejects(inspectWorkspaceMethodMaterialEvidence({...e.args,listAssets:async()=>{throw Object.assign(Error('denied'),{code:'PERMISSION_DENIED'});}}),code('PERMISSION_DENIED'));
 });
+
+test('content observation rejects same-revision body changes during Asset reads and unsupported payloads',async()=>{
+  const f=await setup(),e=evidenceFixture(f);let changed=false;
+  await assert.rejects(inspectWorkspaceMethodMaterialEvidence({...e.args,
+    readObject:async(w,id)=>{const r=await e.args.readObject(w,id);return changed&&id==='source'?{object:{...r.object,data:{value:1.25}}}:r;},
+    getAsset:async()=>{changed=true;return {asset:e.asset,bytes:e.bytes};}}),code('METHOD_MATERIAL_CONTENT_CHANGED'));
+  await assert.rejects(inspectWorkspaceMethodMaterialEvidence({...e.args,readObject:async(w,id)=>{
+    const r=await e.args.readObject(w,id);return {object:{...r.object,data:{unsupported:undefined}}};
+  }}),code('METHOD_MATERIAL_CONTENT_UNSUPPORTED'));
+});
