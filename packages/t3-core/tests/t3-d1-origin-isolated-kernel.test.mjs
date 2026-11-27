@@ -180,3 +180,60 @@ test('native D3 APPLY losing the isolated port is UNKNOWN and never replayed',as
     assert.equal(calls,1);
   }finally{client.close();receiver.close();}
 });
+
+
+test('production signed MessagePort accepts a 31-second native read without replay',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const ch=new MessageChannel();
+  let entered,release,calls=0,settled=false;
+  const started=new Promise(resolve=>{entered=resolve;});
+  const gate=new Promise(resolve=>{release=resolve;});
+  const receiver=bindSignedOriginalKernelPort({
+    port:ch.port1,isActive:()=>true,
+    createSignedFacade:()=>Object.freeze({
+      async getWorkspace(ws){calls++;entered();await gate;return {workspace_id:ws};},
+    }),
+  });
+  // No test-only timeout override: this is the installed default.
+  const client=createIsolatedKernelClient({port:ch.port2});
+  try{
+    const pending=client.invoke('getWorkspace',id);
+    // Attach a rejection handler before advancing the clock so a regression
+    // to the old timeout is reported by the assertion, not an unhandled rejection.
+    pending.then(()=>{settled=true;},()=>{settled=true;});
+    await started;
+    t.mock.timers.tick(31000);
+    await Promise.resolve();
+    assert.equal(settled,false,'signed read was discarded before its native receipt');
+    release();
+    assert.deepEqual(await pending,{workspace_id:id});
+    assert.equal(calls,1);
+  }finally{release();client.close();receiver.close();}
+});
+
+test('explicit signed deadline remains bounded and never replays a late write',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const ch=new MessageChannel();
+  let entered,release,calls=0;
+  const started=new Promise(resolve=>{entered=resolve;});
+  const gate=new Promise(resolve=>{release=resolve;});
+  const receiver=bindSignedOriginalKernelPort({
+    port:ch.port1,isActive:()=>true,
+    createSignedFacade:()=>Object.freeze({
+      async createWorkspace(input){calls++;entered();await gate;return input;},
+    }),
+  });
+  const client=createIsolatedKernelClient({port:ch.port2,timeoutMs:200});
+  try{
+    const pending=client.invoke('createWorkspace',{workspace_id:id,profile:'generic'});
+    const rejected=assert.rejects(pending,{code:'T3_D1_ISOLATED_KERNEL_TIMEOUT'});
+    await started;
+    t.mock.timers.tick(200);
+    await rejected;
+    release();
+    // A separate verified read is needed after a lost write acknowledgement.
+    // The port itself does not dispatch any retry.
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(calls,1);
+  }finally{release();client.close();receiver.close();}
+});

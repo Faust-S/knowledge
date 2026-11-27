@@ -444,3 +444,72 @@ test("D7 signed PERSON STATUS refuses alien holder, product, invented scope and 
     assert.equal(f.applies(),0);
   }
 });
+
+test("D7 accepts original corporate STATUS/3 only for the independently installed organization holder",async()=>{
+  const f=fixture();
+  f.nativeHolder.currentSubject=async()=>({
+    holderId:"holder:windows:factory",recipientId:"org:factory",
+    subjectType:"ORGANIZATION",bindingEpoch:"epoch:1"
+  });
+  const existing=f.nativeHolder.inspect;
+  f.nativeHolder.inspect=async input=>({
+    ...(await existing(input)),
+    holderId:"holder:windows:factory",recipientId:"org:factory",
+    ...(input.kind==="STATUS"?{
+      statusSchema:"IWXA_T3_PRODUCT_LICENSE_STATUS/3",
+      statusPayloadDigest:"d".repeat(64),
+      organizationId:"org:factory",productId:"IWXA_ADMIN_CENTER",
+      statusState:"ACTIVE",sequence:7,
+      statusValidUntil:"2026-12-01T00:00:00.000Z",
+      scope:undefined,entries:undefined,
+    }:{})
+  });
+  const preview=await f.create().preview({kind:"STATUS",archiveBytes:file()});
+  assert.equal(preview.statusFamily,"CORPORATE_PRODUCT_STATUS/3");
+  assert.equal(preview.productId,"IWXA_ADMIN_CENTER");
+  assert.equal(preview.statusState,"ACTIVE");
+  assert.equal(preview.entitlementActivated,false);
+  assert.equal(preview.dataAccessAuthorized,false);
+  // A changed organization cannot repurpose the same signed corporate status.
+  const first=f.nativeHolder.inspect;
+  f.nativeHolder.inspect=async input=>({
+    ...(await first(input)),organizationId:"org:other"
+  });
+  await assert.rejects(f.create().preview({kind:"STATUS",archiveBytes:file()}),{
+    code:"T3_D7_CORPORATE_ORIGINAL_SIGNED_STATUS_REQUIRED"
+  });
+});
+test("D7 corporate STATUS/3 never accepts PERSON holder or TEST/1 status as production",async()=>{
+ const f=fixture();
+ f.nativeHolder.currentSubject=async()=>({
+   holderId:"holder:os:me",recipientId:"org:factory",
+   subjectType:"PERSON",bindingEpoch:"epoch:1"
+ });
+ const original=f.nativeHolder.inspect;
+ f.nativeHolder.inspect=async input=>({
+   ...(await original(input)),recipientId:"org:factory",
+   organizationId:"org:factory",
+   statusSchema:"IWXA_T3_PRODUCT_LICENSE_STATUS/3",
+   productId:"IWXA_ADMIN_CENTER",statusState:"ACTIVE",sequence:7,
+   statusValidUntil:"2026-12-01T00:00:00.000Z",
+   scope:undefined,entries:undefined
+ });
+ await assert.rejects(f.create().preview({kind:"STATUS",archiveBytes:file()}),{
+   code:"T3_D7_CORPORATE_ORIGINAL_SIGNED_STATUS_REQUIRED"
+ });
+ f.nativeHolder.currentSubject=async()=>({
+   holderId:"holder:windows:factory",recipientId:"org:factory",
+   subjectType:"ORGANIZATION",bindingEpoch:"epoch:1"
+ });
+ f.nativeHolder.inspect=async input=>({
+   ...(await original(input)),holderId:"holder:windows:factory",
+   recipientId:"org:factory",organizationId:"org:factory",
+   statusSchema:"IWXA_T3_PRODUCT_LICENSE_STATUS/1",
+   productId:"IWXA_ADMIN_CENTER",statusState:"ACTIVE",sequence:7,
+   statusValidUntil:"2026-12-01T00:00:00.000Z",
+   scope:undefined,entries:undefined
+ });
+ await assert.rejects(f.create().preview({kind:"STATUS",archiveBytes:file()}),{
+   code:"T3_D7_PUBLISHER_SIGNED_STATUS_REQUIRED"
+ });
+});

@@ -28,6 +28,8 @@ Check ($organizationId -cmatch '^[A-Za-z0-9_-]{1,100}$') 'G4_INSTALLED_COLD_ORGA
 $matches=@($draft.organizations|Where-Object {$_.id -ceq $organizationId})
 Check ($matches.Count -eq 1) 'G4_INSTALLED_COLD_ORGANIZATION_SELECTION_NOT_DURABLE'
 Check ($matches[0].name -ceq 'G4WindowsOrganization') 'G4_INSTALLED_COLD_ORGANIZATION_NAME_CHANGED'
+Check ($matches[0].kind -ceq 'ORGANIZATION') 'G4_INSTALLED_COLD_ORGANIZATION_KIND_INVALID'
+Write-Host 'G4_INSTALLED_COLD_CORPORATE_ORGANIZATION_KIND_PASS'
 $workspaces=@($matches[0].workspaces|Where-Object {$_.name -ceq 'G4CorporateWorkspace'})
 Check ($workspaces.Count -eq 1) 'G4_INSTALLED_COLD_WORKSPACE_SELECTION_NOT_DURABLE'
 $workspaceId=[string]$workspaces[0].id

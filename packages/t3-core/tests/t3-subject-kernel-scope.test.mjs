@@ -607,3 +607,73 @@ test("async native owner can consume each original Kernel purge/import token onl
     "T3_SUBJECT_IMPORT_PREVIEW_REQUIRED");
   assert.equal(f.calls.filter(x=>x[0]==="importCommit").length,1);
 });
+
+test("original Host retains one import preview across independently selected method ports",async()=>{
+  const f=fixture(),session=Object.freeze({});
+  for(const op of ["t2.importPreview","t2.importCommit","t2.importCancel"])f.allowed.add(op);
+  const dg="c".repeat(64);
+  let serial=0;
+  f.kernel.importPreview=async bytes=>{
+    f.calls.push(["importPreview",bytes]);
+    return {preview_token:"token:host:"+(++serial),package_digest:dg,
+      expires_at:new Date(now+60000).toISOString(),allowed_modes:["merge"],
+      preview:{package_digest:dg,manifest:{workspaces:[ws]},
+        workspaces:[{workspace_id:ws}],objects:[],conflicts:[]}};
+  };
+  f.kernel.importCommit=async input=>{f.calls.push(["importCommit",input]);
+    return {package_digest:dg,mode:"merge",workspace_id_map:{[ws]:ws},
+      skipped_conflicts:[]};};
+  f.kernel.importCancel=async token=>{f.calls.push(["importCancel",token]);return true;};
+  const port=(previewSession=session)=>createSubjectKernelBinding({
+    kernel:f.kernel,access:{...f.owner},clock:()=>now,previewSession});
+  const preview=await port().importPreview(Uint8Array.from([1]));
+  const command={preview_token:preview.preview_token,package_digest:dg,
+    plan:{mode:"merge",target_workspace:ws}};
+  await assert.rejects(port({}).importCommit(command),{code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
+  assert.equal((await port().importCommit(command)).package_digest,dg);
+  await assert.rejects(port().importCommit(command),{code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
+  const cancel=await port().importPreview(Uint8Array.from([2]));
+  assert.equal(await port().importCancel(cancel.preview_token),true);
+  await assert.rejects(port().importCommit({...command,preview_token:cancel.preview_token}),
+    {code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
+  const stale=await port().importPreview(Uint8Array.from([3]));
+  f.context.scope_revision++;
+  await assert.rejects(port().importCommit({...command,preview_token:stale.preview_token}),
+    {code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
+  assert.equal(f.calls.filter(x=>x[0]==="importCommit").length,1);
+});
+test("late original preview response never replaces a more recent Host preview",async()=>{
+  const f=fixture(),session=Object.freeze({});
+  f.allowed.add("t2.importPreview");f.allowed.add("t2.importCommit");
+  const dg="d".repeat(64);
+  let release,notify;
+  const entered=new Promise(resolve=>{notify=resolve;});
+  const make=token=>({preview_token:token,package_digest:dg,
+    expires_at:new Date(now+60000).toISOString(),allowed_modes:["merge"],
+    preview:{package_digest:dg,manifest:{workspaces:[ws]},
+      workspaces:[{workspace_id:ws}],objects:[],conflicts:[]}});
+  f.kernel.importPreview=async bytes=>{
+    if(bytes[0]===1){
+      await new Promise(resolve=>{release=resolve;notify();});
+      return make("token:older");
+    }
+    return make("token:newer");
+  };
+  f.kernel.importCommit=async input=>{f.calls.push(["importCommit",input]);
+    return {package_digest:dg,mode:"merge",workspace_id_map:{[ws]:ws},
+      skipped_conflicts:[]};};
+  const port=()=>createSubjectKernelBinding({kernel:f.kernel,access:{...f.owner},
+    clock:()=>now,previewSession:session});
+  const older=port().importPreview(Uint8Array.from([1]));
+  // Attach rejection observer before releasing the delayed original parser.
+  const oldResult=assert.rejects(older,{code:"T3_SUBJECT_IMPORT_PREVIEW_SUPERSEDED"});
+  await entered;
+  const newer=await port().importPreview(Uint8Array.from([2]));
+  release();await oldResult;
+  await assert.rejects(port().importCommit({preview_token:"token:older",
+    package_digest:dg,plan:{mode:"merge",target_workspace:ws}}),
+    {code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
+  assert.equal((await port().importCommit({preview_token:newer.preview_token,
+    package_digest:dg,plan:{mode:"merge",target_workspace:ws}})).package_digest,dg);
+  assert.equal(f.calls.filter(x=>x[0]==="importCommit").length,1);
+});

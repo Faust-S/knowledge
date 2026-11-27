@@ -40,7 +40,16 @@ export function WorkspaceRelationIndex(props: {
   onOpenObject: (workspaceId: string, objectId: string) => void;
 }) {
   const { kernel, workspaceId, objects, enabled, onOpenObject } = props;
-  const controller = useWorkspaceRelationIndex({ kernel, workspaceId, objects, enabled });
+  const [sourceState, setSourceState] = useState<{
+    kernel: KernelFacade; workspaceId: string; input: string; query: string; page: number;
+  } | null>(null);
+  const sourceView = sourceState?.kernel === kernel && sourceState.workspaceId === workspaceId
+    ? sourceState : { kernel, workspaceId, input: "", query: "", page: 0 };
+  const controller = useWorkspaceRelationIndex({
+    kernel, workspaceId, objects, enabled, sourceQuery: sourceView.query, sourcePage: sourceView.page,
+  });
+  const sourceSelection = controller.sourceSelection;
+  useEffect(() => { setSourceState(null); }, [kernel, workspaceId]);
   const [preset, setPreset] = useState<RelationIndexPreset>("all");
   const [kind, setKind] = useState("");
   const [focusedObjectId, setFocusedObjectId] = useState("");
@@ -70,12 +79,23 @@ export function WorkspaceRelationIndex(props: {
     [controller.model, activeKind, preset],
   );
 
+  // Include requested sources and endpoints of observed relations. For a
+  // partial source window, do not label unrelated out-of-window objects as isolated.
+  const graphObjects = useMemo(() => {
+    const ids = new Set(sourceSelection.objects.map(object => object.object_id));
+    for (const entry of projected) {
+      ids.add(entry.relation.from_object_id);
+      ids.add(entry.relation.to_object_id);
+    }
+    return objects.filter(object => object.workspace_id === workspaceId && !object.deleted && ids.has(object.object_id));
+  }, [objects, projected, sourceSelection, workspaceId]);
+
   const focusOptions = useMemo(
     () =>
       preset === "project-process-result"
-        ? buildProjectProcessResultFocusOptions(projected, objects)
+        ? buildProjectProcessResultFocusOptions(projected, graphObjects)
         : [],
-    [objects, preset, projected],
+    [graphObjects, preset, projected],
   );
 
   useEffect(() => {
@@ -133,17 +153,17 @@ export function WorkspaceRelationIndex(props: {
   const projectProcessOverview = useMemo(
     () =>
       preset === "project-process-result"
-        ? buildProjectProcessResultOverview(projected, objects)
+        ? buildProjectProcessResultOverview(projected, graphObjects)
         : null,
-    [objects, preset, projected],
+    [graphObjects, preset, projected],
   );
 
   const projectProcessConnectivity = useMemo(
     () =>
       preset === "project-process-result"
-        ? buildProjectProcessResultConnectivity(projected, objects, focusedObjectId || null)
+        ? buildProjectProcessResultConnectivity(projected, graphObjects, focusedObjectId || null)
         : null,
-    [focusedObjectId, objects, preset, projected],
+    [focusedObjectId, graphObjects, preset, projected],
   );
 
   const focusedObject = useMemo(
@@ -157,17 +177,63 @@ export function WorkspaceRelationIndex(props: {
   const focusedContext = useMemo(
     () =>
       preset === "project-process-result"
-        ? buildProjectProcessResultContext(projected, objects, focusedObjectId || null)
+        ? buildProjectProcessResultContext(projected, graphObjects, focusedObjectId || null)
         : null,
-    [focusedObjectId, objects, preset, projected],
+    [focusedObjectId, graphObjects, preset, projected],
   );
 
   const focusedPath = useMemo(
     () =>
       preset === "project-process-result" && focusedObjectId && pathTargetObjectId
-        ? findProjectProcessResultShortestPath(projected, objects, focusedObjectId, pathTargetObjectId)
+        ? findProjectProcessResultShortestPath(projected, graphObjects, focusedObjectId, pathTargetObjectId)
         : null,
-    [focusedObjectId, objects, pathTargetObjectId, preset, projected],
+    [focusedObjectId, graphObjects, pathTargetObjectId, preset, projected],
+  );
+
+  const loading = controller.state === "loading";
+  const changeSources = (query: string, page: number) => {
+    setSourceState({ ...sourceView, query, page });
+    setKind("");
+    setFocusedObjectId("");
+    setFocusHistory([]);
+    setPathTargetObjectId("");
+  };
+  const sourceControls = (
+    <div className="space-y-2" data-testid="relation-index-source-controls">
+      <form className="flex flex-wrap items-end gap-2" onSubmit={event => {
+        event.preventDefault();
+        if (!loading) changeSources(sourceView.input.trim(), 0);
+      }}>
+        <label className="text-xs text-slate-400 flex flex-col gap-1 flex-1 min-w-0">
+          Идентификатор или тип источника
+          <input value={sourceView.input} onChange={event => setSourceState({...sourceView, input:event.target.value})}
+            maxLength={256} data-testid="relation-index-source-query"
+            className="min-w-0 bg-slate-900 border border-slate-700 rounded px-2 py-1 min-h-[44px]" />
+        </label>
+        <button type="submit" disabled={loading} data-testid="relation-index-source-apply"
+          className="px-3 py-1.5 text-xs rounded bg-slate-800 hover:bg-slate-700 min-h-[44px] disabled:opacity-50">Найти источники</button>
+        {sourceView.query && <button type="button" disabled={loading} data-testid="relation-index-source-reset"
+          onClick={() => {
+            setSourceState({kernel, workspaceId, input:"", query:"", page:0});
+            setKind(""); setFocusedObjectId(""); setFocusHistory([]); setPathTargetObjectId("");
+          }} className="px-3 py-1.5 text-xs rounded bg-slate-800 hover:bg-slate-700 min-h-[44px] disabled:opacity-50">Все источники</button>}
+      </form>
+      <nav aria-label="Страницы источников связей" className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+        <span data-testid="relation-index-source-window">
+          Источники {sourceSelection.startIndex}–{sourceSelection.endIndex} из {sourceSelection.matchingCount}
+          {sourceSelection.matchingCount !== sourceSelection.totalCount ? ` (в каталоге ${sourceSelection.totalCount})` : ""}
+        </span>
+        {sourceSelection.totalPages > 1 && <>
+          <button type="button" disabled={loading || sourceSelection.page === 0}
+            data-testid="relation-index-source-prev" onClick={() => changeSources(sourceView.query, sourceSelection.page - 1)}
+            className="px-3 py-1 rounded bg-slate-800 min-h-[44px] disabled:opacity-50">Назад</button>
+          <span>Стр. {sourceSelection.page + 1} / {sourceSelection.totalPages}</span>
+          <button type="button" disabled={loading || sourceSelection.page + 1 >= sourceSelection.totalPages}
+            data-testid="relation-index-source-next" onClick={() => changeSources(sourceView.query, sourceSelection.page + 1)}
+            className="px-3 py-1 rounded bg-slate-800 min-h-[44px] disabled:opacity-50">Далее</button>
+        </>}
+      </nav>
+    </div>
   );
 
   if (!enabled || controller.state === "idle") return null;
@@ -175,7 +241,7 @@ export function WorkspaceRelationIndex(props: {
     return <section aria-labelledby="ws-relation-index" className="space-y-2" data-testid="workspace-relation-index-unavailable"><h4 id="ws-relation-index" className="text-sm font-medium text-slate-200">Индекс связей</h4><p className="text-xs text-slate-500">Детали связей не предоставлены ядром в текущем режиме.</p></section>;
   }
   if (controller.state === "loading" || !controller.model) {
-    return <section aria-labelledby="ws-relation-index" className="space-y-2" data-testid="workspace-relation-index-loading"><h4 id="ws-relation-index" className="text-sm font-medium text-slate-200">Индекс связей</h4><p className="text-xs text-slate-500">Построение индекса связей…</p></section>;
+    return <section aria-labelledby="ws-relation-index" className="space-y-2" data-testid="workspace-relation-index-loading"><h4 id="ws-relation-index" className="text-sm font-medium text-slate-200">Индекс связей</h4>{sourceControls}<p className="text-xs text-slate-500" role="status">Построение индекса связей…</p></section>;
   }
 
   const { model } = controller;
@@ -184,12 +250,14 @@ export function WorkspaceRelationIndex(props: {
   return (
     <section aria-labelledby="ws-relation-index" className="space-y-3" data-testid="workspace-relation-index">
       <div className="flex flex-wrap items-baseline gap-2"><h4 id="ws-relation-index" className="text-sm font-medium text-slate-200">Индекс связей</h4><span className="text-xs text-slate-500" data-testid="workspace-relation-index-count">{model.entries.length} проверенных связей</span></div>
-      {(model.isTruncated || diagnosticTotal > 0) && <div className="text-xs text-amber-200 border border-amber-800/60 rounded p-2 space-y-1" data-testid="workspace-relation-index-diagnostics">{model.isTruncated && <p>Индекс частичный: обработаны первые 100 объектов по стабильному идентификатору.</p>}{model.diagnostics.sourceLoadFailures > 0 && <p>Ошибок чтения источников: {model.diagnostics.sourceLoadFailures}</p>}{model.diagnostics.sourceMissing > 0 && <p>Отсутствующих источников: {model.diagnostics.sourceMissing}</p>}{model.diagnostics.sourceIdentityMismatches > 0 && <p>Несовпадений идентичности источника: {model.diagnostics.sourceIdentityMismatches}</p>}{model.diagnostics.rejectedRelations > 0 && <p>Отклонённых небезопасных/несогласованных связей: {model.diagnostics.rejectedRelations}</p>}{model.diagnostics.relationIdConflicts > 0 && <p>Конфликтующих relation_id: {model.diagnostics.relationIdConflicts}</p>}</div>}
+      {sourceControls}
+      {sourceSelection.matchingCount === 0 && <p className="text-xs text-slate-500" data-testid="relation-index-no-sources">Подходящих источников нет.</p>}
+      {(model.isTruncated || diagnosticTotal > 0) && <div className="text-xs text-amber-200 border border-amber-800/60 rounded p-2 space-y-1" data-testid="workspace-relation-index-diagnostics">{model.isTruncated && <p>Индекс частичный: прочитано {model.loadedSources} из {sourceSelection.totalCount} источников каталога. Отсутствие связи в этом срезе не означает её отсутствия в Workspace.</p>}{model.diagnostics.sourceLoadFailures > 0 && <p>Ошибок чтения источников: {model.diagnostics.sourceLoadFailures}</p>}{model.diagnostics.sourceMissing > 0 && <p>Отсутствующих источников: {model.diagnostics.sourceMissing}</p>}{model.diagnostics.sourceIdentityMismatches > 0 && <p>Несовпадений идентичности источника: {model.diagnostics.sourceIdentityMismatches}</p>}{model.diagnostics.rejectedRelations > 0 && <p>Отклонённых небезопасных/несогласованных связей: {model.diagnostics.rejectedRelations}</p>}{model.diagnostics.relationIdConflicts > 0 && <p>Конфликтующих relation_id: {model.diagnostics.relationIdConflicts}</p>}</div>}
       <div className="flex flex-wrap gap-2 items-center" aria-label="Производные представления связей">{PRESETS.map((item) => <button key={item.id} type="button" aria-pressed={preset === item.id} onClick={() => setPreset(item.id)} className="px-3 py-1.5 text-xs rounded bg-slate-800 hover:bg-slate-700 min-h-[44px]" data-testid={`relation-index-preset-${item.id}`}>{item.label}</button>)}<label className="text-xs text-slate-400 flex items-center gap-2">Тип связи<select value={activeKind} onChange={(event) => setKind(event.target.value)} className="bg-slate-900 border border-slate-700 rounded px-2 py-1 min-h-[44px]" data-testid="relation-index-kind-filter"><option value="">Все</option>{model.relationKinds.map((relationKind) => <option key={relationKind} value={relationKind}>{relationKind}</option>)}</select></label></div>
 
       {preset === "project-process-result" && projectProcessOverview && projectProcessConnectivity && (
         <div className="border border-slate-800 rounded p-3 space-y-3" data-testid="relation-index-project-process-overview">
-          <div className="flex flex-wrap gap-3 text-xs text-slate-300"><span>{projectProcessOverview.objectCount} объектов в контуре</span><span>{projectProcessOverview.edgeCount} canonical связей</span><span>{projectProcessOverview.connectedObjectCount} связанных</span><span>{projectProcessOverview.isolatedObjectCount} без canonical связей</span></div>
+          <div className="flex flex-wrap gap-3 text-xs text-slate-300"><span>{projectProcessOverview.objectCount} объектов в контуре</span><span>{projectProcessOverview.edgeCount} canonical связей</span><span>{projectProcessOverview.connectedObjectCount} связанных</span><span>{projectProcessOverview.isolatedObjectCount} {model.isTruncated || diagnosticTotal > 0 ? "без найденных связей в срезе" : "без canonical связей"}</span></div>
           <div className="flex flex-wrap gap-3 text-[11px] text-slate-400" data-testid="relation-index-project-process-connectivity-summary"><span>{projectProcessConnectivity.componentCount} structural component</span><span>{projectProcessConnectivity.connectedObjectCount} объектов в многовершинных компонентах</span><span>{projectProcessConnectivity.isolatedObjectCount} singleton-компонент</span></div>
           {projectProcessOverview.schemaCounts.length > 0 && <ul className="flex flex-wrap gap-1" aria-label="Типы объектов в контуре">{projectProcessOverview.schemaCounts.map((item) => <li key={item.schemaId} className="text-[11px] px-2 py-1 rounded bg-slate-900 text-slate-400"><code>{item.schemaId}</code> · {item.objectCount}</li>)}</ul>}
           {focusOptions.length > 0 && <label className="text-xs text-slate-400 flex flex-wrap items-center gap-2">Фокус на объекте<select value={focusedObjectId} onChange={(event) => chooseFocusedObject(event.target.value)} className="min-w-0 max-w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 min-h-[44px]" data-testid="relation-index-project-process-focus"><option value="">Весь контур</option>{focusOptions.map((option) => <option key={option.objectId} value={option.objectId}>{option.schemaId} · {option.objectId}</option>)}</select></label>}

@@ -5,6 +5,7 @@ import type {
 import type { CommitResult, OperationId } from "@/kernel-client/contracts/runtime-1.3.0";
 import { isSafeOpaqueId } from "@/shell/routing";
 import { MODULE_ID } from "./module-id";
+import { workspaceSavedViewDataMatches, parseWorkspaceViewPresentation, type WorkspaceViewPresentation } from "../base/features/workspace/workspace-persisted-view-state.mjs";
 import {
   WORKSPACE_SAVED_VIEW_SCHEMA_ID,
   WORKSPACE_SAVED_VIEW_SCHEMA_VERSION,
@@ -23,6 +24,7 @@ export interface SaveWorkspaceViewArgs {
   profileId: string;
   logicalAreaId: string | null;
   query: string;
+  presentation?: WorkspaceViewPresentation | null;
   baseRevision?: number;
 }
 
@@ -69,6 +71,7 @@ function requireCommitReceipt(
     schemaId?: string;
     schemaVersion?: string;
     viewId?: string;
+    data?: WorkspaceSavedViewData;
   },
 ): void {
   if (!receipt || typeof receipt !== "object" || typeof receipt.deduplicated !== "boolean") {
@@ -92,7 +95,8 @@ function requireCommitReceipt(
   }
   if (expected.viewId !== undefined) {
     const data = object.data as Partial<WorkspaceSavedViewData> | null;
-    if (!data || data.view_id !== expected.viewId || data.version !== 1) {
+    if (!data || data.view_id !== expected.viewId || data.version !== 1
+      || !workspaceSavedViewDataMatches(data, expected.data)) {
       throw new Error("VIEW_STATE_COMMIT_RECEIPT_DATA_MISMATCH");
     }
   }
@@ -105,6 +109,8 @@ export async function saveWorkspaceView(
   const raw = requireObject(args);
   const workspaceId = requireSafeId(raw.workspaceId, "workspace_id");
   const viewId = requireSafeId(raw.viewId, "view_id");
+  const presentation = raw.presentation == null ? null : parseWorkspaceViewPresentation(raw.presentation);
+  if (raw.presentation != null && !presentation) throw new Error("VIEW_STATE_PRESENTATION_INVALID");
   const data: WorkspaceSavedViewData = {
     version: 1,
     view_id: viewId,
@@ -117,6 +123,7 @@ export async function saveWorkspaceView(
           ? raw.logicalAreaId
           : "",
     query: typeof raw.query === "string" ? raw.query : "",
+    ...(presentation ? { presentation } : {}),
   };
   const validation = validateWorkspaceSavedViewData(data);
   if (!validation.ok) {
@@ -144,6 +151,7 @@ export async function saveWorkspaceView(
     schemaId: WORKSPACE_SAVED_VIEW_SCHEMA_ID,
     schemaVersion: WORKSPACE_SAVED_VIEW_SCHEMA_VERSION,
     viewId,
+    data,
   });
   return receipt;
 }

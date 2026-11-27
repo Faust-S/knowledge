@@ -133,3 +133,27 @@ describe("KernelFacade — capability-checked adapter binding", () => {
     expect(facade.runtime).toBeUndefined();
   });
 });
+
+
+describe("Installed company package connection remains private",()=>{
+  const id="iwxa.personal-agent.workspace";
+  const exchangeId="iwxa.personal-agent.exchange.workspace";
+  const ops=["t2.exportPreview","t2.exportPackage","t2.confirmExport","t2.importPreview","t2.importCommit","t2.importCancel"];
+  const identify=(s:KernelSession,service_id:string)=>Object.assign(s,{
+    service:{service_id,base_path:"/workspace/",service_version:"0.6.0"},
+    contract_version:"1.3.0",runtime_version:"0.3.6"});
+  it("fails closed without the private full-scope connection and exposes no private lifecycle grants",()=>{
+    const product=identify(makeSession(["t1.getWorkspace",...ops]),id);
+    const access=()=>null;
+    const blocked=createKernelFacade({session:product,signedKernelAccess:access});
+    expect(blocked.hasOperation("t2.exportPackage")).toBe(false);
+    const privateExchange=identify(makeSession([...ops,"t1.purgeCommit","t1.deleteObject"]),exchangeId);
+    const facade=createKernelFacade({session:product,signedKernelAccess:access,trustedCompanyExchangeSession:privateExchange});
+    expect(facade.hasOperation("t2.exportPackage")).toBe(true);
+    expect(facade.hasOperation("t1.purgeCommit")).toBe(false);
+    expect(facade.hasOperation("t1.deleteObject")).toBe(false);
+    expect(facade.sessionInfo.service_id).toBe(id);
+    expect(()=>createKernelFacade({session:product,trustedCompanyExchangeSession:privateExchange})).toThrow("T3_COMPANY_EXCHANGE_PRIVATE_SESSION_INVALID");
+    expect(()=>createKernelFacade({session:product,signedKernelAccess:access,trustedCompanyExchangeSession:identify(makeSession(ops),"foreign.workspace")})).toThrow("T3_COMPANY_EXCHANGE_PRIVATE_SESSION_INVALID");
+  });
+});

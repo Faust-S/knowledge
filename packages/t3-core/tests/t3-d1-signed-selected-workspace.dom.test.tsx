@@ -128,7 +128,8 @@ it("original signed corporate key automatically creates its Workspace with the s
     workspace_id:"ws:company-by-key",profile:"generic",
   });
   expect(listWorkspaces).not.toHaveBeenCalled();
-  expect(original).toHaveBeenCalledWith("createWorkspace");
+  expect(original.mock.calls.map(([op])=>op)).toEqual(["getWorkspace","createWorkspace"]);
+  expect(getWorkspace).toHaveBeenCalledTimes(3);
 });
 it("a signed company key without a distinct create grant never creates automatically",async()=>{
   const createWorkspace=vi.fn();
@@ -145,6 +146,41 @@ it("a signed company key without a distinct create grant never creates automatic
   await waitFor(()=>expect(original).toHaveBeenCalledWith("createWorkspace"));
   expect(createWorkspace).not.toHaveBeenCalled();
   expect(screen.queryByTestId("no-unsigned-company")).toBeNull();
+  await screen.findByTestId("t3-d1-create-workspace-error");
+  expect(original.mock.calls.map(([op])=>op)).toEqual(["getWorkspace","createWorkspace"]);
+});
+it("auto-create never requests write authority for a PERSONAL selection",async()=>{
+  const createWorkspace=vi.fn();
+  const kernel={getWorkspace:vi.fn(async()=>null),createWorkspace,
+    hasOperation:()=>true} as unknown as KernelFacade;
+  const original=vi.fn(async(method:string)=>({
+    kind:"PERSONAL" as const,organization_id:null,
+    workspace_id:"ws:personal-first",resource:"ws:personal-first",
+  }));
+  render(<SignedSelectedWorkspaceGate required kernel={kernel} profile="generic"
+    trustedSelectedContext={original}><p data-testid="personal-ready">Ready</p>
+  </SignedSelectedWorkspaceGate>);
+  await screen.findByTestId("t3-d1-selected-workspace-message");
+  expect(original.mock.calls.map(([op])=>op)).toEqual(["getWorkspace"]);
+  expect(createWorkspace).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("personal-ready")).toBeNull();
+});
+it("automatic signed create rejects a changed organization without a second context request",async()=>{
+  const getWorkspace=vi.fn(async()=>null),createWorkspace=vi.fn();
+  const kernel={getWorkspace,createWorkspace,
+    hasOperation:()=>true} as unknown as KernelFacade;
+  const original=vi.fn(async(method:string)=>({
+    kind:"CORP" as const,organization_id:method==="getWorkspace"?"org:first":"org:other",
+    workspace_id:"ws:company",resource:"ws:company",
+  }));
+  render(<SignedSelectedWorkspaceGate required kernel={kernel} profile="generic"
+    trustedSelectedContext={original}><p data-testid="foreign-ready">Ready</p>
+  </SignedSelectedWorkspaceGate>);
+  await screen.findByTestId("t3-d1-create-workspace-error");
+  expect(original.mock.calls.map(([op])=>op)).toEqual(["getWorkspace","createWorkspace"]);
+  expect(getWorkspace).toHaveBeenCalledTimes(1);
+  expect(createWorkspace).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("foreign-ready")).toBeNull();
 });
 
 it("typed original permission denial is NEVER converted to missing or signed create",async()=>{
@@ -166,6 +202,7 @@ it("typed original permission denial is NEVER converted to missing or signed cre
   </SignedSelectedWorkspaceGate>);
   const msg=await screen.findByTestId("t3-d1-selected-workspace-message");
   expect(msg.textContent).toMatch(/Control не подтвердил/);
+  expect(screen.getByTestId("t3-d1-selected-workspace-diagnostic").textContent).toContain("READ_KERNEL: PERMISSION_DENIED");
   expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
   expect(screen.queryByTestId("denied-original-content")).toBeNull();
   expect(createWorkspace).not.toHaveBeenCalled();
@@ -216,7 +253,7 @@ it("late read from replaced corporate owner never reveals prior Workspace", asyn
 
 type SignedResolver=NonNullable<CreateWorkspaceHostRuntimeInput["signedKernelAccess"]>;
 const selectedPort=(id:string,resource=id)=>({currentContext:async()=>({
-  kind:"CORP",workspace_id:id,resource,
+  kind:"CORP",workspace_id:id,resource,organization_id:"org:approved",
 })});
 
 it("explicit signed create ACTION creates the selected Workspace via original Kernel",async()=>{
@@ -398,4 +435,41 @@ it("D7 clean-install age restore offers original Kernel preview only if native o
   </SignedSelectedWorkspaceGate>);
   expect(screen.queryByTestId("import-age-protected")).toBeNull();
   expect(importPreview).not.toHaveBeenCalled();
+});
+
+
+it("signed first-run refuses to create a different workspace or organization than its confirmed read",async()=>{
+  for(const foreign of [{workspace_id:"ws:other",resource:"ws:other",organization_id:"org:company"},
+    {workspace_id:"ws:selected",resource:"ws:selected",organization_id:"org:other"}]){
+    const getWorkspace=vi.fn(async()=>null),createWorkspace=vi.fn();
+    const value={getWorkspace,createWorkspace,hasOperation:()=>true} as unknown as KernelFacade;
+    const resolver=vi.fn(async(operation:string)=>({kind:"CORP" as const,
+      workspace_id:"ws:selected",resource:"ws:selected",organization_id:"org:company",
+      ...(operation==="createWorkspace"?foreign:{})}));
+    const view=render(<SignedSelectedWorkspaceGate required kernel={value}
+      profile="generic" autoCreateSignedCorporate={false} trustedSelectedContext={resolver}>
+      <p data-testid="foreign-ready">Wrong subject</p>
+    </SignedSelectedWorkspaceGate>);
+    await screen.findByTestId("t3-d1-selected-workspace-message");
+    fireEvent.click(screen.getByTestId("t3-d1-create-selected-workspace"));
+    await screen.findByTestId("t3-d1-create-workspace-error");
+    expect(createWorkspace).not.toHaveBeenCalled();
+    expect(getWorkspace).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("foreign-ready")).toBeNull();
+    view.unmount();
+  }
+});
+it("first-run diagnostic never exposes untyped private exception detail or treats it as absence",async()=>{
+  const getWorkspace=vi.fn(async()=>{throw Object.assign(Error("secret subject path"),{code:"arbitrary detail"})});
+  const createWorkspace=vi.fn();
+  const kernel={getWorkspace,createWorkspace,hasOperation:()=>true} as unknown as KernelFacade;
+  render(<SignedSelectedWorkspaceGate required kernel={kernel} profile="generic"
+    trustedSelectedContext={async()=>({kind:"CORP",workspace_id:"ws:one",resource:"ws:one",organization_id:"org:one"})}>
+    <p data-testid="hidden-uncertain-workspace">Wrong</p>
+  </SignedSelectedWorkspaceGate>);
+  const diagnostic=await screen.findByTestId("t3-d1-selected-workspace-diagnostic");
+  expect(diagnostic.textContent).toContain("READ_KERNEL: T3_D1_SELECTED_WORKSPACE_UNVERIFIED");
+  expect(diagnostic.textContent).not.toMatch(/secret|arbitrary/);
+  expect(createWorkspace).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
 });

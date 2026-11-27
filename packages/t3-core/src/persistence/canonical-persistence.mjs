@@ -400,6 +400,42 @@ export class CanonicalPersistenceStore {
     return wire == null ? null : decodeCanonicalValue(wire);
   }
 
+  /** Address the exact immutable prefix via existing record keys. This does
+   * not enumerate the Store or assert that the selected record is current.
+   * Full history enumeration remains available for audits of all records.
+   */
+  async historyThrough(family, objectId, recordId, revision) {
+    const normalizedFamily = requireText(family, 'family');
+    const normalizedObjectId = requireText(objectId, 'objectId');
+    const normalizedRecordId = requireText(recordId, 'recordId');
+    if (normalizedRecordId !== recordId || !Number.isSafeInteger(revision) || revision < 1) {
+      throw new CanonicalPersistenceError('exact history record identity and revision required', 'CANONICAL_HISTORY_PREFIX_INVALID');
+    }
+    const reversed = [];
+    const seen = new Set();
+    let next = normalizedRecordId;
+    for (let expectedRevision = revision; expectedRevision >= 1; expectedRevision -= 1) {
+      if (typeof next !== 'string' || !next || next.trim() !== next || seen.has(next)) {
+        throw new CanonicalPersistenceError('missing or cyclic predecessor identity', 'CANONICAL_HISTORY_PREFIX_INCOMPLETE');
+      }
+      seen.add(next);
+      const row = await this.record(next);
+      if (!row || row.revision !== expectedRevision) {
+        throw new CanonicalPersistenceError('selected immutable revision is missing or has a different number', 'CANONICAL_HISTORY_PREFIX_INCOMPLETE');
+      }
+      if (row.schema !== 'IWXA_T2_CANONICAL_RECORD_V1' || row.recordId !== next ||
+          row.family !== normalizedFamily || row.objectId !== normalizedObjectId) {
+        throw new CanonicalPersistenceError('selected revision belongs to another source identity', 'CANONICAL_HISTORY_PREFIX_INVALID');
+      }
+      reversed.push(row);
+      next = row.previousRevisionId;
+    }
+    if (next !== null) {
+      throw new CanonicalPersistenceError('selected history does not terminate at revision 1', 'CANONICAL_HISTORY_PREFIX_INCOMPLETE');
+    }
+    return Object.freeze(reversed.reverse());
+  }
+
   async history(family, objectId) {
     const normalizedFamily = requireText(family, 'family');
     const normalizedObjectId = requireText(objectId, 'objectId');
@@ -437,5 +473,8 @@ export class OwnerWriteGateway {
   async head(family, objectId) { return this.#store.head(family, objectId); }
   async record(recordId) { return this.#store.record(recordId); }
   async history(family, objectId) { return this.#store.history(family, objectId); }
+  async historyThrough(family, objectId, recordId, revision) {
+    return this.#store.historyThrough(family, objectId, recordId, revision);
+  }
   async audit() { return this.#store.audit(); }
 }

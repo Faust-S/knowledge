@@ -6,11 +6,14 @@ import {cpSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync,
   readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {basename, dirname, extname, isAbsolute, join, relative, resolve, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {assertQualifiedKernelArtifact}
-  from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
+import {assertInstalledOriginalKernelArtifact,takeQualificationKernelCandidate}
+  from './installed-kernel-selection.mjs';
+import {qualificationKernelCandidateFields,selectQualificationKernelCandidate}
+  from './installed-kernel-candidate.mjs';
 import {registerT3LocalInferenceService}
   from './register-t3-local-inference.mjs';
 import {materializeDomainMode} from './materialize-t3-domain-mode.mjs';
+import {companyExchangeServiceId,originalCompanyExchangePassport} from "../src/t3/company-exchange-profile.mjs";
 
 // The original D3 recipient writes this exact Object through T2
 // commitObjectGraph. Register only in an installed original Admin D3 dist.
@@ -45,6 +48,18 @@ const ADMIN_APPLIED_DECLARATION=Object.freeze({
     required:["schema","records"],additionalProperties:false,
   },embedded:{},
 });
+// Keep ORIGINAL T2's service-specific scope. Universal Workspace mode
+// would require wildcard object/delete and lifecycle purge permissions.
+// Both installed products may transfer their complete BUSINESS inventory
+// only through the signed Host's original subject binding.
+function enableInstalledBusinessExchange(passport,service){
+  if(passport.service_id!==service)return;
+  const p=passport.permissions.packages;
+  if(!p||p.export!==false||p.import!==false||
+     p.export_scope!=="readable_objects"||p.import_scope!=="writable_objects")
+    fail("ORIGINAL_CORPORATE_EXCHANGE_SOURCE_SCOPE_INVALID");
+  passport.permissions.packages={...p,export:true,import:true};
+}
 function registerInstalledAdminAppliedResult({domain,config,passport}){
   if(config?.base_path!=="/workspace/"||
      passport?.service_id!==config.workspace_service_id||
@@ -60,9 +75,13 @@ function registerInstalledAdminAppliedResult({domain,config,passport}){
     passport.permissions?.objects?.read,passport.permissions?.objects?.write];
   if(rows.some(row=>!Array.isArray(row)))
     fail("ORIGINAL_ADMIN_D3_SCHEMA_PERMISSIONS_REQUIRED");
-  for(const [schema,declaration] of [
+  const declarations=[
     [ADMIN_APPLIED_SCHEMA,ADMIN_APPLIED_DECLARATION],
-    [ADMIN_ACCESS_SCHEMA,ADMIN_ACCESS_DECLARATION]]){
+    [ADMIN_ACCESS_SCHEMA,ADMIN_ACCESS_DECLARATION]];
+  if(passport.service_id==="iwxa.admin-center.workspace")
+    declarations.push([COMPANY_WORK_SCHEMA,COMPANY_WORK_DECLARATION],
+      [AGENT_D6_RESULT_SCHEMA,AGENT_D6_RESULT_DECLARATION]);
+  for(const [schema,declaration] of declarations){
     const existing=passport.schemas[schema];
     if(existing!==undefined&&
        JSON.stringify(existing)!==JSON.stringify(declaration))
@@ -84,6 +103,7 @@ function registerInstalledAdminAppliedResult({domain,config,passport}){
   // First-run Workspace creation remains a separate signed ACTION. There
   // is no automatic Workspace creation on ACCEPT or during APPLY.
   passport.permissions.workspace.create=true;
+  enableInstalledBusinessExchange(passport,"iwxa.admin-center.workspace");
 }
 
 // Original company work material remains an Object in the inherited T2
@@ -186,6 +206,7 @@ function registerInstalledAgentAcceptedResult({domain,config,passport}){
   // Reuse the original T2 graph command, never an Agent-side Kernel writer.
   // No implicit Workspace creation or other operation is granted.
   passport.permissions.operations=['t1.commitObjectGraph'];
+  enableInstalledBusinessExchange(passport,'iwxa.personal-agent.workspace');
 }
 
 const allowedAssetExtensions=new Set([
@@ -223,7 +244,7 @@ function required(root,path){
 export function assembleSignedControlDist({
   t2Dist,t3Build,outputDir,testOnlyUnqualifiedFixture=false,
   installedOriginalAdminD3=false,installedOriginalAgentD6=false,
-  desktopAgentControlOnly=false,desktopAdminControlOnly=false,
+  desktopAgentControlOnly=false,desktopAdminControlOnly=false,qualificationKernelCandidate,
 }={}){
   // A signed desktop Agent hosts T3 D1/D6 but owns native model execution
   // independently. An inert optional BLI marker is not permission to ship
@@ -249,6 +270,9 @@ export function assembleSignedControlDist({
     fail("INSTALLED_AGENT_D6_FLAG_INVALID");
   if(installedOriginalAdminD3&&installedOriginalAgentD6)
     fail("INSTALLED_OWNER_PROFILES_MUST_BE_SEPARATE");
+  const candidate=selectQualificationKernelCandidate(qualificationKernelCandidate);
+  if(candidate&&(testOnlyUnqualifiedFixture||!(desktopAgentControlOnly||desktopAdminControlOnly)))
+    fail('CANDIDATE_NATIVE_CORPORATE_QUALIFICATION_ONLY');
   if(![t2Dist,t3Build,outputDir].every(x=>typeof x==='string'&&x.trim()))
     fail('THREE_PATHS_REQUIRED');
   const source=realpathSync(resolve(t2Dist));
@@ -263,10 +287,7 @@ export function assembleSignedControlDist({
   // preserves its bytes. Reuse the exact inherited T2 qualified verifier and
   // release pin. The test-only fixture switch is never available from CLI.
   const qualified=testOnlyUnqualifiedFixture ? null :
-    assertQualifiedKernelArtifact(source,{
-      kernel:'0.3.6',contract:'1.3.0',
-      artifactId:'iwxa-kernel-k036-same-store-history-20261019-qualified.1',
-    });
+    assertInstalledOriginalKernelArtifact(source,qualificationKernelCandidate);
   const originalLoader=required(source,'_iwxa/loader.js');
   const originalRuntime=required(source,'_iwxa/runtime/0.3.6/runtime.js');
   const domain=JSON.parse(readFileSync(required(source,'_iwxa/domain.json'),'utf8'));
@@ -288,6 +309,12 @@ export function assembleSignedControlDist({
     fail('WEB_DOMAIN_SHELL_ORIGIN_MISMATCH');
   const catalog=JSON.parse(readFileSync(required(source,'_iwxa/service-catalog.json'),'utf8'));
   const config=JSON.parse(readFileSync(required(source,'workspace/workspace.config.json'),'utf8'));
+  if(candidate){
+    const expected=desktopAgentControlOnly?'iwxa.personal-agent':'iwxa.admin-center';
+    if(!loopback||domain.domain_id!==expected||config.domain_id!==expected||
+       config.workspace_service_id!==expected+'.workspace'||domain.status==='production')
+      fail('CANDIDATE_NATIVE_CORPORATE_PROFILE_REQUIRED');
+  }
   if(typeof config.workspace_service_id!=='string'||
      !Array.isArray(catalog.entries)||
      !catalog.entries.some(x=>x.service_id===config.workspace_service_id))
@@ -347,6 +374,24 @@ export function assembleSignedControlDist({
       registerInstalledAdminAppliedResult({domain,config,passport:servicePassport});
     if(installedOriginalAgentD6)
       registerInstalledAgentAcceptedResult({domain,config,passport:servicePassport});
+  }
+  // Keep the original product entry first. Only exact installed product IDs
+  // get the second original T2 service connection. Web domains are unchanged.
+  const exchangeServiceId=servicePassport&&companyExchangeServiceId(servicePassport.service_id);
+  let exchangePassport=null,exchangePath=null,exchangeControl=null;
+  if(exchangeServiceId){
+    if(!Array.isArray(domain.modules)||!domain.modules.some(m=>m.service_id===servicePassport.service_id)||
+       domain.modules.some(m=>m.service_id===exchangeServiceId)||
+       catalog.entries.some(m=>m.service_id===exchangeServiceId))fail("COMPANY_EXCHANGE_CONFIG_COLLISION");
+    exchangePassport=originalCompanyExchangePassport(servicePassport);
+    exchangePath="_iwxa/services/"+exchangeServiceId+".json";
+    if(existsSync(join(source,exchangePath)))fail("COMPANY_EXCHANGE_PASSPORT_COLLISION");
+    exchangeControl=JSON.parse(readFileSync(required(source,"_iwxa/security/capability-control-plane.json"),"utf8"));
+    if(!Array.isArray(exchangeControl.services)||exchangeControl.services.some(s=>s.service_id===exchangeServiceId)||
+       !exchangeControl.services.some(s=>s.service_id===servicePassport.service_id))fail("COMPANY_EXCHANGE_CONTROL_REQUIRED");
+    domain.modules.push({service_id:exchangeServiceId,base_path:"/workspace/"});
+    exchangeControl.services.push({schema_version:"0.3.1",service_id:exchangeServiceId,
+      capability_control:"NONE",capability_ceiling:[],activation_any_of:[],operation_guards:[]});
   }
   const staged=[];
   for(const path of assets){
@@ -416,6 +461,14 @@ export function assembleSignedControlDist({
       writeFileSync(join(temp,'workspace/workspace.config.json'),JSON.stringify(config));
       writeFileSync(join(temp,passportPath),JSON.stringify(servicePassport));
       serviceEntry.sha256=hash(join(temp,passportPath));
+      if(exchangePassport){
+        writeFileSync(join(temp,exchangePath),JSON.stringify(exchangePassport),{flag:"wx"});
+        catalog.entries.push({service_id:exchangePassport.service_id,
+          service_version:exchangePassport.service_version,base_path:exchangePassport.base_path,
+          supported_levels:exchangePassport.supported_levels,file:exchangePath,
+          sha256:hash(join(temp,exchangePath))});
+        writeFileSync(join(temp,"_iwxa/security/capability-control-plane.json"),JSON.stringify(exchangeControl));
+      }
       writeFileSync(join(temp,'_iwxa/service-catalog.json'),JSON.stringify({
         ...catalog,count:catalog.entries.length,
       }));
@@ -427,6 +480,10 @@ export function assembleSignedControlDist({
     // original Kernel/Exchange and one explicit offline T3 switch.
     // No native Agent or Admin signer is staged into a browser domain.
     if(web)materializeDomainMode(temp);
+    if(candidate){
+      const readback=assertInstalledOriginalKernelArtifact(temp,qualificationKernelCandidate);
+      if(readback.artifactSha256!==qualified.artifactSha256)fail('ORIGINAL_KERNEL_CHANGED');
+    }
     if(existsSync(output))fail('OUTPUT_ALREADY_EXISTS');
     renameSync(temp,output);
     return {schema:'iwxa.t3.signed-control-one-dist/1',origin,
@@ -435,7 +492,8 @@ export function assembleSignedControlDist({
       local_inference_registered:localInference,
       original_admin_d3_schema_registered:installedOriginalAdminD3,
       original_agent_d6_schema_registered:installedOriginalAgentD6,
-      original_qualified_artifact:qualified?.artifactId??'TEST_ONLY_UNQUALIFIED',
+      original_qualified_artifact:candidate?null:(qualified?.artifactId??'TEST_ONLY_UNQUALIFIED'),
+      ...qualificationKernelCandidateFields(qualified),
       original_loader_sha256:hash(originalLoader),
       original_runtime_sha256:hash(originalRuntime),
       original_runtime_unchanged:true,
@@ -443,18 +501,20 @@ export function assembleSignedControlDist({
   }catch(error){rmSync(temp,{recursive:true,force:true});throw error;}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  if(process.argv.length!==5&&
-      !(process.argv.length===6&&
+  const args=process.argv.slice(2);
+  const qualificationKernelCandidate=takeQualificationKernelCandidate(args);
+  if(args.length!==3&&
+      !(args.length===4&&
         ['--installed-admin-d3','--installed-agent-d6',
-         '--installed-admin-d3-control-only'].includes(process.argv[5])))
+         '--installed-admin-d3-control-only'].includes(args[3])))
     fail('USAGE_T2_DIST_T3_BUILD_OUTPUT');
   console.log(JSON.stringify(assembleSignedControlDist({
-    t2Dist:process.argv[2],t3Build:process.argv[3],outputDir:process.argv[4],
+    t2Dist:args[0],t3Build:args[1],outputDir:args[2],qualificationKernelCandidate,
     installedOriginalAdminD3:
       ['--installed-admin-d3','--installed-admin-d3-control-only']
-        .includes(process.argv[5]),
+        .includes(args[3]),
     desktopAdminControlOnly:
-      process.argv[5]==='--installed-admin-d3-control-only',
-    installedOriginalAgentD6:process.argv[5]==='--installed-agent-d6',
+      args[3]==='--installed-admin-d3-control-only',
+    installedOriginalAgentD6:args[3]==='--installed-agent-d6',
   })));
 }

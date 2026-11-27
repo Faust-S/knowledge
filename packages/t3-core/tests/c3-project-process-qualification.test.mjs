@@ -26,4 +26,17 @@ test('C3 integrated qualification covers all eight current source families and k
   assert.equal(result.migrationRecoveryProven,true);
   assert.equal(result.rollbackPolicy,'rollback');
   assert.equal(result.d4ExactRelease,'PENDING');
+  assert.equal(result.migrationQualificationKind,'SPEC_RECEIPT_SIMULATION');
+  assert.equal(result.physicalMigrationRecoveryQualified,false);
+  assert.equal(result.methodQualification.status,'PASS');
+  assert.equal(Object.values(result.methodQualification.checks).every(Boolean),true);
+  assert.equal(Object.keys(result.methodQualification.checks).length,16);
+  assert.equal(result.methodQualification.checks.revisionResume,true);
+  assert.equal(result.methodQualification.recordCount,8);
+  assert.equal(result.methodQualification.objectCount,5);
+  assert.equal(result.methodQualification.auditDelta,8);
+  assert.equal(result.methodQualification.qualificationOnly,true);
+  assert.equal(result.methodQualification.persistentHostQualified,false);
+  assert.equal(result.methodQualification.executionAuthority,false);
+  assert.equal(result.methodQualification.resultReuseProven,false);
 });

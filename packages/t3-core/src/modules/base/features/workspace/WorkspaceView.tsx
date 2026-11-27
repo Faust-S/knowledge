@@ -16,6 +16,7 @@ import { ObjectCatalogToolbar } from "./ObjectCatalogToolbar";
 import { ObjectPreviewCard } from "./ObjectPreviewCard";
 import { WorkspaceRelationIndex } from "./WorkspaceRelationIndex";
 import { RichWorkspaceReadModel } from "./RichWorkspaceReadModel";
+import type { WorkspaceMethodWorkflowBinding } from "./WorkspaceMethodWorkflowPanel";
 import { isWorkspaceViewStateObjectRecord } from "./workspace-view-state-boundary.mjs";
 import {
   filterObjectsByQuery,
@@ -35,12 +36,17 @@ export interface WorkspaceViewProps {
   viewerRegistry?:ViewerRegistry;grantedOperations?:readonly OperationId[];activeCapabilities?:readonly string[];
   /** Optional to keep older test harnesses that omit the facade working. */
   commands?: CommandsFacade;
+  /** Optional original Host-bound selection. No implicit source owner activation. */
+  methodWorkflow?: WorkspaceMethodWorkflowBinding;
   workspaceId: string;
   currentShellServiceId: string;
   onOpenObject: (workspaceId: string, objectId: string) => void;
   onExportThis: (workspaceId: string) => void;
   onBack: () => void;
 }
+
+const PENDING_OBJECTS: readonly import("../../../../kernel-client").ObjectRecord[] = Object.freeze([]);
+const PENDING_EVENTS: readonly import("../../../../kernel-client").EventRecord[] = Object.freeze([]);
 
 const SENSITIVITY_LABELS: Record<string, string> = {
   standard: "обычный",
@@ -52,13 +58,13 @@ const SENSITIVITY_LABELS: Record<string, string> = {
 
 export function WorkspaceView(props: WorkspaceViewProps) {
   const { kernel, commands, workspaceId, currentShellServiceId, onOpenObject, onExportThis, onBack } = props;
-  const content = useWorkspaceContent({ kernel, workspaceId });
+  const content = useWorkspaceContent({ kernel, workspaceId, deferEvents: true });
   const {
     workspaceState, workspace, workspaceError,
     profile,
     objectsState, objects, objectsError, objectIntegrityWarnings,
     eventsState, events, eventsError, eventIntegrityWarnings,
-    refreshObjects,
+    refreshObjects, refreshEvents,
   } = content;
 
   const rawProfileForGuard = workspace?.profile ?? null;
@@ -152,6 +158,7 @@ export function WorkspaceView(props: WorkspaceViewProps) {
   // ----- Workspace record / profile still loading -----------------------
   if (
     !workspace ||
+    workspace.workspace_id !== workspaceId ||
     workspaceState !== "ready" ||
     !profileMatchesWorkspace ||
     profile.status === "loading" ||
@@ -204,6 +211,7 @@ export function WorkspaceView(props: WorkspaceViewProps) {
       kernel={kernel}
       viewerRegistry={props.viewerRegistry} grantedOperations={props.grantedOperations} activeCapabilities={props.activeCapabilities}
       commands={commands}
+      methodWorkflow={props.methodWorkflow}
       ws={ws}
       rawProfile={rawProfile}
       activeProfileId={activeProfileId}
@@ -217,6 +225,7 @@ export function WorkspaceView(props: WorkspaceViewProps) {
       objectsError={objectsError}
       objectIntegrityWarnings={objectIntegrityWarnings}
       refreshObjects={refreshObjects}
+      refreshEvents={refreshEvents}
       eventsState={eventsState}
       events={events}
       eventsError={eventsError}
@@ -236,6 +245,7 @@ interface CatalogSurfaceProps {
   kernel: KernelFacade;
   viewerRegistry?:ViewerRegistry;grantedOperations?:readonly OperationId[];activeCapabilities?:readonly string[];
   commands?: CommandsFacade;
+  methodWorkflow?: WorkspaceMethodWorkflowBinding;
   ws: import("../../../../kernel-client").WorkspaceRecord;
   rawProfile: string;
   activeProfileId: import("../../../../config/domain-config").WorkspaceProfileId;
@@ -249,6 +259,7 @@ interface CatalogSurfaceProps {
   objectsError: string | null;
   objectIntegrityWarnings: readonly import("./content-types").ObjectIntegrityWarning[];
   refreshObjects: () => Promise<void>;
+  refreshEvents: () => Promise<void>;
   eventsState: import("./content-types").LoadState;
   events: readonly import("../../../../kernel-client").EventRecord[];
   eventsError: string | null;
@@ -262,7 +273,7 @@ function WorkspaceCatalogSurface(props: CatalogSurfaceProps) {
     workspaceId, backButton, onExportThis, onOpenObject, onBack, kernel, commands,
     ws, rawProfile, activeProfileId, activeProfileLabel, isFallback,
     sensitivityLabels, counts, lastEventAt,
-    objectsState, objects, objectsError, objectIntegrityWarnings, refreshObjects,
+    objectsState, objects, objectsError, objectIntegrityWarnings, refreshObjects, refreshEvents,
     eventsState, events, eventsError, eventIntegrityWarnings,
     profileDefinition, currentShellServiceId,
     viewerRegistry,grantedOperations,activeCapabilities,
@@ -285,6 +296,15 @@ function WorkspaceCatalogSurface(props: CatalogSurfaceProps) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ObjectCatalogSortId>("updated");
   const [page, setPage] = useState(0);
+  // Opening the catalog must never enumerate relation detail for every object.
+  // Keep the explicit request scoped to the live kernel, workspace and profile.
+  const [relationRequest, setRelationRequest] = useState<{
+    kernel: KernelFacade; workspaceId: string; profileId: string;
+  } | null>(null);
+  const relationsOpen = relationRequest?.kernel === kernel
+    && relationRequest.workspaceId === workspaceId
+    && relationRequest.profileId === activeProfileId;
+  useEffect(() => { setRelationRequest(null); }, [kernel, workspaceId, activeProfileId]);
 
   // T2-03D — never carry filters between Workspaces / profile switches.
   useEffect(() => {
@@ -402,6 +422,23 @@ function WorkspaceCatalogSurface(props: CatalogSurfaceProps) {
         </details>
 
         <div className="flex flex-wrap gap-2">
+          {kernel.hasOperation("t1.listEventsSince") && (
+            <button type="button" data-testid="workspace-load-history"
+              disabled={eventsState === "loading"}
+              onClick={() => { void refreshEvents(); }}
+              className="px-3 py-1.5 text-xs rounded bg-slate-800 hover:bg-slate-700 min-h-[44px] disabled:opacity-50">
+              {eventsState === "loading" ? "Загрузка истории…" : eventsState === "ready" ? "Обновить историю" : "Загрузить историю"}
+            </button>
+          )}
+          {kernel.hasOperation("t1.getObject") && (
+            <button type="button" data-testid="workspace-toggle-relations"
+              aria-expanded={relationsOpen} aria-controls="workspace-relations-panel"
+              disabled={objectsState !== "ready" && !relationsOpen}
+              onClick={() => setRelationRequest(relationsOpen ? null : { kernel, workspaceId, profileId: activeProfileId })}
+              className="px-3 py-1.5 text-xs rounded bg-slate-800 hover:bg-slate-700 min-h-[44px] disabled:opacity-50">
+              {relationsOpen ? "Скрыть связи" : "Показать связи"}
+            </button>
+          )}
           {kernel.hasOperation("t2.exportPackage") && (
             <button
               type="button"
@@ -563,12 +600,20 @@ function WorkspaceCatalogSurface(props: CatalogSurfaceProps) {
         )}
       </section>
 
-      {objectsState === "ready" && profileDefinition && (
+      {profileDefinition && (objectsState === "ready" || objectsState === "loading" || objectsState === "error") && (
         <RichWorkspaceReadModel
+          key={JSON.stringify([workspaceId, profileDefinition.id])}
           workspace={ws}
-          objects={objects}
-          events={eventsState === "ready" ? events : []}
+          kernel={kernel}
+          viewerRegistry={viewerRegistry}
+          grantedOperations={grantedOperations}
+          activeCapabilities={activeCapabilities}
+          catalogReady={objectsState === "ready"}
+          methodWorkflow={props.methodWorkflow}
+          objects={objectsState === "ready" ? objects : PENDING_OBJECTS}
+          events={eventsState === "ready" ? events : PENDING_EVENTS}
           eventsAvailable={eventsState === "ready"}
+          historyState={eventsState}
           profileDefinition={profileDefinition}
           commands={commands}
           onRefreshObjects={refreshObjects}
@@ -576,13 +621,17 @@ function WorkspaceCatalogSurface(props: CatalogSurfaceProps) {
         />
       )}
 
-      <WorkspaceRelationIndex
-        kernel={kernel}
-        workspaceId={workspaceId}
-        objects={businessObjects}
-        enabled={objectsState === "ready"}
-        onOpenObject={onOpenObject}
-      />
+      <div id="workspace-relations-panel">
+        {relationsOpen && kernel.hasOperation("t1.getObject") && (
+          <WorkspaceRelationIndex
+            kernel={kernel}
+            workspaceId={workspaceId}
+            objects={businessObjects}
+            enabled={objectsState === "ready"}
+            onOpenObject={onOpenObject}
+          />
+        )}
+      </div>
 
       {/* Recent activity — only when kernel granted the capability */}
       {eventsState !== "unavailable" && (
@@ -595,11 +644,15 @@ function WorkspaceCatalogSurface(props: CatalogSurfaceProps) {
               Некоторые события исключены из readback из-за нарушения идентификаторов, области Workspace или временных данных.
             </p>
           )}
-          {eventsState === "error" ? (
+          {eventsState === "idle" ? (
+            <p role="status" className="text-xs text-slate-500" data-testid="workspace-history-deferred">
+              История не загружена. Выберите «Загрузить историю».
+            </p>
+          ) : eventsState === "error" ? (
             <p role="alert" className="text-xs text-rose-200" data-testid="events-error">
               Не удалось загрузить события. {eventsError}
             </p>
-          ) : eventsState === "loading" && events.length === 0 ? (
+          ) : eventsState === "loading" ? (
             <p className="text-xs text-slate-500" data-testid="events-loading">
               Загрузка событий…
             </p>

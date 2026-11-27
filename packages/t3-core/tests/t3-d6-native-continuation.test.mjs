@@ -398,3 +398,46 @@ test("D6 pins installed recipient through Human Review and cold readback",async(
     {code:"T3_D6_NATIVE_RECIPIENT_CHANGED"});
   assert.equal(cold.receives(),1,"no replay after recipient switch");
 });
+
+
+test("D6 preview revalidates original source after an asynchronous empty receipt",async()=>{
+  const f=fixture();
+  f.setReceiptHook(()=>{f.changeRevision(3);});
+  await assert.rejects(f.port.preview(f.ref),{code:"T3_D6_STALE_OR_MISSING_REFERENCE"});
+  assert.equal(f.receives(),0);assert.equal(f.confirmations(),0);
+});
+
+test("D6 nested preview and recovery reject a different expected original signed context",async()=>{
+  const f=fixture();
+  for(const method of ["preview","recover"]){
+    await assert.rejects(f.port[method](f.ref,{workspace_id:"ws:other"}),{code:"T3_D6_SIGNED_CONTEXT_MISMATCH"});
+  }
+  assert.equal(f.receives(),0);assert.equal(f.confirmations(),0);
+});
+
+test("D6 never requests consent for a Result changed during the initial recipient receipt read",async()=>{
+  const f=fixture();
+  f.setReceiptHook(()=>f.changeRevision(3));
+  await assert.rejects(f.port.continueSelected(f.ref),{code:"T3_D6_STALE_OR_MISSING_REFERENCE"});
+  assert.equal(f.confirmations(),0);assert.equal(f.receives(),0);
+});
+
+test("D6 rechecks exact revision, deletion and grant after final recipient receipt and before native receive",async()=>{
+  for(const [change,code] of [
+    [f=>f.changeRevision(3),"T3_D6_STALE_OR_MISSING_REFERENCE"],
+    [f=>f.setDeletedAt("2026-11-27T00:00:00Z"),"T3_D6_STALE_OR_MISSING_REFERENCE"],
+    [f=>f.setRevoked(true),"T3_ACCESS_NOT_PERMITTED"]
+  ]){
+    const f=fixture();let calls=0;
+    f.setReceiptHook(()=>{if(++calls===2)change(f);});
+    await assert.rejects(f.port.continueSelected(f.ref),{code});
+    assert.equal(f.confirmations(),1);assert.equal(f.receives(),0);assert.equal(f.commits.size,0);
+  }
+});
+
+test("D6 transport outage cannot hide a source access revocation",async()=>{
+  const f=fixture();
+  f.setReceiptHook(()=>{f.setRevoked(true);throw new Error("native receipt unavailable");});
+  await assert.rejects(f.port.continueSelected(f.ref),{code:"T3_ACCESS_NOT_PERMITTED"});
+  assert.equal(f.confirmations(),0);assert.equal(f.receives(),0);
+});

@@ -92,7 +92,9 @@ export type ImportEvent =
   | { type: "preview-started" }
   | { type: "preview-succeeded"; handle: ImportPreviewHandle; preferredTargetWorkspaceId?: string | null;
       /** Original Kernel has confirmed zero active local Workspaces during a protected-backup restore. */
-      restoringProtectedIntoEmptyCatalog?: boolean }
+      restoringProtectedIntoEmptyCatalog?: boolean;
+      /** Existing installed corporate Workspace: append-only merge, never selective. */
+      preferCompanyMerge?: boolean }
   | { type: "preview-failed"; error: string }
   | { type: "set-plan"; plan: Partial<ImportPlanForm> }
   | { type: "validate-plan"; localWorkspaceIds?: ReadonlyArray<string> }
@@ -426,7 +428,7 @@ export function importReducer(state: ImportState, event: ImportEvent): ImportSta
         // Ordinary .iwxa imports and unknown catalogue states retain T2.
         event.restoringProtectedIntoEmptyCatalog && initialWs.length>0 &&
           allowedModes.includes("new-workspace") ? "new-workspace"
-        : incomingFromAnotherWorkspace && allowedModes.includes("merge") ? "merge"
+        : (event.preferCompanyMerge&&target!==null&&initialWs.length===1&&initialWs[0]===target||incomingFromAnotherWorkspace)&&allowedModes.includes("merge") ? "merge"
         : allowedModes.includes("selective") ? "selective"
         : allowedModes.includes("merge") ? "merge"
         : allowedModes.includes("full") ? "full"

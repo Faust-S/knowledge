@@ -43,8 +43,8 @@ for (const profile of readdirSync(hostFixtures, { withFileTypes: true })
     domain.runtime?.runtime_version === kernel,
     `active Host fixture ${profile} is not on the single runtime`);
 }
-// A build-time overlay is part of active source. Check every TS/TSX import,
-// rather than maintaining a hand-curated list that could miss a new domain.
+// A build-time overlay is part of active source. Inspect TS and JS modules,
+// including a newly staged domain, rather than a hand-curated import list.
 function activeSources(directory) {
   const found = [];
   for (const entry of readdirSync(directory, {withFileTypes: true})) {
@@ -53,14 +53,25 @@ function activeSources(directory) {
     if (entry.name === "factory2" && directory === join(root, "src")) continue;
     const absolute = join(directory, entry.name);
     if (entry.isDirectory()) found.push(...activeSources(absolute));
-    else if (entry.isFile() && /\.(?:ts|tsx)$/.test(entry.name)) found.push(absolute);
+    else if (entry.isFile() && /\.(?:[cm]?[jt]s|[jt]sx)$/.test(entry.name)) found.push(absolute);
   }
   return found;
 }
 for (const file of activeSources(join(root, "src"))) {
   const value = readFileSync(file, "utf8");
-  expect(!/from\s*["'][^"']*(?:contracts\/v1|contracts\/runtime-1\.2\.0)["']/.test(value),
-    `obsolete contract import: ${file.slice(root.length + 1)}`);
+  const relative = file.slice(root.length + 1).replaceAll("\\", "/");
+  if (/\.(?:ts|tsx)$/.test(file)) {
+    expect(!/from\s*["'][^"']*(?:contracts\/v1|contracts\/runtime-1\.2\.0)["']/.test(value),
+      `obsolete contract import: ${relative}`);
+  }
+  // The original standalone adapter is retained as qualification evidence,
+  // not an alternate production Store. This is a deliberately conservative
+  // source-level guard for explicit class/DB references, not a proof of the
+  // runtime import graph or a ban on unrelated program-local caches.
+  if (relative !== "src/persistence/canonical-persistence.mjs") {
+    expect(!/\bIndexedDbCanonicalAdapter\b|iwxa-t2-canonical/.test(value),
+      `separate canonical Store reference: ${relative}`);
+  }
 }
 
 if (failures.length) {

@@ -194,3 +194,92 @@ describe("useWorkspaceContent", () => {
     expect(getSpy).not.toHaveBeenCalled();
   });
 });
+
+
+describe("deferred Workspace history", () => {
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  it("loads no events until explicitly requested, then reads the authorized complete journal", async () => {
+    const session = createDevMockClient({ seedWorkspaces: [ws("deferred", "generic")] });
+    const list = vi.spyOn(adapter, "listEventsSince").mockResolvedValue([]);
+    const kernel = createKernelFacade({ session });
+    const { result } = renderHook(() => useWorkspaceContent({ kernel, workspaceId: "deferred", deferEvents: true }));
+    await waitFor(() => expect(result.current.objectsState).toBe("ready"));
+    expect(result.current.eventsState).toBe("idle");
+    expect(list).not.toHaveBeenCalled();
+    await act(async () => { await result.current.refreshEvents(); });
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(result.current.eventsState).toBe("ready");
+  });
+
+  it("does not restart full history automatically on a Workspace switch or expose a late old read", async () => {
+    const session = createDevMockClient({ seedWorkspaces: [ws("old", "generic"), ws("new", "generic")] });
+    type Event = Awaited<ReturnType<typeof adapter.listEventsSince>>[number];
+    let settle!: (events: Event[]) => void;
+    const list = vi.spyOn(adapter, "listEventsSince").mockImplementation(() => new Promise<Event[]>(resolve => { settle = resolve; }));
+    const kernel = createKernelFacade({ session });
+    const { result, rerender } = renderHook(({ id }) => useWorkspaceContent({ kernel, workspaceId: id, deferEvents: true }), { initialProps: { id: "old" } });
+    await waitFor(() => expect(result.current.objectsState).toBe("ready"));
+    act(() => { void result.current.refreshEvents(); });
+    expect(list).toHaveBeenCalledTimes(1);
+    rerender({ id: "new" });
+    await waitFor(() => expect(result.current.workspace?.workspace_id).toBe("new"));
+    await waitFor(() => expect(result.current.objectsState).toBe("ready"));
+    await act(async () => { settle([{event_id:"old-event",event_type:"saved",workspace_id:"old",service_id:"svc",occurred_at:"2026-01-01T00:00:00Z",payload:{}}]); });
+    expect(result.current.eventsState).toBe("idle");
+    expect(result.current.events).toEqual([]);
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves unavailable history without making an unauthorized read", async () => {
+    const session = createDevMockClient({ seedWorkspaces: [ws("denied", "generic")], grantedOperations: ["t1.getWorkspace", "t1.listObjects"] });
+    const list = vi.spyOn(adapter, "listEventsSince");
+    const kernel = createKernelFacade({ session });
+    const { result } = renderHook(() => useWorkspaceContent({ kernel, workspaceId: "denied", deferEvents: true }));
+    await waitFor(() => expect(result.current.objectsState).toBe("ready"));
+    expect(result.current.eventsState).toBe("unavailable");
+    await act(async () => { await result.current.refreshEvents(); });
+    expect(list).not.toHaveBeenCalled();
+    expect(result.current.eventsState).toBe("unavailable");
+  });
+});
+
+
+describe("Workspace read scope on session change", () => {
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  it("hides the old catalog immediately even when the next session uses the same Workspace ID", async () => {
+    const oldSession = createDevMockClient({ seedWorkspaces: [ws("same", "generic")], seedObjects: [obj("same", "old-visible")] });
+    const newSession = createDevMockClient({ seedWorkspaces: [ws("same", "generic")], seedObjects: [obj("same", "new-visible")] });
+    const oldKernel = createKernelFacade({ session: oldSession });
+    const newKernel = createKernelFacade({ session: newSession });
+    const getOriginal = newKernel.getWorkspace.bind(newKernel);
+    let release!: () => void;
+    const delay = new Promise<void>(resolve => { release = resolve; });
+    const delayedKernel = { ...newKernel, getWorkspace: async (id: string) => { await delay; return getOriginal(id); } };
+    const captured: string[][] = [];
+    const { result, rerender } = renderHook(({ kernel }) => {
+      const content = useWorkspaceContent({ kernel, workspaceId: "same", deferEvents: true });
+      if (kernel === delayedKernel) captured.push(content.objects.map(row => row.object_id));
+      return content;
+    }, { initialProps: { kernel: oldKernel } });
+    await waitFor(() => expect(result.current.objectsState).toBe("ready"));
+    expect(result.current.objects.map(row => row.object_id)).toEqual(["old-visible"]);
+    rerender({ kernel: delayedKernel });
+    expect(result.current.objects).toEqual([]);
+    expect(result.current.workspace).toBeNull();
+    expect(captured.every(ids => !ids.includes("old-visible"))).toBe(true);
+    await act(async () => { release(); });
+    await waitFor(() => expect(result.current.objectsState).toBe("ready"));
+    expect(result.current.objects.map(row => row.object_id)).toEqual(["new-visible"]);
+  });
+
+  it("excludes every duplicate identity on a large read without dropping the valid siblings", async () => {
+    const session = createDevMockClient({ seedWorkspaces: [ws("duplicates", "generic")] });
+    const rows = Array.from({ length: 5000 }, (_, index) => obj("duplicates", "dup-" + index));
+    vi.spyOn(adapter, "listObjects").mockResolvedValue([...rows, ...rows, obj("duplicates", "safe")]);
+    const kernel = createKernelFacade({ session });
+    const { result } = renderHook(() => useWorkspaceContent({ kernel, workspaceId: "duplicates", deferEvents: true }));
+    await waitFor(() => expect(result.current.objectsState).toBe("ready"));
+    expect(result.current.objects.map(row => row.object_id)).toEqual(["safe"]);
+    expect(result.current.objectIntegrityWarnings).toHaveLength(10000);
+  });
+});

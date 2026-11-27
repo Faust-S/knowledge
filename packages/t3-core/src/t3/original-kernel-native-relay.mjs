@@ -6,6 +6,7 @@
 import {randomBytes} from "node:crypto";
 const METHODS=Object.freeze({
   getWorkspace:"t1.getWorkspace",
+  createWorkspace:"t1.createWorkspace",
   commitObjectGraph:"t1.commitObjectGraph",
   getObject:"t1.getObject",
   listEventsSince:"t1.listEventsSince",
@@ -63,7 +64,7 @@ export function createOriginalKernelNativeRelay({
       if(!live||closed)return;
       // After original graph dispatch a write may have committed, even if
       // the browser vanished before returning the original receipt.
-      detach(pending?.issued&&pending.method==="commitObjectGraph"
+      detach(pending?.issued&&["commitObjectGraph","createWorkspace"].includes(pending.method)
         ?"T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN"
         :"T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
     },idleLeaseMs);
@@ -82,6 +83,7 @@ export function createOriginalKernelNativeRelay({
       grants.granted_operations.includes(id),
     commitObjectGraph:input=>dispatch("commitObjectGraph",[input],epoch,sessionId),
     getWorkspace:ws=>dispatch("getWorkspace",[ws],epoch,sessionId),
+    createWorkspace:input=>dispatch("createWorkspace",[input],epoch,sessionId),
     getObject:(ws,obj)=>dispatch("getObject",[ws,obj],epoch,sessionId),
     listEventsSince:(ws,since)=>dispatch("listEventsSince",[ws,since],epoch,sessionId),
   });

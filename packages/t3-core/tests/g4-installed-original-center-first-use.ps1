@@ -89,9 +89,11 @@ function DesktopRoot(){
   return [System.Windows.Automation.AutomationElement]::FromHandle($handle)
 }
 function FindName([string]$name,[string]$controlType='Button',[int]$retries=65){
-  $target=if($controlType -eq 'Edit') {
-    [System.Windows.Automation.ControlType]::Edit
-  }else{[System.Windows.Automation.ControlType]::Button}
+  $target=switch($controlType){
+    'Edit' {[System.Windows.Automation.ControlType]::Edit}
+    'ComboBox' {[System.Windows.Automation.ControlType]::ComboBox}
+    default {[System.Windows.Automation.ControlType]::Button}
+  }
   for($i=0;$i -lt $retries;$i++){
     $root=DesktopRoot
     $items=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
@@ -349,6 +351,14 @@ try{
   StartCenter
   $script:phase='CREATE_ORGANIZATION'
   TypeText 'Название' 'G4WindowsOrganization'
+  # This is the corporate installed route, not the default GROUP draft.
+  # Select the actual organization type via the existing Windows UI.
+  $kind=FindName 'Тип' 'ComboBox'
+  [void][G4InstalledModal]::SetForegroundWindow($global:appProcess.MainWindowHandle)
+  $kind.SetFocus()
+  [System.Windows.Forms.SendKeys]::SendWait('{END}')
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  Start-Sleep -Milliseconds 200
   ClickButton 'Создать черновик организации'
   Check (WaitForText 'G4WindowsOrganization') 'G4_INSTALLED_ORDINARY_ORGANIZATION_NOT_CREATED'
   $script:phase='CREATE_ORDINARY_WORKSPACE'

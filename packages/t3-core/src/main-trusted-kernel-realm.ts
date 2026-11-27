@@ -5,6 +5,7 @@
  * The domain Workspace receives only an explicitly scoped MessagePort.
  */
 import { connectKernel } from "./kernel-client/connect";
+import {companyExchangeServiceId} from "./t3/company-exchange-profile.mjs";
 import { createKernelFacade } from "./workspace-host/context/create-kernel-facade";
 import { createControlLoopbackOwner } from "./t3/control-loopback-owner.mjs";
 import {
@@ -54,7 +55,7 @@ async function attachOriginalNativeKernelRelay(
     granted_operations?:readonly string[]},
 ):Promise<void>{
   const originalMethods=new Set([
-    "commitObjectGraph","getWorkspace","getObject","listEventsSince",
+    "commitObjectGraph","getWorkspace","getObject","listEventsSince","createWorkspace",
   ]);
   const info={
     contract_version:session.contract_version,
@@ -213,9 +214,18 @@ async function attach(event:MessageEvent){
        !("session" in kernel))
       throw reject("T3_D1_ORIGINAL_KERNEL_UNAVAILABLE");
     const originalSession=kernel.session;
+    // Both connections use the SAME loaded original Runtime, origin,
+    // domain SchemaRegistry and iwxa-local Store. The universal passport
+    // remains inside this trusted realm; its T1 privileges are never exposed.
+    const exchangeId=companyExchangeServiceId(cfg.service_id);
+    const exchange=exchangeId?await connectKernel({serviceId:exchangeId,requiredLevels:["T1","T2"]}):null;
+    if(!live)throw reject("T3_D1_ORIGINAL_KERNEL_UNAVAILABLE");
+    const privateExchange=exchange&&"session" in exchange&&exchange.status==="ready"
+      ?exchange.session:undefined;
     const signed=createKernelFacade({
       session:originalSession,
       signedKernelAccess:owner.signedKernelAccess,
+      trustedCompanyExchangeSession:privateExchange,
       isHostActive:()=>live,
     });
     // The only execution of signed KernelFacade and original T2 happens
@@ -230,7 +240,7 @@ async function attach(event:MessageEvent){
         service:{...originalSession.service},
         mode:originalSession.mode,
         granted_levels:[...(originalSession.granted_levels??[])],
-        granted_operations:[...(originalSession.granted_operations??[])],
+        granted_operations:[...signed.grantedOperations],
       }),
       validateOriginalObjects:(input:unknown)=>originalSession.t0.validate(
         input as Parameters<typeof originalSession.t0.validate>[0]),

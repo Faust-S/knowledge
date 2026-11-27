@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {createTrustedReconciliationKernelApply}
   from "../src/t3/reconciliation-kernel-apply.mjs";
+import {createSubjectKernelBinding} from "../src/t3/subject-access-binding.mjs";
 
 // Contract-only owner. This is NOT a private original Reconciler, signed JIT,
 // installed native owner, or a replacement for the G4 product qualification.
@@ -395,4 +396,144 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal(commits,beforeUncertain+4);
   delete command.event.payload.reviewWitnesses;
   delete lastEvent.payload.reviewWitnesses;
+});
+
+
+// Contract fixture only. The physical archive test independently executes
+// the qualified original T2 runtime against separate IndexedDB platforms.
+const adminStorage="workspace:registry:"+"7".repeat(64);
+function partitionFixture(){
+  const ws="workspace:business",org="org:company",hash=value=>
+    createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  const c={kind:"CORP",context_id:"context:admin",actor_id:"person:manager",
+    principal_id:org,organization_id:org,role_id:"role:manager",
+    grant_id:"grant:application",realm_id:"realm:corp",audience:"host:t3",
+    purpose:"application",resource:ws,workspace_id:ws,scope_revision:1};
+  const target={consumerId:"IWXA_ADMIN_CENTER",processId:"admin.applied-results",
+    processVersion:"1",purpose:"application",subjectId:org,workspaceId:ws,dataRootId:"root:company"};
+  const command={workspace_id:ws,idempotency_key:effect,object:{
+    object_id:"result:applied:"+effect,schema_id:"iwxa.admin.applied-results",
+    schema_version:"1.0.0",base_revision:0,data:{schema:"IWXA_T3_ADMIN_APPLIED_RESULTS/1",
+      records:[{taskId:"task:1",taskRevisionId:"1".repeat(64),resultRevisionId:rev,
+        organizationId:org,workspaceId:ws,executorId:"person:employee",
+        result:"Completed work",acceptanceId:accepted}]}},
+    event:{event_type:"iwxa.admin.result.applied",payload:{
+      reconciliation_acceptance_id:accepted,reconciliation_revision_ids:[rev]}}};
+  const binding={schema:"IWXA_T3_APPLICATION_HOST_BINDING/1",effectKey:effect,
+    operation:{operationId:"effect:"+effect,payloadDigest:"d".repeat(64),resource:ws,
+      productId:"IWXA_ADMIN_CENTER",audience:c.audience,purpose:c.purpose,action:"application.apply"},
+    expectedRevision:0,applicationAuthorized:false,writeAllowed:false,hostJitRequired:true,
+    explicitHumanDecisionRequired:true,decisionCheckAtCommit:true,
+    externalContextCoreApplied:false,commitPrecondition:()=>true};
+  const f={ws,org,c,target,command,storage:adminStorage,commits:0,prompts:0,
+    loseAck:false,changeOnConsent:false,signed:[],requests:[],objects:new Map(),events:new Map()};
+  const key=(w,o)=>w+"/"+o;
+  const persist=(input)=>{
+    const w=input.workspace_id,o={...structuredClone(input.object),workspace_id:w,revision:1};
+    delete o.base_revision;
+    const event={workspace_id:w,event_id:"event:"+w,object_id:o.object_id,revision:1,
+      idempotency_key:input.idempotency_key,event_type:input.event.event_type,
+      payload:structuredClone(input.event.payload)};
+    f.objects.set(key(w,o.object_id),o);
+    f.events.set(w,[...(f.events.get(w)??[]),event]);
+    return {workspace_id:w,object:o,event,relations_put:[]};
+  };
+  f.seed=w=>persist({...command,workspace_id:w});
+  const access={currentContext:()=>c,actionFor:()=>"application.apply",
+    operationDigest:input=>{f.signed.push(structuredClone(input));return hash(input);},
+    authorize:request=>{f.requests.push(request);return {
+      schema:"IWXA_T3_ORGANIZATION_OPERATION_DECISION/1",allowed:true,outcome:"PERMITTED",
+      evidenceOnly:true,requestDigest:hash(request),policyDigest:hash("policy"),
+      operationDigest:hash("operation"),evidenceDigest:hash("evidence"),
+      organizationId:org,workspaceId:ws,grantId:c.grant_id,statusSequence:1,
+      productionActivation:false,doesNotTransferData:true,doesNotAcceptCorporateCopy:true,
+      validUntil:new Date(Date.now()+60000).toISOString()};},
+    verifyDecisionBinding:(request,decision)=>decision.requestDigest===hash(request)};
+  const kernel={sessionInfo:{contract_version:"1.3.0",service_id:"iwxa.admin-center.workspace"},
+    hasOperation:()=>true,
+    getWorkspace:async w=>({workspace_id:w,profile:"generic"}),
+    getObject:async(w,o)=>{const object=f.objects.get(key(w,o));
+      return object?{object:structuredClone(object),relations:{incoming:[],outgoing:[]}}:null;},
+    listEventsSince:async w=>structuredClone(f.events.get(w)??[]),
+    commitObjectGraph:async input=>{f.commits++;const receipt=persist(input);
+      if(f.loseAck)throw Error("ORIGINAL_ACK_LOST");return structuredClone(receipt);}};
+  f.kernel=kernel;f.access=access;
+  f.port=()=>createTrustedReconciliationKernelApply({
+    admission:{inspectAcceptedApplication:async()=>({})},kernel,access,isHostActive:()=>true,
+    resolveReceiptWorkspace:async()=>f.storage,
+    stageFromOriginalOwner:()=>({command,binding,authorizationContext:{
+      operationId:binding.operation.operationId,payloadDigest:binding.operation.payloadDigest,
+      organizationId:org,workspaceId:ws,dataRootId:target.dataRootId,storageScopeDigest:"e".repeat(64),
+      expectedRevision:0,actorId:c.actor_id,principalId:c.principal_id,roleId:c.role_id,
+      grantId:c.grant_id,operationDigest:"f".repeat(64)}}),
+    confirmSeparateApply:async()=>{f.prompts++;
+      if(f.changeOnConsent)f.storage="workspace:registry:"+"8".repeat(64);return true;}});
+  f.selection={acceptanceId:accepted,revisionIds:[rev],target};
+  return f;
+}
+test("new APPLY persists only in the exact original admin partition and survives cold read",async()=>{
+  const f=partitionFixture(),port=f.port();
+  const result=await port.applyAccepted(f.selection);
+  assert.equal(f.commits,1);assert.equal(f.prompts,1);
+  assert.equal(result.originalKernelReceipt.workspace_id,adminStorage);
+  assert.equal(result.originalKernelReadback.object.workspace_id,adminStorage);
+  assert.equal(result.originalEventReadback.workspace_id,adminStorage);
+  assert.equal(result.originalKernelReadback.object.data.records[0].workspaceId,f.ws);
+  assert.deepEqual(f.events.get(f.ws)??[],[]);
+  assert.ok(f.requests.every(r=>r.resource===f.ws));
+  const write=f.signed.find(x=>x.operation==="t1.commitObjectGraph");
+  assert.equal(write.input.workspace_id,f.ws);
+  assert.equal(write.input.original_application_receipt_workspace_id,adminStorage);
+  assert.equal(write.input.original_application_effect_key,effect);
+  const cold=f.port(),observed=await cold.recoverApplied(f.selection);
+  assert.equal(observed.status,"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
+  assert.deepEqual(observed.originalKernelReadback,result.originalKernelReadback);
+  await assert.rejects(cold.applyAccepted(f.selection),
+    {code:"T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY"});
+  assert.equal(f.commits,1);assert.equal(f.prompts,1);
+});
+test("unprovisioned or changed administrative partition cannot consume a new graph write",async()=>{
+  const f=partitionFixture();f.storage=null;
+  await assert.rejects(f.port().applyAccepted(f.selection),{code:"T3_D3_ADMIN_RECEIPT_WORKSPACE_REQUIRED"});
+  assert.equal(f.prompts,0);assert.equal(f.commits,0);
+  f.storage=adminStorage;f.changeOnConsent=true;
+  await assert.rejects(f.port().applyAccepted(f.selection),{code:"T3_D3_ADMIN_RECEIPT_WORKSPACE_CHANGED"});
+  assert.equal(f.commits,0);
+});
+test("legacy APPLY is read-only; duplicate placement or incomplete legacy evidence is HOLD",async()=>{
+  const f=partitionFixture();f.seed(f.ws);
+  const legacy=await f.port().recoverApplied(f.selection);
+  assert.equal(legacy.status,"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
+  assert.equal(legacy.originalKernelReadback.object.workspace_id,f.ws);
+  await assert.rejects(f.port().applyAccepted(f.selection),
+    {code:"T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY"});
+  assert.equal(f.prompts,0);assert.equal(f.commits,0);
+  f.seed(adminStorage);
+  assert.equal((await f.port().recoverApplied(f.selection)).status,"OUTCOME_UNKNOWN");
+  f.objects.delete(f.ws+"/"+f.command.object.object_id);
+  assert.equal((await f.port().recoverApplied(f.selection)).status,"OUTCOME_UNKNOWN");
+  assert.equal(f.commits,0);
+});
+test("lost admin partition ACK recovers without another APPLY",async()=>{
+  const f=partitionFixture();f.loseAck=true;
+  await assert.rejects(f.port().applyAccepted(f.selection),
+    {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
+  const result=await f.port().recoverApplied(f.selection);
+  assert.equal(result.status,"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
+  assert.equal(result.originalEventReadback.workspace_id,adminStorage);
+  assert.equal(f.commits,1);assert.equal(f.prompts,1);
+});
+test("private receipt scope cannot export, read the registry or write a different graph",async()=>{
+  const f=partitionFixture(),port=createSubjectKernelBinding({kernel:f.kernel,access:f.access,
+    applicationReceiptScope:{workspaceId:adminStorage,effectKey:effect}});
+  await assert.rejects(port.getObject(f.ws,"t3.access.signed-registry"),
+    {code:"T3_D3_APPLICATION_RECEIPT_SCOPE_INVALID"});
+  await assert.rejects(port.exportPreview({workspaces:[f.ws]}),
+    {code:"T3_D3_APPLICATION_RECEIPT_SCOPE_INVALID"});
+  await assert.rejects(port.commitObjectGraph({...f.command,object:{
+    ...f.command.object,schema_id:"iwxa.t3.access.signed-registry"}}),
+    {code:"T3_D3_APPLICATION_RECEIPT_SCOPE_INVALID"});
+  await assert.rejects(port.getObject(adminStorage,f.command.object.object_id),
+    {code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
+  assert.equal(f.commits,0);assert.equal(f.signed.length,0);
 });

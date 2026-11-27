@@ -1,13 +1,12 @@
 // @vitest-environment jsdom
 /**
- * T2-03B — Health blocked surface: no object/event calls, sealed UI.
+ * Health is an ordinary Workspace profile; authorized history loads on demand.
  */
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { render, cleanup, screen, waitFor } from "@testing-library/react";
+import { render, cleanup, screen, waitFor, fireEvent } from "@testing-library/react";
 import { WorkspaceView } from "../src/modules/base/features/workspace/WorkspaceView";
 import { createDevMockClient } from "../src/kernel-client/dev-mock";
 import { adapter } from "../src/kernel-client";
-import { capabilities as computeCapabilities } from "../src/kernel-client/capabilities";
 import { createKernelFacade } from "../src/workspace-host/context/create-kernel-facade";
 import type { WorkspaceRecord } from "../src/kernel-client";
 
@@ -31,7 +30,6 @@ describe("Workspace health profile is ordinary user presentation", () => {
 
   it("shows the workspace without automatic profile-name blocking", async () => {
     const session = createDevMockClient({ seedWorkspaces: [ws()] });
-    const caps = computeCapabilities(session);
     const listObjects = vi.spyOn(adapter, "listObjects");
     const listEvents = vi.spyOn(adapter, "listEventsSince");
 
@@ -44,6 +42,11 @@ describe("Workspace health profile is ordinary user presentation", () => {
 
     expect(await screen.findByTestId("workspace-view")).toBeInTheDocument();
     await waitFor(()=>expect(listObjects).toHaveBeenCalled());
-    await waitFor(()=>expect(listEvents).toHaveBeenCalled());
+    expect(listEvents).not.toHaveBeenCalled();
+    expect(screen.getByTestId("workspace-history-deferred")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("workspace-load-history"));
+    await waitFor(()=>expect(listEvents).toHaveBeenCalledTimes(1));
+    await waitFor(()=>expect(screen.queryByTestId("workspace-history-deferred")).not.toBeInTheDocument());
+    expect(screen.queryByTestId("events-error")).not.toBeInTheDocument();
   });
 });

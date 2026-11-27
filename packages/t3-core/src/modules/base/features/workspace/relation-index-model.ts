@@ -104,13 +104,49 @@ function emptyDiagnostics(): WorkspaceRelationIndexDiagnostics {
   };
 }
 
+export interface RelationIndexSourceSelection {
+  objects: readonly ObjectRecord[];
+  /** Counts refer to admitted current catalog sources, not global relations. */
+  totalCount: number;
+  matchingCount: number;
+  page: number;
+  totalPages: number;
+  startIndex: number;
+  endIndex: number;
+  isTruncated: boolean;
+}
+
+/** Select a bounded, explicit window of current catalog sources.
+ * Search is limited to IDs and schema IDs; it never inspects object payloads.
+ * All admitted catalog objects remain available as relation endpoints.
+ */
 export function selectRelationIndexSources(
   objects: readonly ObjectRecord[],
-): { objects: readonly ObjectRecord[]; isTruncated: boolean } {
-  const ordered = [...objects].sort((a, b) => stableCompare(a.object_id, b.object_id));
+  options: { workspaceId?: string; query?: string; page?: number } = {},
+): RelationIndexSourceSelection {
+  const admitted = objects.filter(object =>
+    (options.workspaceId === undefined || object.workspace_id === options.workspaceId)
+      && isSafeOpaqueId(object.object_id) && !object.deleted);
+  const query = (options.query ?? "").trim().toLocaleLowerCase("ru-RU");
+  const ordered = admitted.filter(object => !query
+    || object.object_id.toLocaleLowerCase("ru-RU").includes(query)
+    || object.schema_id.toLocaleLowerCase("ru-RU").includes(query))
+    .sort((a, b) => stableCompare(a.object_id, b.object_id));
+  const size = RELATION_INDEX_MAX_SOURCE_OBJECTS;
+  const totalPages = Math.max(1, Math.ceil(ordered.length / size));
+  const requested = options.page ?? 0;
+  const page = Number.isSafeInteger(requested) ? Math.max(0, Math.min(requested, totalPages - 1)) : 0;
+  const start = page * size;
+  const selected = ordered.slice(start, start + size);
   return {
-    objects: ordered.slice(0, RELATION_INDEX_MAX_SOURCE_OBJECTS),
-    isTruncated: ordered.length > RELATION_INDEX_MAX_SOURCE_OBJECTS,
+    objects: selected,
+    totalCount: admitted.length,
+    matchingCount: ordered.length,
+    page,
+    totalPages,
+    startIndex: selected.length ? start + 1 : 0,
+    endIndex: start + selected.length,
+    isTruncated: selected.length < admitted.length,
   };
 }
 
@@ -118,23 +154,27 @@ export async function loadRelationIndexSources(input: {
   workspaceId: string;
   sourceObjects: readonly ObjectRecord[];
   getObject: (workspaceId: string, objectId: string) => Promise<ObjectWithRelations | null>;
+  /** Stops scheduling new reads; already dispatched kernel calls may settle. */
+  signal?: AbortSignal;
 }): Promise<RelationIndexSourceResult[]> {
-  const { workspaceId, sourceObjects, getObject } = input;
+  const { workspaceId, sourceObjects, getObject, signal } = input;
   const results: RelationIndexSourceResult[] = new Array(sourceObjects.length);
   let next = 0;
 
   const worker = async () => {
-    while (true) {
+    while (!signal?.aborted) {
       const index = next;
       next += 1;
       if (index >= sourceObjects.length) return;
       const sourceObjectId = sourceObjects[index].object_id;
       try {
         const detail = await getObject(workspaceId, sourceObjectId);
+        if (signal?.aborted) return;
         results[index] = detail
           ? { sourceObjectId, state: "ready", detail }
           : { sourceObjectId, state: "missing" };
       } catch {
+        if (signal?.aborted) return;
         results[index] = { sourceObjectId, state: "error" };
       }
     }
@@ -142,7 +182,8 @@ export async function loadRelationIndexSources(input: {
 
   const workerCount = Math.min(RELATION_INDEX_MAX_CONCURRENCY, sourceObjects.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return results;
+  // Cancellation must not publish a partial relation model as complete.
+  return signal?.aborted ? [] : results;
 }
 
 export function buildWorkspaceRelationIndex(input: {
@@ -153,7 +194,9 @@ export function buildWorkspaceRelationIndex(input: {
 }): WorkspaceRelationIndexModel {
   const { workspaceId, objects, sources, isTruncated = false } = input;
   const diagnostics = emptyDiagnostics();
-  const knownObjects = new Map(objects.map((o) => [o.object_id, o]));
+  const knownObjects = new Map(objects
+    .filter(o => o.workspace_id === workspaceId && isSafeOpaqueId(o.object_id) && !o.deleted)
+    .map(o => [o.object_id, o]));
   const byRelationId = new Map<string, Map<string, RelationRecord>>();
   const seenSignaturesByRelationId = new Map<string, Set<string>>();
   let loadedSources = 0;

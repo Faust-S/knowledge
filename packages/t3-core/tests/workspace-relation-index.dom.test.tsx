@@ -236,3 +236,35 @@ describe("WorkspaceRelationIndex P0", () => {
     expect(peak).toBeGreaterThan(1);
   });
 });
+
+
+describe("relation source browsing", () => {
+  it("reads later source windows on request and can search directly without reading payloads", async () => {
+    const rows = Array.from({length:205},(_,i)=>object("src-"+String(i).padStart(3,"0")));
+    const kernel = facade({objects:rows});
+    const read = vi.mocked(kernel.getObject);
+    render(<WorkspaceRelationIndex kernel={kernel} workspaceId="w" objects={rows} enabled onOpenObject={()=>{}} />);
+    await screen.findByTestId("workspace-relation-index");
+    expect(read).toHaveBeenCalledTimes(100);
+    expect(screen.getByTestId("relation-index-source-window").textContent).toContain("1–100 из 205");
+    fireEvent.click(screen.getByTestId("relation-index-source-next"));
+    await screen.findByTestId("workspace-relation-index");
+    expect(read).toHaveBeenCalledTimes(200);
+    expect(read).toHaveBeenCalledWith("w","src-199");
+    fireEvent.click(screen.getByTestId("relation-index-source-next"));
+    await screen.findByTestId("workspace-relation-index");
+    expect(read).toHaveBeenCalledTimes(205);
+    expect(screen.getByTestId("relation-index-source-window").textContent).toContain("201–205 из 205");
+    fireEvent.change(screen.getByTestId("relation-index-source-query"),{target:{value:"src-204"}});
+    expect(read).toHaveBeenCalledTimes(205);
+    fireEvent.click(screen.getByTestId("relation-index-source-apply"));
+    await screen.findByTestId("workspace-relation-index");
+    expect(read).toHaveBeenCalledTimes(206);
+    expect(read).toHaveBeenLastCalledWith("w","src-204");
+    expect(screen.getByTestId("relation-index-source-window").textContent).toContain("1–1 из 1");
+    fireEvent.change(screen.getByTestId("relation-index-source-query"),{target:{value:"absent"}});
+    fireEvent.click(screen.getByTestId("relation-index-source-apply"));
+    await screen.findByTestId("relation-index-no-sources");
+    expect(read).toHaveBeenCalledTimes(206);
+  });
+});

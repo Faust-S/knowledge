@@ -119,7 +119,8 @@ export function createTrustedNativeContinuation({
   const recipientUnchanged=()=>check(nativeOwner.recipientId===recipientId,
     "T3_D6_NATIVE_RECIPIENT_CHANGED");
   const active=()=>isHostActive()===true;
-  async function withSelectedSource(input,run){
+  async function withSelectedSource(input,run,expectedContext){
+    const expectedIdentity=expectedContext===undefined?null:identity(expectedContext);
     const reference=referenceFrom(input);
     check(active(),"T3_HOST_DISPOSED");
     const selected=currentWorkspace.get();
@@ -145,6 +146,7 @@ export function createTrustedNativeContinuation({
         context.resource===reference.workspace_id,
         "T3_D6_SIGNED_WORKSPACE_MISMATCH");
       const initialIdentity=identity(context);
+      check(expectedIdentity===null||initialIdentity===expectedIdentity,"T3_D6_SIGNED_CONTEXT_MISMATCH");
       const unchanged=async()=>{
         live();
         check(identity(await access.currentContext())===initialIdentity,
@@ -213,7 +215,7 @@ export function createTrustedNativeContinuation({
       rethrowDefiniteNativeRefusal(error);
       // Only an unavailable native receipt is an uncertain native outcome.
       // A changed Workspace or denied original D1 read must still reject.
-      await state.unchanged();
+      await state.readSource();
       return Object.freeze({status:"OUTCOME_UNKNOWN",operationId});
     }
     await state.unchanged();
@@ -221,17 +223,20 @@ export function createTrustedNativeContinuation({
     // An invalid receipt/readback is not permission to dispatch again.
     return observe(state.reference,operationId,state.readSource);
   }
-  async function preview(input){
+  async function preview(input,expectedContext){
     return withSelectedSource(input,async state=>{
       const plan=await inspect(state);
       const prior=await probePrior(state,plan.operationId);
+      // Even a null receipt was an asynchronous original recipient read.
+      // Re-observe the signed source before reporting availability.
+      await state.readSource();
       const status=inFlight.has(plan.operationId)?"OPERATION_IN_PROGRESS":
         prior!==null||plan.status==="RECOVER_ONLY"||
         dispatched.has(plan.operationId)?"RECOVER_ONLY":"AVAILABLE";
       return Object.freeze({status,
         operationId:plan.operationId,recipientId:recipientId,
         reference:state.reference});
-    });
+    },expectedContext);
   }
   async function continueSelected(input){
     return withSelectedSource(input,async state=>{
@@ -247,6 +252,9 @@ export function createTrustedNativeContinuation({
       try{
         const prior=await probePrior(state,operationId);
         if(prior!==null)return prior;
+        // Do not prompt for a stale Result if the original receipt lookup
+        // overlapped a new source revision or revocation.
+        await state.readSource();
         const approval=await confirmHuman({
           recipientId:recipientId,
           operationId,reference:copy(state.reference,
@@ -256,13 +264,17 @@ export function createTrustedNativeContinuation({
         if(approval!==true)return Object.freeze({status:"USER_CANCELLED"});
         // The reference may have advanced while a human reviewed the proposal.
         // Repeat ORIGINAL signed Kernel readback before the only native write.
-        const current=await state.readSource();
+        await state.readSource();
         await state.unchanged();
         // An independent native process could have committed during Human
         // confirmation. One final durable read before dispatch protects the
         // installed product even when this Host has never seen the Result.
         const committedDuringConsent=await probePrior(state,operationId);
         if(committedDuringConsent!==null)return committedDuringConsent;
+        // The final recipient receipt is asynchronous too. Re-read the
+        // exact signed source AFTER it, immediately before native dispatch.
+        // The installed owner remains responsible for its own atomic check.
+        const current=await state.readSource();
         // Set before invoking the original native owner: failure may mean
         // that its durable write committed but the acknowledgement was lost.
         dispatched.add(operationId);
@@ -296,11 +308,11 @@ export function createTrustedNativeContinuation({
       }
     });
   }
-  async function recover(input){
+  async function recover(input,expectedContext){
     return withSelectedSource(input,async state=>{
       const plan=await inspect(state);
       return observe(state.reference,plan.operationId,state.readSource);
-    });
+    },expectedContext);
   }
   return Object.freeze({preview,continueSelected,recover});
 }
