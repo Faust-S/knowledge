@@ -35,7 +35,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
     &&(personalTaskOwner===null||(personalComposer!==null&&typeof personalTaskOwner.readAcceptedRun==='function'
       &&typeof personalTaskOwner.taskDocumentSource==='function'))
     &&(corporateTaskOwner===null||typeof corporateTaskOwner.readSignedTask==='function')
-    &&(corporateResultOwner===null||typeof corporateResultOwner.readAccepted==='function'||typeof corporateResultOwner.readAcceptedForInputs==='function')
+    &&(corporateResultOwner===null||typeof corporateResultOwner.readAccepted==='function'||typeof corporateResultOwner.readAcceptedForInputs==='function'||
+      typeof corporateResultOwner.readSharedResult==='function')
     &&typeof isHostActive==='function'&&(!nativeCorporateOnly||corporateTaskOwner!==null),'T3_METHOD_STAGE_TRUSTED_HOST_REQUIRED');
   if(nativeCorporateOnly)check(typeof corporateTaskOwner.verifyTextInputs==='function','T3_METHOD_CORPORATE_TASK_INPUT_VERIFIER_REQUIRED');
   let personalDraftInFlight=false;
@@ -141,7 +142,7 @@ function createReader({kernel,accessForRead,currentWorkspace,
         check(typeof corporateResultOwner?.readAccepted==='function','T3_METHOD_CORPORATE_RESULT_ORIGINAL_OWNER_REQUIRED');
         return guarded(()=>corporateResultOwner.readAccepted(selected,context));
       };
-      if(corporateChain)check(typeof corporateResultOwner?.[mode==='corporate-inputs'?'readAcceptedForInputs':'readAccepted']==='function',
+      if(corporateChain&&mode!=='corporate-inputs')check(typeof corporateResultOwner?.readAccepted==='function',
         'T3_METHOD_CORPORATE_RESULT_ORIGINAL_OWNER_REQUIRED');
       const args={...request,owner,readObject,readAccepted,subjectKind:context.kind,
         ...(corporateChain?{organizationId:context.organization_id,readCorporateAcceptedResult:planningResult}:{})};
@@ -201,11 +202,73 @@ function createReader({kernel,accessForRead,currentWorkspace,
               'T3_METHOD_CORPORATE_TASK_REFERENCE_SCOPE_MISMATCH');
             const prepare=mode==='corporate-inputs'?buildWorkspaceMethodCorporateTaskInputs:buildWorkspaceMethodCorporateTaskReference;
             const preparedArgs=recovering?{...evidenceArgs,expectedCandidateDigest:w.candidateDigest}:evidenceArgs;
-            // The installed owner must independently verify DATA disclosure
-            // to this exact current signed employee Task. The Admin planning
-            // port, D1 Workspace read and signed reference are not that grant.
-            if(mode==='corporate-inputs'&&corporateChain)
+            // New independent assignments carry only a flat, signed list
+            // of the selected accepted Result references. Recover the
+            // complete prerequisite closure without UI/manager lookup.
+            const signedPredecessors=w.acceptedPredecessors;
+            const sharedSnapshot=mode==='corporate-inputs'&&signedPredecessors!==undefined;
+            if(signedPredecessors!==undefined){
+              check(Array.isArray(signedPredecessors)&&signedPredecessors.length>0&&signedPredecessors.length<=63,
+                'T3_METHOD_CORPORATE_TASK_REFERENCE_SCOPE_MISMATCH');
+              const declared=signedPredecessors.map(row=>({
+                stepId:row.stepId,acceptanceId:row.acceptedResult.acceptanceId,
+                resultRevisionId:row.acceptedResult.resultRevisionId}));
+              const byStep=new Map(signedPredecessors.map(row=>[row.stepId,row]));
+              check(byStep.size===declared.length,'T3_METHOD_CORPORATE_TASK_REFERENCE_SCOPE_MISMATCH');
+              if(request.corporateResultSelections!==undefined){
+                const ordered=rows=>rows.slice().sort((a,b)=>a.stepId.localeCompare(b.stepId));
+                check(canonicalStringify(ordered(declared))===canonicalStringify(ordered(request.corporateResultSelections)),
+                  'T3_METHOD_CORPORATE_TASK_REFERENCE_SCOPE_MISMATCH');
+              }
+              preparedArgs.corporateResultSelections=declared;
+              preparedArgs.organizationId=context.organization_id;
+              if(sharedSnapshot){
+                check(typeof corporateResultOwner?.readSharedResult==='function',
+                  'T3_METHOD_CORPORATE_RESULT_ORIGINAL_OWNER_REQUIRED');
+                preparedArgs.corporateResultObservation='SIGNED_ASSIGNMENT_SNAPSHOT';
+                preparedArgs.readCorporateAcceptedResult=selected=>guarded(async()=>{
+                  const row=byStep.get(selected.stepId),a=row?.acceptedResult;
+                  check(a&&a.acceptanceId===selected.acceptanceId&&a.resultRevisionId===selected.resultRevisionId
+                    &&a.organizationId===context.organization_id&&a.workspaceId===context.workspace_id,
+                    'T3_METHOD_CORPORATE_TASK_REFERENCE_SCOPE_MISMATCH');
+                  const sourceTask={organizationId:a.organizationId,workspaceId:a.workspaceId,executorId:a.executorId,
+                    taskId:a.taskId,taskRevisionId:a.taskRevisionId,packageSha256:a.taskPackageSha256};
+                  // This is the existing native company Workspace persistence
+                  // owner, with the employee's own DATA. No Admin readback.
+                  const seen=canonicalClone(await corporateResultOwner.readSharedResult({
+                    sourceTask,artifactId:row.artifactId,artifactSha256:a.resultSha256},context,first));
+                  const obj=seen?.originalObject,data=obj?.data;
+                  check(seen?.state==='COMPANY_ORIGINAL_RESULT_OBSERVED'&&seen.originalKernelReadback===true
+                    &&seen.corporateAcceptanceProven===false&&seen.sourceCurrentnessProven===false
+                    &&seen.executionAuthorized===false&&seen.writeAuthorized===false&&seen.workCompleted===false
+                    &&seen.organizationId===context.organization_id&&seen.workspaceId===context.workspace_id
+                    &&seen.readerExecutorId===context.actor_id&&canonicalStringify(seen.sourceTask)===canonicalStringify(sourceTask)
+                    &&seen.artifactId===row.artifactId&&seen.artifactSha256===a.resultSha256
+                    &&obj.workspace_id===context.workspace_id&&obj.object_id===row.originalCompanyRecordId
+                    &&obj.schema_id==='iwxa.t3.company-work-record'&&obj.revision===1&&obj.deleted!==true&&obj.deleted_at==null
+                    &&data?.schema==='IWXA_T3_ORIGINAL_COMPANY_WORK_RECORD/1'&&data.kind==='RESULT'
+                    &&data.sourceKind==='ORIGINAL_AGENT_HUMAN_ACCEPTED'&&data.artifactId===row.artifactId
+                    &&['organizationId','workspaceId','executorId','taskId','taskRevisionId'].every(k=>data[k]===sourceTask[k])
+                    &&data.taskPackageSha256===sourceTask.packageSha256&&data.sha256===a.resultSha256
+                    &&typeof data.text==='string'&&createHash('sha256').update(data.text,'utf8').digest('hex')===a.resultSha256,
+                    'T3_METHOD_CORPORATE_SHARED_RESULT_READBACK_MISMATCH');
+                  return Object.freeze({...a,artifactId:row.artifactId,originalCompanyRecordId:row.originalCompanyRecordId,
+                    result:data.text,state:'ORIGINAL_SIGNED_WORKFLOW_PREDECESSOR_OBSERVED',originalRecipientReadback:false,
+                    originalKernelReadback:true,readOnly:true,acceptanceState:'ACCEPTED',currentness:'ISSUER_ACCEPTANCE_AT_SIGNING',
+                    sourceCurrentnessProven:false,executionAuthorized:false});
+                });
+              }else{
+                check(typeof corporateResultOwner?.readAccepted==='function','T3_METHOD_CORPORATE_RESULT_ORIGINAL_OWNER_REQUIRED');
+                preparedArgs.readCorporateAcceptedResult=planningResult;
+              }
+            }else if(mode==='corporate-inputs'&&corporateChain){
+              // Historical signed v2 without the new declaration must not
+              // borrow Admin planning authority. Its existing explicit
+              // installed recipient input port remains separate.
+              check(typeof corporateResultOwner?.readAcceptedForInputs==='function',
+                'T3_METHOD_CORPORATE_RESULT_ORIGINAL_OWNER_REQUIRED');
               preparedArgs.readCorporateAcceptedResult=selected=>guarded(()=>corporateResultOwner.readAcceptedForInputs(selected,context,first));
+            }
             const prepared=await prepare(preparedArgs);
             if(mode==='corporate-inputs'){
               // The original Task owner now performs the final selected
@@ -228,7 +291,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
                 &&['materials','assets','attachments','attachmentBytes'].every(k=>verified.counts?.[k]===prepared.counts[k])
                 &&verified.counts?.results===(prepared.counts.results??0),'T3_METHOD_CORPORATE_TASK_INPUT_VERIFICATION_FAILED');
               report=Object.freeze({...prepared,...first,declaredReferenceMatched:true,
-                declaredSnapshotBytesVerified:true,attachmentDigest});
+                declaredSnapshotBytesVerified:true,attachmentDigest,
+                ...(sharedSnapshot?{predecessorAcceptanceObservation:'ISSUER_ACCEPTANCE_AT_SIGNING',sourceCurrentnessProven:false}:{})});
             }else{
               const last=await readReference();
               check(canonicalStringify(first)===canonicalStringify(last),'T3_METHOD_CORPORATE_TASK_REVISION_CHANGED');
