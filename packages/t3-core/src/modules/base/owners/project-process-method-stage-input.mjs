@@ -481,6 +481,42 @@ function handoffReport(inspection,includeMaterialEvidence,subjectKind){
     dispatchAuthorized:false,executionAuthority:false,writeAuthorized:false,resultReuseProven:false,atomicSnapshot:false});
 }
 
+// W05.22: exact current source reference for the ORIGINAL signed
+// corporate Task profile v2. No material payload or result text is placed
+// in this field. The existing Admin owner must explicitly authorize DATA
+// disclosure and assign/sign the complete Task. This is not an issuer.
+export async function buildWorkspaceMethodCorporateTaskReference(input={}){
+  const {subjectKind,expectedCandidateDigest}=input;
+  if(subjectKind!=='CORP'||input.personalResultSelections!==undefined)
+    fail('METHOD_CORPORATE_TASK_SCOPE_REQUIRED','Original corporate subject required');
+  if(typeof expectedCandidateDigest!=='string'||!HEX.test(expectedCandidateDigest))
+    fail('METHOD_CORPORATE_TASK_EXPECTED_EVIDENCE_REQUIRED','Explicit reviewed handoff digest required');
+  const report=await previewWorkspaceMethodStageHandoff({...input,includeMaterialEvidence:true});
+  if(!report.binding||!report.materialEvidence?.observation||report.candidateDigest!==expectedCandidateDigest)
+    fail('METHOD_CORPORATE_TASK_EVIDENCE_CHANGED','Current original input reference differs from the reviewed handoff');
+  const {basis}=report.inspection.stageInput,binding=report.binding;
+  if(basis.intendedActor!=='agent')
+    fail('METHOD_CORPORATE_TASK_ACTOR_UNSUPPORTED','Original human or program owner required');
+  const task=basis.objective+'\n\n'+basis.instruction;
+  const clean=(value,max)=>typeof value==='string'&&value.length>0&&value.length<=max
+    &&value.trim()===value&&!value.includes('\0')&&Buffer.from(value,'utf8').toString('utf8')===value;
+  if(!/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(basis.workspaceId)
+      ||!clean(basis.projectId,160)||!clean(basis.projectRef.recordId,512)||!clean(basis.stageRef.recordId,512)
+      ||!task.trim()||task.length>10000||task.includes('\0')||Buffer.from(task,'utf8').toString('utf8')!==task)
+    fail('METHOD_CORPORATE_TASK_CONTENT_LIMIT','The original signed Task reference or exact text is not representable');
+  const workflowInput=Object.freeze({
+    schema:'IWXA_T3_WORKFLOW_INPUT_REFERENCE/1',workspaceId:basis.workspaceId,projectId:basis.projectId,stepId:basis.stepId,
+    projectRef:basis.projectRef,workRef:basis.stageRef,inputBasisDigest:binding.inputBasisDigest,
+    materialEvidenceDigest:binding.materialEvidenceDigest,candidateDigest:report.candidateDigest,
+    taskTextSha256:createHash('sha256').update(task,'utf8').digest('hex'),
+  });
+  return Object.freeze({state:'CORPORATE_TASK_REFERENCE_PREPARED',task,workflowInput,
+    requiredOriginalOwnerChecks:Object.freeze(['ORIGINAL_ASSIGNMENT_ACTION','ORIGINAL_TASK_AND_WORKFLOW_INPUT_DATA_DISCLOSURE',
+      'ORIGINAL_SIGNED_TASK_CARRIER','ACTUAL_AUTHORIZED_MATERIAL_AND_PREDECESSOR_INPUT_BINDING']),
+    signedTaskIssued:false,taskCreated:false,executionAuthority:false,writeAuthorized:false,
+    exactInputBindingProven:false,allAssetsProven:false,resultReuseProven:false,workCompleted:false});
+}
+
 // W05.10: materialize only the original Agent text composer payload in
 // trusted native Host memory. Never return its bytes through the UI reader.
 // The original composer owns saving and digest CAS. An editable draft is

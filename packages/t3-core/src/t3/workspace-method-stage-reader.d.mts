@@ -69,11 +69,29 @@ export type WorkspaceMethodRecoveredPersonalTask=WorkspaceMethodPersonalTaskInsp
   recoveredFromOriginalTask:true;canonicalWorkRef:WorkspaceMethodSourceRef;
   personalResultSelections:readonly WorkspaceMethodPersonalResultSelection[];
 }>;
+export type WorkspaceMethodCorporateTaskReference=Readonly<{
+  schema:'IWXA_T3_WORKFLOW_INPUT_REFERENCE/1';workspaceId:string;projectId:string;stepId:string;
+  projectRef:WorkspaceMethodSourceRef;workRef:WorkspaceMethodSourceRef;
+  inputBasisDigest:string;materialEvidenceDigest:string;candidateDigest:string;taskTextSha256:string;
+}>;
+export type WorkspaceMethodCorporateTaskReferencePlan=Readonly<{
+  state:'CORPORATE_TASK_REFERENCE_PREPARED';task:string;workflowInput:WorkspaceMethodCorporateTaskReference;
+  requiredOriginalOwnerChecks:readonly string[];signedTaskIssued:false;taskCreated:false;executionAuthority:false;
+  writeAuthorized:false;exactInputBindingProven:false;allAssetsProven:false;resultReuseProven:false;workCompleted:false;
+}>;
+export type WorkspaceMethodCorporateTaskReferenceInspection=Readonly<{
+  state:'SIGNED_CORPORATE_TASK_CURRENT_REFERENCE_MATCHED';taskId:string;taskRevisionId:string;packageSha256:string;
+  recipientId:string;workflowInput:WorkspaceMethodCorporateTaskReference;declaredReferenceMatched:true;
+  exactInputBindingProven:false;allAssetsProven:false;workCompleted:false;executionAuthority:false;
+  writeAuthorized:false;resultReuseProven:false;
+}>;
 export interface WorkspaceMethodStageReader {
   overview(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodInputOverview>;
   inspect(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodStageInspection>;
   previewHandoff(input:WorkspaceMethodStageRequest&Readonly<{includeMaterialEvidence?:boolean}>):Promise<WorkspaceMethodHandoffPreview>;
   inspectMaterialEvidence?(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodMaterialEvidence>;
+  prepareCorporateTaskReference?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string}>):Promise<WorkspaceMethodCorporateTaskReferencePlan>;
+  inspectCorporateTaskReference?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string;taskId:string}>):Promise<WorkspaceMethodCorporateTaskReferenceInspection>;
   createPersonalDraft?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string}>):Promise<WorkspaceMethodPersonalDraftReceipt>;
   recoverPersonalDraft?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string}>):Promise<WorkspaceMethodPersonalDraftReceipt>;
   inspectPersonalTask?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string;taskId:string}>):Promise<WorkspaceMethodPersonalTaskInspection>;
@@ -84,6 +102,6 @@ export interface WorkspaceMethodStageReader {
 export function createTrustedWorkspaceMethodStageReader(input:{
   kernel:unknown;accessForRead:(operation:string)=>unknown;currentWorkspace:unknown;
   sourceOwner:unknown;originalAgentResultOwner?:unknown;nativeContinuation?:unknown;nativeRecipientId?:string|null;
-  personalTaskOwner?:unknown;personalComposer?:unknown;confirmPersonalDraft?:(preview:unknown)=>boolean|Promise<boolean>;
+  corporateTaskOwner?:unknown;personalTaskOwner?:unknown;personalComposer?:unknown;confirmPersonalDraft?:(preview:unknown)=>boolean|Promise<boolean>;
   isHostActive:()=>boolean;
 }):WorkspaceMethodStageReader;

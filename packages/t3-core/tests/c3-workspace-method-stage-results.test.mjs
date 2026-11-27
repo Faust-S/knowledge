@@ -97,13 +97,13 @@ test('accepted owner or exact material changed during observation cannot confirm
       const r=await f.readObject(w,id);return changed&&id==='source'?{object:{...r.object,revision:2}}:r;
     }})),code('METHOD_STAGE_RESULT_BASIS_CHANGED'));
 });
-function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=()=>{},personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null}={}){
+function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=()=>{},personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null,corporateTaskOwner=null,subjectKind='PERSONAL'}={}){
   const workspace={workspace_id:ws,deleted_at:null};
   let chosen=workspace,active=true,allowed=true;const listeners=new Set();
   const currentWorkspace={get:()=>chosen,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);}};
-  const context={kind:'PERSONAL',context_id:'ctx:work',actor_id:'person:owner',principal_id:'person:owner',
+  const context={kind:subjectKind,context_id:'ctx:work',actor_id:'person:owner',principal_id:subjectKind==='CORP'?'org:fixture':'person:owner',
     role_id:'role:owner',grant_id:'grant:owner',realm_id:'realm:personal',audience:'host:t3',resource:ws,
-    purpose:'work',workspace_id:ws,organization_id:null,scope_revision:1};
+    purpose:'work',workspace_id:ws,organization_id:subjectKind==='CORP'?'org:fixture':null,scope_revision:1};
   const sha=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
   const access={currentContext:()=>context,actionFor:()=> 'object.read',operationDigest:sha,
     authorize:request=>({schema:'IWXA_T3_AUTHORIZATION_DECISION/1',allowed,outcome:allowed?'PERMITTED':'DENIED',
@@ -129,7 +129,7 @@ function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=(
     confirmHuman:async()=>{confirmations++;return true;},isHostActive:()=>active}):null;
   const reader=createTrustedWorkspaceMethodStageReader({kernel,accessForRead:async()=>access,currentWorkspace,sourceOwner:f.owner,
     originalAgentResultOwner:withAgent?{readAccepted:async ref=>{if(hook)await hook();return f.readAccepted(ref);}}:null,
-    nativeContinuation,nativeRecipientId:withNative?recipientId:null,personalComposer,confirmPersonalDraft,personalTaskOwner,isHostActive:()=>active});
+    nativeContinuation,nativeRecipientId:withNative?recipientId:null,personalComposer,confirmPersonalDraft,personalTaskOwner,corporateTaskOwner,isHostActive:()=>active});
   const changeSelection=()=>{chosen={...workspace};for(const notify of listeners)notify();};
   return {reader,context,deny:()=>{allowed=false;},changeSelection,dispose:()=>{active=false;},hook:fn=>{hook=fn;},
     nativeHook:fn=>{nativeHook=fn;},nativeContinuation,inspections:()=>inspections,receives:()=>receives,confirmations:()=>confirmations};
@@ -817,4 +817,71 @@ test('diamond Workflow rejects conflicting accepted versions of a shared ancesto
   const direct=[{stepId:'review',taskId:'TASK-review'},{stepId:'compute',taskId:'TASK-compute'}],assets=x.assetReads(),writes=x.c.writes();
   await assert.rejects(x.h.reader.previewHandoff(x.input('finish',direct)),code('T3_METHOD_PERSONAL_TASK_MANIFEST_SCOPE_MISMATCH'));
   assert.equal(x.assetReads(),assets);assert.equal(x.c.writes(),writes);
+});
+
+
+// W05.22: actual original C3 source and signed Host read composition;
+// the private original issuer and recipient are qualified separately.
+const corporateRoot=f=>({...hostInput(f),stepId:'analyse',resultSelections:[]});
+test('corporate source reference prepares exact signed Task metadata without payload or authority',async()=>{
+  const f=await setup(),h=trusted(f,{withAssets:true,subjectKind:'CORP'}),input=corporateRoot(f);
+  const preview=await h.reader.previewHandoff({...input,includeMaterialEvidence:true});
+  const p=await h.reader.prepareCorporateTaskReference({...input,expectedCandidateDigest:preview.candidateDigest});
+  assert.equal(p.state,'CORPORATE_TASK_REFERENCE_PREPARED');
+  assert.equal(p.task,'Review original result\n\nAnalyse original');
+  const w=p.workflowInput;
+  assert.equal(w.schema,'IWXA_T3_WORKFLOW_INPUT_REFERENCE/1');assert.equal(w.workspaceId,ws);
+  assert.equal(w.candidateDigest,preview.candidateDigest);assert.equal(w.inputBasisDigest,preview.binding.inputBasisDigest);
+  assert.equal(w.materialEvidenceDigest,preview.materialEvidence.materialEvidenceDigest);
+  assert.equal(w.taskTextSha256,createHash('sha256').update(p.task,'utf8').digest('hex'));
+  assert.deepEqual(w.projectRef,f.base.projectRef);assert.equal(w.workRef.recordId,'analyse-source');
+  assert.equal(JSON.stringify(p).includes('source body'),false);
+  assert.equal(p.signedTaskIssued,false);assert.equal(p.exactInputBindingProven,false);assert.equal(p.workCompleted,false);
+  assert.equal((await f.owner.audit()).length,3);
+});
+test('corporate reference preparation refuses personal scope, missing consent digest, changed bytes and human Work',async()=>{
+  const f=await setup(),p=trusted(f,{withAssets:true}),input=corporateRoot(f),digest='a'.repeat(64);
+  await assert.rejects(p.reader.prepareCorporateTaskReference({...input,expectedCandidateDigest:digest}),code('T3_METHOD_CORPORATE_TASK_SCOPE_REQUIRED'));
+  const h=trusted(f,{withAssets:true,subjectKind:'CORP'});
+  await assert.rejects(h.reader.prepareCorporateTaskReference(input),code('T3_METHOD_STAGE_SELECTION_REQUIRED'));
+  await assert.rejects(h.reader.prepareCorporateTaskReference({...input,expectedCandidateDigest:digest}),code('METHOD_CORPORATE_TASK_EVIDENCE_CHANGED'));
+  const review=hostInput(f),preview=await h.reader.previewHandoff({...review,includeMaterialEvidence:true});
+  await assert.rejects(h.reader.prepareCorporateTaskReference({...review,expectedCandidateDigest:preview.candidateDigest}),code('METHOD_CORPORATE_TASK_ACTOR_UNSUPPORTED'));
+});
+test('corporate dependent reference binds selected prior Result metadata but not execution equivalence',async()=>{
+  const d=draft();d.steps[1].actor='agent';
+  const f=await setup(d),h=trusted(f,{withAssets:true,subjectKind:'CORP'}),input=hostInput(f);
+  const preview=await h.reader.previewHandoff({...input,includeMaterialEvidence:true});
+  const p=await h.reader.prepareCorporateTaskReference({...input,expectedCandidateDigest:preview.candidateDigest});
+  assert.equal(p.workflowInput.candidateDigest,preview.candidateDigest);assert.equal(p.workflowInput.workRef.recordId,'review-source');
+  assert.equal(p.exactInputBindingProven,false);
+  assert.equal(JSON.stringify(p).includes('must not be projected'),false);
+  f.changeAccepted({...accepted,archiveSha256:'c'.repeat(64)});
+  await assert.rejects(h.reader.prepareCorporateTaskReference({...input,expectedCandidateDigest:preview.candidateDigest}),code('METHOD_CORPORATE_TASK_EVIDENCE_CHANGED'));
+});
+test('corporate signed carrier owner readback must match current exact original source reference twice',async()=>{
+  const f=await setup();let stored=null,reads=0,hook=()=>{};
+  const h=trusted(f,{withAssets:true,subjectKind:'CORP',corporateTaskOwner:{readSignedTask:async(id,context)=>{
+    assert.equal(id,'task:workflow');assert.equal(context.organization_id,'org:fixture');reads++;hook();return structuredClone(stored);
+  }}});
+  const input=corporateRoot(f),preview=await h.reader.previewHandoff({...input,includeMaterialEvidence:true});
+  const p=await h.reader.prepareCorporateTaskReference({...input,expectedCandidateDigest:preview.candidateDigest});
+  const request={...input,expectedCandidateDigest:preview.candidateDigest,taskId:'task:workflow'};
+  stored={found:true,taskId:'task:workflow',taskRevisionId:'b'.repeat(64),packageSha256:'c'.repeat(64),recipientId:'person:worker',
+    workflowReference:{state:'SIGNED_WORKFLOW_REFERENCE_ONLY',taskId:'task:workflow',taskRevisionId:'b'.repeat(64),
+      workflowInput:p.workflowInput,exactInputBindingProven:false,workCompleted:false,resultReuseProven:false,executionAuthorized:false}};
+  const r=await h.reader.inspectCorporateTaskReference(request);
+  assert.equal(r.state,'SIGNED_CORPORATE_TASK_CURRENT_REFERENCE_MATCHED');assert.equal(r.declaredReferenceMatched,true);
+  assert.equal(r.exactInputBindingProven,false);assert.equal(r.executionAuthority,false);assert.equal(reads,2);
+  assert.deepEqual(r.workflowInput,p.workflowInput);assert.equal(JSON.stringify(r).includes(p.task),false);
+  stored.workflowReference.workflowInput={...p.workflowInput,materialEvidenceDigest:'d'.repeat(64)};
+  await assert.rejects(h.reader.inspectCorporateTaskReference(request),code('T3_METHOD_CORPORATE_TASK_REFERENCE_MISMATCH'));
+  stored.workflowReference.workflowInput=p.workflowInput;
+  hook=()=>{if(++reads%2===0)stored.packageSha256='e'.repeat(64);};
+  // Force an observed revision/carrier change on the second observation.
+  let n=0;hook=()=>{if(++n===2)stored.packageSha256='f'.repeat(64);};
+  await assert.rejects(h.reader.inspectCorporateTaskReference(request),code('T3_METHOD_CORPORATE_TASK_REVISION_CHANGED'));
+  hook=()=>h.changeSelection();
+  await assert.rejects(h.reader.inspectCorporateTaskReference(request),code('T3_METHOD_STAGE_WORKSPACE_CHANGED'));
+  assert.equal((await f.owner.audit()).length,3);
 });
