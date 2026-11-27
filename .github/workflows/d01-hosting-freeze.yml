@@ -1,4 +1,4 @@
-name: D01 original T3 assistant domain context qualification
+name: D01 Learn assessment context declaration
 on:
   workflow_dispatch:
   push:
@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 jobs:
-  original:
+  source:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -21,40 +21,23 @@ jobs:
           fetch-depth: 2
       - name: Verify deliberate immutable request before private checkout
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d01-hosting-freeze --profile assistant-domain-context-source --revision assistant=a3b24bec69f0ce02b616b036d70d44352b220ff2
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d01-hosting-freeze --profile learn-assessment-context-source --revision site=6e5a50dacece088ff604fb8435ea4016fd21522f
       - uses: actions/checkout@v4
         with:
-          repository: Faust-S/T3
-          ref: a3b24bec69f0ce02b616b036d70d44352b220ff2
+          repository: Faust-S/learn.iwxa.ru
+          ref: 6e5a50dacece088ff604fb8435ea4016fd21522f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
-          fetch-depth: 2
-          path: private/assistant
+          path: private/site
       - uses: actions/setup-node@v4
         with:
           node-version: '24.18.1'
-      - name: Original assistant complete regression
-        working-directory: private/assistant
+      - name: Verify exact Learn assessment and knowledge contracts
+        working-directory: private/site
         shell: bash
         run: |
           set -eu
-          test "$(git rev-parse HEAD)" = a3b24bec69f0ce02b616b036d70d44352b220ff2
-          node --check browser-local-inference/domain-assistant/main.mjs
-          node --test --test-reporter=tap browser-local-inference/tests/domain-assistant-*.test.mjs >"$RUNNER_TEMP/assistant.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/assistant.log" | cut -c1-160 || true; exit 1; }
-          grep -E '^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/assistant.log"
-      - name: Original baseline negative control for unbound domain voice
-        working-directory: private/assistant
-        shell: bash
-        run: |
-          set -eu
-          file=browser-local-inference/domain-assistant/skill-runtime.mjs
-          git show 5e3083788aa541921559de29d3457d4a52bbba00:$file > "$file"
-          set +e
-          node --test --test-reporter=tap --test-name-pattern='domain voice and its boundaries' browser-local-inference/tests/domain-assistant-skill-runtime.test.mjs > "$RUNNER_TEMP/negative.log" 2>&1
-          code=$?
-          set -e
-          grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/negative.log" | cut -c1-160 || true
-          test "$code" = 1
-          grep -q '^not ok .*domain voice and its boundaries' "$RUNNER_TEMP/negative.log"
-          grep -q '^# fail 1$' "$RUNNER_TEMP/negative.log"
-          echo D01_ORIGINAL_UNBOUND_VOICE_NEGATIVE_CONTROL=PASS
+          test "$(git rev-parse HEAD)" = 6e5a50dacece088ff604fb8435ea4016fd21522f
+          node --test --test-reporter=tap scripts/test-learn-t3-assembly.mjs scripts/test-learn-assistant-skills.mjs >"$RUNNER_TEMP/learn.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/learn.log" | cut -c1-160 || true; exit 1; }
+          grep -E '^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/learn.log"
+          echo D01_ASSESSMENT_DECLARATION=PASS
