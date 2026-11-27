@@ -1,0 +1,21 @@
+name: T4 first native phase exchange after original empty import
+on:
+  push:
+    branches: ['ci/once/t4-one-way-native-phase/9a23201b7fc2']
+permissions:
+  contents: read
+jobs:
+  first-use:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '9a23201b7fc21c59abcf1818689bf655937baa0a'
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: |
+          test "$(git rev-parse HEAD^{tree})" = "f34bf5da634a8de2f598541fae5a123c297b55cd"
+          node --test --test-name-pattern='fresh compact original import and native phase evidence' packages/t4-network/tests/original-native-host-network-owner.test.mjs
