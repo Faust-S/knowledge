@@ -1,0 +1,209 @@
+import { useEffect,useMemo,useRef,useState } from "react";
+import type { ObjectRecord } from "../../../../kernel-client/contracts/runtime-1.3.0";
+import type { WorkspaceMethodReaderSelection,WorkspaceMethodStageReader,WorkspaceMethodInputOverview,
+  WorkspaceMethodPublishedResultRef,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,
+  WorkspaceMethodOverviewStage } from "../../../../t3/workspace-method-stage-reader.mjs";
+
+/** Trusted Host supplies this selection only after original source readback.
+ * contextEpoch changes on subject/grant/session changes. Never derive it or
+ * the exact source selection from the method draft or browser persistence. */
+export type WorkspaceMethodWorkflowBinding = WorkspaceMethodReaderSelection & Readonly<{
+  contextEpoch:string;reader:WorkspaceMethodStageReader;nativeRecipientLabel?:string;
+}>;
+const button="min-h-[44px] px-3 py-1.5 rounded border border-slate-700 text-xs disabled:opacity-40";
+const states:Record<WorkspaceMethodOverviewStage["state"],string>={
+  INPUT_REFERENCES_VERIFIED:"Входы подтверждены",
+  PREDECESSOR_RESULTS_REQUIRED:"Нужны результаты предшественников",
+  MATERIAL_REVIEW_REQUIRED:"Материалы требуют проверки",
+};
+const actorLabels={human:"Человек",agent:"Помощник",program:"Программа"} as const;
+const handoffStates:Record<string,string>={
+  INPUTS_PREPARED_OWNER_SELECTION_REQUIRED:"Входы подготовлены. Выберите оригинального исполнителя.",
+  PRIOR_RESULTS_OBSERVED_EXACT_BINDING_REQUIRED:"Принятые результаты найдены. Требуется точная привязка входов исполнителем.",
+  PREDECESSOR_RESULTS_REQUIRED:"Выберите принятые результаты предшественников.",
+  PREDECESSOR_RESULT_REVIEW_REQUIRED:"Редакции результатов требуют проверки.",
+  MATERIAL_REVIEW_REQUIRED:"Проверьте исходные материалы.",
+};
+const checkLabels:Record<string,string>={
+  EXACT_MATERIAL_CONTENT_AND_ASSET_BINDING:"Точная привязка содержимого и вложений",
+  EXACT_PREDECESSOR_RESULT_INPUT_BINDING:"Точная привязка входов предшествующих результатов",
+  ORIGINAL_SIGNED_TASK_BINDING:"Оригинальная подписанная задача",
+  CURRENT_MODEL_AND_AUTHORITY:"Модель и действующие полномочия",
+  EXPLICIT_PROGRAM_OPERATION_AND_ARGUMENTS:"Выбор программы, операции и параметров",
+  CURRENT_CONNECTION_AND_TOOL_APPROVAL:"Подключение и подтверждение инструмента",
+  HUMAN_REVIEW_AND_ORIGINAL_RESULT_OWNER:"Решение человека и оригинальный владелец результата",
+};
+const nativeLabels={AVAILABLE:"Получатель доступен для отдельного подтверждения",RECOVER_ONLY:"Требуется восстановление существующей передачи",
+  OPERATION_IN_PROGRESS:"Передача уже выполняется"} as const;
+const sameRef=(a:{family:string;objectId:string;recordId:string;revision:number},b:{family:string;objectId:string;recordId:string;revision:number})=>
+  a.family===b.family&&a.objectId===b.objectId&&a.recordId===b.recordId&&a.revision===b.revision;
+function exactOverview(report:WorkspaceMethodInputOverview,binding:WorkspaceMethodWorkflowBinding){
+  const expected=new Map(binding.expected.workRefs.map(ref=>[ref.objectId,ref]));
+  return report.schema==="IWXA_T2_WORKSPACE_METHOD_INPUT_OVERVIEW_V1"&&report.workspaceId===binding.workspaceId
+    &&report.projectId===binding.projectId&&sameRef(report.projectRef,binding.expected.projectRef)
+    &&report.completeMethodCurrentVerified===true&&report.executionAuthority===false&&report.writeAuthorized===false
+    &&report.stages.length===expected.size&&new Set(report.stages.map(row=>row.stepId)).size===expected.size
+    &&new Set(report.stages.map(row=>row.workRef.objectId)).size===expected.size
+    &&report.stages.every(row=>{const ref=expected.get(row.workRef.objectId);return ref&&sameRef(row.workRef,ref);});
+}
+function message(error:unknown){
+  const code=error&&typeof error==="object"&&"code" in error?String(error.code):"";
+  return /CHANGED|STALE|MISMATCH/.test(code)?"Исходные данные изменились. Проверьте методику и материалы заново.":
+    /DENIED|PERMITTED|PERMISSION|OWNER_REQUIRED/.test(code)?"Оригинальный владелец или доступ недоступен.": "Не удалось подтвердить исходные данные.";
+}
+type Detail = {kind:"handoff";value:WorkspaceMethodHandoffPreview}|{kind:"native";value:WorkspaceMethodNativeInspection};
+function bindingKey(binding:WorkspaceMethodWorkflowBinding){
+  return JSON.stringify([binding.contextEpoch,binding.workspaceId,binding.projectId,binding.expected.projectRef,
+    [...binding.expected.workRefs].sort((a,b)=>a.objectId.localeCompare(b.objectId))]);
+}
+export function WorkspaceMethodWorkflowPanel(props:{
+  binding:WorkspaceMethodWorkflowBinding;objects:readonly ObjectRecord[];selectedObjectIds:readonly string[];
+}){
+  // Key remounts on exact source identity or trusted context epoch change.
+  if(!props.binding.contextEpoch)return null;
+  return <WorkflowPanel key={bindingKey(props.binding)} {...props}/>;
+}
+function WorkflowPanel({binding,objects,selectedObjectIds}:{
+  binding:WorkspaceMethodWorkflowBinding;objects:readonly ObjectRecord[];selectedObjectIds:readonly string[];
+}){
+  const reader=binding.reader;
+  const [overview,setOverview]=useState<{reader:WorkspaceMethodStageReader;value:WorkspaceMethodInputOverview}|null>(null);
+  const [focus,setFocus]=useState("");
+  const [selections,setSelections]=useState<Record<string,string>>({});
+  const [nativeStep,setNativeStep]=useState("");
+  const [detail,setDetail]=useState<{reader:WorkspaceMethodStageReader;key:string;report:Detail}|null>(null);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  const sequence=useRef(0),liveReader=useRef(reader);
+  liveReader.current=reader;
+  useEffect(()=>{sequence.current++;setOverview(null);setDetail(null);setSelections({});setFocus("");setNativeStep("");setBusy(false);setError("");
+    return ()=>{sequence.current++;};},[reader]);
+  const visible=overview?.reader===reader?overview.value:null;
+  const stage=visible?.stages.find(row=>row.stepId===focus)??visible?.stages[0];
+  const candidates=useMemo(()=>{
+    const byId=new Map(objects.map(row=>[row.object_id,row]));
+    const values=new Map<string,WorkspaceMethodPublishedResultRef>();
+    for(const id of selectedObjectIds){
+      const row=byId.get(id);
+      if(row?.workspace_id===binding.workspaceId&&row.schema_id==="iwxa.agent.accepted-result"&&row.schema_version==="1.0.0"
+          &&!row.deleted&&row.deleted_at==null&&Number.isSafeInteger(row.revision)&&row.revision>0){
+        const ref:WorkspaceMethodPublishedResultRef={workspace_id:row.workspace_id,object_id:row.object_id,
+          schema_id:"iwxa.agent.accepted-result",revision:row.revision};
+        values.set(JSON.stringify([row.object_id,row.revision]),ref);
+      }
+    }
+    return values;
+  },[objects,selectedObjectIds,binding.workspaceId]);
+  const resultSelections=(stage?.directPredecessorStepIds??[]).flatMap(stepId=>{
+    const reference=candidates.get(selections[stepId]??"");return reference?[{stepId,reference}]:[];
+  });
+  const duplicateResults=new Set(resultSelections.map(row=>row.reference.object_id)).size!==resultSelections.length;
+  const detailKey=JSON.stringify([stage?.stepId??null,resultSelections,nativeStep,[...candidates.keys()]]);
+  const liveDetailKey=useRef(detailKey);liveDetailKey.current=detailKey;
+  const visibleDetail=detail?.reader===reader&&detail.key===detailKey?detail.report:null;
+  const request:WorkspaceMethodReaderSelection={workspaceId:binding.workspaceId,projectId:binding.projectId,expected:binding.expected};
+  function invalidateDetail(){
+    sequence.current++;setDetail(null);setBusy(false);setError("");
+  }
+  const checkOverview=async()=>{
+    const epoch=++sequence.current;setBusy(true);setError("");setDetail(null);setOverview(null);setSelections({});setNativeStep("");
+    try{
+      const report=await reader.overview(request);
+      if(sequence.current!==epoch||liveReader.current!==reader)return;
+      if(!exactOverview(report,binding))throw Object.assign(Error("invalid"),{code:"METHOD_SOURCE_MISMATCH"});
+      setOverview({reader,value:report});setFocus(report.stages[0]?.stepId??"");
+    }catch(err){if(sequence.current===epoch&&liveReader.current===reader)setError(message(err));}
+    finally{if(sequence.current===epoch&&liveReader.current===reader)setBusy(false);}
+  };
+  const inspect=async(mode:"handoff"|"preview"|"recover")=>{
+    if(!stage||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED")return;
+    if(mode!=="handoff"&&!resultSelections.some(row=>row.stepId===nativeStep))return;
+    const epoch=++sequence.current,key=detailKey;
+    setBusy(true);setError("");setDetail(null);
+    const stillCurrent=()=>sequence.current===epoch&&liveReader.current===reader&&liveDetailKey.current===key;
+    const args={...request,stepId:stage.stepId,resultSelections};
+    try{
+      const report:Detail=mode==="handoff"?{kind:"handoff",value:await reader.previewHandoff(args)}:
+        {kind:"native",value:await (mode==="preview"?reader.previewContinuation({...args,predecessorStepId:nativeStep}):
+          reader.recoverContinuation({...args,predecessorStepId:nativeStep}))};
+      if(!stillCurrent())return;
+      const value=report.kind==="handoff"?report.value.inspection:report.value;
+      const basis=value.stageInput.basis;
+      if(basis.workspaceId!==binding.workspaceId||basis.projectId!==binding.projectId||basis.stepId!==stage.stepId
+          ||!sameRef(basis.stageRef,stage.workRef)||value.executionAuthority!==false||value.writeAuthorized!==false
+          ||report.value.dispatchAuthorized!==false)throw Object.assign(Error("invalid"),{code:"METHOD_SOURCE_MISMATCH"});
+      setDetail({reader,key,report});
+    }catch(err){if(stillCurrent())setError(message(err));}
+    finally{if(sequence.current===epoch&&liveReader.current===reader)setBusy(false);}
+  };
+  return <section aria-label="Сохранённая методика" data-testid="workspace-method-workflow" className="min-w-0 space-y-3 rounded border border-emerald-900/60 p-3">
+    <div className="flex flex-wrap items-center gap-2"><div className="flex-1 min-w-0">
+      <h5 className="text-sm font-semibold text-slate-100">Сохранённая методика</h5>
+      <p className="text-xs text-slate-400 break-words">Проект: {binding.projectId} · ред. {binding.expected.projectRef.revision}</p>
+      <p className="text-xs text-slate-400">Проверка входов и передачи результатов. Исполнение остаётся у оригинальных владельцев.</p>
+    </div><button type="button" className={button} disabled={busy} onClick={()=>void checkOverview()}>Проверить входы</button></div>
+    {busy&&<p role="status" className="text-xs text-slate-300">Проверка оригинальных данных…</p>}
+    {error&&<p role="alert" className="text-xs text-amber-200">{error}</p>}
+    {visible&&<div className="space-y-3">
+      <p className="text-xs text-slate-300">Работ: {visible.counts.total}. Входы подтверждены: {visible.counts.inputReferencesVerified}. Материалы требуют проверки: {visible.counts.materialReviewRequired}.</p>
+      <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="space-y-1 max-h-80 overflow-y-auto" aria-label="Работы методики">
+          {visible.stages.map(row=><button key={row.stepId} type="button" aria-pressed={stage?.stepId===row.stepId}
+            onClick={()=>{invalidateDetail();setFocus(row.stepId);setSelections({});setNativeStep("");}}
+            className="block min-h-[44px] w-full text-left rounded border border-slate-700 p-2 break-words">
+            <span className="block text-sm text-slate-100">{row.name}</span>
+            <span className="block text-xs text-slate-400">{actorLabels[row.actor]} · ред. {row.workRef.revision} · {states[row.state]}</span>
+          </button>)}
+        </div>
+        {stage&&<div className="min-w-0 space-y-2 rounded border border-slate-800 p-2">
+          <h6 className="text-sm font-semibold text-slate-100">{stage.name}</h6>
+          <p className="text-xs text-slate-400">Предшествующих работ: {stage.prerequisiteCount}. {states[stage.state]}.</p>
+          {stage.materialIssues.length>0&&<p className="text-xs text-amber-200 break-words">Материалы: {stage.materialIssues.join(", ")}</p>}
+          {stage.directPredecessorStepIds.length>0&&<div className="space-y-2">
+            <p className="text-xs text-slate-400">Для каждого предшественника явно выберите принятый результат из материалов полотна.</p>
+            {candidates.size===0&&<p className="text-xs text-slate-300">Выберите опубликованный результат на полотне.</p>}
+            {stage.directPredecessorStepIds.map(stepId=><label key={stepId} className="block text-xs text-slate-300">
+              Результат: {visible.stages.find(row=>row.stepId===stepId)?.name??stepId}
+              <select className="block mt-1 w-full min-w-0 min-h-[44px] border border-slate-700 rounded bg-slate-950 p-2"
+                value={candidates.has(selections[stepId]??"")?selections[stepId]:""}
+                onChange={event=>{invalidateDetail();setSelections(old=>({...old,[stepId]:event.target.value}));}}>
+                <option value="">Не выбран</option>{[...candidates].map(([key,ref])=><option key={key} value={key}>{ref.object_id} · ред. {ref.revision}</option>)}
+              </select>
+            </label>)}
+          </div>}
+          {duplicateResults&&<p role="alert" className="text-xs text-amber-200">Один результат нельзя назначить нескольким предшественникам.</p>}
+          <button type="button" className={button} disabled={busy||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED"}
+            onClick={()=>void inspect("handoff")}>Подготовить передачу</button>
+          {binding.nativeRecipientLabel&&stage.directPredecessorStepIds.length>0&&<div className="space-y-2">
+            <label className="block text-xs text-slate-300">Предшественник для проверки передачи
+              <select className="block mt-1 w-full min-h-[44px] border border-slate-700 rounded bg-slate-950 p-2"
+                value={nativeStep} onChange={e=>{invalidateDetail();setNativeStep(e.target.value);}}>
+                <option value="">Не выбран</option>{stage.directPredecessorStepIds.map(id=><option key={id} value={id}>{visible.stages.find(row=>row.stepId===id)?.name??id}</option>)}
+              </select>
+            </label>
+            <p className="text-xs text-slate-400">Получатель: {binding.nativeRecipientLabel}</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className={button} disabled={busy||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED"||!resultSelections.some(r=>r.stepId===nativeStep)}
+                onClick={()=>void inspect("preview")}>Проверить передачу</button>
+              <button type="button" className={button} disabled={busy||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED"||!resultSelections.some(r=>r.stepId===nativeStep)}
+                onClick={()=>void inspect("recover")}>Проверить квитанцию</button>
+            </div>
+          </div>}
+        </div>}
+      </div>
+      {visibleDetail?.kind==="handoff"&&<div className="space-y-1 rounded border border-slate-800 p-2 text-xs" data-testid="workflow-handoff-preview">
+        <p className="text-slate-200">{handoffStates[visibleDetail.value.state]??"Требуется проверка оригинального владельца."}</p>
+        {visibleDetail.value.candidateDigest&&<p className="text-slate-400">Состав передачи зафиксирован для проверки.</p>}
+        <p className="text-slate-300">До запуска необходимо:</p>
+        <ul className="list-disc pl-4 text-slate-400">{visibleDetail.value.requiredOriginalOwnerChecks.map(key=><li key={key}>{checkLabels[key]??"Проверка оригинального владельца"}</li>)}</ul>
+        <p className="text-slate-300">Задача не создана. Запуск не выполнялся.</p>
+      </div>}
+      {visibleDetail?.kind==="native"&&<div data-testid="workflow-native-receipt" className="space-y-1 rounded border border-slate-800 p-2 text-xs">
+        {visibleDetail.value.nativeContinuation?<><p className="text-slate-200">{nativeLabels[visibleDetail.value.nativeContinuation.preview.status]}</p>
+          {visibleDetail.value.nativeContinuation.receipt&&<p className="text-slate-300">{visibleDetail.value.nativeContinuation.receipt.status==="OWNER_READBACK_CONFIRMED"?"Оригинальная квитанция подтверждена.":"Исход передачи пока не подтверждён."}</p>}</>:
+          <p className="text-slate-300">Подтверждённый результат для передачи недоступен.</p>}
+        <p className="text-slate-400">Квитанция получателя не подтверждает выполнение выбранной работы.</p>
+      </div>}
+    </div>}
+  </section>;
+}

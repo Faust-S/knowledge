@@ -10,6 +10,7 @@ import type { OperationId } from "../../../../kernel-client";
 import type { ViewerRegistry } from "../../../../workspace-host/registries/ViewerRegistry";
 import { WorkspaceMaterialCanvas } from "./WorkspaceMaterialCanvas";
 import { WorkspaceMethodEditor } from "./WorkspaceMethodEditor";
+import { WorkspaceMethodWorkflowPanel, type WorkspaceMethodWorkflowBinding } from "./WorkspaceMethodWorkflowPanel";
 import { createWorkspaceMethodDraft, type WorkspaceMethodDraft } from "./workspace-project-method.mjs";
 import { formatWorkspaceDate } from "../workspaces/workspace-format";
 import { paginate } from "./workspace-catalog-model";
@@ -122,6 +123,8 @@ export function RichWorkspaceReadModel(props: {
   grantedOperations?: readonly OperationId[];
   activeCapabilities?: readonly string[];
   catalogReady?: boolean;
+  /** Only trusted original Host composition supplies a verified current method and reader. */
+  methodWorkflow?: WorkspaceMethodWorkflowBinding;
   onRefreshObjects?: () => Promise<void>;
   onOpenObject: (workspaceId: string, objectId: string) => void;
 }) {
@@ -714,6 +717,11 @@ export function RichWorkspaceReadModel(props: {
           <p role="status" className="text-amber-200">Изменилось материалов: {restoredPresentation.changedCount}. Недоступно: {restoredPresentation.unavailableCount}. Они не включены в выбор.</p>
           <button type="button" onClick={adoptRestoredSelection} className="px-3 py-1.5 rounded border border-slate-700 min-h-[44px]">Принять доступные материалы</button>
         </div>
+      )}
+
+      {props.methodWorkflow && props.catalogReady !== false && props.methodWorkflow.workspaceId === workspace.workspace_id && (
+        <WorkspaceMethodWorkflowPanel binding={props.methodWorkflow} objects={objects}
+          selectedObjectIds={restorationNeedsReview ? [] : selectedObjectIds} />
       )}
 
       {(mode === "canvas" || activeMethod?.open) && <div className={mode === "canvas" && activeMethod?.open ? "grid gap-3 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : "space-y-3"}>

@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync,writeFileSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { canonicalStringify } from '../src/persistence/canonical-codec.mjs';
 const ws='qualification-c3-native-history',objectId='native-current-method';
 const copyWs='qualification-c3-native-history-copy',thirdWs='qualification-c3-native-history-third';
 const eventType='qualification.c3.native-history.snapshot';
@@ -104,18 +105,28 @@ export async function probeCurrentObjectHistoryCandidate({writer,reader,limitedE
     return client.t2.importCommit({preview_token:preview.preview_token,package_digest:preview.package_digest,
       plan:{mode:'new-workspace',target_workspace:to,workspace_id_map:{[from]:to}}});
   };
-  const exact=values=>JSON.stringify(values.map(e=>e.payload.snapshot));
-  const exactCurrent=value=>JSON.stringify(value?.data??null);
+  const exact=values=>canonicalStringify(values.map(e=>e.payload.snapshot));
+  const exactCurrent=value=>canonicalStringify(value?.data??null);
   const observeCopy=async (client,archive,from,to)=>{
     try{await importCopy(client,archive,from,to);}
     catch(error){return {status:'REJECTED',code:error.code??null,message:error.message};}
     const rows=await readHistory(client,to),head=await readCurrent(client,to);
     const index=await readFixtureEventIndex(serviceId,key(1),to);
+    // Original new-Workspace import may intentionally remove old replay
+    // keys. Exact history lookup must not assume a source retry key is
+    // available in the target. Inspect the actual existing composite key.
+    const req=indexedDB.open('iwxa-local');req.onupgradeneeded=()=>req.transaction.abort();
+    const db=await request(req);
+    let byEvent;
+    try{byEvent=rows.length?await request(db.transaction('events','readonly').objectStore('events').get([to,rows[0].event_id])):null;}
+    finally{db.close();}
     return {status:'RETURNED',snapshotCount:rows.length,
       exactOriginalSnapshots:exact(rows)===exact(history),currentBytesExact:exactCurrent(head)===exactCurrent(current),
       outerScopeMapped:rows.every(e=>e.workspace_id===to)&&head?.workspace_id===to,
       nestedOriginScopes:[...new Set(rows.map(e=>e.payload.snapshot.refs.workspaceId))],
-      firstIndexExact:JSON.stringify(index.row?.payload?.snapshot)===JSON.stringify(snapshot(1)),
+      firstIndexExact:index.row!=null&&canonicalStringify(index.row.payload.snapshot)===canonicalStringify(snapshot(1)),
+      copiedFirstIdempotencyKey:rows[0]?.idempotency_key??null,
+      firstCompositeEventKeyExact:byEvent!=null&&canonicalStringify(byEvent.payload.snapshot)===canonicalStringify(snapshot(1)),
       eventIdsPreserved:rows.length===history.length&&rows.every((e,i)=>e.event_id===history[i].event_id)};
   };
   const copy=await observeCopy(fresh.writer,artifact,ws,copyWs);
@@ -133,8 +144,8 @@ export async function probeCurrentObjectHistoryCandidate({writer,reader,limitedE
     const a=await readHistory(fresh.writer,ws),b=await readHistory(fresh.writer,copyWs);
     copy.independentAdvances={error:advancementError,sourceCount:a.length,targetCount:b.length,
       sourceInheritedExact:exact(a.slice(0,65))===exact(history),targetInheritedExact:exact(b.slice(0,65))===exact(history),
-      sourceCurrentExact:exactCurrent(await readCurrent(fresh.writer,ws))===JSON.stringify(snapshot(66,'source',ws)),
-      targetCurrentExact:exactCurrent(await readCurrent(fresh.writer,copyWs))===JSON.stringify(snapshot(66,'target',copyWs))};
+      sourceCurrentExact:exactCurrent(await readCurrent(fresh.writer,ws))===canonicalStringify(snapshot(66,'source',ws)),
+      targetCurrentExact:exactCurrent(await readCurrent(fresh.writer,copyWs))===canonicalStringify(snapshot(66,'target',copyWs))};
     if(!advancementError&&copy.independentAdvances.sourceCurrentExact&&copy.independentAdvances.targetCurrentExact){
       const targetArchive=await fresh.writer.t2.exportPackage({...opts,workspaces:[copyWs]});
       let recopyError=null;
@@ -142,6 +153,7 @@ export async function probeCurrentObjectHistoryCandidate({writer,reader,limitedE
       catch(error){recopyError={code:error.code??null,message:error.message};}
       const c=recopyError?[]:await readHistory(fresh.writer,thirdWs);
       copy.recopy={error:recopyError,exact:!recopyError&&exact(c)===exact(b),
+        currentExact:!recopyError&&exactCurrent(await readCurrent(fresh.writer,thirdWs))===exactCurrent(await readCurrent(fresh.writer,copyWs)),
         sourcePreserved:exact(await readHistory(fresh.writer,ws))===exact(a),
         firstCopyPreserved:exact(await readHistory(fresh.writer,copyWs))===exact(b),
         nestedOriginScopes:[...new Set(c.map(e=>e.payload.snapshot.refs.workspaceId))]};

@@ -16,6 +16,7 @@ import { ObjectCatalogToolbar } from "./ObjectCatalogToolbar";
 import { ObjectPreviewCard } from "./ObjectPreviewCard";
 import { WorkspaceRelationIndex } from "./WorkspaceRelationIndex";
 import { RichWorkspaceReadModel } from "./RichWorkspaceReadModel";
+import type { WorkspaceMethodWorkflowBinding } from "./WorkspaceMethodWorkflowPanel";
 import { isWorkspaceViewStateObjectRecord } from "./workspace-view-state-boundary.mjs";
 import {
   filterObjectsByQuery,
@@ -35,6 +36,8 @@ export interface WorkspaceViewProps {
   viewerRegistry?:ViewerRegistry;grantedOperations?:readonly OperationId[];activeCapabilities?:readonly string[];
   /** Optional to keep older test harnesses that omit the facade working. */
   commands?: CommandsFacade;
+  /** Optional original Host-bound selection. No implicit source owner activation. */
+  methodWorkflow?: WorkspaceMethodWorkflowBinding;
   workspaceId: string;
   currentShellServiceId: string;
   onOpenObject: (workspaceId: string, objectId: string) => void;
@@ -208,6 +211,7 @@ export function WorkspaceView(props: WorkspaceViewProps) {
       kernel={kernel}
       viewerRegistry={props.viewerRegistry} grantedOperations={props.grantedOperations} activeCapabilities={props.activeCapabilities}
       commands={commands}
+      methodWorkflow={props.methodWorkflow}
       ws={ws}
       rawProfile={rawProfile}
       activeProfileId={activeProfileId}
@@ -241,6 +245,7 @@ interface CatalogSurfaceProps {
   kernel: KernelFacade;
   viewerRegistry?:ViewerRegistry;grantedOperations?:readonly OperationId[];activeCapabilities?:readonly string[];
   commands?: CommandsFacade;
+  methodWorkflow?: WorkspaceMethodWorkflowBinding;
   ws: import("../../../../kernel-client").WorkspaceRecord;
   rawProfile: string;
   activeProfileId: import("../../../../config/domain-config").WorkspaceProfileId;
@@ -604,6 +609,7 @@ function WorkspaceCatalogSurface(props: CatalogSurfaceProps) {
           grantedOperations={grantedOperations}
           activeCapabilities={activeCapabilities}
           catalogReady={objectsState === "ready"}
+          methodWorkflow={props.methodWorkflow}
           objects={objectsState === "ready" ? objects : PENDING_OBJECTS}
           events={eventsState === "ready" ? events : PENDING_EVENTS}
           eventsAvailable={eventsState === "ready"}

@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EventRecord, ObjectRecord, WorkspaceRecord } from "../src/kernel-client/contracts/runtime-1.2.0";
 import type { WorkspaceProfileDefinition } from "../src/profiles/definition";
 import { RichWorkspaceReadModel } from "../src/modules/base/features/workspace/RichWorkspaceReadModel";
+import { WorkspaceMethodWorkflowPanel,type WorkspaceMethodWorkflowBinding } from "../src/modules/base/features/workspace/WorkspaceMethodWorkflowPanel";
+import type { WorkspaceMethodInputOverview,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,WorkspaceMethodStageInspection,WorkspaceMethodStageReader } from "../src/t3/workspace-method-stage-reader.mjs";
 
 const profile: WorkspaceProfileDefinition = {
   id: "generic",
@@ -344,5 +346,95 @@ describe("bounded history rendering", () => {
     rerender(<RichWorkspaceReadModel {...props} events={journal.slice(0, 2)} historyState="ready" />);
     expect(screen.getAllByTestId("rich-workspace-event")).toHaveLength(2);
     expect(screen.queryByTestId("workspace-history-next")).toBeNull();
+  });
+});
+
+
+describe("W05.7 saved method Workflow read-only surface",()=>{
+  const projectRef={family:"iwxa.project",objectId:"project",recordId:"project-1",revision:1};
+  const a={family:"iwxa.work",objectId:"research.analyse",recordId:"analyse-1",revision:1};
+  const b={family:"iwxa.work",objectId:"research.review",recordId:"review-1",revision:1};
+  const report:WorkspaceMethodInputOverview={schema:"IWXA_T2_WORKSPACE_METHOD_INPUT_OVERVIEW_V1",workspaceId:"w",projectId:"research",
+    projectRef,stages:[
+      {stepId:"analyse",name:"Анализ материалов",actor:"agent",workRef:a,state:"INPUT_REFERENCES_VERIFIED",inputBasisDigest:"a".repeat(64),
+        directPredecessorStepIds:[],prerequisiteCount:0,materialIssues:[]},
+      {stepId:"review",name:"Проверка результатов",actor:"human",workRef:b,state:"PREDECESSOR_RESULTS_REQUIRED",inputBasisDigest:"b".repeat(64),
+        directPredecessorStepIds:["analyse"],prerequisiteCount:1,materialIssues:[]},
+    ],materials:[],counts:{total:2,inputReferencesVerified:2,materialReviewRequired:0,predecessorResultsRequired:1,rootInputsVerified:1},
+    completeMethodCurrentVerified:true,atomicSnapshot:false,executionAuthority:false,writeAuthorized:false,resultReuseProven:false,executionStatusObserved:false};
+  const source={...objects[0],object_id:"accepted-result",schema_id:"iwxa.agent.accepted-result",schema_version:"1.0.0",revision:1,data:{secret:"private result body"}};
+  const ref={workspace_id:"w",object_id:source.object_id,schema_id:"iwxa.agent.accepted-result" as const,revision:1};
+  const makeInspection=(stepId:string):WorkspaceMethodStageInspection=>({
+    state:"NO_PREDECESSOR_RESULTS_REQUIRED",stageInput:{state:"INPUT_REFERENCES_VERIFIED",basis:{workspaceId:"w",projectId:"research",stepId,stageRef:stepId==="analyse"?a:b},
+      inputBasisDigest:"a".repeat(64)},results:[],executionAuthority:false,writeAuthorized:false,resultReuseProven:false,exactInputBindingProven:false,atomicSnapshot:false});
+  function fixture(){
+    const overview=vi.fn(async()=>report);
+    const previewHandoff=vi.fn(async(input:Parameters<WorkspaceMethodStageReader["previewHandoff"]>[0]):Promise<WorkspaceMethodHandoffPreview>=>({
+      schema:"IWXA_T2_WORKSPACE_METHOD_STAGE_HANDOFF_PREVIEW_V1",state:"INPUTS_PREPARED_OWNER_SELECTION_REQUIRED",inspection:makeInspection(input.stepId),
+      candidateDigest:"a".repeat(64),requiredOriginalOwnerChecks:["ORIGINAL_SIGNED_TASK_BINDING"],
+      signedTaskIssued:false,taskCreated:false,contentBindingProven:false,exactInputBindingProven:false,dispatchAuthorized:false,executionAuthority:false,writeAuthorized:false,resultReuseProven:false}));
+    const recoverContinuation=vi.fn(async():Promise<WorkspaceMethodNativeInspection>=>({...makeInspection("review"),
+      nativeContinuationState:"ORIGINAL_RECIPIENT_OBSERVED_TARGET_WORK_BINDING_UNPROVEN",targetWorkBound:false,dispatchAuthorized:false,
+      nativeContinuation:{predecessorStepId:"analyse",preview:{status:"RECOVER_ONLY",operationId:"op-1",recipientId:"iwxa.atlas",reference:ref},
+        receipt:{status:"OWNER_READBACK_CONFIRMED",operationId:"op-1",resultRef:"atlas:result"}}}));
+    const reader:WorkspaceMethodStageReader={overview,previewHandoff,recoverContinuation,previewContinuation:recoverContinuation,
+      inspect:vi.fn(async()=>makeInspection("analyse"))};
+    const binding:WorkspaceMethodWorkflowBinding={workspaceId:"w",projectId:"research",expected:{projectRef,workRefs:[a,b]},
+      reader,contextEpoch:"epoch-1",nativeRecipientLabel:"Atlas"};
+    return {binding,overview,previewHandoff,recoverContinuation};
+  }
+  it("mounts saved Workflow in actual Rich Workspace only for a trusted current binding and explicitly reads original overview",async()=>{
+    const f=fixture(),props={workspace,objects,events,profileDefinition:profile,onOpenObject:vi.fn()};
+    const ui=render(<RichWorkspaceReadModel {...props}/>);
+    expect(screen.queryByTestId("workspace-method-workflow")).toBeNull();
+    ui.rerender(<RichWorkspaceReadModel {...props} methodWorkflow={f.binding}/>);
+    expect(f.overview).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    await screen.findByText(/Работ: 2/);
+    expect(f.overview).toHaveBeenCalledWith({workspaceId:"w",projectId:"research",expected:f.binding.expected});
+    fireEvent.click(screen.getByRole("button",{name:"Подготовить передачу"}));
+    await screen.findByTestId("workflow-handoff-preview");
+    expect(screen.getByText("Задача не создана. Запуск не выполнялся.")).toBeTruthy();
+    expect(f.previewHandoff).toHaveBeenCalledWith({workspaceId:"w",projectId:"research",expected:f.binding.expected,
+      stepId:"analyse",resultSelections:[]});
+    ui.rerender(<RichWorkspaceReadModel {...props} methodWorkflow={f.binding} catalogReady={false}/>);
+    expect(screen.queryByTestId("workspace-method-workflow")).toBeNull();
+  });
+  it("selects exact admitted predecessor Result from canvas and recovers original native receipt without issuing a Task",async()=>{
+    const f=fixture();
+    render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[source,{...source,object_id:"foreign",workspace_id:"other"}]}
+      selectedObjectIds={[source.object_id,"foreign"]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:/Проверка результатов/}));
+    expect(screen.queryByText(/private result body/)).toBeNull();
+    const select=screen.getByLabelText("Результат: Анализ материалов");
+    expect(select.querySelectorAll("option")).toHaveLength(2);
+    fireEvent.change(select,{target:{value:JSON.stringify([source.object_id,1])}});
+    fireEvent.change(screen.getByLabelText("Предшественник для проверки передачи"),{target:{value:"analyse"}});
+    fireEvent.click(screen.getByRole("button",{name:"Проверить квитанцию"}));
+    await screen.findByText("Оригинальная квитанция подтверждена.");
+    expect(f.recoverContinuation).toHaveBeenCalledWith({workspaceId:"w",projectId:"research",expected:f.binding.expected,
+      stepId:"review",predecessorStepId:"analyse",resultSelections:[{stepId:"analyse",reference:ref}]});
+    expect(screen.getByText("Квитанция получателя не подтверждает выполнение выбранной работы.")).toBeTruthy();
+    expect(f.previewHandoff).not.toHaveBeenCalled();
+  });
+  it("hides late original readback on signed context epoch change and never displays old Work",async()=>{
+    const f=fixture();let release:(v:WorkspaceMethodInputOverview)=>void=()=>{};
+    f.overview.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
+    const ui=render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    ui.rerender(<WorkspaceMethodWorkflowPanel binding={{...f.binding,contextEpoch:"epoch-2"}} objects={[]} selectedObjectIds={[]}/>);
+    release(report);
+    await waitFor(()=>expect(screen.queryByText(/Работ: 2/)).toBeNull());
+    expect(screen.queryByTestId("workflow-handoff-preview")).toBeNull();
+  });
+  it("refuses mismatched original source revision instead of showing a different method",async()=>{
+    const f=fixture();f.overview.mockResolvedValueOnce({...report,projectRef:{...projectRef,recordId:"other"}});
+    render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    await screen.findByRole("alert");
+    expect(screen.queryByText(/Работ: 2/)).toBeNull();
+    expect(f.previewHandoff).not.toHaveBeenCalled();
   });
 });
