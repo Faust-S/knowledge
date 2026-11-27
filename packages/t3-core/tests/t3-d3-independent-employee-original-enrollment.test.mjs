@@ -12,6 +12,7 @@ import {createOriginalKernelRegistryStatePort,ORIGINAL_PROOF_KEY_ADMISSION}
   from '../src/t3/access/original-kernel-registry-state.mjs';
 import {verifyOrganizationEnrollment,createOrganizationalOperationGate}
   from '../src/t3/access/organizational-operation.mjs';
+import {requiredT4ProductNetworkActions} from '../../t4-network/src/network/original-product-network-selection.mjs';
 import {NOW,model,originalKernelFixture}
   from './support/t3-two-corp-original-authority.mjs';
 
@@ -26,7 +27,7 @@ const employee=(id,person)=>{
  }};
 };
 function setup({wrongManager=false,lostAck=false,pretrustEmployees=true,
- graphKernel=false}={}){
+ graphKernel=false,networkPilot=false}={}){
  const fixture=model(),north=fixture.all.north,
    auth=fixture.policy.authorities['issuer:north'];
  const alice=employee('key:buyer-alice','person:alice'),
@@ -61,10 +62,36 @@ function setup({wrongManager=false,lostAck=false,pretrustEmployees=true,
   purposes:['access-administration'],evidenceRefs:['evidence:manager-custody']
  };
  fixture.state.grants[admin.id]=signRecord(admin,north.issuerSigner);
+ const pilot=networkPilot?{sourceTechnicalWorkspaceId:'ws:north:source-technical',
+  recipientTechnicalWorkspaceId:'ws:north:recipient-technical',requiredNetworkActions:requiredT4ProductNetworkActions}:null;
+ const pilotGrants=[];
+ if(pilot){
+  const scope={workspaceId:'ws:north',sourceTechnicalWorkspaceId:pilot.sourceTechnicalWorkspaceId,
+    recipientTechnicalWorkspaceId:pilot.recipientTechnicalWorkspaceId};
+  const marker='t4-pilot-scope:'+digest(scope);
+  const required=role=>requiredT4ProductNetworkActions({role,enableSourceEventWindowRead:true,enableRecipientResultRead:true});
+  auth.resources.push(scope.sourceTechnicalWorkspaceId,scope.recipientTechnicalWorkspaceId);
+  auth.purposes.push('network.synchronization');
+  for(const action of new Set([...required('SOURCE'),...required('RECIPIENT')])){
+   auth.actions.push(action);fixture.policy.actionCatalog[action]='ACTION';
+  }
+  fixture.state.policy=structuredClone(fixture.policy);
+  for(const [id,resource,rightClass,actions,purpose] of [
+   ['grant:t4-recipient-network','ws:north','ACTION',required('RECIPIENT'),'network.synchronization'],
+   ['grant:t4-recipient-technical-read',scope.recipientTechnicalWorkspaceId,'DATA',['workspace.read'],'workspace.read'],
+   ['grant:t4-recipient-technical-write',scope.recipientTechnicalWorkspaceId,'ACTION',['object.write'],'workspace.work']
+  ]){
+   auth.roles.includes('reviewer')||auth.roles.push('reviewer');
+   const payload={...admin,id,lineageId:id,roleId:'reviewer',rightClass,resources:[resource],actions,purposes:[purpose],
+    evidenceRefs:['ceremony:explicit-t4-pilot',marker]};
+   fixture.state.grants[id]=signRecord(payload,north.issuerSigner);pilotGrants.push(id);
+  }
+  fixture.state.policy=structuredClone(fixture.policy);
+ }
  const old=fixture.state.statuses['issuer:north'].payload;
  fixture.state.statuses['issuer:north']=signRecord({...old,
   entries:[...old.entries,{grantId:admin.id,state:'ACTIVE',
-    effectiveAt:iso(NOW-2500),evidenceRef:'evidence:manager-custody'}]},
+    effectiveAt:iso(NOW-2500),evidenceRef:'evidence:manager-custody'},...pilotGrants.map(grantId=>({grantId,state:'ACTIVE',effectiveAt:iso(NOW-2500),evidenceRef:'ceremony:explicit-t4-pilot'}))]},
   north.issuerSigner);
  const kernel=originalKernelFixture(),original=kernel.api;
  let dropNext=false;
@@ -94,7 +121,7 @@ function setup({wrongManager=false,lostAck=false,pretrustEmployees=true,
  const owner=createOriginalEmployeeEnrollmentOwner({
   registry,issuerSigner:north.issuerSigner,clock:time,
   trustedOrganization:north.descriptors.organizations[0],
-  trustedWorkspaceId:'ws:north',
+  trustedWorkspaceId:'ws:north',networkPilot:pilot,
   proveManager:async({request,challenge})=>
    makeProof(request,challenge,NOW,managerSigner,'TEST')
  });
@@ -105,7 +132,7 @@ function setup({wrongManager=false,lostAck=false,pretrustEmployees=true,
   managerPersonId:'person:operator',
   managerGrantId:admin.id,ttlSeconds:600
  });
- return {fixture,north,alice,bob,registry,kernel,graphCalls,owner,input,
+ return {fixture,north,alice,bob,registry,kernel,graphCalls,owner,input,pilot,
   init:()=>registry.commitSignedState(fixture.state),
   loseNext:()=>{dropNext=true;}};
 }
@@ -837,4 +864,50 @@ test('return-export revocation is retained by original signed registry; no new r
  await assert.rejects(s.owner.issueWorkspaceGrantSet({...args,returnExport:true}),
   {code:'T3_EMPLOYEE_WORKSPACE_RIGHTS_EXIST_USE_READBACK'});
  assert.equal(s.graphCalls.length,initial);
+});
+
+async function pilotEmployee(s,target=s.alice){
+ const started=await s.owner.begin(s.input(target));
+ await s.owner.complete({enrollmentId:started.enrollmentId,
+  employeeProof:makeProof(started.request,started.challenge,NOW,target.signer,'TEST')});
+ const args={organizationId:'org:north',employeePersonId:target.record.subjectId,
+  enrollmentId:started.enrollmentId,managerPersonId:'person:operator',managerGrantId:'grant:admin-north'};
+ await s.owner.issueWorkspaceGrantSet({...args,confirmed:true});return args;
+}
+test('T4 pilot source receives exactly three additional signed rights in one original commit',async()=>{
+ const s=setup({graphKernel:true,networkPilot:true});await s.init();const args=await pilotEmployee(s);
+ const count=s.graphCalls.length;
+ await assert.rejects(s.owner.issueNetworkGrantSet(args),{code:'T3_EMPLOYEE_T4_EXPLICIT_APPROVAL_REQUIRED'});
+ assert.equal((await s.owner.readNetworkGrantSet(args)).state,'ORIGINAL_EMPLOYEE_T4_RIGHTS_NOT_FOUND');
+ const issued=await s.owner.issueNetworkGrantSet({...args,confirmed:true});
+ assert.equal(issued.state,'ORIGINAL_EMPLOYEE_T4_RIGHTS_ACTIVE');assert.equal(s.graphCalls.length,count+1);
+ assert.equal(issued.grantIds.length,3);assert.equal(issued.safeToReissue,false);
+ const state=await s.registry.readState(),org=s.north.descriptors.organizations[0];
+ for(const [key,ws,rightClass,actions] of [
+  ['networkAccess','ws:north','ACTION',requiredT4ProductNetworkActions({role:'SOURCE',enableSourceEventWindowRead:true,enableRecipientResultRead:true})],
+  ['technicalReadAccess',s.pilot.sourceTechnicalWorkspaceId,'DATA',['workspace.read']],
+  ['technicalWriteAccess',s.pilot.sourceTechnicalWorkspaceId,'ACTION',['object.write']]
+ ]){
+  const a=issued.attachments[key],g=state.grants[a.grantId].payload;
+  assert.deepEqual(g.resources,[ws]);assert.deepEqual(g.actions,actions);assert.equal(g.rightClass,rightClass);
+  assert.equal(verifyOrganizationEnrollment(a.enrollment,state,org,NOW).workspaceId,ws);
+  assert.equal(a.credential.publicKeyRef,s.alice.signer.keyId);
+ }
+ assert.equal((await s.owner.readEnrollment(args)).state,'ORIGINAL_GRANTS_ACTIVE');
+ await assert.rejects(s.owner.issueNetworkGrantSet({...args,confirmed:true}),{code:'T3_EMPLOYEE_T4_RIGHTS_EXIST_USE_READBACK'});
+ const other=await pilotEmployee(s,s.bob);
+ await assert.rejects(s.owner.issueNetworkGrantSet({...other,confirmed:true}),{code:'T3_EMPLOYEE_T4_OTHER_SOURCE_ALREADY_ENROLLED'});
+});
+test('T4 grant lost ACK is reconstructed by existing issuer without reissuing',async()=>{
+ const s=setup({graphKernel:true,networkPilot:true});await s.init();const args=await pilotEmployee(s);
+ s.loseNext();await assert.rejects(s.owner.issueNetworkGrantSet({...args,confirmed:true}),/SIMULATED_LOST_ACK/);
+ const cold=createOriginalEmployeeEnrollmentOwner({registry:s.registry,issuerSigner:s.north.issuerSigner,
+  trustedOrganization:s.north.descriptors.organizations[0],trustedWorkspaceId:'ws:north',
+  networkPilot:s.pilot,clock:time,proveManager:async({request,challenge})=>makeProof(request,challenge,NOW,s.north.credentialSigner,'TEST')});
+ const got=await cold.readNetworkGrantSet(args);assert.equal(got.state,'ORIGINAL_EMPLOYEE_T4_RIGHTS_ACTIVE');
+ await assert.rejects(cold.issueNetworkGrantSet({...args,confirmed:true}),{code:'T3_EMPLOYEE_T4_RIGHTS_EXIST_USE_READBACK'});
+ const wrong=createOriginalEmployeeEnrollmentOwner({registry:s.registry,issuerSigner:s.north.issuerSigner,
+  trustedOrganization:s.north.descriptors.organizations[0],trustedWorkspaceId:'ws:north',
+  networkPilot:{...s.pilot,sourceTechnicalWorkspaceId:'ws:other-tech'},clock:time,proveManager:async()=>null});
+ await assert.rejects(wrong.readNetworkGrantSet(args),{code:'T3_EMPLOYEE_T4_PILOT_BOOTSTRAP_MISMATCH'});
 });

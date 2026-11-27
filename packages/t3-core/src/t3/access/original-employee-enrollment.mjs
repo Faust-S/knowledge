@@ -57,7 +57,7 @@ const coreGrant=(state,{id:grantId,organization,employeePersonId,roleId,
  */
 export function createOriginalEmployeeEnrollmentOwner({
   registry,issuerSigner,proveManager,trustedOrganization,
-  trustedWorkspaceId,clock=Date.now,corporateSeatSource=null
+  trustedWorkspaceId,clock=Date.now,corporateSeatSource=null,networkPilot=null
 }={}){
   check(isOriginalKernelRegistryStatePort(registry)&&
     issuerSigner&&typeof issuerSigner.sign==='function'&&
@@ -646,10 +646,11 @@ export function createOriginalEmployeeEnrollmentOwner({
       env.payload.evidenceRefs?.includes(workspaceMarker(enrollmentId)));
   function workspaceAttachment({spec,env,saved,enrolled,status,at}){
     const g=env.payload,memberId='member:'+spec.key+':'+enrolled.enrollmentId;
+    const workspaceId=spec.workspaceId??trustedWorkspaceId;
     const org=pinnedOrganization,issuer=org.issuerAuthorityId;
     const membership=original('StaffMembership',{
       membershipId:memberId,organizationId:org.organizationId,
-      personId:enrolled.employeePersonId,workspaceId:trustedWorkspaceId,
+      personId:enrolled.employeePersonId,workspaceId,
       roleId:g.roleId,grantId:g.id,issuerAuthorityId:issuer,
       membershipEpoch:org.membershipEpoch,notBefore:g.notBefore,
       expiresAt:g.expiresAt,status:'ACTIVE',statusObservedAt:status.issuedAt,
@@ -676,7 +677,7 @@ export function createOriginalEmployeeEnrollmentOwner({
       schema:'IWXA_T3_ORGANIZATION_ENROLLMENT_CLAIMS/1',
       organizationId:org.organizationId,realmId:org.realmId,
       issuerAuthorityId:issuer,personId:enrolled.employeePersonId,
-      workspaceId:trustedWorkspaceId,membershipId:memberId,
+      workspaceId,membershipId:memberId,
       credentialId:credential.credentialId,
       credentialPublicKeyRef:enrolled.credentialPublicKeyRef,
       grantId:g.id,signedGrantDigest:digest(env),
@@ -870,12 +871,171 @@ export function createOriginalEmployeeEnrollmentOwner({
     return Object.freeze({...recovered,kernelReceipt});
   }
 
+  // The first T4 pilot is an additive grant set for ONE already enrolled
+  // worker. Its immutable scope was explicitly signed at organization
+  // bootstrap. Use the existing issuer, proof, STATUS and Registry CAS.
+  const pilot=networkPilot===null?null:(()=>{
+    check(networkPilot&&typeof networkPilot.requiredNetworkActions==='function',
+      'T3_EMPLOYEE_T4_PILOT_CONFIGURATION_REQUIRED');
+    const scope={workspaceId:trustedWorkspaceId,
+      sourceTechnicalWorkspaceId:id(networkPilot.sourceTechnicalWorkspaceId),
+      recipientTechnicalWorkspaceId:id(networkPilot.recipientTechnicalWorkspaceId)};
+    check(new Set(Object.values(scope)).size===3&&
+      !Object.values(scope).slice(1).some(x=>x.startsWith('workspace:registry:')),
+      'T3_EMPLOYEE_T4_PILOT_SCOPE_INVALID');
+    const required=role=>{
+      const actions=networkPilot.requiredNetworkActions({role,enableSourceEventWindowRead:true,
+        enableRecipientResultRead:true});
+      check(Array.isArray(actions)&&actions.length>0&&actions.length<=32&&
+        new Set(actions).size===actions.length&&actions.every(x=>typeof x==='string'&&
+          x.startsWith('t4.network.')&&x!=='t4.network.key.manage'),
+        'T3_EMPLOYEE_T4_PILOT_ACTIONS_INVALID');
+      actions.forEach(id);return Object.freeze([...actions]);
+    };
+    return Object.freeze({scope:Object.freeze(scope),
+      marker:'t4-pilot-scope:'+digest(scope),recipientActions:required('RECIPIENT'),
+      specs:Object.freeze([
+        {key:'networkAccess',workspaceId:trustedWorkspaceId,rightClass:'ACTION',
+          actions:required('SOURCE'),purpose:'network.synchronization'},
+        {key:'technicalReadAccess',workspaceId:scope.sourceTechnicalWorkspaceId,
+          rightClass:'DATA',actions:['workspace.read'],purpose:'workspace.read'},
+        {key:'technicalWriteAccess',workspaceId:scope.sourceTechnicalWorkspaceId,
+          rightClass:'ACTION',actions:['object.write'],purpose:'workspace.work'}
+      ])});
+  })();
+  const t4Marker=enrollmentId=>'employee-t4-rights:'+enrollmentId;
+  const sameSet=(a,b)=>Array.isArray(a)&&a.length===b.length&&
+    new Set(a).size===a.length&&a.every(x=>b.includes(x));
+  function assertPilot(saved,at){
+    check(pilot!==null,'T3_EMPLOYEE_T4_PILOT_CONFIGURATION_REQUIRED');
+    const org=pinnedOrganization,authority=saved.policy.authorities[org.issuerAuthorityId];
+    const status=validateStatusSnapshot(org.issuerAuthorityId,saved,at);
+    const checks=[
+      ['grant:t4-recipient-network',pilot.scope.workspaceId,'ACTION',pilot.recipientActions,'network.synchronization'],
+      ['grant:t4-recipient-technical-read',pilot.scope.recipientTechnicalWorkspaceId,'DATA',['workspace.read'],'workspace.read'],
+      ['grant:t4-recipient-technical-write',pilot.scope.recipientTechnicalWorkspaceId,'ACTION',['object.write'],'workspace.work']
+    ];
+    for(const [grantId,ws,rightClass,actions,purpose] of checks){
+      const envelope=saved.grants[grantId],g=envelope?.payload;
+      check(g&&g.principalId===org.organizationId&&g.authorityId===org.issuerAuthorityId&&
+        g.roleId==='reviewer'&&g.rightClass===rightClass&&
+        sameSet(g.resources,[ws])&&sameSet(g.actions,actions)&&sameSet(g.purposes,[purpose])&&
+        g.evidenceRefs.includes('ceremony:explicit-t4-pilot')&&g.evidenceRefs.includes(pilot.marker)&&
+        envelope.keyId===issuerSigner.keyId,
+        'T3_EMPLOYEE_T4_PILOT_BOOTSTRAP_MISMATCH');
+      verifiedChain(grantId,saved,at);
+      check(status.entries.some(e=>e.grantId===grantId&&e.state==='ACTIVE')&&
+        !hasRecordedTombstone(saved,grantId),'T3_EMPLOYEE_T4_PILOT_BOOTSTRAP_INACTIVE');
+    }
+    check(authority&&pilot.specs.every(s=>authority.resources.includes(s.workspaceId)&&
+      authority.purposes.includes(s.purpose)&&authority.rightClasses.includes(s.rightClass)&&
+      s.actions.every(a=>authority.actions.includes(a)&&saved.policy.actionCatalog[a]===s.rightClass)),
+      'T3_EMPLOYEE_T4_PILOT_POLICY_CEILING_REQUIRED');
+    return status;
+  }
+  function networkGrantReadback({organizationId,employeePersonId,enrollmentId,saved,at}){
+    check(organizationId===pinnedOrganization.organizationId,'T3_EMPLOYEE_T4_PILOT_SCOPE_INVALID');
+    const status=assertPilot(saved,at);
+    const enrolled=reconstruct({saved,employeePersonId,enrollmentId,at});
+    const baseline=workspaceGrantReadback({organizationId,employeePersonId,enrollmentId,saved,at});
+    check(baseline.state==='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE',
+      'T3_EMPLOYEE_T4_WORKSPACE_RIGHTS_REQUIRED');
+    const all=Object.values(saved.grants).filter(e=>e.payload.authorityId===pinnedOrganization.issuerAuthorityId&&
+      e.payload.principalId===organizationId&&e.payload.evidenceRefs.includes(pilot.marker)&&
+      e.payload.evidenceRefs.some(x=>x.startsWith('employee-t4-rights:')));
+    check(all.every(e=>e.payload.holderId===employeePersonId&&e.payload.evidenceRefs.includes(t4Marker(enrollmentId))),
+      'T3_EMPLOYEE_T4_OTHER_SOURCE_ALREADY_ENROLLED');
+    const base={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_T4_RIGHTS/1',organizationId,employeePersonId,
+      enrollmentId,scope:copy(pilot.scope),originalReadback:true,safeToReissue:false};
+    if(all.length===0)return Object.freeze({...base,state:'ORIGINAL_EMPLOYEE_T4_RIGHTS_NOT_FOUND'});
+    check(all.length===pilot.specs.length,'T3_EMPLOYEE_T4_SIGNED_GRANT_SET_INCOMPLETE');
+    const attachments={},ids=[];
+    for(const spec of pilot.specs){
+      const match=all.filter(e=>sameSet(e.payload.actions,spec.actions)&&
+        sameSet(e.payload.resources,[spec.workspaceId])&&sameSet(e.payload.purposes,[spec.purpose]));
+      check(match.length===1,'T3_EMPLOYEE_T4_SIGNED_GRANT_SCOPE_CHANGED');
+      const env=match[0],g=env.payload;
+      check(g.roleId==='worker'&&g.rightClass===spec.rightClass&&env.keyId===issuerSigner.keyId&&
+        g.evidenceRefs.includes('employee-credential:'+enrolled.credentialPublicKeyRef)&&
+        !g.evidenceRefs.includes('employee-enrollment:'+enrollmentId)&&
+        !ids.includes(g.id),'T3_EMPLOYEE_T4_SIGNED_GRANT_SCOPE_CHANGED');
+      verifiedChain(g.id,saved,at);
+      check(status.entries.some(e=>e.grantId===g.id&&e.state==='ACTIVE')&&
+        !hasRecordedTombstone(saved,g.id),'T3_EMPLOYEE_T4_RIGHT_REVOKED_OR_UNKNOWN');
+      ids.push(g.id);attachments[spec.key]=workspaceAttachment({spec,env,saved,enrolled,status,at});
+    }
+    return Object.freeze({...base,state:'ORIGINAL_EMPLOYEE_T4_RIGHTS_ACTIVE',
+      statusSequence:status.sequence,grantIds:Object.freeze(ids),attachments:Object.freeze(attachments)});
+  }
+  async function readNetworkGrantSet({organizationId,employeePersonId,enrollmentId}={}){
+    [organizationId,employeePersonId,enrollmentId].forEach(id);
+    return networkGrantReadback({organizationId,employeePersonId,enrollmentId,saved:await state(),at:now()});
+  }
+  let networkRightsAttempted=false;
+  async function issueNetworkGrantSet({organizationId,employeePersonId,enrollmentId,
+    managerPersonId,managerGrantId,confirmed=false}={}){
+    check(confirmed===true,'T3_EMPLOYEE_T4_EXPLICIT_APPROVAL_REQUIRED');
+    check(!networkRightsAttempted,'T3_EMPLOYEE_T4_OUTCOME_UNKNOWN_READBACK');
+    [organizationId,employeePersonId,enrollmentId,managerPersonId,managerGrantId].forEach(id);
+    check(employeePersonId!==managerPersonId,'T3_EMPLOYEE_T4_INDEPENDENT_SOURCE_REQUIRED');
+    const saved=await state(),at=now(),org=pinnedOrganization,authorityId=org.issuerAuthorityId;
+    const args={organizationId,employeePersonId,enrollmentId};
+    check(networkGrantReadback({...args,saved,at}).state==='ORIGINAL_EMPLOYEE_T4_RIGHTS_NOT_FOUND',
+      'T3_EMPLOYEE_T4_RIGHTS_EXIST_USE_READBACK');
+    const enrolled=reconstruct({saved,employeePersonId,enrollmentId,at});
+    const authority=saved.policy.authorities[authorityId],manager=saved.grants[managerGrantId]?.payload;
+    const issuerKey=saved.policy.keys[issuerSigner.keyId],credential=saved.policy.keys[enrolled.credentialPublicKeyRef];
+    check(manager?.holderId===managerPersonId&&manager.principalId===organizationId&&
+      manager.authorityId===authorityId&&manager.rightClass==='ADMINISTRATION'&&
+      manager.actions.includes('grant.issue')&&manager.resources.includes('authority:'+authorityId)&&
+      issuerKey?.status==='ACTIVE'&&issuerKey.uses.includes('GRANT')&&issuerKey.uses.includes('STATUS')&&
+      credential?.status==='ACTIVE','T3_EMPLOYEE_T4_MANAGER_OR_ISSUER_REQUIRED');
+    const request={id:'employee-t4-grants:'+randomUUID(),actorId:managerPersonId,
+      principalId:organizationId,roleId:manager.roleId,grantId:managerGrantId,audience:manager.audience,
+      resource:'authority:'+authorityId,action:'grant.issue',purpose:'access-administration',realmId:org.realmId,
+      operationDigest:digest({schema:'IWXA_T3_EMPLOYEE_T4_RIGHTS_INTENT/1',...args,
+        scope:pilot.scope,rights:pilot.specs,workGrantId:enrolled.grantIds.work,managerGrantId})};
+    const challenge=randomUUID()+randomUUID(),proof=await proveManager({request:copy(request),challenge,
+      asOf:iso(at),managerPersonId,organizationId});
+    const decision=evaluate(request,saved,{now:iso(at),challenge,proof,timeAssurance:'LOCAL_BEST_EFFORT'});
+    check(decision.allowed===true&&decision.outcome==='PERMITTED','T3_EMPLOYEE_T4_MANAGER_NOT_AUTHORIZED');
+    const ttlSeconds=Math.min(authority.maxTtlSeconds,86400,
+      ...[enrolled.workGrant.payload,manager,issuerKey,credential].map(x=>Math.floor((timestamp(x.expiresAt)-at)/1000)));
+    check(ttlSeconds>0,'T3_EMPLOYEE_T4_GRANT_EXPIRY');
+    const next=copy(saved),granted=[];
+    for(const spec of pilot.specs){
+      const g=coreGrant(saved,{id:'grant:'+randomUUID(),organization:org,employeePersonId,roleId:'worker',
+        rightClass:spec.rightClass,actions:[...spec.actions],purposes:[spec.purpose],resources:[spec.workspaceId],
+        ttlSeconds,enrollmentId,now:at,credentialKeyId:enrolled.credentialPublicKeyRef,
+        evidenceRefs:[t4Marker(enrollmentId),pilot.marker,'employee-credential:'+enrolled.credentialPublicKeyRef,
+          'manager-approval:'+digest(decision)]});
+      const env=signRecord(g,issuerSigner);verifyRecord(env,saved.policy,at,'GRANT');
+      next.grants[g.id]=env;granted.push(g.id);
+    }
+    const prior=saved.statuses[authorityId].payload,sequence=prior.sequence+1;
+    const until=Math.min(at+saved.policy.offlineMaxAgeSeconds*1000,timestamp(issuerKey.expiresAt));
+    check(until>at,'T3_EMPLOYEE_T4_STATUS_WINDOW_INVALID');
+    next.statuses[authorityId]=signRecord({...prior,id:'status:'+randomUUID(),sequence,issuedAt:iso(at),
+      validUntil:iso(until),entries:[...prior.entries,...granted.map(grantId=>({
+        grantId,state:'ACTIVE',effectiveAt:iso(at),evidenceRef:t4Marker(enrollmentId)
+      }))].sort((a,b)=>a.grantId.localeCompare(b.grantId))},issuerSigner);
+    next.statusFloor[authorityId]=sequence;
+    networkRightsAttempted=true;
+    const kernelReceipt=await registry.commitSignedState(next,{expectedStateDigest:digest(saved)});
+    const recovered=await readNetworkGrantSet(args);
+    check(recovered.state==='ORIGINAL_EMPLOYEE_T4_RIGHTS_ACTIVE'&&recovered.statusSequence===sequence&&
+      sameSet(recovered.grantIds,granted),'T3_EMPLOYEE_T4_ORIGINAL_READBACK_UNKNOWN');
+    networkRightsAttempted=false;
+    return Object.freeze({...recovered,kernelReceipt});
+  }
+
   const corporateSeats=corporateSeatSource===null?null:createOriginalCorporateSeatOwner({
     registry,issuerSigner,proveManager,trustedOrganization:pinnedOrganization,clock,
     resolveEnrollment:reconstruct,readLicenseState:corporateSeatSource.read,
     installedTrust:corporateSeatSource.installedTrust});
   return Object.freeze({begin,complete,readEnrollment,cancelPending,
-    issueTaskGrant,readTaskGrant,issueWorkspaceGrantSet,readWorkspaceGrantSet,...(corporateSeats?{
+    issueTaskGrant,readTaskGrant,issueWorkspaceGrantSet,readWorkspaceGrantSet,
+    ...(pilot?{issueNetworkGrantSet,readNetworkGrantSet}:{}),...(corporateSeats?{
       viewCorporateSeats:corporateSeats.view,changeCorporateSeat:corporateSeats.change,
       enableCorporateSeatPolicy:corporateSeats.enablePolicy,
       readCorporateSeatCommand:corporateSeats.readCommand}: {})});
