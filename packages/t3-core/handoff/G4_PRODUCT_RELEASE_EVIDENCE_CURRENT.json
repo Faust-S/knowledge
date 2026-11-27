@@ -2655,12 +2655,12 @@
       "assistant_source": "3b8c2fb25bf5205e53331f5db3e035210b7aac9f",
       "exchange_receipt_fix": "63d76beb11752b6e3f3c545d79f30b14b0bd816b",
       "bli_engine_source_fix": "92ba6c314725a46f8f0ac0a6fd1a4ee9d315d60e",
-      "hardware_generation_exact_release": "NOT_RUN_SOFTWARE_ADAPTER_ONLY_IN_COMPLETED_RC5_CI",
+      "hardware_generation_exact_release": "PASS_REAL_APPLE_METAL_PARAVIRTUAL_LIGHT_QWEN_EXACT_PUBLISHED_ARCHIVE",
       "exact_release_hardware_qualification": {
         "run": 46014698884,
         "request_commit": "b9cef2506dfc87baddaeaff9ac6fdb440f09047c",
         "prepared_commit": "b1a0808818c923657134c5922f0570ae3e1f08ce",
-        "status": "IN_PROGRESS",
+        "status": "SUCCESS",
         "model": "Qwen2.5-0.5B-Instruct-q4f32_1-MLC",
         "runner": "macos-latest",
         "source": "PUBLISHED_PLATFORM_INPUTS_NO_REBUILD",
@@ -2668,7 +2668,36 @@
           "run": 46014574727,
           "conclusion": "FAIL_NO_JOB_EXECUTED",
           "cause": "Runner context used in job-level env; fixed before new request."
-        }
+        },
+        "job": 140558729269,
+        "completed_at": "2026-11-27T14:19:42Z",
+        "runner_image": "macos-26-arm64",
+        "adapter": {
+          "vendor": "apple",
+          "webgl_renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple Paravirtual device, Unspecified Version)",
+          "hardware_accelerated_virtualized": true,
+          "physical_end_user_device": false
+        },
+        "evidence": {
+          "published_archive_verified": true,
+          "user_consented_model_download": true,
+          "generated_characters": 6,
+          "original_kernel_readback": true,
+          "browser_cold_restart": true,
+          "offline_host": true,
+          "model_loaded_from_cache": true,
+          "network_disabled": true,
+          "second_generated_characters": 6,
+          "second_explicit_kernel_save": true
+        },
+        "scope": "LIGHT_QWEN_MODEL_GENERATION_AND_COLD_OFFLINE_SECOND_GENERATION_NOT_MODEL_QUALITY_OR_PHYSICAL_PHONE_ACCEPTANCE"
+      },
+      "independent_acceptance_delivery": {
+        "state": "PREPARING_EXISTING_RC2_DELIVERY_FOR_RC5",
+        "scope": "LOCAL_READY_ORIGINAL_GENERIC_HOST_NO_REBUILD",
+        "origin": "https://localhost:18443",
+        "independent_acceptance": "PENDING",
+        "remote_browser_access": "REQUIRES_SAME_MACHINE_OR_EXPLICITLY_PROVIDED_ROOT_HTTPS_ORIGIN"
       },
       "independent_end_user_acceptance": "PENDING_NOT_CODEX_ACCEPTED",
       "corporate_aba": "SEPARATE_OPEN_ACCEPTED_KERNEL_EVENT_COLLISION",

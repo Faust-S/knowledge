@@ -1,0 +1,160 @@
+name: T3 rc.5 ready local acceptance delivery
+on:
+  push:
+    branches: ['ci/once/t3-rc5-ready-acceptance/**']
+    paths: ['.github/ci-requests/t3-rc5-ready-acceptance.json']
+permissions:
+  contents: read
+concurrency:
+  group: t3-rc5-ready-acceptance
+  cancel-in-progress: false
+jobs:
+  windows-delivery:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: packages/t3-core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 8
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+          architecture: x64
+      - name: Admit exact one-time request and frozen executable source
+        shell: bash
+        working-directory: .
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Faust-S/knowledge
+          test "$GITHUB_REF_NAME" = "ci/once/t3-rc5-ready-acceptance/$BEFORE"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $BEFORE"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = "$(printf 'A\t.github/ci-requests/t3-rc5-ready-acceptance.json')"
+          git merge-base --is-ancestor a50d40dafc2e029fcc7668dece925f7fc38cc510 "$BEFORE"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('.github/ci-requests/t3-rc5-ready-acceptance.json','utf8'));
+          assert.equal(r.preparedSha,process.env.BEFORE);
+          delete r.preparedSha;
+          assert.deepEqual(r,{"schema":"iwxa.ci.once/1","workflow":"t3-rc5-ready-acceptance","source":"a50d40dafc2e029fcc7668dece925f7fc38cc510","releaseTag":"t3-platform-v0.3.1-rc.5","archiveSha256":"381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4","reason":"DELIVER_RUNNABLE_ORIGINAL_HOST_FOR_INDEPENDENT_ACCEPTANCE_WITHOUT_REBUILD"});
+          NODE
+          test "$(git rev-parse HEAD:packages/t3-core/src)" = 3a391777a51012e51356b61b9d61bc94c511de67
+          test "$(git rev-parse HEAD:packages/t3-core/qualified-runtime)" = 1594274dbf5e38214b8422ba11e8c7114bd5425c
+      - name: Download exact already-qualified release (no platform rebuild)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ((git rev-parse HEAD:packages/t3-core/src) -ne '3a391777a51012e51356b61b9d61bc94c511de67') { throw 'QUALIFIED_EXECUTABLE_CHANGED' }
+          gh release download t3-platform-v0.3.1-rc.5 --pattern platform-inputs.zip --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw 'DOWNLOAD_FAILED' }
+          node scripts/prepare-t3-rc5-acceptance.mjs (Join-Path $env:RUNNER_TEMP 'platform-inputs.zip') (Join-Path $env:RUNNER_TEMP 'acceptance')
+          if ($LASTEXITCODE -ne 0) { throw 'ASSEMBLY_FAILED' }
+      - name: Include only local launch transport and official Node Windows runtime
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP 'acceptance'
+          Copy-Item acceptance/rc5/serve-acceptance.mjs,acceptance/rc5/start-acceptance.ps1,acceptance/rc5/START.cmd,acceptance/rc5/README-RU.md -Destination $dest
+          $runtime = New-Item -ItemType Directory -Path (Join-Path $dest 'runtime')
+          $node = (Get-Command node.exe).Source
+          Copy-Item $node (Join-Path $runtime.FullName 'node.exe')
+          Copy-Item (Join-Path (Split-Path $node) 'LICENSE') (Join-Path $runtime.FullName 'LICENSE')
+          $tokens=$null; $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $dest 'start-acceptance.ps1'),[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { throw 'WINDOWS_LAUNCHER_SYNTAX_FAILED' }
+          & (Join-Path $runtime.FullName 'node.exe') --check (Join-Path $dest 'serve-acceptance.mjs')
+          if ($LASTEXITCODE -ne 0) { throw 'SERVER_SYNTAX_FAILED' }
+      - name: Exercise the exact assembled Host and create an original .iwxa example
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'TEST_DEPENDENCIES_FAILED' }
+          npx --no-install playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'BROWSER_INSTALL_FAILED' }
+          $dest=Join-Path $env:RUNNER_TEMP 'acceptance'
+          $tls=New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'acceptance-tls')
+          $cert=$null; $process=$null
+          try {
+            $cert=New-SelfSignedCertificate -DnsName 'localhost' -Type SSLServerAuthentication -CertStoreLocation 'Cert:\CurrentUser\My' -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(1)
+            $password=[Guid]::NewGuid().ToString('N')
+            $env:IWXA_ACCEPTANCE_PFX=Join-Path $tls.FullName 'localhost.pfx'
+            $env:IWXA_ACCEPTANCE_PFX_PASSWORD=$password
+            $cer=Join-Path $tls.FullName 'localhost.cer'
+            Export-PfxCertificate -Cert $cert -FilePath $env:IWXA_ACCEPTANCE_PFX -Password (ConvertTo-SecureString $password -AsPlainText -Force) | Out-Null
+            Export-Certificate -Cert $cert -FilePath $cer | Out-Null
+            # Disposable runner user only. Match the consented launcher trust;
+            # Chromium SW requests must not depend on page-only TLS exceptions.
+            certutil.exe -user -f -addstore Root $cer
+            if ($LASTEXITCODE -ne 0) { throw 'CI_LOCAL_CERT_TRUST_FAILED' }
+            if (!(Test-Path ('Cert:\CurrentUser\Root\'+$cert.Thumbprint))) { throw 'CI_LOCAL_CERT_NOT_TRUSTED' }
+            $process=Start-Process -FilePath (Join-Path $dest 'runtime\node.exe') -ArgumentList 'serve-acceptance.mjs' -WorkingDirectory $dest -PassThru -RedirectStandardOutput (Join-Path $tls.FullName 'stdout.log') -RedirectStandardError (Join-Path $tls.FullName 'stderr.log')
+            node acceptance/rc5/smoke.mjs $dest $cer
+            if ($LASTEXITCODE -ne 0) { throw 'EXACT_DELIVERY_SMOKE_FAILED' }
+          } finally {
+            if ($process -and !$process.HasExited) { Stop-Process -Id $process.Id -Force }
+            Get-Content (Join-Path $tls.FullName 'stdout.log'),(Join-Path $tls.FullName 'stderr.log') -ErrorAction SilentlyContinue
+            Remove-Item Env:\IWXA_ACCEPTANCE_PFX -ErrorAction SilentlyContinue
+            Remove-Item Env:\IWXA_ACCEPTANCE_PFX_PASSWORD -ErrorAction SilentlyContinue
+            if ($cert) {
+              Remove-Item ('Cert:\CurrentUser\Root\'+$cert.Thumbprint) -ErrorAction SilentlyContinue
+              Remove-Item ('Cert:\CurrentUser\My\'+$cert.Thumbprint) -ErrorAction SilentlyContinue
+            }
+            Remove-Item $tls.FullName -Recurse -Force
+          }
+      - name: Package the exact launched delivery and independently extract it
+        run: |
+          $dest=Join-Path $env:RUNNER_TEMP 'acceptance'
+          $zip=Join-Path $env:RUNNER_TEMP 'acceptance-host-windows-x64.zip'
+          Compress-Archive -Path (Join-Path $dest '*') -DestinationPath $zip -CompressionLevel Optimal
+          $readback=Join-Path $env:RUNNER_TEMP 'readback'
+          Expand-Archive -Path $zip -DestinationPath $readback
+          $actual=Get-ChildItem -File -Recurse $dest
+          $restored=Get-ChildItem -File -Recurse $readback
+          if ($actual.Count -ne $restored.Count) { throw 'DELIVERY_FILE_COUNT_CHANGED' }
+          foreach ($file in $actual) {
+            $relative=[IO.Path]::GetRelativePath($dest,$file.FullName)
+            if ((Get-FileHash $file.FullName).Hash -ne (Get-FileHash (Join-Path $readback $relative)).Hash) { throw "DELIVERY_READBACK_CHANGED: $relative" }
+          }
+          $r=Get-Content (Join-Path $dest 'acceptance-receipt.json') -Raw | ConvertFrom-Json
+          $r | Add-Member -NotePropertyName deliveryCommit -NotePropertyValue $env:GITHUB_SHA
+          $r | Add-Member -NotePropertyName deliveryRun -NotePropertyValue ([long]$env:GITHUB_RUN_ID)
+          $r | Add-Member -NotePropertyName deliveryArchiveSha256 -NotePropertyValue (Get-FileHash $zip).Hash.ToLowerInvariant()
+          $r | Add-Member -NotePropertyName exampleSha256 -NotePropertyValue (Get-FileHash (Join-Path $dest 'examples\workspace-original.iwxa')).Hash.ToLowerInvariant()
+          $r | Add-Member -NotePropertyName fileCount -NotePropertyValue $actual.Count
+          $r | Add-Member -NotePropertyName deliveryBrowserSmoke -NotePropertyValue 'PASS'
+          $r | Add-Member -NotePropertyName physicalInference -NotePropertyValue 'NOT_RUN'
+          $r | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8NoBOM (Join-Path $env:RUNNER_TEMP 'acceptance-host-receipt.json')
+          Get-Content (Join-Path $env:RUNNER_TEMP 'acceptance-host-receipt.json')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: t3-rc5-ready-acceptance-windows-x64
+          path: |
+            ${{ runner.temp }}/acceptance-host-windows-x64.zip
+            ${{ runner.temp }}/acceptance-host-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+  retain:
+    needs: windows-delivery
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: t3-rc5-ready-acceptance-windows-x64
+      - name: Add separately identified acceptance assets without replacing rc5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/git/ref/tags/t3-platform-v0.3.1-rc.5" --jq .object.sha)" = a50d40dafc2e029fcc7668dece925f7fc38cc510
+          expected="$(jq -r .deliveryArchiveSha256 acceptance-host-receipt.json)"
+          echo "$expected  acceptance-host-windows-x64.zip" | sha256sum -c -
+          gh release upload t3-platform-v0.3.1-rc.5 acceptance-host-windows-x64.zip acceptance-host-receipt.json
