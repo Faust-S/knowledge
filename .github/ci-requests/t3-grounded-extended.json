@@ -1,0 +1,12 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-grounded-extended",
+  "preparedSha": "f93094d3440f6d5d6b55736146f9d448e8a20dbc",
+  "originalAssistant": "56b0f953e7d0e46d3f194d1fce51e07df42e7e61",
+  "cehovodSite": "708b2586358fa57b39f4f384b0abe78729ffbee1",
+  "retainedPlatformArtifact": 15229796119,
+  "existingLightBalancedRun": 46064672900,
+  "scope": "EXISTING_SEVEN_NATIVE_RESULT_ADVICE_SCENARIOS_EXTENDED_PROFILE",
+  "hardwareRequired": true,
+  "productAccepted": false
+}
