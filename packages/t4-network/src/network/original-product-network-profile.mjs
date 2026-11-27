@@ -6,6 +6,7 @@ import {isOriginalOrganizationalOperationGateForRegistry} from '../../../t3-core
 import {isOriginalSignedAccessHostPortForEvaluator} from '../../../t3-core/src/t3/signed-access-host-port.mjs';
 import {normalizeOriginalInstalledNetworkScope} from '../../../t3-core/src/t3/original-installed-network-scope.mjs';
 import {createT4OriginalProductNetworkAccess} from './original-product-network-access.mjs';
+import {createT4OriginalSelfHostedPilotRoute} from './original-self-hosted-pilot-route.mjs';
 import {assertT4InstalledProductProfile} from './original-product-network-selection.mjs';
 import {createT4OriginalNativeHostNetworkProfile} from './original-native-host-network-profile.mjs';
 import {createT4OriginalInstalledControlFactories} from './original-installed-control-factories.mjs';
@@ -97,7 +98,16 @@ export function createT4OriginalProductProfileFactory({scope,registryObjectId='t
       // The explicit native first-use selection may prepare the local
       // technical Workspace. Existing instances merely read it; the business
       // Workspace is never created through this path.
-      const {originalPeerTls,prepareLocalTechnicalWorkspace=false,...nativeOptions}=options;
+      const {originalPeerTls,originalSelfHostedRoute,prepareLocalTechnicalWorkspace=false,...nativeOptions}=options;
+      if(originalSelfHostedRoute!==undefined){
+        if(!obj(originalSelfHostedRoute)||Object.hasOwn(options,'originalTopology')||
+          Object.keys(originalSelfHostedRoute).some(k=>!['objectFamily','serverNodeRef','readOriginalSelection','readOriginalAuthorization'].includes(k)))
+          fail('T4_INSTALLED_PRODUCT_SELF_HOSTED_ROUTE_INVALID');
+        nativeOptions.originalTopology=createT4OriginalSelfHostedPilotRoute({...originalSelfHostedRoute,
+          workspaceId:selected.sourceWorkspaceId,originalWriteOwnerRef:options.originalWriteOwnerRef,
+          localNodeRef:selected.role==='SOURCE'?options.sourceNodeRef:options.recipientNodeRef,
+          authorityRoot:authority.originalAccess.expectedContext.principal_id,getMode,isOriginalHostActive:active});
+      }
       if(typeof prepareLocalTechnicalWorkspace!=='boolean'||typeof lifetime.prepareOriginalTechnicalWorkspace!=='function')
         fail('T4_INSTALLED_PRODUCT_WORKSPACE_PREPARATION_REQUIRED');
       const prepared=await lifetime.prepareOriginalTechnicalWorkspace({confirmed:prepareLocalTechnicalWorkspace});
