@@ -44,15 +44,24 @@ test('typed ledger separates released T3 technology, original T2, and still opti
   assert.equal(core.runtime_contract,'1.3.0');
   assert.equal(core.auto_publish_to_sites,false);
   if(platformReleased){
-    assert.equal(core.status,'RELEASED_T3_TECHNOLOGY_0_3_0');
-    assert.equal(core.version,'0.3.0');
+    assert.equal(core.status,'RELEASED_T3_TECHNOLOGY_0_3_1');
+    assert.equal(core.version,'0.3.1');
+    assert.equal(current.final_t3_release.version,core.version);
+    assert.equal(current.previous_core_release_0_3_0.version,'0.3.0');
+    assert.equal(core.promotion.release_tag,'t3-platform-v0.3.1');
+    assert.equal(core.promotion.metadata_only_delta.identical,171);
+    assert.equal(core.promotion.metadata_only_delta.files,174);
+    assert.equal(core.promotion.rc6_user_routes_run,46050260479);
+    assert.equal(core.promotion.hardware_run_on_unchanged_bli,46014698884);
+    assert.equal(core.promotion.independent_codex,'PARTIAL_ON_RC5');
     assert.equal(core.source_sha,current.final_t3_release.release_evidence.source_sha);
     assert.equal(core.executable_tree_sha,
       current.final_t3_release.release_evidence.source_tree_sha);
     assert.equal(core.portable_inputs.manifest_sha256,
       current.final_t3_release.release_evidence.portable_platform_manifest_sha256);
     assert.equal(current.final_t3_release.release_evidence.conclusion,'SUCCESS');
-    assert.equal(current.final_t3_release.release_evidence.exact_platform_ci_run,44913691238);
+    assert.equal(current.final_t3_release.release_evidence.exact_platform_ci_run,46053342716);
+    assert.equal(current.final_t3_release.previous_release_evidence_0_3_0.exact_platform_ci_run,44913691238);
     assert.equal(core.migration_eligible,true);
   }else{
     assert.equal(core.status,'QUALIFIED_ENGINEERING_BASELINE_NOT_FINAL_T3');
