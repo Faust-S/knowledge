@@ -957,6 +957,75 @@
       "productionReady": false,
       "T4_READY": false,
       "FEATURE_FREEZE": true
+    },
+    "latestFreshWorkspaceBaseline": {
+      "state": "COMPONENT_QUALIFIED_NOT_PRODUCT_ACCEPTED",
+      "date": "2026-11-27",
+      "core": {
+        "commit": "ff3538cce82243b6a0c082167e1a75abd5096a4d",
+        "tree": "41ec9ccdebacb8cc0ec9e4d24f2e52777c518e14"
+      },
+      "owner": {
+        "commit": "5b9fbb204939b9c6f872e26b1f580b7de8523174",
+        "tree": "24adc3356784313ffa218630874de172e5b93f85"
+      },
+      "agent": "f0d41a2b52c662406aa5bdb16646e7fd013370b3",
+      "center": "870529e805acef36aaf0c38c01459d51fa55a66f",
+      "scope": "First-use empty common original business Workspace with exact shared creation Event; initial read verifies empty Object/Asset sets and unchanged history; cold admission reuses original persisted baseline. Existing nonempty baseline provider unchanged. Existing T2 Exchange intended for common origin, not two separately created Workspaces.",
+      "qualification": {
+        "targetedRun": 46045634732,
+        "component": {
+          "pass": 60,
+          "fail": 0
+        },
+        "signedKernelRelayBothRoles": {
+          "pass": 1,
+          "fail": 0,
+          "scope": "fixture Kernel ports, actual persisted baseline Object readback, not IndexedDB"
+        },
+        "priorTargetedRun": {
+          "id": 46045413964,
+          "componentPass": 60,
+          "integrationFail": 1,
+          "reason": "Test incorrectly read baseline from redacted onStep notification. Corrected test to read persisted Object."
+        },
+        "broadRun": {
+          "id": 46044604977,
+          "status": "in_progress at last observation",
+          "candidate": "8351bf79f2fbba9374657ca712c8d855f2e594ce",
+          "accepted": false
+        },
+        "nativeTransportLocal": {
+          "node": "22.16.0",
+          "pass": 9,
+          "fail": 0,
+          "blobs": [
+            "e2769b08dde26cf0f62a05ae9547d029c05ec844",
+            "d79a35c6e3285c1f4addd6e71999aa6e8ab4a466"
+          ],
+          "scope": "real temporary OpenSSL certificates, not DPAPI"
+        },
+        "nativeAdminSyntax": {
+          "status": "PASS",
+          "blob": "b9392a2a9bfacf0a8c41da502daa20e22d49a5f4",
+          "scope": "V8 parse after removing static import/export, not execution or Windows compilation"
+        }
+      },
+      "nativePreparation": "Existing d3EmployeeNetworkConnectionConfigure with explicit prepareFreshWorkspaceBaseline:true and confirmation derives original creation anchor from employee Kernel history. Existing native transport config carries selection and rejects competing baseline. PrepareT4Pilot build shim supplies helper.",
+      "blocking": [
+        "Independent real phase/dependency evidence and authority provider composition",
+        "Original K036 ZIP/IndexedDB preservation of the same empty Workspace creation Event across actual installed products",
+        "SOURCE and RECIPIENT product startup wiring, native preparation command execution and Windows DPAPI/builds",
+        "Physical server and two-device pilot, end-to-end exchange"
+      ],
+      "publicActions": 3,
+      "privateActions": 0,
+      "codex": false,
+      "kernelChanged": false,
+      "wireChanged": false,
+      "releasePinsChanged": false,
+      "T4_READY": false,
+      "FEATURE_FREEZE": true
     }
   }
 }
