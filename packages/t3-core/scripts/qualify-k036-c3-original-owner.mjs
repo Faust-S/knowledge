@@ -5,7 +5,7 @@ import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from
 import { applyWorkspaceMethodRevision,inspectWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
 import { openK036C3QualificationOwner,captureK036C3CopyFixture,verifyK036C3CopyFixture } from './k036-c3-owner-qualification-adapter.mjs';
 import { projectProcessSourceObjectId } from '../src/modules/base/owners/project-process-source-owner.mjs';
-import { readWorkspaceMethodStageInputBasis,readWorkspaceMethodInputOverview,previewWorkspaceMethodStageHandoff } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
+import { readWorkspaceMethodStageInputBasis,readWorkspaceMethodInputOverview,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodMaterialEvidence } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
 import { compareWorkspaceMethodAlternatives } from '../src/modules/base/owners/project-process-method-comparison.mjs';
 import { previewWorkspaceMethodAlternative,createWorkspaceMethodAlternativeThroughSourceOwner,readWorkspaceMethodAlternativeOrigin } from '../src/modules/base/owners/project-process-method-alternative.mjs';
 
@@ -129,6 +129,24 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   same('original K036 complete method overview observes all four stages without execution',
     overviewBefore.counts,{total:4,inputReferencesVerified:4,materialReviewRequired:0,predecessorResultsRequired:3,rootInputsVerified:1});
   same('original K036 complete method overview bounded addressed read count',beforeOverviewReads,45);
+  // Explicit material evidence on the released runtime, not a new persisted
+  // object or a new Task. Put the fixture Asset only after the earlier copy
+  // tests: legacy Asset copy isolation is separately known to be defective.
+  const attachmentId='qualification-material-attachment',attachment=new Uint8Array([1,2,3,4,5]);
+  await restoredClient.t1.putAsset({workspace_id:ws,object_id:materialId,asset_id:attachmentId,
+    mime:'application/octet-stream',bytes:attachment,base_revision:0,event:{event_type:'qualification.material.attachment',
+      idempotency_key:'qualification-material-attachment'}});
+  const contentArgs={owner:restored.owner,workspaceId:ws,projectId,expected:resumed.method,stepId:'compute',
+    readObject:(...a)=>restoredClient.t1.getObject(...a),listAssets:q=>restoredClient.t1.listAssets(q),getAsset:(...a)=>restoredClient.t1.getAsset(...a)};
+  const materialEvidence=await inspectWorkspaceMethodMaterialEvidence(contentArgs);
+  same('original K036 visible material and attachment bytes observed',materialEvidence.observation.counts.assets,1);
+  same('original K036 attachment byte count is exact',materialEvidence.observation.counts.assetBytes,5);
+  same('original K036 material evidence retains exact stage input digest',materialEvidence.stageInput.inputBasisDigest,selectedCompute.inputBasisDigest);
+  same('original K036 repeated content evidence is stable',(await inspectWorkspaceMethodMaterialEvidence(contentArgs)).materialEvidenceDigest,materialEvidence.materialEvidenceDigest);
+  check('original K036 material evidence remains non-authorizing',materialEvidence.executionAuthority===false&&materialEvidence.allAssetsProven===false);
+  // Avoid exporting this new synthetic Asset into the old copy-isolation
+  // witness: its independent copy behavior is already measured elsewhere.
+  await restoredClient.t1.deleteAsset({workspace_id:ws,asset_id:attachmentId,base_revision:1,event:{event_type:'qualification.material.attachment.removed',idempotency_key:'qualification-material-attachment-remove'}});
   check('original K036 stage input reads only selected prerequisite closure',beforeStageReads<=27);
   check('current-method read does not repeat already observed physical revision lookup',beforeReads<=30);
   const catalogBefore=(await restoredClient.t1.listObjects({workspace_id:ws})).length;

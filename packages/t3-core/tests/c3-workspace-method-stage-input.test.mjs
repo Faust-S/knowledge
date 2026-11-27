@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { applyWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
-import { readWorkspaceMethodStageInputBasis,readWorkspaceMethodInputOverview } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
+import { readWorkspaceMethodStageInputBasis,readWorkspaceMethodInputOverview,inspectWorkspaceMethodMaterialEvidence } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
 
 const workspaceId='stage-scope',projectId='research',time='2026-11-27T13:00:00Z',nextTime='2026-11-27T13:01:00Z';
 const objects=['source','model','unused'].map((object_id,i)=>({workspace_id:workspaceId,object_id,revision:i+1,
@@ -230,4 +230,80 @@ test('64-stage complete overview scales owner reads with Works and shares each m
   const last=await readWorkspaceMethodStageInputBasis({owner,workspaceId,projectId,expected:result.method,readObject:material,stepId:'stage-63'});
   assert.equal(r.stages.at(-1).inputBasisDigest,last.inputBasisDigest);
   assert.equal((await owner.audit()).length,65);
+});
+
+function evidenceFixture(f){
+  const bytes=new TextEncoder().encode('private attachment');
+  const asset={workspace_id:workspaceId,object_id:'source',asset_id:'attachment',revision:1,mime:'text/plain',
+    size:bytes.length,service_id:'svc',created_at:time,updated_at:time,updated_by_service:'svc'};
+  const calls=[];
+  const readObject=async(w,id)=>{const row=await f.readObject(w,id);return row?{object:{...row.object,extensions:{}}}:null;};
+  const listAssets=async query=>{calls.push(['list',query]);return query.object_id==='source'?[asset]:[];};
+  const getAsset=async(w,id)=>{calls.push(['get',w,id]);return {asset,bytes};};
+  const args={owner:f.owner,workspaceId,projectId,expected:f.base,stepId:'compute',readObject,listAssets,getAsset};
+  return {args,asset,bytes,calls};
+}
+test('visible material content and original attached bytes yield deterministic evidence without exposing payload or execution authority',async()=>{
+  const f=await setup(),e=evidenceFixture(f);
+  const first=await inspectWorkspaceMethodMaterialEvidence(e.args);
+  assert.equal(first.state,'VISIBLE_MATERIAL_CONTENT_OBSERVED');
+  assert.equal(first.observation.counts.materials,2);assert.equal(first.observation.counts.assets,1);
+  assert.equal(first.observation.counts.assetBytes,e.bytes.length);
+  assert.match(first.materialEvidenceDigest,/^[a-f0-9]{64}$/);
+  assert.match(first.observation.materials.find(r=>r.reference.object_id==='source').visibleAssets[0].sha256,/^[a-f0-9]{64}$/);
+  assert.equal(JSON.stringify(first).includes('private attachment'),false);
+  assert.equal(JSON.stringify(first).includes('material body'),false);
+  for(const key of ['atomicSnapshot','allAssetsProven','contentBindingProven','exactInputBindingProven','writeAuthorized','executionAuthority','dispatchAuthorized','resultReuseProven'])
+    assert.equal(first[key],false);
+  const second=await inspectWorkspaceMethodMaterialEvidence(e.args);
+  assert.equal(first.materialEvidenceDigest,second.materialEvidenceDigest);
+  assert.equal(e.calls.some(row=>row[1]?.object_id==='unused'),false);
+  assert.equal((await f.owner.audit()).length,5);
+});
+test('material data or exact bytes change alters content evidence even when original Object revision does not',async()=>{
+  const f=await setup(),e=evidenceFixture(f),first=await inspectWorkspaceMethodMaterialEvidence(e.args);
+  const next=await inspectWorkspaceMethodMaterialEvidence({...e.args,getAsset:async()=>({asset:e.asset,
+    bytes:Uint8Array.from(e.bytes,b=>b^1)})});
+  assert.equal(first.stageInput.inputBasisDigest,next.stageInput.inputBasisDigest);
+  assert.notEqual(first.materialEvidenceDigest,next.materialEvidenceDigest);
+  const altered=await inspectWorkspaceMethodMaterialEvidence({...e.args,readObject:async(w,id)=>{
+    const r=await e.args.readObject(w,id);return id==='source'?{object:{...r.object,data:{value:2.125}}}:r;
+  }});
+  assert.notEqual(first.materialEvidenceDigest,altered.materialEvidenceDigest);
+});
+test('content evidence refuses changes across repeated observations including same-revision bytes and changing attachment membership',async()=>{
+  const f=await setup(),e=evidenceFixture(f);let reads=0;
+  await assert.rejects(inspectWorkspaceMethodMaterialEvidence({...e.args,getAsset:async()=>({asset:e.asset,
+    bytes:++reads===1?e.bytes:Uint8Array.from(e.bytes,b=>b^1)})}),code('METHOD_MATERIAL_CONTENT_CHANGED'));
+  let lists=0;
+  await assert.rejects(inspectWorkspaceMethodMaterialEvidence({...e.args,listAssets:async q=>
+    q.object_id==='source'&&++lists===1?[e.asset]:[]}),code('METHOD_MATERIAL_CONTENT_CHANGED'));
+});
+test('content evidence rejects foreign, duplicate, malformed and over-budget Asset metadata before opening bytes',async()=>{
+  const f=await setup(),e=evidenceFixture(f);let reads=0;
+  for(const [rows,error] of [
+    [[{...e.asset,workspace_id:'foreign'}],'METHOD_MATERIAL_ASSET_IDENTITY_MISMATCH'],
+    [[{...e.asset,object_id:'unused'}],'METHOD_MATERIAL_ASSET_IDENTITY_MISMATCH'],
+    [[{...e.asset,size:-1}],'METHOD_MATERIAL_ASSET_IDENTITY_MISMATCH'],
+    [[{...e.asset,size:33*1024*1024}],'METHOD_MATERIAL_EVIDENCE_BUDGET_EXCEEDED']
+  ]){
+    await assert.rejects(inspectWorkspaceMethodMaterialEvidence({...e.args,listAssets:async q=>q.object_id==='source'?rows:[],
+      getAsset:async()=>{reads++;return {asset:e.asset,bytes:e.bytes};}}),code(error));
+  }
+  assert.equal(reads,0);
+  await assert.rejects(inspectWorkspaceMethodMaterialEvidence({...e.args,listAssets:async q=>q.object_id==='source'?[e.asset,e.asset]:[]}),
+    code('METHOD_MATERIAL_ASSET_IDENTITY_MISMATCH'));
+  await assert.rejects(inspectWorkspaceMethodMaterialEvidence({...e.args,getAsset:async()=>({asset:{...e.asset,revision:2},bytes:e.bytes})}),
+    code('METHOD_MATERIAL_ASSET_CHANGED'));
+  await assert.rejects(inspectWorkspaceMethodMaterialEvidence({...e.args,getAsset:async()=>({asset:e.asset,bytes:new Uint8Array(0)})}),
+    code('METHOD_MATERIAL_ASSET_CHANGED'));
+});
+test('content evidence never reads Assets for stale material refs or bypasses missing original Asset rights',async()=>{
+  const f=await setup(),e=evidenceFixture(f);let reads=0;
+  const stale=await inspectWorkspaceMethodMaterialEvidence({...e.args,readObject:async(w,id)=>{
+    const r=await e.args.readObject(w,id);return id==='source'?{object:{...r.object,revision:2}}:r;
+  },listAssets:async()=>{reads++;return [];}});
+  assert.equal(stale.state,'MATERIAL_REVIEW_REQUIRED');assert.equal(stale.materialEvidenceDigest,null);assert.equal(reads,0);
+  await assert.rejects(inspectWorkspaceMethodMaterialEvidence({...e.args,getAsset:undefined}),code('METHOD_MATERIAL_ASSET_OWNER_REQUIRED'));
+  await assert.rejects(inspectWorkspaceMethodMaterialEvidence({...e.args,listAssets:async()=>{throw Object.assign(Error('denied'),{code:'PERMISSION_DENIED'});}}),code('PERMISSION_DENIED'));
 });

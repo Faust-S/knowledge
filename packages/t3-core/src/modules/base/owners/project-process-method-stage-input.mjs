@@ -148,6 +148,97 @@ export async function readWorkspaceMethodInputOverview(input={}){
 }
 
 
+// W05.8: explicit bounded content evidence over original Kernel reads.
+// This is NOT a new material store, package format, or signed Task binding.
+// Catalog visibility remains the original passport/Access owner's decision.
+export const WORKSPACE_METHOD_MATERIAL_EVIDENCE_LIMITS=Object.freeze({
+  materials:128,assets:128,assetBytes:32*1024*1024,canonicalBytes:8*1024*1024,
+});
+function assetMetadata(row,workspaceId,objectId){
+  if(!row||row.workspace_id!==workspaceId||row.object_id!==objectId
+      ||!text(row.asset_id)||!text(row.mime)||!text(row.service_id)
+      ||!text(row.created_at)||!text(row.updated_at)||!text(row.updated_by_service)
+      ||!Number.isSafeInteger(row.revision)||row.revision<1
+      ||!Number.isSafeInteger(row.size)||row.size<0){
+    fail('METHOD_MATERIAL_ASSET_IDENTITY_MISMATCH','Original Asset metadata does not match the selected material');
+  }
+  return Object.freeze({workspace_id:row.workspace_id,object_id:row.object_id,asset_id:row.asset_id,
+    revision:row.revision,mime:row.mime,size:row.size,service_id:row.service_id,
+    created_at:row.created_at,updated_at:row.updated_at,updated_by_service:row.updated_by_service});
+}
+function materialPayloadDigest(object,budget){
+  let canonical;
+  try{
+    if(!Object.hasOwn(object,'data')||!Object.hasOwn(object,'extensions'))
+      fail('METHOD_MATERIAL_CONTENT_UNSUPPORTED','Original material payload and extensions required');
+    canonical=canonicalStringify({data:object.data,extensions:object.extensions});
+  }catch{
+    fail('METHOD_MATERIAL_CONTENT_UNSUPPORTED','Original material is not supported by the existing canonical codec');
+  }
+  budget.canonicalBytes+=Buffer.byteLength(canonical,'utf8');
+  if(budget.canonicalBytes>WORKSPACE_METHOD_MATERIAL_EVIDENCE_LIMITS.canonicalBytes)
+    fail('METHOD_MATERIAL_EVIDENCE_BUDGET_EXCEEDED','Explicit material content evidence exceeds its bound');
+  return createHash('sha256').update(canonical).digest('hex');
+}
+async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,materials}){
+  const limits=WORKSPACE_METHOD_MATERIAL_EVIDENCE_LIMITS;
+  if(materials.length>limits.materials)fail('METHOD_MATERIAL_EVIDENCE_BUDGET_EXCEEDED','Too many materials for one observation');
+  const budget={assets:0,assetBytes:0,canonicalBytes:0},seenAssets=new Set(),rows=[];
+  // Sequential addressed reads bound the retained bytes. No whole-Workspace
+  // enumeration and no material payload or attachment bytes in the report.
+  for(const selected of materials){
+    const current=selected.current,object=(await readObject(workspaceId,selected.object_id))?.object;
+    if(!object||object.deleted===true||object.deleted_at!=null||!current
+        ||['workspace_id','object_id','schema_id','schema_version','revision'].some(key=>object[key]!==current[key])){
+      fail('METHOD_MATERIAL_CONTENT_CHANGED','Original material reference changed during content observation');
+    }
+    const payloadDigest=materialPayloadDigest(object,budget);
+    const list=await listAssets({workspace_id:workspaceId,object_id:selected.object_id});
+    if(!Array.isArray(list))fail('METHOD_MATERIAL_ASSET_IDENTITY_MISMATCH','Original addressed Asset listing required');
+    budget.assets+=list.length;
+    if(budget.assets>limits.assets)fail('METHOD_MATERIAL_EVIDENCE_BUDGET_EXCEEDED','Too many visible Assets for one observation');
+    const metadata=list.map(row=>assetMetadata(row,workspaceId,selected.object_id)).sort((a,b)=>order(a.asset_id,b.asset_id));
+    const assets=[];
+    for(const asset of metadata){
+      if(seenAssets.has(asset.asset_id))fail('METHOD_MATERIAL_ASSET_IDENTITY_MISMATCH','Duplicate visible Asset reference');
+      seenAssets.add(asset.asset_id);
+      budget.assetBytes+=asset.size;
+      if(budget.assetBytes>limits.assetBytes)fail('METHOD_MATERIAL_EVIDENCE_BUDGET_EXCEEDED','Visible Asset bytes exceed the observation bound');
+      const actual=await getAsset(workspaceId,asset.asset_id);
+      if(!actual||!equal(assetMetadata(actual.asset,workspaceId,selected.object_id),asset)
+          ||!(actual.bytes instanceof Uint8Array)||actual.bytes.byteLength!==asset.size){
+        fail('METHOD_MATERIAL_ASSET_CHANGED','Original Asset readback differs from the addressed listing');
+      }
+      assets.push(Object.freeze({...asset,sha256:createHash('sha256').update(actual.bytes).digest('hex')}));
+    }
+    rows.push(Object.freeze({reference:current,payloadDigest,visibleAssets:Object.freeze(assets)}));
+  }
+  return Object.freeze({materials:Object.freeze(rows),counts:Object.freeze({materials:rows.length,
+    assets:budget.assets,assetBytes:budget.assetBytes,canonicalBytes:budget.canonicalBytes})});
+}
+export async function inspectWorkspaceMethodMaterialEvidence(input={}){
+  if(typeof input.listAssets!=='function'||typeof input.getAsset!=='function')
+    fail('METHOD_MATERIAL_ASSET_OWNER_REQUIRED','Original addressed Asset read ports required');
+  const {readObject,listAssets,getAsset,workspaceId}=input;
+  const observation=await openStageInputObservation(input),stageInput=observation.report;
+  const flags={atomicSnapshot:false,allAssetsProven:false,contentBindingProven:false,
+    exactInputBindingProven:false,writeAuthorized:false,executionAuthority:false,resultReuseProven:false,dispatchAuthorized:false};
+  if(stageInput.inputBasisDigest===null){
+    return Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1',state:'MATERIAL_REVIEW_REQUIRED',
+      stageInput,materialEvidenceDigest:null,observation:null,...flags});
+  }
+  const args={readObject,listAssets,getAsset,workspaceId,materials:stageInput.materials};
+  const first=await readVisibleMaterialEvidence(args);
+  await observation.revalidate('METHOD_MATERIAL_CONTENT_CHANGED');
+  const second=await readVisibleMaterialEvidence(args);
+  await observation.revalidate('METHOD_MATERIAL_CONTENT_CHANGED');
+  if(!equal(first,second))fail('METHOD_MATERIAL_CONTENT_CHANGED','Material content or visible Assets changed during observation');
+  const materialEvidenceDigest=createHash('sha256').update(canonicalStringify({
+    inputBasisDigest:stageInput.inputBasisDigest,observation:first})).digest('hex');
+  return Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1',state:'VISIBLE_MATERIAL_CONTENT_OBSERVED',
+    stageInput,materialEvidenceDigest,observation:first,...flags});
+}
+
 // W05.2: the existing installed original Agent accepted-result owner
 // already exposes readAccepted for a published, explicitly selected
 // original Result. Its current contract binds Work number, signed Task,

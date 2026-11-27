@@ -5,7 +5,7 @@
 import { canonicalClone,canonicalStringify } from '../persistence/canonical-codec.mjs';
 import { createSubjectKernelBinding } from './subject-access-binding.mjs';
 import { inspectWorkspaceMethodAgentPredecessorResults,readWorkspaceMethodInputOverview,
-  previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation } from '../modules/base/owners/project-process-method-stage-input.mjs';
+  previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation,inspectWorkspaceMethodMaterialEvidence } from '../modules/base/owners/project-process-method-stage-input.mjs';
 
 function deny(code){throw Object.assign(new Error(code),{code,outcome:'DENIED'});}
 function check(ok,code){if(!ok)deny(code);}
@@ -82,6 +82,24 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       let report;
       if(mode==='overview')report=await readWorkspaceMethodInputOverview(args);
       else if(mode==='handoff')report=await previewWorkspaceMethodStageHandoff(args);
+      else if(mode==='material-evidence'){
+        // Resolve the ORIGINAL owner for each Asset operation, then fence
+        // its complete signed context against the already selected method.
+        // Each individual read still receives a fresh D1 authorization.
+        const assetPort=async operation=>{
+          check(kernel.hasOperation(operation)===true,'T3_METHOD_STAGE_ASSET_READ_REQUIRED');
+          const original=await guarded(()=>accessForRead(operation));
+          const matches=async()=>check(canonicalStringify(await original.currentContext())===identity,
+            'T3_METHOD_STAGE_SIGNED_CONTEXT_CHANGED');
+          await guarded(matches);
+          const binding=createSubjectKernelBinding({kernel,access:original,isHostActive:active});
+          return fn=>guarded(async()=>{await matches();const value=await fn(binding);await matches();return value;});
+        };
+        const list=await assetPort('t1.listAssets'),get=await assetPort('t1.getAsset');
+        report=await inspectWorkspaceMethodMaterialEvidence({...args,
+          listAssets:query=>list(binding=>binding.listAssets(query)),
+          getAsset:(workspaceId,id)=>get(binding=>binding.getAsset(workspaceId,id))});
+      }
       else if(['native-preview','native-recover'].includes(mode)){
         check(nativeContinuation!==null,'T3_METHOD_STAGE_NATIVE_OWNER_REQUIRED');
         // Only the original installed D6 port supplied by trusted Host
@@ -103,6 +121,7 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
     inspect:input=>read(input,'inspect'),
     overview:input=>read(input,'overview'),
     previewHandoff:input=>read(input,'handoff'),
+    inspectMaterialEvidence:input=>read(input,'material-evidence'),
     previewContinuation:input=>read(input,'native-preview'),
     recoverContinuation:input=>read(input,'native-recover'),
   });

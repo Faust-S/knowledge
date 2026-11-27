@@ -95,7 +95,7 @@ test('accepted owner or exact material changed during observation cannot confirm
       const r=await f.readObject(w,id);return changed&&id==='source'?{object:{...r.object,revision:2}}:r;
     }})),code('METHOD_STAGE_RESULT_BASIS_CHANGED'));
 });
-function trusted(f,{withAgent=true,withNative=false}={}){
+function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=()=>{}}={}){
   const workspace={workspace_id:ws,deleted_at:null};
   let chosen=workspace,active=true,allowed=true;const listeners=new Set();
   const currentWorkspace={get:()=>chosen,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);}};
@@ -109,9 +109,14 @@ function trusted(f,{withAgent=true,withNative=false}={}){
       validUntil:new Date(Date.now()+60000).toISOString(),statusObservedAt:new Date().toISOString(),
       evaluatedAt:new Date().toISOString(),authorityPath:[{grantId:context.grant_id}]}),
     verifyDecisionBinding:(request,decision)=>decision.requestDigest===sha(request)};
-  const kernel={sessionInfo:{contract_version:'1.3.0'},hasOperation:op=>['t1.getWorkspace','t1.getObject'].includes(op),
+  const asset={workspace_id:ws,object_id:'source',asset_id:'asset:1',revision:1,mime:'text/plain',size:1,
+    service_id:'svc',created_at:time,updated_at:time,updated_by_service:'svc'};
+  const kernel={sessionInfo:{contract_version:'1.3.0'},hasOperation:op=>['t1.getWorkspace','t1.getObject',
+      ...(withAssets?['t1.listAssets','t1.getAsset']:[])].includes(op),
     getWorkspace:async workspaceId=>workspaceId===ws?workspace:null,
-    getObject:async(...a)=>{const row=await f.readObject(...a);return row?{...row,relations:{incoming:[],outgoing:[]}}:null;}};
+    getObject:async(...a)=>{const row=await f.readObject(...a);return row?{...row,object:{...row.object,extensions:{}},relations:{incoming:[],outgoing:[]}}:null;},
+    listAssets:async query=>{assetHook('list',query);return query.object_id==='source'?[asset]:[];},
+    getAsset:async(workspaceId,id)=>{assetHook('get',{workspace_id:workspaceId,asset_id:id});return {asset,bytes:new Uint8Array([42])};}};
   let hook=null,nativeHook=null,received=null,inspections=0,receives=0,confirmations=0;
   const recipientId='iwxa.atlas',operationId='native:operation:fixture';
   const nativeOwner={recipientId,
@@ -279,4 +284,21 @@ test('changed materials or signed context while original native recipient is ins
     nativeContinuation:port,readObject:async(w,id)=>{
       const row=await g.readObject(w,id);return changed&&id==='source'?{object:{...row.object,revision:2}}:row;
     }}),code('METHOD_STAGE_RESULT_BASIS_CHANGED'));
+});
+
+test('trusted original Host material evidence uses scoped D1 Asset operations and never native dispatch',async()=>{
+  const f=await setup(),calls=[],h=trusted(f,{withAssets:true,withAgent:false,assetHook:(kind,query)=>calls.push([kind,query])});
+  const result=await h.reader.inspectMaterialEvidence({...hostInput(f),stepId:'analyse',resultSelections:[]});
+  assert.equal(result.state,'VISIBLE_MATERIAL_CONTENT_OBSERVED');assert.equal(result.observation.counts.assets,1);
+  assert.equal(calls.length,4);assert.equal(calls.every(row=>row[1].workspace_id===ws),true);
+  assert.equal(result.contentBindingProven,false);assert.equal(h.receives(),0);assert.equal(f.nativeCalls.length,0);
+  const missing=trusted(f,{withAgent:false});
+  await assert.rejects(missing.reader.inspectMaterialEvidence({...hostInput(f),stepId:'analyse',resultSelections:[]}),
+    code('T3_METHOD_STAGE_ASSET_READ_REQUIRED'));
+});
+test('trusted original Host fences signed context throughout visible Asset observation',async()=>{
+  const f=await setup();let h;
+  h=trusted(f,{withAssets:true,assetHook:kind=>{if(kind==='get')h.context.purpose='different';}});
+  await assert.rejects(h.reader.inspectMaterialEvidence({...hostInput(f),stepId:'analyse',resultSelections:[]}),
+    e=>['T3_SUBJECT_CONTEXT_CHANGED','T3_METHOD_STAGE_SIGNED_CONTEXT_CHANGED'].includes(e.code));
 });

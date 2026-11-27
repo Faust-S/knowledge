@@ -36,10 +36,20 @@ export type WorkspaceMethodNativeInspection = WorkspaceMethodStageInspection & R
     preview:Readonly<{status:'AVAILABLE'|'RECOVER_ONLY'|'OPERATION_IN_PROGRESS';operationId:string;recipientId:string;reference:WorkspaceMethodPublishedResultRef}>;
     receipt:Readonly<{status:'OWNER_READBACK_CONFIRMED'|'OUTCOME_UNKNOWN';operationId:string;resultRef?:string}>|null}>|null;
 }>;
+export type WorkspaceMethodMaterialEvidence=Readonly<{
+  schema:'IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1';
+  state:'MATERIAL_REVIEW_REQUIRED'|'VISIBLE_MATERIAL_CONTENT_OBSERVED';
+  stageInput:WorkspaceMethodStageInspection['stageInput'];
+  materialEvidenceDigest:string|null;
+  observation:Readonly<{materials:readonly unknown[];counts:Readonly<{materials:number;assets:number;assetBytes:number;canonicalBytes:number}>}>|null;
+  atomicSnapshot:false;allAssetsProven:false;contentBindingProven:false;exactInputBindingProven:false;
+  writeAuthorized:false;executionAuthority:false;resultReuseProven:false;dispatchAuthorized:false;
+}>;
 export interface WorkspaceMethodStageReader {
   overview(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodInputOverview>;
   inspect(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodStageInspection>;
   previewHandoff(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodHandoffPreview>;
+  inspectMaterialEvidence?(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodMaterialEvidence>;
   previewContinuation(input:WorkspaceMethodStageRequest&Readonly<{predecessorStepId:string}>):Promise<WorkspaceMethodNativeInspection>;
   recoverContinuation(input:WorkspaceMethodStageRequest&Readonly<{predecessorStepId:string}>):Promise<WorkspaceMethodNativeInspection>;
 }
