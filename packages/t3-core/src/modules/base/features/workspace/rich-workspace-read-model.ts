@@ -139,13 +139,31 @@ function buildLogicalAreas(
   objects: readonly ObjectRecord[],
   profileDefinition: WorkspaceProfileDefinition,
 ): RichWorkspaceLogicalArea[] {
-  const clean = objects.filter((o) => isScopedBusinessObject(o, workspaceId));
-  return profileDefinition.sections.map((section) => {
+  // Sort once, then distribute matching objects using the profile's schema
+  // membership index. A schema may intentionally belong to several logical
+  // areas. Repeated schema IDs inside one area must not duplicate members.
+  const sections = profileDefinition.sections;
+  const membership = new Map<string, number[]>();
+  const buckets: string[][] = sections.map(() => []);
+  for (let index = 0; index < sections.length; index++) {
+    for (const schemaId of new Set(sections[index].schemaIds)) {
+      const indices = membership.get(schemaId) ?? [];
+      indices.push(index);
+      membership.set(schemaId, indices);
+    }
+  }
+  const clean = objects.filter((o) => isScopedBusinessObject(o, workspaceId))
+    .sort((a, b) => stableCompare(a.object_id, b.object_id));
+  const allIds: string[] = [];
+  for (const object of clean) {
+    allIds.push(object.object_id);
+    for (const index of membership.get(object.schema_id) ?? []) {
+      buckets[index].push(object.object_id);
+    }
+  }
+  return sections.map((section, index) => {
     const catchAll = section.schemaIds.length === 0;
-    const members = clean
-      .filter((o) => catchAll || section.schemaIds.includes(o.schema_id))
-      .map((o) => o.object_id)
-      .sort(stableCompare);
+    const members = catchAll ? allIds.slice() : buckets[index];
     return {
       id: section.id,
       title: section.title,
@@ -158,7 +176,7 @@ function buildLogicalAreas(
   });
 }
 
-function buildTimeline(
+export function projectRichWorkspaceTimeline(
   workspaceId: string,
   events: readonly EventRecord[],
 ): { entries: RichWorkspaceTimelineEntry[]; rejected: number } {
@@ -243,14 +261,16 @@ export function validatePreparedCreationPreview(input: {
   return { ...base, status: "READY_PREVIEW_ONLY" };
 }
 
-export function buildRichWorkspaceReadModel(input: {
+/** Read projection of the current authorized object catalog only.
+ * This is deliberately not an authority fingerprint or a complete history.
+ * Loading a journal must not rebuild this projection.
+ */
+export function projectRichWorkspaceObjects(input: {
   workspace: WorkspaceRecord;
   objects: readonly ObjectRecord[];
-  events: readonly EventRecord[];
   profileDefinition: WorkspaceProfileDefinition;
-  preparedCreationDescriptor?: PreparedCreationDescriptor | null;
-}): RichWorkspaceReadModel {
-  const { workspace, objects, events, profileDefinition } = input;
+}) {
+  const { workspace, objects, profileDefinition } = input;
   const scopedSafeObjects = objects.filter(
     (o) => o.workspace_id === workspace.workspace_id && isSafeOpaqueId(o.object_id),
   );
@@ -260,10 +280,44 @@ export function buildRichWorkspaceReadModel(input: {
     cleanObjects,
     profileDefinition,
   );
-  const timeline = buildTimeline(workspace.workspace_id, events);
+  return {
+    workspaceId: workspace.workspace_id,
+    profileId: workspace.profile,
+    metadata: {
+      createdAt: workspace.created_at,
+      updatedAt: workspace.updated_at,
+      readOnly: workspace.read_only === true,
+      objectCount: cleanObjects.length,
+    },
+    logicalAreas,
+    savedViewPreviews: logicalAreas.map((area) => ({
+      id: `profile-section:${area.id}`,
+      title: area.title,
+      logicalAreaId: area.id,
+      objectIds: area.objectIds,
+      persisted: false as const,
+      source: "PROFILE_SECTION_DERIVED" as const,
+    })),
+    rejectedObjectCount: objects.length - scopedSafeObjects.length,
+  };
+}
+
+export function buildRichWorkspaceReadModel(input: {
+  workspace: WorkspaceRecord;
+  objects: readonly ObjectRecord[];
+  events: readonly EventRecord[];
+  profileDefinition: WorkspaceProfileDefinition;
+  preparedCreationDescriptor?: PreparedCreationDescriptor | null;
+}): RichWorkspaceReadModel {
+  const { workspace, objects, events, profileDefinition } = input;
+  const catalog = projectRichWorkspaceObjects({ workspace, objects, profileDefinition });
+  const timeline = projectRichWorkspaceTimeline(workspace.workspace_id, events);
+  // Full-source authority preflight retains its original exact fingerprint.
+  // The regular UI uses independent projections and does not claim this
+  // fingerprint when its history is deferred.
   const snapshotFingerprint = buildRichWorkspaceSnapshotFingerprint({
     workspace,
-    objects: cleanObjects,
+    objects,
     events: timeline.entries.map((e) => ({
       event_id: e.eventId,
       event_type: e.eventType,
@@ -279,32 +333,19 @@ export function buildRichWorkspaceReadModel(input: {
     profileDefinition,
   });
   return {
-    workspaceId: workspace.workspace_id,
-    profileId: workspace.profile,
+    workspaceId: catalog.workspaceId,
+    profileId: catalog.profileId,
     snapshotFingerprint,
-    metadata: {
-      createdAt: workspace.created_at,
-      updatedAt: workspace.updated_at,
-      readOnly: workspace.read_only === true,
-      objectCount: cleanObjects.length,
-      eventCount: timeline.entries.length,
-    },
-    logicalAreas,
-    savedViewPreviews: logicalAreas.map((area) => ({
-      id: `profile-section:${area.id}`,
-      title: area.title,
-      logicalAreaId: area.id,
-      objectIds: area.objectIds,
-      persisted: false as const,
-      source: "PROFILE_SECTION_DERIVED" as const,
-    })),
+    metadata: { ...catalog.metadata, eventCount: timeline.entries.length },
+    logicalAreas: catalog.logicalAreas,
+    savedViewPreviews: catalog.savedViewPreviews,
     timeline: timeline.entries,
-    rejectedObjectCount: objects.length - scopedSafeObjects.length,
+    rejectedObjectCount: catalog.rejectedObjectCount,
     rejectedEventCount: timeline.rejected,
     preparedCreation: validatePreparedCreationPreview({
       descriptor: input.preparedCreationDescriptor,
       currentSnapshotFingerprint: snapshotFingerprint,
-      knownLogicalAreaIds: logicalAreas.map((a) => a.id),
+      knownLogicalAreaIds: catalog.logicalAreas.map((a) => a.id),
     }),
     semanticBoundary: {
       displayOrder: "occurred_at_DESC,event_id_ASC",

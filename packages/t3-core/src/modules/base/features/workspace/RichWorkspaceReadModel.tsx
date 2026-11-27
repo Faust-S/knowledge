@@ -22,7 +22,8 @@ import {
   buildRichWorkspaceWindow,
 } from "./rich-workspace-derived.mjs";
 import {
-  buildRichWorkspaceReadModel,
+  projectRichWorkspaceObjects,
+  projectRichWorkspaceTimeline,
   queryRichWorkspaceObjects,
 } from "./rich-workspace-read-model";
 import {
@@ -128,9 +129,13 @@ export function RichWorkspaceReadModel(props: {
   const historyState = props.historyState ?? (eventsAvailable ? "ready" : "unavailable");
   const historyReady = historyState === "ready";
   const admittedEvents = historyReady ? events : UNLOADED_EVENTS;
-  const model = useMemo(
-    () => buildRichWorkspaceReadModel({ workspace, objects, events: admittedEvents, profileDefinition }),
-    [admittedEvents, objects, profileDefinition, workspace],
+  const catalog = useMemo(
+    () => projectRichWorkspaceObjects({ workspace, objects, profileDefinition }),
+    [objects, profileDefinition, workspace],
+  );
+  const history = useMemo(
+    () => projectRichWorkspaceTimeline(workspace.workspace_id, admittedEvents),
+    [admittedEvents, workspace.workspace_id],
   );
   const [query, setQuery] = useState("");
   const [areaId, setAreaId] = useState<string | null>(null);
@@ -141,7 +146,7 @@ export function RichWorkspaceReadModel(props: {
   const [windowOffset, setWindowOffset] = useState(0);
   const [historyPage, setHistoryPage] = useState(0);
   // Only render one page, while keeping the actual full authorized count.
-  const historyWindow = useMemo(() => paginate(model.timeline, historyPage, 50), [model.timeline, historyPage]);
+  const historyWindow = useMemo(() => paginate(history.entries, historyPage, 50), [history.entries, historyPage]);
   useEffect(() => { setHistoryPage(0); }, [workspace.workspace_id, profileDefinition.id, props.kernel]);
   const [detailState, setDetailState] = useState<{ workspaceId: string; objectId: string | null }>({
     workspaceId: workspace.workspace_id,
@@ -281,11 +286,11 @@ export function RichWorkspaceReadModel(props: {
       queryRichWorkspaceObjects({
         workspaceId: workspace.workspace_id,
         objects,
-        logicalAreas: model.logicalAreas,
+        logicalAreas: catalog.logicalAreas,
         query,
         logicalAreaId: areaId,
       }),
-    [areaId, model.logicalAreas, objects, query, workspace.workspace_id],
+    [areaId, catalog.logicalAreas, objects, query, workspace.workspace_id],
   );
   const windowed = useMemo(
     () => buildRichWorkspaceWindow(results, windowOffset, RICH_WORKSPACE_WINDOW_SIZE),
@@ -664,10 +669,10 @@ export function RichWorkspaceReadModel(props: {
       </header>
 
       <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 text-xs text-slate-400" data-testid="rich-workspace-metadata">
-        <dt>Workspace</dt><dd className="text-slate-200 break-all"><code>{model.workspaceId}</code></dd>
-        <dt>Профиль</dt><dd className="text-slate-200 break-all"><code>{model.profileId}</code></dd>
-        <dt>Объектов</dt><dd className="text-slate-200">{model.metadata.objectCount}</dd>
-        <dt>Событий</dt><dd className="text-slate-200" data-testid="rich-workspace-event-count">{historyReady ? model.metadata.eventCount : "—"}</dd>
+        <dt>Workspace</dt><dd className="text-slate-200 break-all"><code>{catalog.workspaceId}</code></dd>
+        <dt>Профиль</dt><dd className="text-slate-200 break-all"><code>{catalog.profileId}</code></dd>
+        <dt>Объектов</dt><dd className="text-slate-200">{catalog.metadata.objectCount}</dd>
+        <dt>Событий</dt><dd className="text-slate-200" data-testid="rich-workspace-event-count">{historyReady ? history.entries.length : "—"}</dd>
       </dl>
 
       <div className="grid gap-2 sm:grid-cols-3" data-testid="rich-workspace-dashboard">
@@ -681,7 +686,7 @@ export function RichWorkspaceReadModel(props: {
         <h5 className="text-xs font-medium text-slate-200">Логические области</h5>
         <div className="flex flex-wrap gap-2" role="group" aria-label="Фильтр по логической области">
           <button type="button" aria-pressed={areaId === null} onClick={() => applyArea(null)} className="px-3 py-1.5 text-xs rounded bg-slate-800 min-h-[44px]">Все</button>
-          {model.logicalAreas.map((area) => (
+          {catalog.logicalAreas.map((area) => (
             <button key={area.id} type="button" aria-pressed={areaId === area.id} onClick={() => applyArea(area.id)} className="px-3 py-1.5 text-xs rounded bg-slate-800 min-h-[44px]" data-testid="rich-workspace-area">
               {area.title} · {area.objectCount}
             </button>
@@ -874,7 +879,7 @@ export function RichWorkspaceReadModel(props: {
       <div className="space-y-3" data-testid="rich-workspace-saved-view-previews">
         <div className="space-y-1"><h5 className="text-xs font-medium text-slate-200">Представления</h5><p className="text-[11px] text-slate-500">Профильные представления можно применять сразу. Persisted Saved View остаётся у существующего owner; эти рабочие виды живут только в памяти текущей вкладки.</p></div>
         <div className="grid gap-2 sm:grid-cols-2">
-          {model.savedViewPreviews.map((view) => (
+          {catalog.savedViewPreviews.map((view) => (
             <button key={view.id} type="button" onClick={() => applyWorkingView({ logicalAreaId: view.logicalAreaId, query: "" })} aria-label={`Открыть профильное представление ${view.id}`} className="min-h-[44px] border border-slate-800 rounded p-2 text-left text-xs" data-testid="rich-workspace-profile-view">
               <span className="block text-slate-200">{view.title}</span><span className="block text-[11px] text-slate-500">{view.objectIds.length} объектов · открыть вид</span>
             </button>
@@ -922,7 +927,7 @@ export function RichWorkspaceReadModel(props: {
             : historyState === "loading" ? "Загрузка истории…"
             : historyState === "error" ? "Не удалось загрузить историю."
             : "События не предоставлены ядром в текущем режиме."}
-        </p> : model.timeline.length === 0 ? <p className="text-xs text-slate-500">Событий нет.</p> : (
+        </p> : history.entries.length === 0 ? <p className="text-xs text-slate-500">Событий нет.</p> : (
           <>
           <ul className="divide-y divide-slate-800 border border-slate-800 rounded">
             {historyWindow.pageItems.map((event) => (
@@ -946,7 +951,7 @@ export function RichWorkspaceReadModel(props: {
         )}
       </div>
 
-      {(model.rejectedObjectCount > 0 || model.rejectedEventCount > 0) && <p role="status" className="text-xs text-amber-200" data-testid="rich-workspace-rejected-inputs">Часть входных записей исключена из-за нарушения Workspace/ID границ: objects {model.rejectedObjectCount}, events {model.rejectedEventCount}.</p>}
+      {(catalog.rejectedObjectCount > 0 || history.rejected > 0) && <p role="status" className="text-xs text-amber-200" data-testid="rich-workspace-rejected-inputs">Часть входных записей исключена из-за нарушения Workspace/ID границ: objects {catalog.rejectedObjectCount}, events {history.rejected}.</p>}
     </section>
   );
 }

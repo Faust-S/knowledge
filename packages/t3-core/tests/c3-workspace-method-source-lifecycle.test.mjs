@@ -844,8 +844,16 @@ test('method comparison refuses unverified, cross-workspace and incomplete revis
   const {owner,base}=await revisionFixture();
   await assert.rejects(Promise.resolve().then(()=>compareWorkspaceMethodRevisions({
     before:base,after:{...base,revisionSetVerified:false}})),code('METHOD_COMPARISON_READBACK_REQUIRED'));
+  // A changed outer label with unchanged canonical refs is malformed.
   await assert.rejects(Promise.resolve().then(()=>compareWorkspaceMethodRevisions({
-    before:base,after:{...base,workspaceId:'other'}})),code('METHOD_COMPARISON_SCOPE_MISMATCH'));
+    before:base,after:{...base,workspaceId:'other'}})),code('METHOD_COMPARISON_REVISION_SET_INVALID'));
+  // A genuinely saved and verified foreign methodology is a scope mismatch,
+  // not a malformed set. Exercise the original owner rather than spoofing refs.
+  const foreignOwner=await emptyOwner();
+  await createMethod(foreignOwner,{workspaceId:'other',objects:objects.map(row=>({...row,workspace_id:'other'}))});
+  const foreign=await readWorkspaceMethodFromSourceOwner({owner:foreignOwner,workspaceId:'other',projectId:'project-a'});
+  assert.throws(()=>compareWorkspaceMethodRevisions({before:base,after:foreign}),code('METHOD_COMPARISON_SCOPE_MISMATCH'));
+  assert.equal((await foreignOwner.audit()).length,5);
   await assert.rejects(Promise.resolve().then(()=>compareWorkspaceMethodRevisions({
     before:base,after:{...base,workRefs:base.workRefs.slice(1)}})),code('METHOD_COMPARISON_REVISION_SET_INVALID'));
   assert.equal((await owner.audit()).length,5);

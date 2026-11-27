@@ -3,6 +3,8 @@ import type { EventRecord, ObjectRecord, WorkspaceRecord } from "../src/kernel-c
 import type { WorkspaceProfileDefinition } from "../src/profiles/definition";
 import {
   buildRichWorkspaceReadModel,
+  projectRichWorkspaceObjects,
+  projectRichWorkspaceTimeline,
   buildRichWorkspaceSnapshotFingerprint,
   queryRichWorkspaceObjects,
   validatePreparedCreationPreview,
@@ -157,5 +159,52 @@ describe("G4-S1 unavailable-target and malformed-preview boundaries", () => {
       currentSnapshotFingerprint: "snapshot",
       knownLogicalAreaIds: ["notes"],
     })).toEqual({ status: "UNAVAILABLE", execute: false, reason: "INVALID_OR_UNSCOPED_DECLARATIVE_DESCRIPTOR" });
+  });
+});
+
+
+describe("independent indexed Workspace projections", () => {
+  it.each([100, 1000, 10000])("matches the original membership semantics for %i objects", (count) => {
+    const schemaIds = Array.from({length: 20}, (_, i) => "schema-" + i);
+    const multi = {...profile, sections: [
+      ...profile.sections,
+      ...schemaIds.map((schemaId, i) => ({
+        id:"area-"+i, title:schemaId, schemaIds:[schemaId, schemaIds[(i+1)%schemaIds.length], schemaId],
+        emptyTitle:"none", emptyDescription:"none",
+      })),
+      { id:"all",title:"All",schemaIds:[],emptyTitle:"none",emptyDescription:"none" },
+    ]};
+    const rows = Array.from({length:count}, (_, i) => object("id-"+String(count-i).padStart(6,"0"),schemaIds[i%20]));
+    const catalog = projectRichWorkspaceObjects({workspace,objects:rows,profileDefinition:multi});
+    expect(catalog.metadata.objectCount).toBe(count);
+    expect(catalog.logicalAreas).toHaveLength(multi.sections.length);
+    for (const section of multi.sections) {
+      const expected = rows.filter(row => !section.schemaIds.length || section.schemaIds.includes(row.schema_id))
+        .map(row => row.object_id).sort();
+      const actual = catalog.logicalAreas.find(area => area.id===section.id)!;
+      expect(actual.objectIds).toEqual(expected);
+      expect(actual.objectCount).toBe(expected.length);
+    }
+    expect(catalog.savedViewPreviews.map(view => view.objectIds)).toEqual(catalog.logicalAreas.map(area => area.objectIds));
+    expect(rows[0].object_id).toBe("id-"+String(count).padStart(6,"0"));
+  });
+
+  it("keeps current catalog and deferred timeline independent while retaining the complete fingerprint API", () => {
+    const rows = [object("one","note"),object("two","task")];
+    const journal = [
+      {event_id:"ev2",event_type:"UPDATED",workspace_id:"w",service_id:"svc",occurred_at:"2026-01-02T00:00:00Z",payload:{private:"not projected"}},
+      {event_id:"ev1",event_type:"UPDATED",workspace_id:"w",service_id:"svc",occurred_at:"2026-01-01T00:00:00Z",payload:{}},
+    ];
+    const catalog = projectRichWorkspaceObjects({workspace,objects:rows,profileDefinition:profile});
+    const history = projectRichWorkspaceTimeline("w",journal);
+    const complete = buildRichWorkspaceReadModel({workspace,objects:rows,events:journal,profileDefinition:profile});
+    expect(complete.logicalAreas).toEqual(catalog.logicalAreas);
+    expect(complete.savedViewPreviews).toEqual(catalog.savedViewPreviews);
+    expect(complete.metadata.objectCount).toBe(catalog.metadata.objectCount);
+    expect(complete.metadata.eventCount).toBe(2);
+    expect(complete.timeline).toEqual(history.entries);
+    expect(complete.snapshotFingerprint).toBe(buildRichWorkspaceSnapshotFingerprint({workspace,objects:rows,events:journal,profileDefinition:profile}));
+    expect(JSON.stringify(history)).not.toContain("not projected");
+    expect(projectRichWorkspaceTimeline("w",[]).entries).toEqual([]);
   });
 });
