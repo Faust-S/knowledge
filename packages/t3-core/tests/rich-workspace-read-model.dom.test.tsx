@@ -694,4 +694,50 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     expect(screen.queryByRole("button",{name:"Передать в черновик Agent"})).toBeNull();
   });
 
+
+  it("recovers the exact current Work association from a selected accepted Task without requiring a handoff preview or draft",async()=>{
+    const f=dependentPersonalFixture(),taskId="TASK-review",digest=f.digest;
+    const recoverPersonalTask=vi.fn(async()=>({state:"ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED" as const,
+      workspaceId:"w",projectId:"research",stepId:"review",candidateDigest:digest,agentWorkspaceId:"personal",taskId,
+      resultId:"RES-review",taskDigest:digest,reviewId:"REV-review",acceptedDigest:digest,acceptedSummarySha256:digest,
+      snapshotId:"CSN-review",snapshotDigest:digest,projectionDigest:digest,bundleDigest:digest,
+      nativeSystemSourceCount:1,nativeSystemSourcesDigest:digest,
+      declaredDraftInputsVerified:true as const,allAssetsProven:false as const,exactInputBindingProven:false as const,
+      workCompleted:false as const,resultReuseProven:false as const,executionAuthority:false as const,writeAuthorized:false as const,
+      recoveredFromOriginalTask:true as const,canonicalWorkRef:b,personalResultSelections:[{stepId:"analyse",taskId:"TASK-root"}]}));
+    const binding={...f.binding,personalTaskId:taskId,personalResultSelections:[],reader:{...f.binding.reader,recoverPersonalTask}};
+    const view=render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:/Проверка результатов/}));
+    expect((screen.getByRole("button",{name:"Подготовить передачу"}) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button",{name:"Восстановить связь с работой"}));
+    const recovered=await screen.findByTestId("workflow-personal-task-recovered");
+    expect(recovered.textContent).toContain("Анализ материалов: TASK-root");
+    expect(recovered.textContent).toContain("Выполнение работы не засчитано. Данные не изменены.");
+    expect(recoverPersonalTask).toHaveBeenCalledExactlyOnceWith({workspaceId:"w",projectId:"research",
+      expected:f.binding.expected,stepId:"review",taskId});
+    expect(f.previewHandoff).not.toHaveBeenCalled();expect(f.createPersonalDraft).not.toHaveBeenCalled();
+    view.rerender(<WorkspaceMethodWorkflowPanel binding={{...binding,personalTaskId:"TASK-other"}} objects={[]} selectedObjectIds={[]}/>);
+    expect(screen.queryByTestId("workflow-personal-task-recovered")).toBeNull();
+  });
+  it("does not display a recovered personal binding for the wrong canonical Work record",async()=>{
+    const f=dependentPersonalFixture(),digest=f.digest,taskId="TASK-review";
+    const recoverPersonalTask=vi.fn(async()=>({state:"ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED" as const,
+      workspaceId:"w",projectId:"research",stepId:"review",candidateDigest:digest,agentWorkspaceId:"personal",taskId,
+      resultId:"RES-review",taskDigest:digest,reviewId:"REV-review",acceptedDigest:digest,acceptedSummarySha256:digest,
+      snapshotId:"CSN-review",snapshotDigest:digest,projectionDigest:digest,bundleDigest:digest,
+      nativeSystemSourceCount:1,nativeSystemSourcesDigest:digest,
+      declaredDraftInputsVerified:true as const,allAssetsProven:false as const,exactInputBindingProven:false as const,
+      workCompleted:false as const,resultReuseProven:false as const,executionAuthority:false as const,writeAuthorized:false as const,
+      recoveredFromOriginalTask:true as const,canonicalWorkRef:{...b,recordId:"other"},personalResultSelections:[{stepId:"analyse",taskId:"TASK-root"}]}));
+    const binding={...f.binding,personalTaskId:taskId,reader:{...f.binding.reader,recoverPersonalTask}};
+    render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:/Проверка результатов/}));
+    fireEvent.click(screen.getByRole("button",{name:"Восстановить связь с работой"}));
+    await screen.findByRole("alert");
+    expect(screen.queryByTestId("workflow-personal-task-recovered")).toBeNull();
+    expect(f.createPersonalDraft).not.toHaveBeenCalled();
+  });
+
 });

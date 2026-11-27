@@ -2,7 +2,7 @@ import { useEffect,useMemo,useRef,useState } from "react";
 import type { ObjectRecord } from "../../../../kernel-client/contracts/runtime-1.3.0";
 import type { WorkspaceMethodReaderSelection,WorkspaceMethodStageReader,WorkspaceMethodInputOverview,
   WorkspaceMethodPublishedResultRef,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,
-  WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence,WorkspaceMethodPersonalDraftReceipt,WorkspaceMethodPersonalTaskInspection,WorkspaceMethodPersonalResultSelection } from "../../../../t3/workspace-method-stage-reader.mjs";
+  WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence,WorkspaceMethodPersonalDraftReceipt,WorkspaceMethodPersonalTaskInspection,WorkspaceMethodPersonalResultSelection,WorkspaceMethodRecoveredPersonalTask } from "../../../../t3/workspace-method-stage-reader.mjs";
 
 /** Trusted Host supplies this selection only after original source readback.
  * contextEpoch changes on subject/grant/session changes. Never derive it or
@@ -60,8 +60,21 @@ function exactOverview(report:WorkspaceMethodInputOverview,binding:WorkspaceMeth
     &&new Set(report.stages.map(row=>row.workRef.objectId)).size===expected.size
     &&report.stages.every(row=>{const ref=expected.get(row.workRef.objectId);return ref&&sameRef(row.workRef,ref);});
 }
+function exactTaskInspection(value:WorkspaceMethodPersonalTaskInspection,binding:WorkspaceMethodWorkflowBinding,
+  stage:WorkspaceMethodOverviewStage,taskId:string,digest:string){
+  return /^[a-f0-9]{64}$/.test(digest)&&value.state==='ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED'
+    &&value.taskId===taskId&&value.candidateDigest===digest&&value.workspaceId===binding.workspaceId
+    &&value.projectId===binding.projectId&&value.stepId===stage.stepId
+    &&/^(personal|AREA-[0-9a-f]{18})$/.test(value.agentWorkspaceId)
+    &&Number.isSafeInteger(value.nativeSystemSourceCount)&&value.nativeSystemSourceCount>=0&&value.nativeSystemSourceCount<=2
+    &&/^[a-f0-9]{64}$/.test(value.nativeSystemSourcesDigest)
+    &&value.declaredDraftInputsVerified===true&&value.exactInputBindingProven===false&&value.allAssetsProven===false
+    &&value.workCompleted===false&&value.resultReuseProven===false&&value.executionAuthority===false&&value.writeAuthorized===false;
+}
 function message(error:unknown){
   const code=error&&typeof error==="object"&&"code" in error?String(error.code):"";
+  if(code==="T3_METHOD_PERSONAL_TASK_MANIFEST_INVALID")return "В принятой задаче нет проверяемого исходного состава Workflow.";
+  if(code==="T3_METHOD_PERSONAL_TASK_MANIFEST_SCOPE_MISMATCH")return "Задача относится к другой работе, редакции или цепочке результатов.";
   if(code==="METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED")return "Выберите принятую задачу Agent для каждой предшествующей работы.";
   if(code==="METHOD_PERSONAL_DRAFT_CONTENT_LIMIT")return "Содержимое превышает возможности редактора Agent. Оно не было сокращено.";
   if(/ATTACHMENT_UNSUPPORTED|ACTOR_UNSUPPORTED/.test(code))return "Для этих материалов или исполнителей нужен другой оригинальный маршрут.";
@@ -113,7 +126,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
   const [selections,setSelections]=useState<Record<string,string>>({});
   const [nativeStep,setNativeStep]=useState("");
   const [detail,setDetail]=useState<{reader:WorkspaceMethodStageReader;key:string;report:Detail}|null>(null);
-  const [taskInspection,setTaskInspection]=useState<{reader:WorkspaceMethodStageReader;key:string;digest:string;value:WorkspaceMethodPersonalTaskInspection}|null>(null);
+  const [taskInspection,setTaskInspection]=useState<{reader:WorkspaceMethodStageReader;key:string;digest:string;value:WorkspaceMethodPersonalTaskInspection|WorkspaceMethodRecoveredPersonalTask}|null>(null);
   const [draftAttempt,setDraftAttempt]=useState<{reader:WorkspaceMethodStageReader;key:string;digest:string;state:WorkspaceMethodPersonalDraftReceipt['state']|null}|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -177,6 +190,11 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     &&/^TASK-[A-Za-z0-9_-]{1,120}$/.test(personalTaskId)&&!personalResultSelections.some(row=>row.taskId===personalTaskId)?personalTaskId:null;
   const visibleTask=taskInspection?.reader===reader&&taskInspection.key===detailKey&&taskInspection.digest===draftDigest
     &&taskInspection.value.taskId===inspectableTask?taskInspection.value:null;
+  const recoverableTask=stage?.actor==='agent'&&reader.recoverPersonalTask&&typeof personalTaskId==='string'
+    &&/^TASK-[A-Za-z0-9_-]{1,120}$/.test(personalTaskId)?personalTaskId:null;
+  const visibleRecoveredTask=taskInspection?.reader===reader&&taskInspection.key===detailKey
+    &&'recoveredFromOriginalTask' in taskInspection.value&&taskInspection.value.recoveredFromOriginalTask===true
+    &&taskInspection.value.taskId===recoverableTask?taskInspection.value:null;
   const request:WorkspaceMethodReaderSelection={workspaceId:binding.workspaceId,projectId:binding.projectId,expected:binding.expected};
   function invalidateDetail(){
     sequence.current++;setDetail(null);setDraftAttempt(null);setTaskInspection(null);setBusy(false);setError("");
@@ -273,15 +291,29 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
       const value=await reader.inspectPersonalTask({...request,stepId:stage.stepId,resultSelections:[],...personalArgs,
         expectedCandidateDigest:digest,taskId});
       if(!current())return;
-      if(value.state!=='ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED'||value.taskId!==taskId||value.candidateDigest!==digest
-          ||value.workspaceId!==binding.workspaceId||value.projectId!==binding.projectId||value.stepId!==stage.stepId
-          ||!/^(personal|AREA-[0-9a-f]{18})$/.test(value.agentWorkspaceId)
-          ||!Number.isSafeInteger(value.nativeSystemSourceCount)||value.nativeSystemSourceCount<0||value.nativeSystemSourceCount>2
-          ||!/^[a-f0-9]{64}$/.test(value.nativeSystemSourcesDigest)
-          ||value.declaredDraftInputsVerified!==true||value.exactInputBindingProven!==false||value.allAssetsProven!==false
-          ||value.workCompleted!==false||value.resultReuseProven!==false||value.executionAuthority!==false||value.writeAuthorized!==false)
+      if(!exactTaskInspection(value,binding,stage,taskId,digest))
         throw Object.assign(Error("invalid"),{code:"METHOD_TASK_MISMATCH"});
       setTaskInspection({reader,key,digest,value});
+    }catch(err){if(current())setError(message(err));}
+    finally{if(current())setBusy(false);}
+  };
+  const recoverTask=async()=>{
+    if(busy||!stage||!recoverableTask||!reader.recoverPersonalTask||!prerequisites)return;
+    const epoch=++sequence.current,key=detailKey,taskId=recoverableTask;
+    setBusy(true);setError("");setTaskInspection(null);
+    const current=()=>sequence.current===epoch&&liveReader.current===reader&&liveDetailKey.current===key;
+    try{
+      const value=await reader.recoverPersonalTask({...request,stepId:stage.stepId,taskId});
+      if(!current())return;
+      const recovered=value.personalResultSelections;
+      if(!exactTaskInspection(value,binding,stage,taskId,value.candidateDigest)
+          ||value.recoveredFromOriginalTask!==true||!sameRef(value.canonicalWorkRef,stage.workRef)
+          ||!Array.isArray(recovered)||recovered.length!==prerequisiteIds.size
+          ||new Set(recovered.map(row=>row.stepId)).size!==prerequisiteIds.size
+          ||new Set(recovered.map(row=>row.taskId)).size!==prerequisiteIds.size
+          ||recovered.some(row=>!prerequisiteIds.has(row.stepId)||row.taskId===taskId||!/^TASK-[A-Za-z0-9_-]{1,120}$/.test(row.taskId)))
+        throw Object.assign(Error("invalid"),{code:"METHOD_TASK_MISMATCH"});
+      setTaskInspection({reader,key,digest:value.candidateDigest,value});
     }catch(err){if(current())setError(message(err));}
     finally{if(current())setBusy(false);}
   };
@@ -349,6 +381,16 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
             </label>)}
           </div>}
           {duplicateResults&&<p role="alert" className="text-xs text-amber-200">Один результат нельзя назначить нескольким предшественникам.</p>}
+          {recoverableTask&&<div className="space-y-1 border-t border-slate-800 pt-2">
+            <p className="text-xs text-slate-400 break-words">Выбранная принятая задача Agent: {recoverableTask}</p>
+            <button type="button" className={button} disabled={busy||stage.state==="MATERIAL_REVIEW_REQUIRED"}
+              onClick={()=>void recoverTask()}>Восстановить связь с работой</button>
+            {visibleRecoveredTask&&<div role="status" data-testid="workflow-personal-task-recovered" className="text-xs text-slate-200 space-y-1">
+              <p>Связь с редакцией {visibleRecoveredTask.canonicalWorkRef.revision} работы восстановлена из принятой задачи. Сохранённые входы совпадают.</p>
+              {visibleRecoveredTask.personalResultSelections.map(row=><p key={row.stepId} className="break-words">{visible.stages.find(work=>work.stepId===row.stepId)?.name??row.stepId}: {row.taskId}</p>)}
+              <p className="text-slate-400">Выполнение работы не засчитано. Данные не изменены.</p>
+            </div>}
+          </div>}
           <div className="flex flex-wrap gap-2">
             {reader.inspectMaterialEvidence&&<button type="button" className={button} disabled={busy||stage.state==="MATERIAL_REVIEW_REQUIRED"}
               onClick={()=>void inspect("material")}>Проверить содержимое и вложения</button>}

@@ -560,7 +560,7 @@ function personalChainReport(stage,materialEvidence,prior){
 }
 export async function prepareWorkspaceMethodPersonalChain(input={}){
   const {stepId,workspaceId,projectId,subjectKind,personalResultSelections,listAssets,getAsset,readObject,
-    readVerifiedPersonalResult,expectedCandidateDigest}=input;
+    readVerifiedPersonalResult,expectedCandidateDigest,targetTaskId}=input;
   if(subjectKind!=='PERSONAL'||typeof readVerifiedPersonalResult!=='function'
       ||typeof listAssets!=='function'||typeof getAsset!=='function')
     fail('METHOD_PERSONAL_CHAIN_ORIGINAL_OWNER_REQUIRED','Original personal Task and material owners required');
@@ -574,6 +574,9 @@ export async function prepareWorkspaceMethodPersonalChain(input={}){
     return Object.freeze({stepId:row.stepId,taskId:row.taskId});
   });
   const byStep=new Map(selections.map(row=>[row.stepId,row.taskId]));
+  if(targetTaskId!==undefined&&(typeof targetTaskId!=='string'||!/^TASK-[A-Za-z0-9_-]{1,120}$/.test(targetTaskId)
+      ||selections.some(row=>row.taskId===targetTaskId)))
+    fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','Exact distinct accepted target Task required');
   if(byStep.size!==selections.length||new Set(selections.map(row=>row.taskId)).size!==selections.length)
     fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','A Task cannot stand for multiple prerequisites');
   const observation=await openInputObservation({...input,stepId},false);
@@ -586,6 +589,16 @@ export async function prepareWorkspaceMethodPersonalChain(input={}){
     fail('METHOD_PERSONAL_CHAIN_ACTOR_UNSUPPORTED','Human and program Results require their original owner route');
   if(stages.some(stage=>stage.inputBasisDigest===null))
     fail('METHOD_PERSONAL_CHAIN_MATERIAL_CHANGED','A prerequisite material requires review');
+  const readVerified=async(plan,taskId)=>{
+    const actual=await readVerifiedPersonalResult(plan,taskId);
+    const evidence=actual?.evidence,summary=actual?.summary;
+    if(!evidence||evidence.taskId!==taskId||!HEX.test(evidence.acceptedDigest??'')
+        ||typeof summary!=='string'||!summary.trim()||summary.includes('\0')
+        ||Buffer.from(summary,'utf8').toString('utf8')!==summary
+        ||createHash('sha256').update(summary,'utf8').digest('hex')!==evidence.acceptedSummarySha256)
+      fail('METHOD_PERSONAL_CHAIN_RESULT_MISMATCH','Original accepted Task and exact Result content must agree');
+    return Object.freeze({summary,evidence:Object.freeze({...evidence,candidateDigest:plan.candidateDigest})});
+  };
   const pass=async()=>{
     const byMaterial=new Map();
     const all=await readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,
@@ -602,17 +615,14 @@ export async function prepareWorkspaceMethodPersonalChain(input={}){
       }
       const report=personalChainReport(stage,materialEvidence,prior);
       const plan=materializePersonalDraft(report,capture);
-      if(stage.basis.stepId===stepId)return {report,plan};
-      const taskId=byStep.get(stage.basis.stepId);
-      const actual=await readVerifiedPersonalResult(plan,taskId);
-      const evidence=actual?.evidence,summary=actual?.summary;
-      if(!evidence||evidence.taskId!==taskId||!HEX.test(evidence.acceptedDigest??'')
-          ||typeof summary!=='string'||!summary.trim()||summary.includes('\0')
-          ||Buffer.from(summary,'utf8').toString('utf8')!==summary
-          ||createHash('sha256').update(summary,'utf8').digest('hex')!==evidence.acceptedSummarySha256)
-        fail('METHOD_PERSONAL_CHAIN_RESULT_MISMATCH','Original accepted Task and exact Result content must agree');
-      accepted.set(stage.basis.stepId,Object.freeze({stepId:stage.basis.stepId,workRef:stage.basis.stageRef,summary,
-        evidence:Object.freeze({...evidence,candidateDigest:plan.candidateDigest})}));
+      if(stage.basis.stepId===stepId){
+        // W05.17: verify the selected target Task inside the same two
+        // complete observations, not a second duplicated chain build.
+        const targetAccepted=targetTaskId===undefined?null:(await readVerified(plan,targetTaskId)).evidence;
+        return {report,plan,targetAccepted};
+      }
+      const actual=await readVerified(plan,byStep.get(stage.basis.stepId));
+      accepted.set(stage.basis.stepId,Object.freeze({stepId:stage.basis.stepId,workRef:stage.basis.stageRef,...actual}));
     }
     fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','Selected target Work unavailable');
   };
@@ -620,7 +630,8 @@ export async function prepareWorkspaceMethodPersonalChain(input={}){
   await observation.revalidate('METHOD_PERSONAL_CHAIN_MATERIAL_CHANGED');
   const last=await pass();
   await observation.revalidate('METHOD_PERSONAL_CHAIN_MATERIAL_CHANGED');
-  if(first.plan.candidateDigest!==last.plan.candidateDigest||!equal(first.plan.draft,last.plan.draft))
+  if(first.plan.candidateDigest!==last.plan.candidateDigest||!equal(first.plan.draft,last.plan.draft)
+      ||!equal(first.targetAccepted,last.targetAccepted))
     fail('METHOD_PERSONAL_CHAIN_EVIDENCE_CHANGED','Original accepted chain or actual material content changed');
   if(expectedCandidateDigest!==undefined&&last.plan.candidateDigest!==expectedCandidateDigest)
     fail('METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED','The exact selected handoff content changed; review it again');

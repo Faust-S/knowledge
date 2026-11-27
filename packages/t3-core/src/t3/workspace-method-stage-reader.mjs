@@ -8,7 +8,8 @@ import { inspectWorkspaceMethodAgentPredecessorResults,readWorkspaceMethodInputO
   previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation,inspectWorkspaceMethodMaterialEvidence,
   buildWorkspaceMethodPersonalTaskDraft,prepareWorkspaceMethodPersonalChain } from '../modules/base/owners/project-process-method-stage-input.mjs';
 
-import {saveOriginalPersonalWorkflowDraft,inspectOriginalPersonalWorkflowTask,createOriginalPersonalWorkflowTaskObserver} from './workspace-method-personal-draft.mjs';
+import {saveOriginalPersonalWorkflowDraft,inspectOriginalPersonalWorkflowTask,createOriginalPersonalWorkflowTaskObserver,
+  recoverOriginalPersonalWorkflowTaskSelection,personalWorkflowTaskInspection} from './workspace-method-personal-draft.mjs';
 
 function deny(code){throw Object.assign(new Error(code),{code,outcome:'DENIED'});}
 function check(ok,code){if(!ok)deny(code);}
@@ -43,7 +44,8 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       &&(!['native-preview','native-recover'].includes(mode)||typeof input.predecessorStepId==='string')
       &&(mode!=='handoff'||input.includeMaterialEvidence===undefined||typeof input.includeMaterialEvidence==='boolean')
       &&(!['personal-draft','personal-draft-recover','personal-task-inspect'].includes(mode)||/^[a-f0-9]{64}$/.test(input.expectedCandidateDigest??''))
-      &&(mode!=='personal-task-inspect'||typeof input.taskId==='string')
+      &&(!['personal-task-inspect','personal-task-recover'].includes(mode)||typeof input.taskId==='string')
+      &&(mode!=='personal-task-recover'||(input.personalResultSelections===undefined&&(input.resultSelections??[]).length===0))
       &&(input.personalResultSelections===undefined||(['handoff','personal-draft','personal-draft-recover','personal-task-inspect'].includes(mode)
         &&Array.isArray(input.personalResultSelections)&&input.personalResultSelections.length<=63
         &&(input.resultSelections??[]).length===0)),
@@ -58,7 +60,7 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       ...(['native-preview','native-recover'].includes(mode)?{predecessorStepId:input.predecessorStepId}:{}),
       ...(mode==='handoff'&&input.includeMaterialEvidence===true?{includeMaterialEvidence:true}:{}),
       ...(['personal-draft','personal-draft-recover','personal-task-inspect'].includes(mode)?{expectedCandidateDigest:input.expectedCandidateDigest}:{}),
-      ...(mode==='personal-task-inspect'?{taskId:input.taskId}:{}),
+      ...(['personal-task-inspect','personal-task-recover'].includes(mode)?{taskId:input.taskId}:{}),
       ...(input.personalResultSelections===undefined?{}:{personalResultSelections:input.personalResultSelections.map(row=>({
         stepId:row?.stepId,taskId:row?.taskId}))})});
     check(isHostActive()===true,'T3_HOST_DISPOSED');
@@ -77,7 +79,9 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       check(context?.workspace_id===request.workspaceId&&context.resource===request.workspaceId,
         'T3_METHOD_STAGE_SIGNED_SCOPE_MISMATCH');
       const personalChain=request.personalResultSelections!==undefined;
-      const personalMode=personalChain||['personal-draft','personal-draft-recover','personal-task-inspect'].includes(mode);
+      const recoverTask=mode==='personal-task-recover';
+      const inspectTask=mode==='personal-task-inspect'||recoverTask;
+      const personalMode=personalChain||inspectTask||['personal-draft','personal-draft-recover'].includes(mode);
       if(personalChain&&mode==='personal-task-inspect')check(!request.personalResultSelections.some(row=>row.taskId===request.taskId),
         'T3_METHOD_STAGE_SELECTION_REQUIRED');
       if(personalMode)check(context.kind==='PERSONAL'&&personalComposer!==null,'T3_METHOD_PERSONAL_DRAFT_PERSONAL_OWNER_REQUIRED');
@@ -130,23 +134,31 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
         const evidenceArgs={...args,listAssets:query=>list(binding=>binding.listAssets(query)),
           getAsset:(workspaceId,id)=>get(binding=>binding.getAsset(workspaceId,id))};
         if(personalMode){
-          const observer=personalChain?await createOriginalPersonalWorkflowTaskObserver({workspaceId:request.workspaceId,
+          const observer=(personalChain||recoverTask)?await createOriginalPersonalWorkflowTaskObserver({workspaceId:request.workspaceId,
             composer:personalComposer,taskOwner:personalTaskOwner,guarded}):null;
+          const recovered=recoverTask?await recoverOriginalPersonalWorkflowTaskSelection({...request,observer}):null;
+          const selectedArgs=recovered?{...evidenceArgs,personalResultSelections:recovered.personalResultSelections,
+            expectedCandidateDigest:recovered.candidateDigest}:evidenceArgs;
+          const chain=personalChain||!!recovered?.personalResultSelections.length;
           const prepare=async()=>{
-            const prepared=observer?await prepareWorkspaceMethodPersonalChain({...evidenceArgs,
-              readVerifiedPersonalResult:observer.read}):{plan:await buildWorkspaceMethodPersonalTaskDraft(evidenceArgs)};
-            if(observer)await observer.verifyCurrent();
+            const prepared=chain?await prepareWorkspaceMethodPersonalChain({...selectedArgs,
+              readVerifiedPersonalResult:observer.read,...(inspectTask?{targetTaskId:request.taskId}:{})}):
+              {plan:await buildWorkspaceMethodPersonalTaskDraft(selectedArgs)};
             const current=await guarded(()=>signed.getWorkspace(request.workspaceId));
             check(current?.workspace_id===request.workspaceId&&current.deleted_at==null,'T3_METHOD_STAGE_WORKSPACE_REQUIRED');
+            if(observer)await observer.verifyCurrent();
             return observer?{...prepared,plan:Object.freeze({...prepared.plan,nativeBinding:observer.binding})}:prepared;
           };
           const build=async()=>(await prepare()).plan;
           const prepared=await prepare(),plan=prepared.plan;
           if(mode==='handoff')report=prepared.report;
-          else if(mode==='personal-task-inspect'){
+          else if(inspectTask){
             check(personalTaskOwner!==null,'T3_METHOD_PERSONAL_TASK_ORIGINAL_OWNER_REQUIRED');
-            report=await inspectOriginalPersonalWorkflowTask({plan,taskId:request.taskId,composer:personalComposer,
-              taskOwner:personalTaskOwner,guarded,refreshPlan:build});
+            report=chain?personalWorkflowTaskInspection(plan,prepared.targetAccepted):
+              await inspectOriginalPersonalWorkflowTask({plan,taskId:request.taskId,composer:personalComposer,
+                taskOwner:personalTaskOwner,guarded,refreshPlan:build});
+            if(recovered)report=Object.freeze({...report,recoveredFromOriginalTask:true,
+              canonicalWorkRef:recovered.canonicalWorkRef,personalResultSelections:recovered.personalResultSelections});
           }else report=await saveOriginalPersonalWorkflowDraft({plan,refreshPlan:build,composer:personalComposer,
             guarded,confirm:confirmPersonalDraft,recoverOnly:mode==='personal-draft-recover'});
         }else report=mode==='handoff'?await previewWorkspaceMethodStageHandoff(evidenceArgs):
@@ -178,7 +190,8 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       createPersonalDraft:input=>personalDraft(input,'personal-draft'),
       recoverPersonalDraft:input=>personalDraft(input,'personal-draft-recover'),
     }),
-    ...(personalTaskOwner===null?{}:{inspectPersonalTask:input=>read(input,'personal-task-inspect')}),
+    ...(personalTaskOwner===null?{}:{inspectPersonalTask:input=>read(input,'personal-task-inspect'),
+      recoverPersonalTask:input=>read(input,'personal-task-recover')}),
     previewContinuation:input=>read(input,'native-preview'),
     recoverContinuation:input=>read(input,'native-recover'),
   });

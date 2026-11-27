@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { canonicalStringify } from '../src/persistence/canonical-codec.mjs';
 import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { applyWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
@@ -617,7 +618,17 @@ async function personalChainFixture(){
   };
   await prepare('analyse');
   const rootRun=addRun('TASK-root','Accepted original analysis\r\nстрока 2\n');
-  return {f,c,h,input,prepare,addRun,rootRun,reads,documents,assetReads:()=>assetReads,hook:fn=>{hook=fn;}};
+  const replaceManifest=(taskId,mutate)=>{
+    const stored=runs.get(taskId),index=stored.attachments.findIndex(row=>row.name==='workflow-inputs.json');
+    const manifest=JSON.parse(stored.attachments[index].text);
+    mutate(manifest);
+    manifest.candidateDigest=hash(canonicalStringify(manifest.handoff));
+    const text=canonicalStringify(manifest);
+    stored.attachments[index]={name:'workflow-inputs.json',text};
+    stored.run.snapshot.source_items[index]={...stored.run.snapshot.source_items[index],sha256:hash(text),bytes:Buffer.byteLength(text,'utf8')};
+    return manifest;
+  };
+  return {f,c,h,input,prepare,addRun,rootRun,reads,documents,replaceManifest,assetReads:()=>assetReads,hook:fn=>{hook=fn;}};
 }
 const rootSelection=[{stepId:'analyse',taskId:'TASK-root'}];
 test('personal dependent Work transfers exact accepted K01 content through original composer and accepted Task inspection',async()=>{
@@ -634,7 +645,10 @@ test('personal dependent Work transfers exact accepted K01 content through origi
   const manifest=JSON.parse(x.c.view().attachments.at(-1).text);
   assert.equal(manifest.handoff.predecessorResults[0].acceptedTask.acceptedDigest,x.rootRun.acceptedSource.accepted_artifact_digest);
   x.addRun('TASK-review','Accepted review conclusion');
+  const beforeInspect=x.assetReads(),beforeTasks=x.reads.length;
   const accepted=await x.h.reader.inspectPersonalTask({...request,expectedCandidateDigest:preview.candidateDigest,taskId:'TASK-review'});
+  assert.equal(x.assetReads()-beforeInspect,2);
+  assert.deepEqual(x.reads.slice(beforeTasks),['TASK-root','TASK-review','TASK-root','TASK-review']);
   assert.equal(accepted.declaredDraftInputsVerified,true);assert.equal(accepted.workCompleted,false);
   assert.equal(JSON.stringify(accepted).includes('Accepted review conclusion'),false);
   const after=x.assetReads(),offset=x.reads.length;
@@ -682,5 +696,70 @@ test('personal chain refuses oversized accepted Result rather than truncating it
   x.rootRun.result.summary=large;x.rootRun.acceptedSource.content=large;
   x.rootRun.acceptedSource.revision='sha256:'+createHash('sha256').update(large).digest('hex');
   await assert.rejects(x.h.reader.previewHandoff(x.input('review',rootSelection)),code('METHOD_PERSONAL_DRAFT_CONTENT_LIMIT'));
+  assert.equal(x.c.writes(),1);
+});
+
+
+const recoverInput=(x,stepId,taskId)=>({workspaceId:ws,projectId,expected:x.f.base,stepId,taskId});
+test('cold personal Task selection is recovered from original accepted Context without the composer or a prior UI preview',async()=>{
+  const x=await personalChainFixture(),before=x.reads.length;
+  const r=await x.h.reader.recoverPersonalTask(recoverInput(x,'analyse','TASK-root'));
+  assert.equal(r.state,'ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED');
+  assert.equal(r.recoveredFromOriginalTask,true);assert.equal(r.declaredDraftInputsVerified,true);
+  assert.equal(r.workCompleted,false);assert.equal(r.resultReuseProven,false);
+  assert.equal(r.canonicalWorkRef.recordId,'analyse-source');assert.deepEqual(r.personalResultSelections,[]);
+  assert.deepEqual(x.reads.slice(before),['TASK-root','TASK-root','TASK-root']);
+  assert.equal(x.c.writes(),1);assert.equal(x.c.view().text,'');
+  assert.equal(JSON.stringify(r).includes('Accepted original analysis'),false);
+});
+test('recovery follows recorded exact accepted Task lineage once and verifies the entire selected chain in two shared material passes',async()=>{
+  const x=await personalChainFixture();
+  await x.prepare('review',rootSelection);x.addRun('TASK-review','Accepted review conclusion');
+  const all=[...rootSelection,{stepId:'review',taskId:'TASK-review'}];
+  const {preview}=await x.prepare('finish',all);x.addRun('TASK-finish','Accepted final result');
+  const before=x.reads.length,assets=x.assetReads(),writes=x.c.writes();
+  const r=await x.h.reader.recoverPersonalTask(recoverInput(x,'finish','TASK-finish'));
+  assert.equal(r.recoveredFromOriginalTask,true);assert.equal(r.candidateDigest,preview.candidateDigest);
+  assert.equal(r.canonicalWorkRef.recordId,'finish-source');assert.deepEqual(r.personalResultSelections,all);
+  assert.deepEqual(x.reads.slice(before),['TASK-finish','TASK-review','TASK-root',
+    'TASK-root','TASK-review','TASK-finish','TASK-root','TASK-review','TASK-finish']);
+  assert.equal(x.assetReads()-assets,2);assert.equal(x.c.writes(),writes);
+  assert.equal(r.workCompleted,false);assert.equal(r.executionAuthority,false);
+  assert.equal(JSON.stringify(r).includes('Accepted final result'),false);
+  assert.equal((await x.f.owner.audit()).length,4);
+});
+test('recovery refuses changed original manifest bytes, a forged scope and selected canonical Work mismatch',async()=>{
+  const x=await personalChainFixture(),req=recoverInput(x,'analyse','TASK-root');
+  const manifest=x.rootRun.snapshot.source_items.at(-1);
+  const originalHash=manifest.sha256;manifest.sha256='f'.repeat(64);
+  await assert.rejects(x.h.reader.recoverPersonalTask(req),code('T3_METHOD_PERSONAL_TASK_MANIFEST_INVALID'));
+  manifest.sha256=originalHash;
+  await assert.rejects(x.h.reader.recoverPersonalTask(recoverInput(x,'review','TASK-root')),code('T3_METHOD_PERSONAL_TASK_MANIFEST_SCOPE_MISMATCH'));
+  x.replaceManifest('TASK-root',m=>{m.handoff.workspaceId='foreign';});
+  await assert.rejects(x.h.reader.recoverPersonalTask(req),code('T3_METHOD_PERSONAL_TASK_MANIFEST_SCOPE_MISMATCH'));
+  assert.equal(x.c.writes(),1);
+});
+test('recovery rejects self-reference, another Task candidate and caller supplied result selections',async()=>{
+  const x=await personalChainFixture();
+  await x.prepare('review',rootSelection);x.addRun('TASK-review','Accepted review conclusion');
+  const req=recoverInput(x,'review','TASK-review');
+  await assert.rejects(x.h.reader.recoverPersonalTask({...req,personalResultSelections:rootSelection}),code('T3_METHOD_STAGE_SELECTION_REQUIRED'));
+  x.replaceManifest('TASK-review',m=>{
+    m.handoff.predecessorResults[0].acceptedTask.candidateDigest='f'.repeat(64);
+  });
+  await assert.rejects(x.h.reader.recoverPersonalTask(req),code('T3_METHOD_PERSONAL_TASK_MANIFEST_SCOPE_MISMATCH'));
+  x.replaceManifest('TASK-review',m=>{
+    m.handoff.predecessorResults[0].acceptedTask.taskId='TASK-review';
+  });
+  await assert.rejects(x.h.reader.recoverPersonalTask(req),code('T3_METHOD_PERSONAL_TASK_MANIFEST_SCOPE_MISMATCH'));
+  assert.equal(x.c.writes(),2);
+});
+test('manifest recovery does not bypass exact original accepted Task and full material verification',async()=>{
+  const x=await personalChainFixture(),req=recoverInput(x,'analyse','TASK-root');
+  x.rootRun.task.objective='Edited user instruction';
+  await assert.rejects(x.h.reader.recoverPersonalTask(req),code('T3_METHOD_PERSONAL_TASK_INPUT_CHANGED'));
+  x.rootRun.task.objective='Review original result\n\nAnalyse original';
+  x.hook(()=>x.c.binding({contextEpoch:'changed'}));
+  await assert.rejects(x.h.reader.recoverPersonalTask(req),code('T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED'));
   assert.equal(x.c.writes(),1);
 });

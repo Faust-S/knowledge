@@ -64,6 +64,10 @@ export type WorkspaceMethodPersonalTaskInspection=Readonly<{
   declaredDraftInputsVerified:true;allAssetsProven:false;
   exactInputBindingProven:false;workCompleted:false;resultReuseProven:false;executionAuthority:false;writeAuthorized:false;
 }>;
+export type WorkspaceMethodRecoveredPersonalTask=WorkspaceMethodPersonalTaskInspection & Readonly<{
+  recoveredFromOriginalTask:true;canonicalWorkRef:WorkspaceMethodSourceRef;
+  personalResultSelections:readonly WorkspaceMethodPersonalResultSelection[];
+}>;
 export interface WorkspaceMethodStageReader {
   overview(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodInputOverview>;
   inspect(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodStageInspection>;
@@ -72,6 +76,7 @@ export interface WorkspaceMethodStageReader {
   createPersonalDraft?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string}>):Promise<WorkspaceMethodPersonalDraftReceipt>;
   recoverPersonalDraft?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string}>):Promise<WorkspaceMethodPersonalDraftReceipt>;
   inspectPersonalTask?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string;taskId:string}>):Promise<WorkspaceMethodPersonalTaskInspection>;
+  recoverPersonalTask?(input:WorkspaceMethodReaderSelection&Readonly<{stepId:string;taskId:string}>):Promise<WorkspaceMethodRecoveredPersonalTask>;
   previewContinuation(input:WorkspaceMethodStageRequest&Readonly<{predecessorStepId:string}>):Promise<WorkspaceMethodNativeInspection>;
   recoverContinuation(input:WorkspaceMethodStageRequest&Readonly<{predecessorStepId:string}>):Promise<WorkspaceMethodNativeInspection>;
 }

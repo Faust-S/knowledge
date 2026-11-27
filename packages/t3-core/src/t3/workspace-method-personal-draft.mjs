@@ -3,6 +3,7 @@
 // queue, additional native owner, local model invocation, or transport.
 import {createHash} from 'node:crypto';
 import {canonicalStringify} from '../persistence/canonical-codec.mjs';
+import {projectProcessSourceObjectId} from '../modules/base/owners/project-process-source-owner.mjs';
 const HEX=/^[a-f0-9]{64}$/;
 const AREA=/^(personal|AREA-[0-9a-f]{18})$/;
 const equal=(a,b)=>canonicalStringify(a)===canonicalStringify(b);
@@ -105,10 +106,9 @@ export async function createOriginalPersonalWorkflowTaskObserver({workspaceId,co
   const binding=nativeBinding(await guarded(()=>composer.currentBinding()),workspaceId);
   const current=async()=>check(equal(nativeBinding(await guarded(()=>composer.currentBinding()),workspaceId),binding),
     'T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED');
-  const read=async(plan,taskId)=>{
-    check(plan?.workspaceId===workspaceId&&typeof taskId==='string'&&/^TASK-[A-Za-z0-9_-]{1,120}$/.test(taskId),
+  const readRun=async taskId=>{
+    check(typeof taskId==='string'&&/^TASK-[A-Za-z0-9_-]{1,120}$/.test(taskId),
       'T3_METHOD_PERSONAL_TASK_ORIGINAL_OWNER_REQUIRED');
-    if(plan.nativeBinding)check(equal(plan.nativeBinding,binding),'T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED');
     await current();
     const value=structuredClone(await guarded(()=>taskOwner.readAcceptedRun(taskId,binding)));
     await current();
@@ -128,6 +128,12 @@ export async function createOriginalPersonalWorkflowTaskObserver({workspaceId,co
       &&HEX.test(snapshot.projection_digest??'')&&HEX.test(snapshot.bundle_digest??'')
       &&HEX.test(snapshot.snapshot_digest??'')&&/^CSN-[A-Za-z0-9_-]+$/.test(snapshot.snapshot_id??''),
       'T3_METHOD_PERSONAL_TASK_ACCEPTED_RUN_MISMATCH');
+    return {task,result,snapshot,acceptedSource};
+  };
+  const read=async(plan,taskId)=>{
+    check(plan?.workspaceId===workspaceId,'T3_METHOD_PERSONAL_TASK_ORIGINAL_OWNER_REQUIRED');
+    if(plan.nativeBinding)check(equal(plan.nativeBinding,binding),'T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED');
+    const {task,result,snapshot,acceptedSource}=await readRun(taskId);
     // Only the exact selected inputs from the prepared draft are checked.
     // Additional retrievals or changed/extra attachments cannot masquerade
     // as the same executed input basis. No claim about system/model prompts.
@@ -174,7 +180,91 @@ export async function createOriginalPersonalWorkflowTaskObserver({workspaceId,co
       nativeSystemSourceCount:systemSources.length,nativeSystemSourcesDigest});
     return Object.freeze({evidence,summary:result.summary});
   };
-  return Object.freeze({binding,verifyCurrent:current,read});
+  // W05.17: discover exact persisted selection from the original accepted
+  // ContextSnapshot document, not the mutable composer or task catalog.
+  // The manifest is a reference hint until the complete draft/Result readback
+  // is independently revalidated by the original source owners.
+  const readManifest=async taskId=>{
+    const {snapshot}=await readRun(taskId);
+    check(Array.isArray(snapshot.source_items)&&snapshot.source_items.length<=10
+      &&Array.isArray(snapshot.retrieval_refs)&&snapshot.retrieval_refs.length===0,
+      'T3_METHOD_PERSONAL_TASK_MANIFEST_INVALID');
+    const items=snapshot.source_items.filter(item=>/^attachments\/0[1-8]-workflow-inputs\.json$/.test(item.path??''));
+    check(items.length===1,'T3_METHOD_PERSONAL_TASK_MANIFEST_INVALID');
+    const item=items[0];
+    check(item.origin==='interaction_attachment'&&HEX.test(item.sha256??'')
+      &&Number.isSafeInteger(item.bytes)&&item.bytes>0&&item.bytes<=48000,
+      'T3_METHOD_PERSONAL_TASK_MANIFEST_INVALID');
+    const actual=await guarded(()=>taskOwner.taskDocumentSource(taskId,snapshot.snapshot_id,item.path,item.sha256,binding));
+    check(actual?.task_id===taskId&&actual.snapshot_id===snapshot.snapshot_id&&actual.path===item.path
+      &&actual.sha256===item.sha256&&typeof actual.text==='string'&&Buffer.byteLength(actual.text,'utf8')===item.bytes
+      &&sha(actual.text)===item.sha256,'T3_METHOD_PERSONAL_TASK_MANIFEST_INVALID');
+    let manifest;
+    try{
+      manifest=JSON.parse(actual.text);
+      check(canonicalStringify(manifest)===actual.text,'T3_METHOD_PERSONAL_TASK_MANIFEST_INVALID');
+      check(manifest?.handoff?.schema==='IWXA_T2_WORKSPACE_METHOD_HANDOFF_PREVIEW_V1'
+        &&manifest.handoff.subjectKind==='PERSONAL'&&manifest.handoff.intendedActor==='agent'
+        &&manifest.allAssetsProven===false&&manifest.exactInputBindingProven===false
+        &&HEX.test(manifest.candidateDigest??'')&&sha(canonicalStringify(manifest.handoff))===manifest.candidateDigest
+        &&Array.isArray(manifest.handoff.predecessorResults)&&manifest.handoff.predecessorResults.length<=63
+        &&(manifest.handoff.predecessorResults.length?manifest.handoff.personalTaskChain===true:
+          manifest.handoff.personalTaskChain===undefined),
+        'T3_METHOD_PERSONAL_TASK_MANIFEST_INVALID');
+    }catch{check(false,'T3_METHOD_PERSONAL_TASK_MANIFEST_INVALID');}
+    await current();
+    return Object.freeze({taskId,candidateDigest:manifest.candidateDigest,handoff:manifest.handoff});
+  };
+  return Object.freeze({binding,verifyCurrent:current,read,readManifest});
+}
+
+// Address only the original Task IDs actually recorded in the accepted
+// source. Shared ancestors are visited once; conflicting choices, cycles
+// and changed canonical Work/Project identities fail rather than guessing.
+export async function recoverOriginalPersonalWorkflowTaskSelection({workspaceId,projectId,stepId,expected,taskId,observer}){
+  const validStep=id=>typeof id==='string'&&/^[A-Za-z0-9_-]{1,63}$/.test(id);
+  const validTask=id=>typeof id==='string'&&/^TASK-[A-Za-z0-9_-]{1,120}$/.test(id);
+  const code='T3_METHOD_PERSONAL_TASK_MANIFEST_SCOPE_MISMATCH';
+  check(typeof observer?.readManifest==='function'&&typeof observer?.verifyCurrent==='function'
+    &&observer.binding?.sourceWorkspaceId===workspaceId&&validStep(stepId)&&validTask(taskId)
+    &&Array.isArray(expected?.workRefs)&&expected.workRefs.length>0&&expected.workRefs.length<=64,code);
+  const refs=new Map(expected.workRefs.map(ref=>[ref.objectId,ref]));
+  check(refs.size===expected.workRefs.length,code);
+  const workRef=id=>refs.get(projectProcessSourceObjectId('work',workspaceId,projectId+'.'+id));
+  const selected=new Map(),byTask=new Map(),active=new Set();
+  const visit=async(id,tid,expectedDigest=null)=>{
+    const canonicalWorkRef=workRef(id);
+    check(validStep(id)&&validTask(tid)&&canonicalWorkRef&&!active.has(tid),code);
+    if(selected.has(id)){
+      const old=selected.get(id);
+      check(old.taskId===tid&&old.candidateDigest===expectedDigest,code);
+      return old;
+    }
+    check(!byTask.has(tid)&&selected.size<64,code);
+    active.add(tid);
+    const manifest=await observer.readManifest(tid),handoff=manifest.handoff;
+    check(manifest.taskId===tid&&handoff.workspaceId===workspaceId&&handoff.projectId===projectId&&handoff.stepId===id
+      &&equal(handoff.projectRef,expected.projectRef)&&equal(handoff.workRef,canonicalWorkRef)
+      &&(expectedDigest===null||manifest.candidateDigest===expectedDigest),code);
+    const row=Object.freeze({stepId:id,taskId:tid,candidateDigest:manifest.candidateDigest});
+    selected.set(id,row);byTask.set(tid,id);
+    const direct=new Set();
+    for(const predecessor of handoff.predecessorResults){
+      const p=predecessor?.stepId,a=predecessor?.acceptedTask;
+      check(validStep(p)&&!direct.has(p)&&validTask(a?.taskId)&&HEX.test(a?.candidateDigest??'')
+        &&a.agentWorkspaceId===observer.binding.agentWorkspaceId&&workRef(p)
+        &&equal(predecessor.canonicalWorkRef,workRef(p)),code);
+      direct.add(p);
+      await visit(p,a.taskId,a.candidateDigest);
+    }
+    active.delete(tid);return row;
+  };
+  const target=await visit(stepId,taskId);
+  await observer.verifyCurrent();
+  return Object.freeze({candidateDigest:target.candidateDigest,canonicalWorkRef:workRef(stepId),
+    personalResultSelections:Object.freeze([...selected.values()].filter(row=>row.stepId!==stepId)
+      .sort((a,b)=>a.stepId<b.stepId?-1:a.stepId>b.stepId?1:0)
+      .map(row=>Object.freeze({stepId:row.stepId,taskId:row.taskId})))});
 }
 export async function inspectOriginalPersonalWorkflowTask({plan,taskId,composer,taskOwner,guarded,refreshPlan}){
   check(typeof refreshPlan==='function','T3_METHOD_PERSONAL_TASK_ORIGINAL_OWNER_REQUIRED');
@@ -183,8 +273,13 @@ export async function inspectOriginalPersonalWorkflowTask({plan,taskId,composer,
   check(fresh.candidateDigest===plan.candidateDigest&&equal(fresh.draft,plan.draft),'T3_METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED');
   const last=await observer.read(fresh,taskId);
   check(equal(first,last),'T3_METHOD_PERSONAL_TASK_ACCEPTED_RUN_CHANGED');
+  return personalWorkflowTaskInspection(plan,last.evidence);
+}
+// Only trusted native composition calls this after two matching original
+// accepted observations. No authority or source content is exposed.
+export function personalWorkflowTaskInspection(plan,evidence){
   return Object.freeze({state:'ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED',workspaceId:plan.workspaceId,projectId:plan.projectId,
-    stepId:plan.stepId,candidateDigest:plan.candidateDigest,...last.evidence,
+    stepId:plan.stepId,candidateDigest:plan.candidateDigest,...evidence,
     declaredDraftInputsVerified:true,allAssetsProven:false,exactInputBindingProven:false,
     workCompleted:false,resultReuseProven:false,executionAuthority:false,writeAuthorized:false});
 }
