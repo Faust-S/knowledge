@@ -26,7 +26,7 @@ const employee=(id,person)=>{
  }};
 };
 function setup({wrongManager=false,lostAck=false,pretrustEmployees=true,
- graphKernel=false}={}){
+ graphKernel=false,workflowTaskCeiling=false}={}){
  const fixture=model(),north=fixture.all.north,
    auth=fixture.policy.authorities['issuer:north'];
  const alice=employee('key:buyer-alice','person:alice'),
@@ -39,6 +39,7 @@ function setup({wrongManager=false,lostAck=false,pretrustEmployees=true,
  auth.rightClasses.push('ADMINISTRATION','DATA');
  auth.resources.push('authority:issuer:north','workspace:ws:north',
   'subject:org:north','recipient:org:north','field:result','field:task','operation:UPSERT');
+ if(workflowTaskCeiling)auth.resources.push('field:workflowInput');
  auth.actions.push('grant.issue','work.prepare','package.export');
  auth.actions.push('workspace.read','workspace.create','workspace.exchange.import',
   'workspace.exchange.export');
@@ -628,6 +629,75 @@ test('original installed Admin graph-only Kernel admits two independently signed
 });
 
 
+test('explicit structured Workflow DATA grant is independently issued and read back without upgrading legacy Task grant',async()=>{
+ const s=setup({pretrustEmployees:false,graphKernel:true,workflowTaskCeiling:true});await s.init();
+ await s.registry.admitProofCredential(trustProof(s));
+ const enrollment=await s.owner.begin(s.input(s.alice));
+ await s.owner.complete({enrollmentId:enrollment.enrollmentId,
+  employeeProof:makeProof(enrollment.request,enrollment.challenge,NOW,s.alice.signer,'TEST')});
+ const args={organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:enrollment.enrollmentId,managerPersonId:'person:operator',
+  managerGrantId:'grant:admin-north'};
+ const legacy=await s.owner.issueTaskGrant(args),v2={...args,taskProfileVersion:'2'};
+ assert.equal((await s.owner.readTaskGrant(v2)).state,'ORIGINAL_MANAGER_TASK_DATA_NOT_FOUND');
+ const signed=await s.owner.issueTaskGrant(v2);
+ assert.equal(signed.state,'ORIGINAL_MANAGER_TASK_DATA_ACTIVE');
+ assert.equal(signed.taskProfileVersion,'2');
+ assert.notEqual(signed.grantId,legacy.grantId);
+ assert.deepEqual(signed.grant.payload.resources,[
+  'workspace:ws:north','subject:org:north','recipient:person:alice',
+  'field:task','field:workflowInput','operation:UPSERT']);
+ assert.equal(signed.grant.payload.evidenceRefs.includes('task-profile:2'),true);
+ assert.equal(signed.grant.payload.resources.includes('field:result'),false);
+ assert.equal(signed.taskSigned,false);
+ assert.equal(signed.taskDelivered,false);
+ assert.equal((await s.owner.readTaskGrant(args)).grantId,legacy.grantId);
+ assert.equal((await s.owner.readTaskGrant(v2)).grantId,signed.grantId);
+ assert.deepEqual((await s.registry.readState()).grants[legacy.grantId],legacy.grant);
+ assert.equal(s.graphCalls.length,5);
+ await assert.rejects(s.owner.issueTaskGrant(v2),{code:'T3_EMPLOYEE_TASK_GRANT_EXISTS_USE_READBACK'});
+ await assert.rejects(s.owner.issueTaskGrant({...args,taskProfileVersion:'3'}),{code:'T3_EMPLOYEE_TASK_GRANT_PROFILE_INVALID'});
+ await assert.rejects(s.owner.readTaskGrant({...v2,employeePersonId:'person:bob'}));
+ assert.equal(s.graphCalls.length,5);
+});
+
+test('structured Workflow grant requires the original authority ceiling and cannot be issued concurrently',async()=>{
+ const s=setup({pretrustEmployees:false});await s.init();
+ await s.registry.admitProofCredential(trustProof(s));
+ const enrollment=await s.owner.begin(s.input(s.alice));
+ await s.owner.complete({enrollmentId:enrollment.enrollmentId,
+  employeeProof:makeProof(enrollment.request,enrollment.challenge,NOW,s.alice.signer,'TEST')});
+ const args={organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:enrollment.enrollmentId,managerPersonId:'person:operator',
+  managerGrantId:'grant:admin-north'};
+ await assert.rejects(s.owner.issueTaskGrant({...args,taskProfileVersion:'2'}),
+  {code:'T3_EMPLOYEE_TASK_GRANT_SIGNED_CEILING_REQUIRED'});
+ assert.equal(s.kernel.calls.length,3);
+ const first=s.owner.issueTaskGrant(args);
+ await assert.rejects(s.owner.issueTaskGrant(args),{code:'T3_EMPLOYEE_TASK_GRANT_IN_PROGRESS'});
+ assert.equal((await first).state,'ORIGINAL_MANAGER_TASK_DATA_ACTIVE');
+ assert.equal(s.kernel.calls.length,4);
+});
+
+test('lost ACK of structured Workflow grant is recovered only by its exact profile',async()=>{
+ const s=setup({pretrustEmployees:false,graphKernel:true,workflowTaskCeiling:true});await s.init();
+ await s.registry.admitProofCredential(trustProof(s));
+ const enrollment=await s.owner.begin(s.input(s.alice));
+ await s.owner.complete({enrollmentId:enrollment.enrollmentId,
+  employeeProof:makeProof(enrollment.request,enrollment.challenge,NOW,s.alice.signer,'TEST')});
+ const args={organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:enrollment.enrollmentId,managerPersonId:'person:operator',
+  managerGrantId:'grant:admin-north'},v2={...args,taskProfileVersion:'2'};
+ s.loseNext();
+ await assert.rejects(s.owner.issueTaskGrant(v2),/SIMULATED_LOST_ACK_AFTER_KERNEL_COMMIT/);
+ assert.equal((await s.owner.readTaskGrant(args)).state,'ORIGINAL_MANAGER_TASK_DATA_NOT_FOUND');
+ const signed=await s.owner.readTaskGrant(v2);
+ assert.equal(signed.state,'ORIGINAL_MANAGER_TASK_DATA_ACTIVE');
+ assert.equal(signed.taskProfileVersion,'2');
+ assert.equal(signed.safeToReissue,false);
+ await assert.rejects(s.owner.issueTaskGrant(v2),{code:'T3_EMPLOYEE_TASK_GRANT_OUTCOME_UNKNOWN_READBACK'});
+ assert.equal(s.graphCalls.length,4);
+});
 
 test('independent employee Workspace rights are separately approved, original signed, atomic and cold-readable',async()=>{
  const s=setup({graphKernel:true});await s.init();
@@ -837,4 +907,27 @@ test('return-export revocation is retained by original signed registry; no new r
  await assert.rejects(s.owner.issueWorkspaceGrantSet({...args,returnExport:true}),
   {code:'T3_EMPLOYEE_WORKSPACE_RIGHTS_EXIST_USE_READBACK'});
  assert.equal(s.graphCalls.length,initial);
+});
+
+
+test('Workflow task DATA and original full Workspace rights coexist without replacing signed grants',async()=>{
+ const s=setup({graphKernel:true,workflowTaskCeiling:true,pretrustEmployees:false});await s.init();
+ await s.registry.admitProofCredential(trustProof(s));
+ const challenge=await s.owner.begin(s.input(s.alice));
+ const enrollment=await s.owner.complete({enrollmentId:challenge.enrollmentId,
+  employeeProof:makeProof(challenge.request,challenge.challenge,NOW,s.alice.signer,'TEST')});
+ const args={organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:enrollment.enrollmentId,managerPersonId:'person:operator',managerGrantId:'grant:admin-north'};
+ const legacy=await s.owner.issueTaskGrant(args);
+ const workflow=await s.owner.issueTaskGrant({...args,taskProfileVersion:'2'});
+ const before=await s.registry.readState();
+ const rights=await s.owner.issueWorkspaceGrantSet({...args,confirmed:true,returnExport:true});
+ assert.equal(rights.grantIds.length,5);assert.equal(rights.returnExportAvailable,true);
+ const after=await s.registry.readState();
+ for(const id of [legacy.grantId,workflow.grantId,...Object.values(enrollment.grantIds)])assert.deepEqual(after.grants[id],before.grants[id]);
+ assert.equal((await s.owner.readTaskGrant(args)).grantId,legacy.grantId);
+ assert.equal((await s.owner.readTaskGrant({...args,taskProfileVersion:'2'})).grantId,workflow.grantId);
+ assert.equal((await s.owner.readEnrollment(args)).state,'ORIGINAL_GRANTS_ACTIVE');
+ assert.equal(s.graphCalls.length,6);
+ for(const id of rights.grantIds)assert.equal(after.grants[id].payload.holderId,'person:alice');
 });

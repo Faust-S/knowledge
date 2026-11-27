@@ -39,7 +39,7 @@ jobs:
           assert.deepEqual(r,{schema:'iwxa.ci.once/1',workflow:'t3-consolidated-candidate',preparedSha:process.env.BEFORE,profile:'SOURCE_SHARED_HOST_PORTABLE_NO_PRIVATE_OUTPUT',assistant:m.originalAssistant.commit,corporateWorkflow:m.originalCorporateWorkflow.commit,reason:'QUALIFY_CONSOLIDATED_ORIGINAL_T3'});
           assert.equal(m.version,'0.3.1-rc.3');
           assert.equal(m.originalAssistant.commit,'3b8c2fb25bf5205e53331f5db3e035210b7aac9f');
-          assert.equal(m.originalCorporateWorkflow.commit,'3a30878acca2d2f62f5573e9d03c3ffcecc441ae');
+          assert.equal(m.originalCorporateWorkflow.commit,'7e2fd0d58fd4e11102355880d9ed452add6f5e99');
           console.log('T3_CONSOLIDATED_EXACT_REQUEST_PASS');
           NODE
 

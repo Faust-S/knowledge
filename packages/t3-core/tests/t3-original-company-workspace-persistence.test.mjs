@@ -10,7 +10,7 @@ import {createTrustedOriginalCompanyWorkspacePersistence,
 const sha=s=>createHash('sha256').update(s).digest('hex');
 function fixture({text='Результат исследования. '.repeat(60000),
   lostAck=false,writeRight=true,createRight=true,workspaceMissing=false,
-  lostCreateAck=false,jitDenied=false,mutateSource=null,kind='RESULT'}={}){
+  lostCreateAck=false,jitDenied=false,mutateSource=null,afterWorkspaceRead=null,kind='RESULT'}={}){
   let task={organizationId:'org:factory',workspaceId:'ws:factory',
     executorId:'person:employee',taskId:'task:signed',
     taskRevisionId:'a'.repeat(64),packageSha256:'b'.repeat(64)};
@@ -50,8 +50,10 @@ function fixture({text='Результат исследования. '.repeat(60
     hasOperation:op=>['t1.getWorkspace','t1.getObject',
       't1.listEventsSince','t1.commitObjectGraph',
       't1.createWorkspace'].includes(op),
-    getWorkspace:async ws=>workspace&&workspace.workspace_id===ws
-      ?structuredClone(workspace):null,
+    getWorkspace:async ws=>{
+      const value=workspace&&workspace.workspace_id===ws?structuredClone(workspace):null;
+      afterWorkspaceRead?.();return value;
+    },
     createWorkspace:async input=>{
       creates++;
       assert.equal(input.workspace_id,task.workspaceId);
@@ -115,7 +117,8 @@ function fixture({text='Результат исследования. '.repeat(60
     get commits(){return commits;},get creates(){return creates;},
     get workspace(){return workspace;},get stored(){return stored;},
     get events(){return events;},get writeJit(){return writeJit;},
-    stop:()=>{active=false;},tamperData:()=>{stored.data.text+='ALTERED';},
+    stop:()=>{active=false;},mutateContext:values=>Object.assign(context,values),
+    tamperData:()=>{stored.data.text+='ALTERED';},
     tamperEvent:()=>{events[0].payload.artifactSha256='f'.repeat(64);}};
 }
 
@@ -229,4 +232,58 @@ test('corporate Result cannot be an unaccepted personal projection',async()=>{
   await assert.rejects(fx.make().commit('RESULT','RES-accepted'),
     {code:'T3_COMPANY_TRUSTED_ARTIFACT_REQUIRED'});
   assert.equal(fx.commits,0);
+});
+
+
+test('another employee observes the exact original Result via own signed Workspace DATA, no copy or acceptance',async()=>{
+  const fx=fixture({text:'Original complete company Result'}),p=fx.make();
+  const committed=await p.commit('RESULT','RES-accepted');
+  const d=fx.stored.data,sourceTask={organizationId:d.organizationId,workspaceId:d.workspaceId,
+    executorId:d.executorId,taskId:d.taskId,taskRevisionId:d.taskRevisionId,packageSha256:d.taskPackageSha256};
+  const reference={sourceTask,artifactId:d.artifactId,artifactSha256:d.sha256};
+  fx.mutateTask({executorId:'person:next',taskId:'task:dependent',
+    taskRevisionId:'c'.repeat(64),packageSha256:'d'.repeat(64)});
+  fx.mutateContext({actor_id:'person:next',grant_id:'grant:next-read',purpose:'workspace.read'});
+  const reader=fx.make();
+  const seen=await reader.readSharedResult(reference);
+  assert.equal(seen.state,'COMPANY_ORIGINAL_RESULT_OBSERVED');
+  assert.equal(seen.readerExecutorId,'person:next');
+  assert.equal(seen.sourceTask.executorId,'person:employee');
+  assert.equal(seen.originalObject.object_id,committed.originalObjectId);
+  assert.equal(seen.originalObject.data.text,'Original complete company Result');
+  assert.equal(seen.corporateAcceptanceProven,false);
+  assert.equal(seen.sourceCurrentnessProven,false);
+  assert.equal(seen.workCompleted,false);
+  assert.equal(seen.resultReuseProven,false);
+  assert.equal(seen.executionAuthorized,false);
+  assert.equal(fx.commits,1);
+  await assert.rejects(reader.readSharedResult({...reference,artifactSha256:'f'.repeat(64)}),
+    {code:'T3_COMPANY_SHARED_RESULT_CONTENT_CHANGED'});
+  await assert.rejects(reader.readSharedResult({...reference,sourceTask:{...sourceTask,workspaceId:'ws:other'}}),
+    {code:'T3_COMPANY_SHARED_RESULT_SCOPE_REQUIRED'});
+  fx.mutateContext({actor_id:'person:admin'});
+  await assert.rejects(reader.readSharedResult(reference),{code:'T3_COMPANY_SHARED_READER_SCOPE_REQUIRED'});
+  fx.mutateContext({actor_id:'person:next',purpose:'workspace.work'});
+  await assert.rejects(reader.readSharedResult(reference),{code:'T3_COMPANY_SHARED_READER_SCOPE_REQUIRED'});
+  fx.mutateContext({purpose:'workspace.read'});
+  fx.tamperEvent();
+  await assert.rejects(reader.readSharedResult(reference),{code:'T3_COMPANY_ORIGINAL_EVENT_READBACK_CHANGED'});
+  assert.equal(fx.commits,1);
+});
+
+
+test('shared Result read is fenced across the complete original employee context, not just actor and workspace',async()=>{
+  let switchContext=false,fx;
+  fx=fixture({text:'Original result',afterWorkspaceRead:()=>{
+    if(switchContext)fx.mutateContext({scope_revision:2,context_id:'ctx:changed'});
+  }});
+  await fx.make().commit('RESULT','RES-accepted');
+  const d=fx.stored.data,sourceTask={organizationId:d.organizationId,workspaceId:d.workspaceId,
+    executorId:d.executorId,taskId:d.taskId,taskRevisionId:d.taskRevisionId,packageSha256:d.taskPackageSha256};
+  fx.mutateTask({executorId:'person:next',taskId:'task:next',taskRevisionId:'c'.repeat(64),packageSha256:'d'.repeat(64)});
+  fx.mutateContext({actor_id:'person:next',grant_id:'grant:next-read',purpose:'workspace.read'});
+  switchContext=true;
+  await assert.rejects(fx.make().readSharedResult({sourceTask,artifactId:d.artifactId,artifactSha256:d.sha256}),
+    {code:'T3_COMPANY_SHARED_READER_CONTEXT_CHANGED'});
+  assert.equal(fx.commits,1);
 });

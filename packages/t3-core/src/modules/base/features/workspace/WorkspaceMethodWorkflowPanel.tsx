@@ -2,7 +2,7 @@ import { useEffect,useMemo,useRef,useState } from "react";
 import type { ObjectRecord } from "../../../../kernel-client/contracts/runtime-1.3.0";
 import type { WorkspaceMethodReaderSelection,WorkspaceMethodStageReader,WorkspaceMethodInputOverview,
   WorkspaceMethodPublishedResultRef,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,
-  WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence,WorkspaceMethodPersonalDraftReceipt,WorkspaceMethodPersonalTaskInspection,WorkspaceMethodPersonalResultSelection,WorkspaceMethodRecoveredPersonalTask,WorkspaceMethodCorporateTaskReferenceInspection } from "../../../../t3/workspace-method-stage-reader.mjs";
+  WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence,WorkspaceMethodPersonalDraftReceipt,WorkspaceMethodPersonalTaskInspection,WorkspaceMethodPersonalResultSelection,WorkspaceMethodRecoveredPersonalTask,WorkspaceMethodCorporateTaskReferenceInspection,WorkspaceMethodCorporateResultSelection } from "../../../../t3/workspace-method-stage-reader.mjs";
 
 /** Trusted Host supplies this selection only after original source readback.
  * contextEpoch changes on subject/grant/session changes. Never derive it or
@@ -16,6 +16,9 @@ export type WorkspaceMethodWorkflowBinding = WorkspaceMethodReaderSelection & Re
   // Explicit original Agent task selections for this method, supplied by
   // trusted Host composition. No second Task catalog or latest-task guess.
   personalResultSelections?:readonly WorkspaceMethodPersonalResultSelection[];
+  // Exact accepted original Admin Result selection; never an Atlas publication
+  // or a latest-result guess. Host supplies the original owner selection.
+  corporateResultSelections?:readonly WorkspaceMethodCorporateResultSelection[];
 }>;
 const button="min-h-[44px] px-3 py-1.5 rounded border border-slate-700 text-xs disabled:opacity-40";
 const states:Record<WorkspaceMethodOverviewStage["state"],string>={
@@ -28,6 +31,7 @@ const handoffStates:Record<string,string>={
   INPUTS_PREPARED_OWNER_SELECTION_REQUIRED:"Входы подготовлены. Выберите оригинального исполнителя.",
   PRIOR_RESULTS_OBSERVED_EXACT_BINDING_REQUIRED:"Принятые результаты найдены. Требуется точная привязка входов исполнителем.",
   PERSONAL_PRIOR_RESULTS_OBSERVED_DECLARED_INPUTS_MATCHED:"Принятые задачи предшественников и их сохранённые входы сопоставлены.",
+  CORPORATE_PRIOR_RESULTS_OBSERVED_SIGNED_REFERENCES_MATCHED:"Принятые результаты и подписанные ссылки предшествующих работ сопоставлены.",
   PREDECESSOR_RESULTS_REQUIRED:"Выберите принятые результаты предшественников.",
   PREDECESSOR_RESULT_REVIEW_REQUIRED:"Редакции результатов требуют проверки.",
   MATERIAL_REVIEW_REQUIRED:"Проверьте исходные материалы.",
@@ -78,6 +82,8 @@ function message(error:unknown){
   if(code==="T3_METHOD_PERSONAL_TASK_MANIFEST_INVALID")return "В принятой задаче нет проверяемого исходного состава Workflow.";
   if(code==="T3_METHOD_PERSONAL_TASK_MANIFEST_SCOPE_MISMATCH")return "Задача относится к другой работе, редакции или цепочке результатов.";
   if(code==="METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED")return "Выберите принятую задачу Agent для каждой предшествующей работы.";
+  if(code==="METHOD_CORPORATE_CHAIN_SELECTION_REQUIRED")return "Выберите конкретный принятый результат каждой предшествующей работы в Admin Center.";
+  if(/ACCEPTED_RESULT_NOT_CURRENT|APPLICATION_TASK_BINDING_INVALID/.test(code))return "Принятый результат или его задание уже не соответствуют текущей редакции.";
   if(code==="METHOD_PERSONAL_DRAFT_CONTENT_LIMIT")return "Содержимое превышает возможности редактора Agent. Оно не было сокращено.";
   if(/ATTACHMENT_UNSUPPORTED|ACTOR_UNSUPPORTED/.test(code))return "Для этих материалов или исполнителей нужен другой оригинальный маршрут.";
   return /CHANGED|STALE|MISMATCH/.test(code)?"Исходные данные изменились. Проверьте методику и материалы заново.":
@@ -97,7 +103,8 @@ type Detail = {kind:"handoff";value:WorkspaceMethodHandoffPreview}|{kind:"native
 function bindingKey(binding:WorkspaceMethodWorkflowBinding){
   return JSON.stringify([binding.contextEpoch,binding.workspaceId,binding.projectId,binding.expected.projectRef,
     [...binding.expected.workRefs].sort((a,b)=>a.objectId.localeCompare(b.objectId)),binding.personalTaskId??null,binding.corporateTaskId??null,
-    binding.personalResultSelections===undefined?null:[...binding.personalResultSelections].sort((a,b)=>a.stepId.localeCompare(b.stepId))]);
+    binding.personalResultSelections===undefined?null:[...binding.personalResultSelections].sort((a,b)=>a.stepId.localeCompare(b.stepId)),
+    binding.corporateResultSelections===undefined?null:[...binding.corporateResultSelections].sort((a,b)=>a.stepId.localeCompare(b.stepId))]);
 }
 export function WorkspaceMethodWorkflowPanel(props:{
   binding:WorkspaceMethodWorkflowBinding;objects:readonly ObjectRecord[];selectedObjectIds:readonly string[];
@@ -171,7 +178,16 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     &&new Set(personalResultSelections.map(row=>row.taskId)).size===personalResultSelections.length
     &&personalResultSelections.every(row=>/^TASK-[A-Za-z0-9_-]{1,120}$/.test(row.taskId));
   const personalArgs=personalChain?{personalResultSelections}:{};
-  const resultSelections=(personalChain?[]:stage?.directPredecessorStepIds??[]).flatMap(stepId=>{
+  const corporateChain=!!(binding.corporateResultSelections!==undefined&&!personalChain&&stage?.actor==="agent"
+    &&prerequisites?.length&&prerequisites.every(row=>row.actor==="agent"));
+  const corporateResultSelections=corporateChain?(binding.corporateResultSelections??[]).filter(row=>prerequisiteIds.has(row.stepId)):[];
+  const corporateReady=corporateChain&&!!reader.inspectMaterialEvidence&&corporateResultSelections.length===prerequisiteIds.size
+    &&new Set(corporateResultSelections.map(row=>row.stepId)).size===prerequisiteIds.size
+    &&new Set(corporateResultSelections.map(row=>row.acceptanceId)).size===prerequisiteIds.size
+    &&new Set(corporateResultSelections.map(row=>row.resultRevisionId)).size===prerequisiteIds.size
+    &&corporateResultSelections.every(row=>/^[a-f0-9]{64}$/.test(row.acceptanceId)&&/^[a-f0-9]{64}$/.test(row.resultRevisionId));
+  const corporateArgs=corporateChain?{corporateResultSelections}:{};
+  const resultSelections=(personalChain||corporateChain?[]:stage?.directPredecessorStepIds??[]).flatMap(stepId=>{
     const reference=candidates.get(selections[stepId]??"");return reference?[{stepId,reference}]:[];
   });
   const duplicateResults=new Set(resultSelections.map(row=>row.reference.object_id)).size!==resultSelections.length;
@@ -181,7 +197,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     // resurrect a pending or completed preview for the earlier selection.
     sequence.current++;setDetail(null);setDraftAttempt(null);setTaskInspection(null);setCorporateInspection(null);setSelections({});setNativeStep("");setBusy(false);
   },[candidateKey]);
-  const detailKey=JSON.stringify([stage?.stepId??null,resultSelections,nativeStep,candidateKey,personalResultSelections]);
+  const detailKey=JSON.stringify([stage?.stepId??null,resultSelections,nativeStep,candidateKey,personalResultSelections,corporateResultSelections]);
   const liveDetailKey=useRef(detailKey);liveDetailKey.current=detailKey;
   const visibleDetail=detail?.reader===reader&&detail.key===detailKey?detail.report:null;
   const draftDigest=visibleDetail?.kind==='handoff'&&visibleDetail.value.subjectKind==='PERSONAL'
@@ -231,7 +247,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
   };
   const inspect=async(mode:"handoff"|"preview"|"recover"|"material")=>{
     if(!stage||stage.state==="MATERIAL_REVIEW_REQUIRED"||(mode!=="material"&&duplicateResults)
-        ||(mode==="handoff"&&personalChain&&!personalReady))return;
+        ||(mode==="handoff"&&((personalChain&&!personalReady)||(corporateChain&&!corporateReady))))return;
     if((mode==="preview"||mode==="recover")&&!resultSelections.some(row=>row.stepId===nativeStep))return;
     if(mode==="material"&&typeof reader.inspectMaterialEvidence!=="function")return;
     const epoch=++sequence.current,key=detailKey;
@@ -243,7 +259,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
       // combined handoff uses one read, not a separate cached digest.
       const contentRequested=mode==="handoff"&&typeof reader.inspectMaterialEvidence==="function";
       const report:Detail=mode==="handoff"?{kind:"handoff",value:await reader.previewHandoff(
-          contentRequested?{...args,...personalArgs,includeMaterialEvidence:true}:{...args,...personalArgs})}:
+          contentRequested?{...args,...personalArgs,...corporateArgs,includeMaterialEvidence:true}:{...args,...personalArgs})}:
         mode==="material"?{kind:"material",value:await reader.inspectMaterialEvidence!({...args,resultSelections:[]})}:
         {kind:"native",value:await (mode==="preview"?reader.previewContinuation({...args,predecessorStepId:nativeStep}):
           reader.recoverContinuation({...args,predecessorStepId:nativeStep}))};
@@ -284,6 +300,25 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
                   .every(hash=>/^[a-f0-9]{64}$/.test(hash));
             }))throw Object.assign(Error("invalid"),{code:"METHOD_PERSONAL_CHAIN_RESULT_MISMATCH"});
       }
+      if(report.kind==="handoff"&&corporateChain){
+        const result=report.value,prior=result.corporateResults,resolved=result.corporateResultSelections;
+        const direct=new Set(stage.directPredecessorStepIds),hex=(v:string)=>/^[a-f0-9]{64}$/.test(v);
+        if(!corporateReady||result.subjectKind!=="CORP"||result.state!=="CORPORATE_PRIOR_RESULTS_OBSERVED_SIGNED_REFERENCES_MATCHED"
+          ||!hex(result.candidateDigest??"")||!prior||prior.length!==direct.size
+          ||new Set(prior.map(row=>row.stepId)).size!==direct.size
+          ||!resolved||resolved.length!==corporateResultSelections.length
+          ||corporateResultSelections.some(row=>!resolved.some(p=>p.stepId===row.stepId&&p.acceptanceId===row.acceptanceId&&p.resultRevisionId===row.resultRevisionId))
+          ||prior.some(row=>{
+            const expected=prerequisites?.find(p=>p.stepId===row.stepId),selected=corporateResultSelections.find(p=>p.stepId===row.stepId);
+            const accepted=row.acceptedResult,w=accepted?.workflowInput;
+            return !direct.has(row.stepId)||!expected||!selected||!sameRef(row.canonicalWorkRef,expected.workRef)
+              ||!accepted||accepted.acceptanceId!==selected.acceptanceId||accepted.resultRevisionId!==selected.resultRevisionId
+              ||accepted.workspaceId!==binding.workspaceId||accepted.exactInputBindingProven!==false||accepted.workCompleted!==false
+              ||Object.hasOwn(accepted,"result")||![accepted.packageSha256,accepted.taskRevisionId,accepted.taskPackageSha256,accepted.resultSha256].every(hex)
+              ||!w||w.workspaceId!==binding.workspaceId||w.projectId!==binding.projectId||w.stepId!==row.stepId
+              ||!sameRef(w.projectRef,binding.expected.projectRef)||!sameRef(w.workRef,expected.workRef);
+          }))throw Object.assign(Error("invalid"),{code:"METHOD_CORPORATE_CHAIN_RESULT_MISMATCH"});
+      }
       if(report.kind==="material"&&(report.value.schema!=="IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1"
           ||report.value.allAssetsProven!==false||report.value.contentBindingProven!==false
           ||report.value.exactInputBindingProven!==false||report.value.atomicSnapshot!==false
@@ -320,7 +355,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
   };
   const inspectCorporate=async(recoverOnly=false)=>{
     if(busy||!stage||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED"
-      ||resultSelections.length!==stage.directPredecessorStepIds.length)return;
+      ||(corporateChain?!corporateReady:resultSelections.length!==stage.directPredecessorStepIds.length))return;
     const taskId=recoverOnly?recoverableCorporateTask:selectedCorporateTask;
     if(!taskId||(recoverOnly?!reader.recoverCorporateTaskReference:
       !corporateDigest||!reader.inspectCorporateTaskReference||visibleDetail?.kind!=="handoff"))return;
@@ -329,7 +364,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     setBusy(true);setError("");setCorporateInspection(null);
     const current=()=>sequence.current===epoch&&liveReader.current===reader&&liveDetailKey.current===key;
     try{
-      const input={...request,stepId:stage.stepId,resultSelections,taskId};
+      const input={...request,stepId:stage.stepId,resultSelections,...corporateArgs,taskId};
       const value:WorkspaceMethodCorporateTaskReferenceInspection&{recoveredFromOriginalTask?:true}=recoverOnly?
         await reader.recoverCorporateTaskReference!(input):
         await reader.inspectCorporateTaskReference!({...input,expectedCandidateDigest:digest!});
@@ -419,7 +454,17 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
             {prerequisites?.map(row=><p key={row.stepId} className="text-xs text-slate-300 break-words">{row.name}: {personalResultSelections.find(task=>task.stepId===row.stepId)?.taskId??(stage.directPredecessorStepIds.includes(row.stepId)?"Не выбрана":"Из сохранённой цепочки")}</p>)}
             {!personalReady&&<p className="text-xs text-amber-200">Выберите отдельную принятую задачу для каждого непосредственного предшественника. Затем подготовьте передачу.</p>}
           </div>}
-          {!personalChain&&stage.directPredecessorStepIds.length>0&&<div className="space-y-2">
+          {corporateChain&&<div className="space-y-1" data-testid="workflow-corporate-prerequisites">
+            <p className="text-xs text-slate-400">Выберите конкретные принятые результаты предшествующих работ в Admin Center.</p>
+            {prerequisites?.map(row=>{
+              const selected=corporateResultSelections.find(item=>item.stepId===row.stepId);
+              return <p key={row.stepId} className="text-xs text-slate-300 break-words">
+                {row.name}: {selected?<span title={selected.resultRevisionId}>Результат {selected.resultRevisionId.slice(0,12)}</span>:"Не выбран"}
+              </p>;
+            })}
+            {!corporateReady&&<p className="text-xs text-amber-200">Нужна отдельная принятая редакция результата каждой предшествующей работы.</p>}
+          </div>}
+          {!personalChain&&!corporateChain&&stage.directPredecessorStepIds.length>0&&<div className="space-y-2">
             <p className="text-xs text-slate-400">Для каждого предшественника явно выберите принятый результат из материалов полотна.</p>
             {candidates.size===0&&<p className="text-xs text-slate-300">Выберите опубликованный результат на полотне.</p>}
             {stage.directPredecessorStepIds.map(stepId=><label key={stepId} className="block text-xs text-slate-300">
@@ -445,7 +490,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
           {recoverableCorporateTask&&!corporateDigest&&<div className="space-y-1 border-t border-slate-800 pt-2" data-testid="workflow-corporate-recovery">
             <p className="text-xs text-slate-400 break-words">Выбранное подписанное задание: {recoverableCorporateTask}</p>
             <button type="button" className={button}
-              disabled={busy||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED"||resultSelections.length!==stage.directPredecessorStepIds.length}
+              disabled={busy||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED"||(corporateChain?!corporateReady:resultSelections.length!==stage.directPredecessorStepIds.length)}
               onClick={()=>void inspectCorporate(true)}>Восстановить связь с подписанным заданием</button>
             {visibleRecoveredCorporate&&<div role="status" data-testid="workflow-corporate-reference-recovered" className="text-xs text-slate-200 space-y-1">
               <p>Подписанная ссылка восстановлена и соответствует текущей редакции работы и проверенному составу входов.</p>
@@ -455,10 +500,10 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
           <div className="flex flex-wrap gap-2">
             {reader.inspectMaterialEvidence&&<button type="button" className={button} disabled={busy||stage.state==="MATERIAL_REVIEW_REQUIRED"}
               onClick={()=>void inspect("material")}>Проверить содержимое и вложения</button>}
-            <button type="button" className={button} disabled={busy||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED"||(personalChain&&!personalReady)}
+            <button type="button" className={button} disabled={busy||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED"||(personalChain&&!personalReady)||(corporateChain&&!corporateReady)}
               onClick={()=>void inspect("handoff")}>Подготовить передачу</button>
           </div>
-          {!personalChain&&binding.nativeRecipientLabel&&stage.directPredecessorStepIds.length>0&&<div className="space-y-2">
+          {!personalChain&&!corporateChain&&binding.nativeRecipientLabel&&stage.directPredecessorStepIds.length>0&&<div className="space-y-2">
             <label className="block text-xs text-slate-300">Предшественник для проверки передачи
               <select className="block mt-1 w-full min-h-[44px] border border-slate-700 rounded bg-slate-950 p-2"
                 value={nativeStep} onChange={e=>{invalidateDetail();setNativeStep(e.target.value);}}>
@@ -488,6 +533,8 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
         </p>}
         {visibleDetail.value.personalResults&&<p className="text-slate-300">Передаётся точное принятое текстовое содержимое результатов: {visibleDetail.value.personalResults.length}.</p>}
         {visibleDetail.value.personalResultSelections&&<p className="text-slate-300">Проверено предшествующих задач: {visibleDetail.value.personalResultSelections.length}.</p>}
+        {visibleDetail.value.corporateResults&&<p className="text-slate-300">Подготовлено точное принятое содержимое непосредственных предшественников: {visibleDetail.value.corporateResults.length}. Передача исполнителю требует его действующего доступа.</p>}
+        {visibleDetail.value.corporateResultSelections&&<p className="text-slate-300">Проверено принятых редакций предшествующих работ: {visibleDetail.value.corporateResultSelections.length}.</p>}
         {visibleDetail.value.materialEvidenceRequested&&!visibleDetail.value.materialEvidence&&
           <p className="text-slate-400">Проверка содержимого ожидает подтверждения входных ссылок и результатов предшественников.</p>}
         <p className="text-slate-300">До запуска необходимо:</p>

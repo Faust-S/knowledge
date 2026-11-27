@@ -4,8 +4,10 @@ export type WorkspaceMethodReaderSelection = Readonly<{workspaceId:string;projec
 export type WorkspaceMethodPublishedResultRef = Readonly<{workspace_id:string;object_id:string;schema_id:'iwxa.agent.accepted-result';revision:number}>;
 export type WorkspaceMethodResultSelection = Readonly<{stepId:string;reference:WorkspaceMethodPublishedResultRef}>;
 export type WorkspaceMethodPersonalResultSelection = Readonly<{stepId:string;taskId:string}>;
+export type WorkspaceMethodCorporateResultSelection = Readonly<{stepId:string;acceptanceId:string;resultRevisionId:string}>;
 export type WorkspaceMethodStageRequest = WorkspaceMethodReaderSelection & Readonly<{stepId:string;resultSelections?:readonly WorkspaceMethodResultSelection[];
-  personalResultSelections?:readonly WorkspaceMethodPersonalResultSelection[]}>;
+  personalResultSelections?:readonly WorkspaceMethodPersonalResultSelection[];
+  corporateResultSelections?:readonly WorkspaceMethodCorporateResultSelection[]}>;
 export type WorkspaceMethodOverviewStage = Readonly<{
   stepId:string;name:string;actor:WorkspaceMethodActor;workRef:WorkspaceMethodSourceRef;
   state:'MATERIAL_REVIEW_REQUIRED'|'PREDECESSOR_RESULTS_REQUIRED'|'INPUT_REFERENCES_VERIFIED';
@@ -33,6 +35,11 @@ export type WorkspaceMethodHandoffPreview = Readonly<{
   personalResultSelections?:readonly WorkspaceMethodPersonalResultSelection[];
   personalResults?:readonly Readonly<{stepId:string;canonicalWorkRef:WorkspaceMethodSourceRef;
     acceptedTask:Readonly<{taskId:string;resultId:string;reviewId:string;acceptedDigest:string;acceptedSummarySha256:string;candidateDigest:string;agentWorkspaceId:string}>}>[];
+  corporateResultSelections?:readonly WorkspaceMethodCorporateResultSelection[];
+  corporateResults?:readonly Readonly<{stepId:string;canonicalWorkRef:WorkspaceMethodSourceRef;
+    acceptedResult:Readonly<{acceptanceId:string;resultRevisionId:string;packageSha256:string;taskId:string;
+      taskRevisionId:string;taskPackageSha256:string;resultSha256:string;workflowInput:WorkspaceMethodCorporateTaskReference;
+      organizationId:string;workspaceId:string;executorId:string;exactInputBindingProven:false;workCompleted:false}>}>[];
   materialEvidenceRequested?:true;materialEvidence?:WorkspaceMethodMaterialEvidence|null;
   signedTaskIssued:false;taskCreated:false;contentBindingProven:false;exactInputBindingProven:false;
   dispatchAuthorized:false;executionAuthority:false;writeAuthorized:false;resultReuseProven:false;
@@ -103,7 +110,7 @@ export interface WorkspaceMethodStageReader {
 export function createTrustedWorkspaceMethodStageReader(input:{
   kernel:unknown;accessForRead:(operation:string)=>unknown;currentWorkspace:unknown;
   sourceOwner:unknown;originalAgentResultOwner?:unknown;nativeContinuation?:unknown;nativeRecipientId?:string|null;
-  corporateTaskOwner?:unknown;personalTaskOwner?:unknown;personalComposer?:unknown;confirmPersonalDraft?:(preview:unknown)=>boolean|Promise<boolean>;
+  corporateTaskOwner?:unknown;corporateResultOwner?:unknown;personalTaskOwner?:unknown;personalComposer?:unknown;confirmPersonalDraft?:(preview:unknown)=>boolean|Promise<boolean>;
   isHostActive:()=>boolean;
 }):WorkspaceMethodStageReader;
 
@@ -113,12 +120,13 @@ export type WorkspaceMethodCorporateTextInputs=Readonly<{
   state:'CORPORATE_TASK_TEXT_INPUTS_PREPARED';task:string;workflowInput:WorkspaceMethodCorporateTaskReference;
   taskId:string;taskRevisionId:string;packageSha256:string;recipientId:string;organizationId:string;workspaceId:string;
   originalContextEpoch:number;declaredReferenceMatched:true;observedMaterialBytesVerified:true;
+  declaredSnapshotBytesVerified:true;attachmentDigest:string;
   attachments:readonly Readonly<{name:string;text:string}>[];
-  counts:Readonly<{materials:number;assets:number;attachments:number;attachmentBytes:number}>;
+  counts:Readonly<{materials:number;assets:number;attachments:number;attachmentBytes:number;results?:number}>;
   allAssetsProven:false;exactInputBindingProven:false;taskCreated:false;executionAuthority:false;
   writeAuthorized:false;resultReuseProven:false;workCompleted:false;
 }>;
 export function createTrustedWorkspaceMethodCorporateInputReader(input:{
   kernel:unknown;accessForRead:(operation:string)=>unknown;currentWorkspace:unknown;
-  sourceOwner:unknown;corporateTaskOwner:unknown;isHostActive:()=>boolean;
+  sourceOwner:unknown;corporateTaskOwner:unknown;corporateResultOwner?:unknown;isHostActive:()=>boolean;
 }):Readonly<{readInputs(input:WorkspaceMethodStageRequest&Readonly<{taskId:string}>):Promise<WorkspaceMethodCorporateTextInputs>}>;

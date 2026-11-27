@@ -4,7 +4,7 @@
   "base": "3056eef0665fb3503294d49b89d937af2ea060e2",
   "rc2": "4b3314079600f5d95b3dd9e0defe3be8e845378e",
   "corporate": "8db847058cab231d2d39c34df46024b60564d2ad",
-  "workflow": "e0f7274d882da64332efd0942dc0bb848e6fc5ab",
+  "workflow": "196e3cd824f2a21078f75576f09c1153a6b17d17",
   "originalAssistant": {
     "repository": "Faust-S/T3",
     "commit": "3b8c2fb25bf5205e53331f5db3e035210b7aac9f",
@@ -12,7 +12,7 @@
   },
   "originalCorporateWorkflow": {
     "repository": "Faust-S/T3",
-    "commit": "3a30878acca2d2f62f5573e9d03c3ffcecc441ae",
+    "commit": "7e2fd0d58fd4e11102355880d9ed452add6f5e99",
     "sourceDisposition": "private owner; separate signed native integration"
   },
   "android": {
@@ -75,6 +75,7 @@
     "packages/t3-core/scripts/probe-k036-c3-mapping.mjs",
     "packages/t3-core/scripts/probe-k036-current-object-history.mjs",
     "packages/t3-core/scripts/qualify-k036-c3-original-owner.mjs",
+    "packages/t3-core/scripts/qualify-k036-company-shared-result.mjs",
     "packages/t3-core/scripts/register-t3-local-inference.mjs",
     "packages/t3-core/scripts/run-c3-project-process-qualification.mjs",
     "packages/t3-core/scripts/run-t3-product-core-tests.mjs",
@@ -183,6 +184,7 @@
     "packages/t3-core/tests/t3-d7-publisher-handoff.test.mjs",
     "packages/t3-core/tests/t3-host-signed-kernel.test.ts",
     "packages/t3-core/tests/t3-local-inference-draft.test.mjs",
+    "packages/t3-core/tests/t3-original-company-workspace-persistence.test.mjs",
     "packages/t3-core/tests/t3-reconciliation-kernel-apply.test.mjs",
     "packages/t3-core/tests/t3-subject-kernel-scope.test.mjs",
     "packages/t3-core/tests/view-state-command-receipt-authority.test.ts",
@@ -246,6 +248,24 @@
     {
       "scope": "portable candidate source identity",
       "fix": "Retain existing consolidated exact owner source register in public archive; no private bytes."
+    },
+    {
+      "scope": "W05.49 current Workflow source cut",
+      "fix": "Reuse whole-Workspace grants, distinct Task metadata grant, shared Result Object/Event read; preserve corporate seat controls and canonical company record helpers. Native installed acceptance remains open."
     }
-  ]
+  ],
+  "workflowOwnerQualification": {
+    "publicSharedResult": {
+      "run": 46006023413,
+      "source": "9451a9e39ade9c6238e8ecc09370e51c5b60c8be",
+      "status": "SOURCE_AND_K036_WITNESS_PASS_NOT_INSTALLED"
+    },
+    "privateWorkflow": {
+      "run": 46005066443,
+      "source": "7e2fd0d58fd4e11102355880d9ed452add6f5e99",
+      "linux": "PASS",
+      "windows": "PASS",
+      "qualificationScope": "CONTROLLED_SOURCE_FIXTURE_NOT_INSTALLED"
+    }
+  }
 }

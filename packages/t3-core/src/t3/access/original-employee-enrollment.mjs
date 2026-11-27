@@ -458,18 +458,28 @@ export function createOriginalEmployeeEnrollmentOwner({
   // A manager needs a DIFFERENT signed DATA right before exporting a Task
   // to an independently enrolled colleague. Worker ACTION/DATA grants alone
   // never authorize the manager to export to that recipient.
-  const taskRecipientResources=(org,personId)=>[
+  // The structured Task profile signs only metadata, not material or Result
+  // contents. Its DATA grant is separate from the existing v1 grant, and the
+  // original signed authority ceiling must explicitly include workflowInput.
+  const checkTaskProfile=version=>check(version==='1'||version==='2',
+    'T3_EMPLOYEE_TASK_GRANT_PROFILE_INVALID');
+  const taskRecipientResources=(org,personId,version)=>[
     'workspace:'+trustedWorkspaceId,
     'subject:'+org.organizationId,
-    'recipient:'+personId,'field:task','operation:UPSERT'
+    'recipient:'+personId,'field:task',
+    ...(version==='2'?['field:workflowInput']:[]),'operation:UPSERT'
   ];
   const relatedTaskGrants=(saved,{enrollmentId,employeePersonId,
-    managerPersonId})=>Object.values(saved.grants).filter(env=>
+    managerPersonId,taskProfileVersion})=>Object.values(saved.grants).filter(env=>
     env?.payload?.holderId===managerPersonId&&
     env.payload.evidenceRefs?.includes('employee-enrollment:'+enrollmentId)&&
-    env.payload.evidenceRefs?.includes('task-recipient:'+employeePersonId));
+    env.payload.evidenceRefs?.includes('task-recipient:'+employeePersonId)&&
+    (taskProfileVersion==='2'?
+      env.payload.evidenceRefs.includes('task-profile:2'):
+      !env.payload.evidenceRefs.includes('task-profile:2')));
   async function readTaskGrant({organizationId,employeePersonId,enrollmentId,
-    managerPersonId}={}){
+    managerPersonId,taskProfileVersion='1'}={}){
+    checkTaskProfile(taskProfileVersion);
     id(organizationId);id(employeePersonId);id(enrollmentId);id(managerPersonId);
     check(organizationId===pinnedOrganization.organizationId&&
       employeePersonId!==managerPersonId,
@@ -479,16 +489,20 @@ export function createOriginalEmployeeEnrollmentOwner({
     // enrollment. A revoked worker must not retain newly issued Task rights.
     reconstruct({saved,employeePersonId,enrollmentId,at});
     const rows=relatedTaskGrants(saved,{enrollmentId,employeePersonId,
-      managerPersonId});
+      managerPersonId,taskProfileVersion});
     check(rows.length<=1,'T3_EMPLOYEE_TASK_GRANT_CONFLICT');
     const base={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1',
       organizationId,workspaceId:trustedWorkspaceId,
       employeePersonId,recipientId:employeePersonId,enrollmentId,
-      managerPersonId,originalReadback:true,safeToReissue:false};
+      managerPersonId,...(taskProfileVersion==='2'?{taskProfileVersion}:{}),
+      originalReadback:true,safeToReissue:false};
     if(!rows.length)return Object.freeze({...base,
       state:'ORIGINAL_MANAGER_TASK_DATA_NOT_FOUND'});
     const env=rows[0],g=env.payload;
-    const exact=taskRecipientResources(pinnedOrganization,employeePersonId);
+    const exact=taskRecipientResources(pinnedOrganization,employeePersonId,taskProfileVersion);
+    const markers=g.evidenceRefs.filter(x=>x.startsWith('task-profile:'));
+    check(taskProfileVersion==='2'?markers.length===1&&markers[0]==='task-profile:2':
+      markers.length===0,'T3_EMPLOYEE_TASK_GRANT_SIGNED_SCOPE_CHANGED');
     check(g.principalId===organizationId&&
       g.authorityId===pinnedOrganization.issuerAuthorityId&&
       g.roleId==='assigner'&&g.rightClass==='DATA'&&
@@ -512,10 +526,17 @@ export function createOriginalEmployeeEnrollmentOwner({
         state:'ORIGINAL_MANAGER_TASK_DATA_STATUS_UNKNOWN_HOLD'});
     }
   }
-  let taskGrantAttempted=false;
-  async function issueTaskGrant({organizationId,employeePersonId,enrollmentId,
-    managerPersonId,managerGrantId}={}){
+  let taskGrantAttempted=false,taskGrantInFlight=false;
+  async function issueTaskGrant(input={}){
     check(!taskGrantAttempted,'T3_EMPLOYEE_TASK_GRANT_OUTCOME_UNKNOWN_READBACK');
+    check(!taskGrantInFlight,'T3_EMPLOYEE_TASK_GRANT_IN_PROGRESS');
+    taskGrantInFlight=true;
+    try{return await issueTaskGrantOnce(input);}
+    finally{taskGrantInFlight=false;}
+  }
+  async function issueTaskGrantOnce({organizationId,employeePersonId,enrollmentId,
+    managerPersonId,managerGrantId,taskProfileVersion='1'}={}){
+    checkTaskProfile(taskProfileVersion);
     id(organizationId);id(employeePersonId);id(enrollmentId);
     id(managerPersonId);id(managerGrantId);
     check(organizationId===pinnedOrganization.organizationId&&
@@ -524,10 +545,10 @@ export function createOriginalEmployeeEnrollmentOwner({
     const at=now(),saved=await state(),org=pinnedOrganization;
     const enrolled=reconstruct({saved,employeePersonId,enrollmentId,at});
     const previous=relatedTaskGrants(saved,{enrollmentId,employeePersonId,
-      managerPersonId});
+      managerPersonId,taskProfileVersion});
     check(previous.length===0,'T3_EMPLOYEE_TASK_GRANT_EXISTS_USE_READBACK');
     const authority=saved.policy.authorities[org.issuerAuthorityId];
-    const resources=taskRecipientResources(org,employeePersonId);
+    const resources=taskRecipientResources(org,employeePersonId,taskProfileVersion);
     check(authority&&authority.principalId===organizationId&&
       resources.every(x=>authority.resources.includes(x))&&
       authority.roles.includes('assigner')&&
@@ -559,7 +580,7 @@ export function createOriginalEmployeeEnrollmentOwner({
       operationDigest:digest({schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_INTENT/1',
         organizationId,employeePersonId,enrollmentId,managerPersonId,
         managerGrantId,workGrantId:enrolled.grantIds.work,
-        resources})
+        ...(taskProfileVersion==='2'?{taskProfileVersion}:{}),resources})
     };
     const challenge=randomUUID()+randomUUID();
     const managerProof=await proveManager({
@@ -584,6 +605,7 @@ export function createOriginalEmployeeEnrollmentOwner({
       employeeProofDigest:'task-grant-manager-proof',
       evidenceRefs:['employee-enrollment:'+enrollmentId,
         'task-recipient:'+employeePersonId,
+        ...(taskProfileVersion==='2'?['task-profile:2']:[]),
         'employee-credential:'+enrolled.credentialPublicKeyRef,
         'manager-approval:'+digest(decision)]});
     const signed=signRecord(grant,issuerSigner);
@@ -609,7 +631,7 @@ export function createOriginalEmployeeEnrollmentOwner({
     taskGrantAttempted=true;
     const kernelReceipt=await registry.commitSignedState(next);
     const readback=await readTaskGrant({
-      organizationId,employeePersonId,enrollmentId,managerPersonId});
+      organizationId,employeePersonId,enrollmentId,managerPersonId,taskProfileVersion});
     check(readback.state==='ORIGINAL_MANAGER_TASK_DATA_ACTIVE'&&
       readback.grantId===grantId&&readback.statusSequence===sequence,
       'T3_EMPLOYEE_TASK_GRANT_ORIGINAL_READBACK_UNKNOWN');

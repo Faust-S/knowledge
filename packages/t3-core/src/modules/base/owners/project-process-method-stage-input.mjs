@@ -435,6 +435,11 @@ async function inspectStageResults({
 // including actual content/assets and its native execution identity.
 export async function previewWorkspaceMethodStageHandoff(input={}){
   const {includeMaterialEvidence=false,listAssets,getAsset,subjectKind=null}=input;
+  if(input.corporateResultSelections!==undefined){
+    if(includeMaterialEvidence!==true)
+      fail('METHOD_CORPORATE_CHAIN_MATERIAL_EVIDENCE_REQUIRED','Corporate Result lineage requires exact current material evidence');
+    return (await prepareWorkspaceMethodCorporateChain(input)).report;
+  }
   if(subjectKind!==null&&!['PERSONAL','CORP'].includes(subjectKind))
     fail('METHOD_STAGE_SUBJECT_KIND_INVALID','Trusted original subject kind required');
   if(typeof includeMaterialEvidence!=='boolean')
@@ -520,10 +525,10 @@ function corporateTaskReference(report,expectedCandidateDigest){
     exactInputBindingProven:false,allAssetsProven:false,resultReuseProven:false,workCompleted:false});
 }
 
-// W05.29: actual addressed source bytes for the EXISTING Agent text input
-// path. Root Work only: dependent accepted Result content must come from
-// its original owner, not a publication metadata record. Not a UI report,
-// package, Task creation, permission or execution receipt.
+// W05.29 / W05.36: actual addressed source bytes for the EXISTING Agent
+// text input path. Dependent Work requires exact accepted original signed
+// Result selections, not publication metadata. Not a UI report, package,
+// Task creation, permission or execution receipt.
 export async function buildWorkspaceMethodCorporateTaskInputs(input={}){
   if(input.subjectKind!=='CORP'||input.personalResultSelections!==undefined)
     fail('METHOD_CORPORATE_TASK_SCOPE_REQUIRED','Original corporate subject required');
@@ -532,11 +537,17 @@ export async function buildWorkspaceMethodCorporateTaskInputs(input={}){
   const {listAssets,getAsset}=input;
   if(typeof listAssets!=='function'||typeof getAsset!=='function')
     fail('METHOD_MATERIAL_ASSET_OWNER_REQUIRED','Original addressed Asset read ports required');
+  if(input.corporateResultSelections!==undefined){
+    const prepared=await prepareWorkspaceMethodCorporateChain(input);
+    return corporateTextInputs(corporateTaskReference(prepared.report,input.expectedCandidateDigest),prepared.payload);
+  }
   const capture=personalCapture();
   const inspection=await inspectStageResults(input,null,Object.freeze({listAssets,getAsset,draftCapture:capture,corporateInput:true}));
   const report=handoffReport(inspection,true,'CORP');
   const plan=corporateTaskReference(report,input.expectedCandidateDigest);
-  const payload=materializeAgentTextInputs(report,capture);
+  return corporateTextInputs(plan,materializeAgentTextInputs(report,capture));
+}
+function corporateTextInputs(plan,payload){
   // Exact source instruction is the original signed text, never trimmed or
   // reconstructed from prompt display. Provenance travels as a real input.
   if(payload.draft.text!==plan.task)fail('METHOD_CORPORATE_TASK_EVIDENCE_CHANGED','Original task text differs');
@@ -725,6 +736,130 @@ export async function prepareWorkspaceMethodPersonalChain(input={}){
     fail('METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED','The exact selected handoff content changed; review it again');
   return Object.freeze({...last,resolvedSelections,
     report:Object.freeze({...last.report,personalResultSelections:resolvedSelections})});
+}
+
+// W05.36: explicit corporate lineage in the original selected Project/Work
+// closure. The recipient owner supplies the accepted original signed Result,
+// its currentness and exact text. The existing Task v2 candidate digest binds
+// this selected lineage. No new signed format, acceptance or dispatch.
+function corporateChainReport(stage,materialEvidence,prior){
+  const inspection=Object.freeze({state:prior.length?'CORPORATE_PRIOR_RESULTS_OBSERVED_SIGNED_REFERENCES_MATCHED':'NO_PREDECESSOR_RESULTS_REQUIRED',
+    stageInput:stage,results:Object.freeze([]),atomicSnapshot:false,executionAuthority:false,resultReuseProven:false,
+    writeAuthorized:false,exactInputBindingProven:false,originalExecutionOwnerRequired:true,materialEvidence});
+  const base=handoffReport(inspection,true,'CORP');
+  if(!prior.length)return base; // preserve W05.22/W05.29 root reference bytes
+  const basis=stage.basis,corporateResults=Object.freeze(prior.map(row=>Object.freeze({
+    stepId:row.stepId,canonicalWorkRef:row.workRef,acceptedResult:row.evidence})));
+  const binding=Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_HANDOFF_PREVIEW_V1',
+    corporateResultChain:true,workspaceId:basis.workspaceId,projectId:basis.projectId,stepId:basis.stepId,
+    projectRef:basis.projectRef,workRef:basis.stageRef,intendedActor:basis.intendedActor,subjectKind:'CORP',
+    inputBasisDigest:stage.inputBasisDigest,materialEvidenceDigest:materialEvidence.materialEvidenceDigest,
+    predecessorResults:corporateResults});
+  return Object.freeze({...base,state:inspection.state,binding,corporateResults,
+    candidateDigest:createHash('sha256').update(canonicalStringify(binding)).digest('hex')});
+}
+export async function prepareWorkspaceMethodCorporateChain(input={}){
+  const {stepId,workspaceId,organizationId,subjectKind,corporateResultSelections,listAssets,getAsset,readObject,
+    readCorporateAcceptedResult,expectedCandidateDigest}=input;
+  if(subjectKind!=='CORP'||!text(organizationId)||typeof readCorporateAcceptedResult!=='function'
+      ||typeof listAssets!=='function'||typeof getAsset!=='function')
+    fail('METHOD_CORPORATE_CHAIN_ORIGINAL_OWNER_REQUIRED','Original corporate accepted Result and addressed material owners required');
+  if(!Array.isArray(corporateResultSelections)||!corporateResultSelections.length||corporateResultSelections.length>63
+      ||input.personalResultSelections!==undefined||(input.resultSelections??[]).length!==0)
+    fail('METHOD_CORPORATE_CHAIN_SELECTION_REQUIRED','Select exact original accepted signed Results without mixing other source routes');
+  const selections=Array.from(corporateResultSelections,row=>{
+    if(!row||typeof row.stepId!=='string'||!/^[A-Za-z0-9_-]{1,63}$/.test(row.stepId)
+      ||!HEX.test(row.acceptanceId??'')||!HEX.test(row.resultRevisionId??''))
+      fail('METHOD_CORPORATE_CHAIN_SELECTION_REQUIRED','Exact accepted revision and receipt required for every prerequisite');
+    return Object.freeze({stepId:row.stepId,acceptanceId:row.acceptanceId,resultRevisionId:row.resultRevisionId});
+  });
+  const byStep=new Map(selections.map(row=>[row.stepId,row]));
+  if(byStep.size!==selections.length||new Set(selections.map(row=>row.acceptanceId)).size!==selections.length
+      ||new Set(selections.map(row=>row.resultRevisionId)).size!==selections.length)
+    fail('METHOD_CORPORATE_CHAIN_SELECTION_REQUIRED','Duplicate prerequisite or accepted Result');
+  const observation=await openInputObservation({...input,stepId},false);
+  const stages=observation.closure.works.map(row=>observation.reportFor(row.work.methodology.stepId));
+  const target=stages.at(-1),ancestors=stages.slice(0,-1);
+  if(!target||target.basis.stepId!==stepId||!target.predecessors.length
+      ||ancestors.length!==selections.length||ancestors.some(stage=>!byStep.has(stage.basis.stepId)))
+    fail('METHOD_CORPORATE_CHAIN_SELECTION_REQUIRED','Select exact accepted Result for every Work in the prerequisite closure');
+  if(stages.some(stage=>stage.basis.intendedActor!=='agent'))
+    fail('METHOD_CORPORATE_CHAIN_ACTOR_UNSUPPORTED','Human and program Results require their original owner route');
+  if(stages.some(stage=>stage.inputBasisDigest===null))
+    fail('METHOD_CORPORATE_CHAIN_MATERIAL_CHANGED','Prerequisite material requires review');
+  const resolvedSelections=Object.freeze(ancestors.map(stage=>byStep.get(stage.basis.stepId)));
+  const readResult=async stage=>{
+    const selected=byStep.get(stage.basis.stepId);
+    const row=await readCorporateAcceptedResult(selected);
+    const w=row?.workflowInput,result=row?.result;
+    if(row?.state!=='ORIGINAL_CORPORATE_ACCEPTED_WORKFLOW_RESULT'||row.originalRecipientReadback!==true||row.readOnly!==true
+      ||row.acceptanceState!=='ACCEPTED'||row.currentness!=='CURRENT_BOUNDED'
+      ||row.exactInputBindingProven!==false||row.executionAuthorized!==false||row.workCompleted!==false
+      ||row.organizationId!==organizationId||row.workspaceId!==workspaceId||!text(row.executorId)
+      ||row.acceptanceId!==selected.acceptanceId||row.resultRevisionId!==selected.resultRevisionId
+      ||typeof row.taskId!=='string'||!/^task:[A-Za-z0-9:-]{1,100}$/.test(row.taskId)
+      ||![row.taskRevisionId,row.taskPackageSha256,row.packageSha256,row.resultSha256].every(v=>typeof v==='string'&&HEX.test(v))
+      ||w?.schema!=='IWXA_T3_WORKFLOW_INPUT_REFERENCE/1'||w.workspaceId!==workspaceId
+      ||w.projectId!==stage.basis.projectId||w.stepId!==stage.basis.stepId
+      ||!equal(w.projectRef,stage.basis.projectRef)||!equal(w.workRef,stage.basis.stageRef)
+      ||w.inputBasisDigest!==stage.inputBasisDigest
+      ||typeof result!=='string'||!result.trim()||result.includes('\0')||Buffer.from(result,'utf8').toString('utf8')!==result
+      ||createHash('sha256').update(result,'utf8').digest('hex')!==row.resultSha256)
+      fail('METHOD_CORPORATE_CHAIN_RESULT_MISMATCH','Exact original accepted Result, source Work and content must agree');
+    if(Buffer.byteLength(result,'utf8')>48000)
+      fail('METHOD_PERSONAL_DRAFT_CONTENT_LIMIT','Original accepted Result cannot fit the existing Agent text composer');
+    // Copy stable original evidence only. No volatile ledger generation,
+    // payload, status timestamps, grants or currentness proof in the UI.
+    return Object.freeze({summary:result,evidence:Object.freeze({
+      organizationId:row.organizationId,workspaceId:row.workspaceId,executorId:row.executorId,
+      acceptanceId:row.acceptanceId,resultRevisionId:row.resultRevisionId,packageSha256:row.packageSha256,
+      taskId:row.taskId,taskRevisionId:row.taskRevisionId,taskPackageSha256:row.taskPackageSha256,
+      resultSha256:row.resultSha256,workflowInput:Object.freeze(structuredClone(w)),
+      exactInputBindingProven:false,workCompleted:false})});
+  };
+  const observeResults=async()=>{
+    // Resolve explicit Results before touching large materials. Sequential
+    // addressed owner reads keep the content budget bounded and deterministic.
+    const observed=new Map(),tasks=new Set();
+    for(const stage of ancestors){
+      const row=await readResult(stage);
+      if(tasks.has(row.evidence.taskId))fail('METHOD_CORPORATE_CHAIN_SELECTION_REQUIRED','One signed Task cannot stand for multiple Works');
+      tasks.add(row.evidence.taskId);observed.set(stage.basis.stepId,row);
+    }
+    return observed;
+  };
+  const pass=async beforeMaterials=>{
+    let observed=beforeMaterials?await observeResults():null;
+    await observation.revalidate('METHOD_CORPORATE_CHAIN_MATERIAL_CHANGED');
+    const byMaterial=new Map(),all=await readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,
+      materials:observation.materials},personalCapture(),byMaterial);
+    if(!beforeMaterials)observed=await observeResults();
+    const accepted=new Map();
+    for(const stage of stages){
+      const {capture,materialEvidence}=personalMaterialSlice(stage,all,byMaterial);
+      const prior=stage.predecessors.map(row=>accepted.get(row.stepId));
+      if(prior.some(row=>!row))fail('METHOD_CORPORATE_CHAIN_SELECTION_REQUIRED','Original prerequisite Result unavailable');
+      for(const row of prior)appendPersonalDraftAttachment(capture,'result-'+String(++capture.resultCount).padStart(3,'0')+'.txt',row.summary);
+      const report=corporateChainReport(stage,materialEvidence,prior);
+      const signed=corporateTaskReference(report,report.candidateDigest);
+      if(stage.basis.stepId===stepId)return {report,payload:materializeAgentTextInputs(report,capture)};
+      const row=observed.get(stage.basis.stepId);
+      if(!row||!equal(row.evidence.workflowInput,signed.workflowInput))
+        fail('METHOD_CORPORATE_CHAIN_SIGNED_REFERENCE_CHANGED','Accepted signed predecessor declaration differs from current exact material and Result lineage');
+      accepted.set(stage.basis.stepId,Object.freeze({stepId:stage.basis.stepId,workRef:stage.basis.stageRef,...row}));
+    }
+    fail('METHOD_CORPORATE_CHAIN_SELECTION_REQUIRED','Selected target Work unavailable');
+  };
+  const first=await pass(true);
+  await observation.revalidate('METHOD_CORPORATE_CHAIN_MATERIAL_CHANGED');
+  const last=await pass(false);
+  await observation.revalidate('METHOD_CORPORATE_CHAIN_MATERIAL_CHANGED');
+  if(first.report.candidateDigest!==last.report.candidateDigest||!equal(first.payload.draft,last.payload.draft))
+    fail('METHOD_CORPORATE_CHAIN_EVIDENCE_CHANGED','Original accepted Result lineage or actual material content changed');
+  if(expectedCandidateDigest!==undefined&&last.report.candidateDigest!==expectedCandidateDigest)
+    fail('METHOD_CORPORATE_TASK_EVIDENCE_CHANGED','Current original input reference differs from the signed handoff');
+  return Object.freeze({...last,resolvedSelections,
+    report:Object.freeze({...last.report,corporateResultSelections:resolvedSelections})});
 }
 
 // W07.1. Reuse the existing trusted D6 recipient preview/recovery port.

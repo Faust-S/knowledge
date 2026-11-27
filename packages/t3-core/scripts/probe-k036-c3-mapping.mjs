@@ -13,6 +13,8 @@ import { createRequire } from "node:module";
 import { qualifyOriginalC3OwnerOnK036 } from "./qualify-k036-c3-original-owner.mjs";
 import { probeCurrentObjectHistoryCandidate } from "./probe-k036-current-object-history.mjs";
 import { probeAttachedHistoryCandidate } from "./probe-k036-attached-history.mjs";
+import { qualifyOriginalCompanySharedResultOnK036 } from "./qualify-k036-company-shared-result.mjs";
+import { ORIGINAL_COMPANY_RECORD_SCHEMA } from "../src/t3/original-company-workspace-persistence.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const archive = join(root, "qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip");
@@ -54,7 +56,14 @@ const passport = (id, path, isWriter) => ({
 const limitedExporterId="qualification.c3.limited-exporter";
 const limitedPassport=passport(limitedExporterId,"/limited-exporter/",false);
 limitedPassport.permissions.packages.export=true;
-const passports = [passport(writerId,"/writer/",true),passport(readerId,"/reader/",false),limitedPassport];
+const companyWriterId="qualification.company.writer";
+const companyPassport=passport(companyWriterId,"/company-writer/",true);
+companyPassport.input_object_types=[ORIGINAL_COMPANY_RECORD_SCHEMA];
+companyPassport.output_object_types=[ORIGINAL_COMPANY_RECORD_SCHEMA];
+companyPassport.schemas={[ORIGINAL_COMPANY_RECORD_SCHEMA]:declaration};
+companyPassport.permissions.objects.read=[ORIGINAL_COMPANY_RECORD_SCHEMA];
+companyPassport.permissions.objects.write=[ORIGINAL_COMPANY_RECORD_SCHEMA];
+const passports = [passport(writerId,"/writer/",true),passport(readerId,"/reader/",false),limitedPassport,companyPassport];
 const domain = {
   config_schema_version:"1.0.0",config_version:"1.1.0",status:"active",domain_id:"qualification.iwxa.test",
   origin,local_store_name:"iwxa-local",workspace_profile:"personal",brand:{name:"Qualification"},
@@ -341,6 +350,9 @@ try {
   report.observations.originalOwner=await qualifyOriginalC3OwnerOnK036({client:attachedHistory.writer,
     openEmpty:async()=>{runtime.__resetKernelStoreForTests();globalThis.indexedDB=new IDBFactory();return connect();},
     anchorSchema,revisionSchema,schemaVersion:version,serviceId:writerId,check,same,expectReject});
+  report.observations.originalCompanySharedResult=await qualifyOriginalCompanySharedResultOnK036({
+    openEmpty:async()=>{runtime.__resetKernelStoreForTests();globalThis.indexedDB=new IDBFactory();return connect(companyWriterId);},
+    check,same,expectReject});
   report.status="PASS_PRIMITIVES_AND_OWNER_FIXTURE_ONLY";
 } catch (e) {
   report.status="FAIL";report.error={code:e.code??null,message:e.message,stack:e.stack};console.error(e);

@@ -365,6 +365,43 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   same('original K036 direct choice recovers exact prior fixture identities',final.resolvedSelections,[...rootSelection,...direct]);
   same('original K036 final Work receives only direct result',final.plan.draft.attachments.filter(a=>a.name.startsWith('result-')).map(a=>a.text),[reviewSummary]);
   acceptFixture(final.plan,'TASK-k036-finish','Accepted final conclusion');
+  // W05.39: exact K036/Exchange persistence and material bytes for a
+  // dependent corporate chain. Recipient ledger remains an addressed test
+  // port here; Center separately qualifies the original signed recipient.
+  const corporateAccepted=new Map(),corporateReadIds=[];
+  let corporateAssetReads=0;
+  const acceptCorporateFixture=(reference,stepId,result)=>{
+    const taskId='task:k036-'+stepId,acceptanceId=hash('accept-'+stepId),resultRevisionId=hash('result-'+stepId);
+    corporateAccepted.set(acceptanceId,Object.freeze({
+      state:'ORIGINAL_CORPORATE_ACCEPTED_WORKFLOW_RESULT',originalRecipientReadback:true,readOnly:true,
+      acceptanceState:'ACCEPTED',currentness:'CURRENT_BOUNDED',exactInputBindingProven:false,executionAuthorized:false,workCompleted:false,
+      organizationId:'org:k036-fixture',workspaceId:ws,executorId:'person:k036-fixture',acceptanceId,resultRevisionId,taskId,
+      taskRevisionId:hash('task-rev-'+stepId),taskPackageSha256:hash('task-package-'+stepId),packageSha256:hash('result-package-'+stepId),
+      workflowInput:reference.workflowInput,result,resultSha256:hash(result)
+    }));
+    return {stepId,acceptanceId,resultRevisionId};
+  };
+  const readCorporateAcceptedResult=async selection=>{
+    corporateReadIds.push(selection.acceptanceId);
+    return structuredClone(corporateAccepted.get(selection.acceptanceId));
+  };
+  const corporateChainArgs=(c,o,stepId,corporateResultSelections)=>({...corporateArgs,owner:o,stepId,corporateResultSelections,
+    organizationId:'org:k036-fixture',readCorporateAcceptedResult,
+    readObject:(...a)=>c.t1.getObject(...a),listAssets:q=>c.t1.listAssets(q),
+    getAsset:(...a)=>{corporateAssetReads++;return c.t1.getAsset(...a);}});
+  const acceptedRoot=acceptCorporateFixture(corporateReference,'analyse','Corporate analysis\r\nТочные результаты: 42 Ω');
+  const cReviewArgs=corporateChainArgs(reopenedClient,reopened.owner,'review',[acceptedRoot]);
+  const cReviewPreview=await previewWorkspaceMethodStageHandoff(cReviewArgs);
+  const cReview=await buildWorkspaceMethodCorporateTaskInputs({...cReviewArgs,expectedCandidateDigest:cReviewPreview.candidateDigest});
+  same('original K036 corporate dependent Work receives exact direct predecessor bytes',
+    cReview.attachments.filter(a=>a.name.startsWith('result-')).map(a=>a.text),[corporateAccepted.get(acceptedRoot.acceptanceId).result]);
+  const acceptedReview=acceptCorporateFixture(cReview,'review','Corporate review\r\nПроверено без преобразования');
+  const cFinalArgs=corporateChainArgs(reopenedClient,reopened.owner,'finish',[acceptedRoot,acceptedReview]);
+  const cFinalPreview=await previewWorkspaceMethodStageHandoff(cFinalArgs);
+  const cFinal=await buildWorkspaceMethodCorporateTaskInputs({...cFinalArgs,expectedCandidateDigest:cFinalPreview.candidateDigest});
+  same('original K036 final corporate Work receives only its direct accepted predecessor',
+    cFinal.attachments.filter(a=>a.name.startsWith('result-')).map(a=>a.text),[corporateAccepted.get(acceptedReview.acceptanceId).result]);
+  check('original K036 corporate dependent inputs remain a preparation only',cFinal.executionAuthority===false&&cFinal.workCompleted===false);
   const chainPackage=await exportAll(reopenedClient,ws),chainClient=await openEmpty();
   await importAll(chainClient,chainPackage.bytes,{mode:'full'});
   const chainOwner=await open(chainClient,ws);
@@ -378,6 +415,19 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
     expectedCandidateDigest:corporatePreview.candidateDigest});
   same('original K036 same-ID Exchange preserves actual corporate native input bytes and reference',
     exact(restoredCorporateInputs),exact(corporateInputs));
+  const cRestoredArgs=corporateChainArgs(chainClient,chainOwner.owner,'finish',[acceptedRoot,acceptedReview]);
+  const beforeCorporateAssets=corporateAssetReads,beforeCorporateResults=corporateReadIds.length;
+  const cRestored=await buildWorkspaceMethodCorporateTaskInputs({...cRestoredArgs,expectedCandidateDigest:cFinalPreview.candidateDigest});
+  same('original K036 same-ID restore preserves all corporate chain native input bytes',exact(cRestored),exact(cFinal));
+  same('original K036 restored corporate chain reads each shared Asset twice',corporateAssetReads-beforeCorporateAssets,2);
+  same('original K036 restored corporate chain reads each accepted predecessor twice',corporateReadIds.length-beforeCorporateResults,4);
+  const originalAcceptedRoot=corporateAccepted.get(acceptedRoot.acceptanceId);
+  const changedRoot=originalAcceptedRoot.result+' changed';
+  corporateAccepted.set(acceptedRoot.acceptanceId,{...originalAcceptedRoot,result:changedRoot,resultSha256:hash(changedRoot)});
+  await expectReject('original K036 changed accepted ancestor invalidates signed descendant lineage',
+    ()=>buildWorkspaceMethodCorporateTaskInputs({...cRestoredArgs,expectedCandidateDigest:cFinalPreview.candidateDigest}),
+    ['METHOD_CORPORATE_CHAIN_SIGNED_REFERENCE_CHANGED']);
+  corporateAccepted.set(acceptedRoot.acceptanceId,originalAcceptedRoot);
   const recovered=await recoverOriginalPersonalWorkflowTaskSelection({workspaceId:ws,projectId:personalProjectId,
     stepId:'finish',taskId:'TASK-k036-finish',expected:personal.method,observer});
   same('original K036 same-ID restore retains canonical Work identity',recovered.canonicalWorkRef.recordId,'personal-root-finish@1');
@@ -403,6 +453,9 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   await expectReject('original K036 changed actual attachment refuses old corporate native inputs',
     ()=>buildWorkspaceMethodCorporateTaskInputs({...restoredCorporateArgs,expectedCandidateDigest:corporatePreview.candidateDigest}),
     ['METHOD_CORPORATE_TASK_EVIDENCE_CHANGED']);
+  await expectReject('original K036 changed actual Asset invalidates dependent corporate chain',
+    ()=>buildWorkspaceMethodCorporateTaskInputs({...cRestoredArgs,expectedCandidateDigest:cFinalPreview.candidateDigest}),
+    ['METHOD_CORPORATE_CHAIN_SIGNED_REFERENCE_CHANGED']);
   same('fixture owner and Exchange use only original database',(await indexedDB.databases()).map(d=>d.name),['iwxa-local']);
   return {status:'PASS_ORIGINAL_OWNER_FIXTURE_ONLY',recordCount:9,restoredPartial:true,copyBinding:'EXPLICIT_EPHEMERAL_FIXTURE_PASS_PRODUCTION_BLOCKED',
     currentMethodAddressedReads:{before:beforeReads,after:afterReads},unfilteredCatalog:{before:catalogBefore,after:catalogAfter},
@@ -412,6 +465,7 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
     completeOverviewAddressedReads:{before:beforeOverviewReads,after:afterOverviewReads},rootHandoffPreview:true,
     corporateReferenceOriginalK036:{sameIdRestore:true,changedAssetRejected:true,actualSignedIssuerQualifiedSeparately:true,
       nativeTextInputsSameIdRestore:true,actualTextAndObjectBytesVerified:true,executionAuthorized:false},
+    corporateChainOriginalK036:{sameIdRestore:true,sharedAssetReads:2,acceptedPredecessorsReadTwice:true,changedAncestorRejected:true,changedAssetRejected:true,acceptedResultOwner:'CONTROLLED_FIXTURE_ONLY',executionAuthorized:false},
     personalChainOriginalK036:{sameIdRestore:true,directSelection:true,sharedAssetReads:2,changedAssetRejected:true,
       acceptedTaskOwner:'CONTROLLED_FIXTURE_ONLY',workCompleted:false},physicalBrowser:false,productionAdapterApproved:false};
 }
