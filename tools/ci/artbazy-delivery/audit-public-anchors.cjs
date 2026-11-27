@@ -70,6 +70,16 @@ if(require.main===module){
   const counts={};
   for(const x of result.findings) counts[x.kind]=(counts[x.kind]||0)+1;
   for(const [kind,count] of Object.entries(counts)) console.log('SOURCE_ANCHOR_KIND='+kind+' COUNT='+count);
-  for(const x of result.findings.slice(0,180)) console.log('SOURCE_ANCHOR_LOCATION='+x.file+':'+x.line+' KIND='+x.kind);
-  console.log('SOURCE_ANCHOR_TOTAL='+result.findings.length+' PRINTED='+Math.min(result.findings.length,180));
+  const groups=new Map();
+  for(const x of result.findings) {
+    const key=x.kind+' '+x.file;
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(x.line);
+  }
+  // Print every file/count, highest concentrations first, then exact JSX locations.
+  for(const [key,lines] of [...groups].sort((a,b)=>b[1].length-a[1].length||a[0].localeCompare(b[0]))) {
+    console.log('SOURCE_ANCHOR_GROUP='+key+' COUNT='+lines.length+' LINES='+lines.slice(0,12).join(','));
+  }
+  for(const x of result.findings.filter(x=>x.kind.startsWith('JSX_'))) console.log('SOURCE_ANCHOR_DIRECT='+x.file+':'+x.line+' KIND='+x.kind);
+  console.log('SOURCE_ANCHOR_TOTAL='+result.findings.length+' GROUPS='+groups.size);
 }
