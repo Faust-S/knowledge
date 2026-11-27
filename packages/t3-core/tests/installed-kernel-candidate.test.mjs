@@ -19,9 +19,11 @@ test('only the exact candidate ID can be requested',()=>{
   for(const bad of [null,'',true,BASE_KERNEL_ARTIFACT,CANDIDATE_KERNEL_ARTIFACT+'-other'])
     assert.throws(()=>selectQualificationKernelCandidate(bad,center),/ID_INVALID/);
 });
-test('candidate pin is immutable and unaccepted in both authorized public contexts',()=>{
+test('candidate pin is immutable and unaccepted in exact authorized public contexts',()=>{
   const a=selectQualificationKernelCandidate(CANDIDATE_KERNEL_ARTIFACT,center);
   assert.equal(a,selectQualificationKernelCandidate(CANDIDATE_KERNEL_ARTIFACT,knowledge));
+  assert.equal(a,selectQualificationKernelCandidate(CANDIDATE_KERNEL_ARTIFACT,{
+    ...center,GITHUB_REF:'refs/heads/work/2026-11-27-t4-native-pilot-k036'}));
   assert.equal(a.baseQualifiedArtifactId,BASE_KERNEL_ARTIFACT);
   assert.equal(a.releaseAccepted,false);
   assert.equal(a.productionActivation,false);
@@ -34,7 +36,8 @@ test('candidate pin is immutable and unaccepted in both authorized public contex
 test('private, local, non-disposable and wrong-branch builds reject candidate use',()=>{
   for(const bad of [{},{...center,GITHUB_ACTIONS:'false'}, {...center,RUNNER_ENVIRONMENT:'self-hosted'},
     {...center,GITHUB_REPOSITORY:'Faust-S/T2'},{...center,GITHUB_REPOSITORY:'Faust-S/T3'},
-    {...center,GITHUB_REF:'refs/heads/main'},{...knowledge,GITHUB_REF:'refs/heads/main'}])
+    {...center,GITHUB_REF:'refs/heads/main'},{...knowledge,GITHUB_REF:'refs/heads/main'},
+    {...center,GITHUB_REF:'refs/heads/work/2026-11-27-t4-native-pilot-k036-other'}])
     assert.throws(()=>selectQualificationKernelCandidate(CANDIDATE_KERNEL_ARTIFACT,bad),/DISPOSABLE_PUBLIC_QUALIFICATION_REQUIRED/);
 });
 test('candidate receipt fields never claim qualified-release acceptance',()=>{

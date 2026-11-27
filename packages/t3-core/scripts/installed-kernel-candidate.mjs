@@ -27,7 +27,8 @@ export function selectQualificationKernelCandidate(requested,env=process.env){
   if(requested===undefined)return null;
   if(requested!==CANDIDATE_KERNEL_ARTIFACT)deny('ID_INVALID');
   const allowed=(env.GITHUB_REPOSITORY==='Faust-S/Center'&&
-      env.GITHUB_REF==='refs/heads/work/2026-11-24-corporate-installed-one-core')||
+      ['refs/heads/work/2026-11-24-corporate-installed-one-core',
+       'refs/heads/work/2026-11-27-t4-native-pilot-k036'].includes(env.GITHUB_REF))||
     (env.GITHUB_REPOSITORY==='Faust-S/knowledge'&&
       env.GITHUB_REF==='refs/heads/work/2026-11-25-k036-corporate-event-qualification');
   if(env.GITHUB_ACTIONS!=='true'||env.RUNNER_ENVIRONMENT!=='github-hosted'||!allowed)
