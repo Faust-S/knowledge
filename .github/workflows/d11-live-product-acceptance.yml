@@ -29,7 +29,7 @@ jobs:
           persist-credentials: false
       - name: Admit one exact T3 request
         run: |
-          python tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-live-product-acceptance --profile t3-stable-os --revision domain=251f3e5d4f4333624c3e0bf8d3aad30003f6751f --revision site=2e12139e8ae8a562485fd2ff0083108511462815 --revision t3=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
+          python tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-live-product-acceptance --profile t3-stable-os --revision domain=251f3e5d4f4333624c3e0bf8d3aad30003f6751f --revision site=356910547f5ebdc778b162daa17dcb30303e9a28 --revision t3=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
           if ($LASTEXITCODE -ne 0) { throw "D11_REQUEST_INVALID" }
       - name: Verify published stable T3 engineering release
         env:
@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 2e12139e8ae8a562485fd2ff0083108511462815
+          ref: 356910547f5ebdc778b162daa17dcb30303e9a28
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -92,7 +92,7 @@ jobs:
           node-version: '22.16.0'
       - name: Verify exact T3 source and 56 D11 canonical mirrors
         run: |
-          if ((git -C site rev-parse HEAD).Trim() -ne "2e12139e8ae8a562485fd2ff0083108511462815" -or
+          if ((git -C site rev-parse HEAD).Trim() -ne "356910547f5ebdc778b162daa17dcb30303e9a28" -or
               (git -C domain rev-parse HEAD).Trim() -ne "251f3e5d4f4333624c3e0bf8d3aad30003f6751f" -or
               (git -C t3 rev-parse HEAD).Trim() -ne "8e26076ce66f0c26693a647e061fcd568e055b77" -or
               (git -C t3 rev-parse "HEAD^{tree}").Trim() -ne "6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" -or
