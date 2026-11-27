@@ -1,0 +1,9 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d01-hosting-freeze",
+  "prepared_sha": "9148b690c7414edab04e69042751a85a63e60d87",
+  "profile": "assistant-domain-context-source",
+  "revisions": {
+    "assistant": "244ad469a71ae65910144c6918488a2d061eecce"
+  }
+}
