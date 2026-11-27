@@ -394,7 +394,7 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     expect(f.overview).toHaveBeenCalledWith({workspaceId:"w",projectId:"research",expected:f.binding.expected});
     fireEvent.click(screen.getByRole("button",{name:"Подготовить передачу"}));
     await screen.findByTestId("workflow-handoff-preview");
-    expect(screen.getByText("Задача не создана. Запуск не выполнялся.")).toBeTruthy();
+    expect(screen.getByText("Подготовка передачи сама не создаёт и не запускает задачу.")).toBeTruthy();
     expect(f.previewHandoff).toHaveBeenCalledWith({workspaceId:"w",projectId:"research",expected:f.binding.expected,
       stepId:"analyse",resultSelections:[]});
     ui.rerender(<RichWorkspaceReadModel {...props} methodWorkflow={f.binding} catalogReady={false}/>);
@@ -580,7 +580,7 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     const inspectPersonalTask=vi.fn(async()=>({state:"ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED" as const,
       taskId,candidateDigest:digest,workspaceId:"w",projectId:"research",stepId:"analyse",agentWorkspaceId:"personal",
       resultId:"RES-fixture",taskDigest:digest,reviewId:"REV-fixture",acceptedDigest:digest,acceptedSummarySha256:digest,
-      snapshotId:"CSN-fixture",snapshotDigest:digest,projectionDigest:digest,bundleDigest:digest,
+      snapshotId:"CSN-fixture",snapshotDigest:digest,projectionDigest:digest,bundleDigest:digest,nativeSystemSourceCount:1,nativeSystemSourcesDigest:digest,
       declaredDraftInputsVerified:true as const,allAssetsProven:false as const,exactInputBindingProven:false as const,
       workCompleted:false as const,resultReuseProven:false as const,executionAuthority:false as const,writeAuthorized:false as const}));
     const binding={...f.binding,personalTaskId:taskId,reader:{...f.binding.reader,inspectMaterialEvidence:vi.fn(async()=>materialEvidence),

@@ -227,6 +227,8 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
       if(value.state!=='ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED'||value.taskId!==taskId||value.candidateDigest!==digest
           ||value.workspaceId!==binding.workspaceId||value.projectId!==binding.projectId||value.stepId!==stage.stepId
           ||!/^(personal|AREA-[0-9a-f]{18})$/.test(value.agentWorkspaceId)
+          ||!Number.isSafeInteger(value.nativeSystemSourceCount)||value.nativeSystemSourceCount<0||value.nativeSystemSourceCount>2
+          ||!/^[a-f0-9]{64}$/.test(value.nativeSystemSourcesDigest)
           ||value.declaredDraftInputsVerified!==true||value.exactInputBindingProven!==false||value.allAssetsProven!==false
           ||value.workCompleted!==false||value.resultReuseProven!==false||value.executionAuthority!==false||value.writeAuthorized!==false)
         throw Object.assign(Error("invalid"),{code:"METHOD_TASK_MISMATCH"});
@@ -331,7 +333,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
           <p className="text-slate-400">Проверка содержимого ожидает подтверждения входных ссылок и результатов предшественников.</p>}
         <p className="text-slate-300">До запуска необходимо:</p>
         <ul className="list-disc pl-4 text-slate-400">{visibleDetail.value.requiredOriginalOwnerChecks.map(key=><li key={key}>{checkLabels[key]??"Проверка оригинального владельца"}</li>)}</ul>
-        <p className="text-slate-300">Задача не создана. Запуск не выполнялся.</p>
+        <p className="text-slate-300">Подготовка передачи сама не создаёт и не запускает задачу.</p>
         {draftDigest&&<div className="space-y-1 border-t border-slate-800 pt-2" data-testid="workflow-personal-draft">
           <p className="text-slate-400">Передаются доступные текстовые входы в редактируемый черновик. Полнота вложений и запуск требуют отдельной проверки.</p>
           {!visibleAttempt&&<button type="button" className={button} disabled={busy} onClick={()=>void saveDraft(false)}>Передать в черновик Agent</button>}
@@ -340,7 +342,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
           {inspectableTask&&<div className="space-y-1 border-t border-slate-800 pt-2">
             <p className="break-words text-slate-400">Выбранная задача Agent: {inspectableTask}</p>
             <button type="button" className={button} disabled={busy} onClick={()=>void inspectTask()}>Проверить принятую задачу Agent</button>
-            {visibleTask&&<p role="status" data-testid="workflow-personal-task-match" className="text-slate-200">Сохранённые входы принятой задачи совпадают. Выполнение работы не засчитано.</p>}
+            {visibleTask&&<p role="status" data-testid="workflow-personal-task-match" className="text-slate-200">Сохранённые входы принятой задачи совпадают. Системных источников Agent: {visibleTask.nativeSystemSourceCount}. Выполнение работы не засчитано.</p>}
           </div>}
         </div>}
       </div>}

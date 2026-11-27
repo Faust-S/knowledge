@@ -126,11 +126,28 @@ export async function inspectOriginalPersonalWorkflowTask({plan,taskId,composer,
     // as the same executed input basis. No claim about system/model prompts.
     check(task.objective===plan.draft.text.trim()&&Array.isArray(snapshot.source_items)
       &&Array.isArray(snapshot.retrieval_refs)&&snapshot.retrieval_refs.length===0
-      &&snapshot.source_items.length===plan.draft.attachments.length,
+      &&snapshot.source_items.length>=plan.draft.attachments.length
+      &&snapshot.source_items.length<=plan.draft.attachments.length+2,
       'T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
     const expected=new Map(plan.draft.attachments.map((a,i)=>[
       'attachments/'+String(i+1).padStart(2,'0')+'-'+a.name,{sha256:sha(a.text),bytes:Buffer.byteLength(a.text,'utf8'),text:a.text}]));
+    // These two sources are emitted by the ORIGINAL Agent when it
+    // compiles the Task. Accept only their exact native path, origin,
+    // trust level and bounded digest metadata. A changed Human revision
+    // guidance is additional input and is NOT the prepared root Work.
+    const systemPaths=new Set(),systemSources=[];
+    const initialGuidance='# Revision guidance\nInitial run: no human revision guidance.\n';
     for(const item of snapshot.source_items){
+      if(item.path==='iwxa/revision-guidance.md'||item.path==='iwxa/operational-skill.md'){
+        const guidance=item.path==='iwxa/revision-guidance.md';
+        check(!systemPaths.has(item.path)&&item.origin===(guidance?'iwxa_revision_control':'iwxa_operational_skill')
+          &&item.classification==='personal'&&item.trust_level==='system_generated'
+          &&HEX.test(item.sha256??'')&&Number.isSafeInteger(item.bytes)&&item.bytes>0
+          &&(!guidance||(item.sha256===sha(initialGuidance)&&item.bytes===Buffer.byteLength(initialGuidance,'utf8'))),
+          'T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
+        systemPaths.add(item.path);systemSources.push({path:item.path,sha256:item.sha256,bytes:item.bytes});
+        continue;
+      }
       const match=expected.get(item.path);
       check(match&&item.origin==='interaction_attachment'&&item.sha256===match.sha256&&item.bytes===match.bytes,
         'T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
@@ -140,12 +157,15 @@ export async function inspectOriginalPersonalWorkflowTask({plan,taskId,composer,
       expected.delete(item.path);
     }
     check(expected.size===0,'T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
+    systemSources.sort((a,b)=>a.path.localeCompare(b.path));
+    const nativeSystemSourcesDigest=sha(canonicalStringify(systemSources));
     await current();
     // Never project Task, Result, or document text to the Workspace UI.
     return Object.freeze({taskId,resultId:result.result_id,taskDigest:result.task_digest,
       reviewId:acceptedSource.review_id,acceptedDigest:acceptedSource.accepted_artifact_digest,
       acceptedSummarySha256:sha(result.summary),snapshotId:snapshot.snapshot_id,snapshotDigest:snapshot.snapshot_digest,
-      projectionDigest:snapshot.projection_digest,bundleDigest:snapshot.bundle_digest});
+      projectionDigest:snapshot.projection_digest,bundleDigest:snapshot.bundle_digest,
+      nativeSystemSourceCount:systemSources.length,nativeSystemSourcesDigest});
   };
   const first=await read(),fresh=await refreshPlan();
   check(fresh.candidateDigest===plan.candidateDigest&&equal(fresh.draft,plan.draft),'T3_METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED');

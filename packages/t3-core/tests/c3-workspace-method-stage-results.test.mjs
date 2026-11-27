@@ -556,3 +556,20 @@ test('accepted personal Task changed during verification is not reported as matc
   f.hook(value=>{f.run.acceptedSource.accepted_artifact_digest='f'.repeat(64);return value;});
   await assert.rejects(f.inspect(),code('T3_METHOD_PERSONAL_TASK_ACCEPTED_RUN_CHANGED'));
 });
+
+test('original initial revision guidance and native operational skill are distinct verified system sources, never declared user inputs',async()=>{
+  const f=await personalTaskFixture(),text='# Revision guidance\nInitial run: no human revision guidance.\n';
+  const guidance={path:'iwxa/revision-guidance.md',origin:'iwxa_revision_control',classification:'personal',trust_level:'system_generated',
+    sha256:createHash('sha256').update(text).digest('hex'),bytes:Buffer.byteLength(text)};
+  const skill={...guidance,path:'iwxa/operational-skill.md',origin:'iwxa_operational_skill',sha256:'b'.repeat(64),bytes:50};
+  f.run.snapshot.source_items.push(guidance,skill);
+  const r=await f.inspect();
+  assert.equal(r.nativeSystemSourceCount,2);assert.match(r.nativeSystemSourcesDigest,/^[a-f0-9]{64}$/);
+  assert.equal(f.documents(),6);assert.equal(r.exactInputBindingProven,false);
+  f.run.snapshot.source_items[3]={...guidance,sha256:'f'.repeat(64)};
+  await assert.rejects(f.inspect(),code('T3_METHOD_PERSONAL_TASK_INPUT_CHANGED'));
+  f.run.snapshot.source_items[3]={...guidance,trust_level:'user_provided'};
+  await assert.rejects(f.inspect(),code('T3_METHOD_PERSONAL_TASK_INPUT_CHANGED'));
+  f.run.snapshot.source_items[3]={...guidance,path:'iwxa/unrelated.md'};
+  await assert.rejects(f.inspect(),code('T3_METHOD_PERSONAL_TASK_INPUT_CHANGED'));
+});

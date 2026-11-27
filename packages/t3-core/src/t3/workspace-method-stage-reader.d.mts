@@ -56,7 +56,8 @@ export type WorkspaceMethodPersonalTaskInspection=Readonly<{
   state:'ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED';workspaceId:string;projectId:string;stepId:string;
   candidateDigest:string;agentWorkspaceId:string;taskId:string;resultId:string;taskDigest:string;
   reviewId:string;acceptedDigest:string;acceptedSummarySha256:string;snapshotId:string;snapshotDigest:string;
-  projectionDigest:string;bundleDigest:string;declaredDraftInputsVerified:true;allAssetsProven:false;
+  projectionDigest:string;bundleDigest:string;nativeSystemSourceCount:number;nativeSystemSourcesDigest:string;
+  declaredDraftInputsVerified:true;allAssetsProven:false;
   exactInputBindingProven:false;workCompleted:false;resultReuseProven:false;executionAuthority:false;writeAuthorized:false;
 }>;
 export interface WorkspaceMethodStageReader {
