@@ -1,0 +1,549 @@
+name: D08 frozen hosting T2 RC2 full qualification
+on:
+  push:
+    branches: ['ci/once/d08-hosting-qualification/**']
+    paths: ['.github/ci-requests/d08-hosting-qualification.json']
+permissions:
+  contents: read
+concurrency:
+  group: d08-hosting-release
+  cancel-in-progress: false
+jobs:
+  gate:
+    if: github.event.created == false && github.event.deleted == false && github.event.forced == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Validate single immutable request before private checkout
+        env:
+          PREPARED: ${{ github.event.before }}
+          REF_NAME: ${{ github.ref_name }}
+          PUSH_HEAD: ${{ github.sha }}
+        run: |
+          set -e
+          test "$REF_NAME" = "ci/once/d08-hosting-qualification/$PREPARED"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$PUSH_HEAD $PREPARED"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = "$(printf 'A\t.github/ci-requests/d08-hosting-qualification.json')"
+          python3 - <<'PY'
+          import os, json
+          with open('.github/ci-requests/d08-hosting-qualification.json', encoding='utf-8') as f:
+              r=json.load(f)
+          assert r=={'workflow':'d08-hosting-qualification','prepared':os.environ['PREPARED'],'domain':'088b66b468ca81b6c274c358dfcd1eea3ed3ec35','site':'aea13121756e4b37a6b8569bdf18449d86bd0d11','t2':'49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7','assistant':'5e3083788aa541921559de29d3457d4a52bbba00','profile':'frozen-t2-full','reason':'hosting candidate qualification'}
+          print('D08_ONE_SHOT_REQUEST=PASS')
+          PY
+  regression:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      CI: 'true'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+      IWXA_T2_STAGER_PATH: ${{ github.workspace }}/t2/t2/current/final-successor/canonical-source/scripts/stage-t2-external-module.mjs
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout exact private domain
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops
+          ref: '088b66b468ca81b6c274c358dfcd1eea3ed3ec35'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: domain
+      - name: Checkout exact private site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: 'aea13121756e4b37a6b8569bdf18449d86bd0d11'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - name: Checkout original T2
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: '49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - name: Checkout original assistant for dormant-path tests
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: '5e3083788aa541921559de29d3457d4a52bbba00'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: assistant
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify pinned heads trees and canonical copies
+        id: pins
+        run: |
+          set -e
+          test "$(git -C domain rev-parse HEAD)" = '088b66b468ca81b6c274c358dfcd1eea3ed3ec35'
+          test "$(git -C domain rev-parse HEAD^{tree})" = '4ca2f891d9f253c634524c081b18077ccc831d4e'
+          test "$(git -C site rev-parse HEAD)" = 'aea13121756e4b37a6b8569bdf18449d86bd0d11'
+          test "$(git -C site rev-parse HEAD^{tree})" = '558e8636c61a783fa2ee4f1b3f2319c0f68c91ba'
+          test "$(git -C t2 rev-parse HEAD)" = '49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7'
+          test "$(git -C t2 rev-parse HEAD^{tree})" = '3113d4b05ab18872b1f71388d6763d23fd8ffb19'
+          test "$(git -C assistant rev-parse HEAD)" = '5e3083788aa541921559de29d3457d4a52bbba00'
+          python - <<'PY'
+          import pathlib,json
+          count=0
+          for p in pathlib.Path('domain/model').iterdir():
+              if p.is_file() and (p.name.endswith('.mjs') or p.name.endswith('.d.mts')):
+                  copies=[pathlib.Path('site/src/lib')/p.name,pathlib.Path('site/t2-site-module/marketops/decision')/p.name]
+                  existing=[q for q in copies if q.is_file()]
+                  assert existing and all(q.read_bytes()==p.read_bytes() for q in existing)
+                  count+=1
+          assert count==54
+          passport=json.loads(pathlib.Path('site/t2-site-module/t2-config/marketops-workspace-passport.json').read_text())
+          assert len(passport['output_object_types'])==7
+          snapshot=passport['schemas']['ru.iwxa.marketops.business-project']['json_schema']['properties']['data']['properties']['snapshot']
+          assert snapshot['properties']['enterprisePortfolio']==json.loads(pathlib.Path('domain/model/enterprise-portfolio.schema.json').read_text())
+          assert snapshot['properties']['operatingDecisions']['maxItems']==40
+          assert pathlib.Path('domain/model/domain-assistant-skills.json').read_bytes()==pathlib.Path('site/public/assets/d08-assistant-skills.json').read_bytes()
+          print('D08_CANONICAL_54_SCHEMA_7_TYPES=PASS')
+          PY
+      - name: All native domain test files
+        id: subject
+        working-directory: domain
+        run: |
+          rc=0
+          ( node --test tests/*.test.mjs ) > "$RUNNER_TEMP/d08-subject.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-subject.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-subject.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-subject.log" | sort -u | head -35 || true
+            echo D08_SUBJECT=FAIL
+            exit "$rc"
+          fi
+          echo D08_SUBJECT=PASS
+      - name: Clean install site dependencies
+        id: install
+        if: always() && !cancelled() && steps.pins.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( npm ci --no-audit --no-fund ) > "$RUNNER_TEMP/d08-install.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-install.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-install.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-install.log" | sort -u | head -35 || true
+            echo D08_INSTALL=FAIL
+            exit "$rc"
+          fi
+          echo D08_INSTALL=PASS
+      - name: Site TypeScript
+        id: types
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( npm run check:types ) > "$RUNNER_TEMP/d08-types.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-types.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-types.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-types.log" | sort -u | head -35 || true
+            grep -oE '^[A-Za-z0-9_./-]+\([0-9]+,[0-9]+\): error TS[0-9]+' "$RUNNER_TEMP/d08-types.log" | head -50 || true
+            echo D08_TYPES=FAIL
+            exit "$rc"
+          fi
+          echo D08_TYPES=PASS
+      - name: Site lint
+        id: lint
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( npm run lint -- --format json --output-file "$RUNNER_TEMP/d08-lint.json" ) > "$RUNNER_TEMP/d08-lint.log" 2>&1 || rc=$?
+          if [ -f "$RUNNER_TEMP/d08-lint.json" ]; then
+            node --input-type=module -e 'import fs from "node:fs";import path from "node:path";const rows=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/d08-lint.json","utf8"));for(const f of rows)for(const m of f.messages)if(m.severity===2)console.log("D08_LINT_ERROR="+path.relative(process.cwd(),f.filePath)+":"+(m.line??0)+":"+(m.column??0)+":"+(m.ruleId??"PARSER"));' | head -70
+          fi
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-lint.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-lint.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-lint.log" | sort -u | head -35 || true
+            echo D08_LINT=FAIL
+            exit "$rc"
+          fi
+          echo D08_LINT=PASS
+      - name: All site Node and TypeScript tests
+        id: site_tests
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( IWXA_D08_ORIGINAL_ASSISTANT="$GITHUB_WORKSPACE/assistant" node --import tsx --test tests/*.test.mjs ) > "$RUNNER_TEMP/d08-site_tests.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-site_tests.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-site_tests.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-site_tests.log" | sort -u | head -35 || true
+            awk '/^not ok / {bad=1} /^ok / {bad=0} bad && /location:/ {print}' "$RUNNER_TEMP/d08-site_tests.log" | grep -oE 'tests/[A-Za-z0-9_-]+\.test\.mjs:[0-9]+:[0-9]+' | sort -u | head -40 || true
+            echo D08_SITE_TESTS=FAIL
+            exit "$rc"
+          fi
+          echo D08_SITE_TESTS=PASS
+      - name: Install independent JSON Schema validator
+        id: schema_deps
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( python -m pip install jsonschema==4.23.0 --disable-pip-version-check ) > "$RUNNER_TEMP/d08-schema_deps.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-schema_deps.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-schema_deps.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-schema_deps.log" | sort -u | head -35 || true
+            echo D08_SCHEMA_DEPS=FAIL
+            exit "$rc"
+          fi
+          echo D08_SCHEMA_DEPS=PASS
+      - name: All actual Project passport fixtures
+        id: project_passport
+        if: always() && !cancelled() && steps.schema_deps.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( python scripts/check-business-project-passport.py ) > "$RUNNER_TEMP/d08-project_passport.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-project_passport.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-project_passport.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-project_passport.log" | sort -u | head -35 || true
+            echo D08_PROJECT_PASSPORT=FAIL
+            exit "$rc"
+          fi
+          echo D08_PROJECT_PASSPORT=PASS
+      - name: Hosting packager Python regression
+        id: package_tests
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( python -m unittest discover -s tests -p test_package_hosting.py -v ) > "$RUNNER_TEMP/d08-package_tests.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-package_tests.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-package_tests.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-package_tests.log" | sort -u | head -35 || true
+            echo D08_PACKAGE_TESTS=FAIL
+            exit "$rc"
+          fi
+          echo D08_PACKAGE_TESTS=PASS
+      - name: Public npm lock and static entry checks
+        id: public_entry
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( npm run check:npm-lock && npm run check:t2:entry ) > "$RUNNER_TEMP/d08-public_entry.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-public_entry.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-public_entry.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-public_entry.log" | sort -u | head -35 || true
+            echo D08_PUBLIC_ENTRY=FAIL
+            exit "$rc"
+          fi
+          echo D08_PUBLIC_ENTRY=PASS
+      - name: Public Vite build
+        id: vite
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( npm exec -- vite build ) > "$RUNNER_TEMP/d08-vite.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-vite.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-vite.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-vite.log" | sort -u | head -35 || true
+            echo D08_VITE=FAIL
+            exit "$rc"
+          fi
+          echo D08_VITE=PASS
+      - name: Stage original Host with exact site module
+        id: host
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        run: |
+          set -e
+          canonical="$GITHUB_WORKSPACE/t2/t2/current/final-successor/canonical-source"
+          host="$RUNNER_TEMP/d08-host"
+          cp -a "$canonical" "$host"
+          node "$canonical/scripts/stage-t2-external-module.mjs" "$host" "$GITHUB_WORKSPACE/site/t2-site-module/marketops" iwxa.domain.marketops marketops > "$RUNNER_TEMP/d08-stage.log" 2>&1
+          cd "$host"
+          npm ci --no-audit --no-fund --include=dev > "$RUNNER_TEMP/d08-host-install.log" 2>&1
+          echo D08_ORIGINAL_HOST_STAGE=PASS
+      - name: Compile original staged Host
+        if: always() && !cancelled() && steps.host.outcome == 'success'
+        run: |
+          cd "$RUNNER_TEMP/d08-host"
+          npm run build > "$RUNNER_TEMP/d08-host-build.log" 2>&1 || { echo D08_HOST_BUILD=FAIL; exit 1; }
+          test -f dist/index.html
+          echo D08_HOST_BUILD=PASS
+      - name: Actual React editor and chart DOM suites
+        if: always() && !cancelled() && steps.host.outcome == 'success'
+        run: |
+          set -e
+          host="$RUNNER_TEMP/d08-host"
+          mkdir -p "$host/tests/marketops-chart-fixture"
+          cp site/tests/enterprise-chart-interactions.dom.test.tsx site/tests/enterprise-cash-review-interactions.dom.test.tsx site/tests/enterprise-management-interactions.dom.test.tsx "$host/tests/"
+          for f in enterprise-comparison-charts enterprise-period-chart enterprise-cash-forecast-view enterprise-cash-forecast-editor enterprise-cash-review-view enterprise-cash-review-editor enterprise-management-view; do
+            cp "site/src/components/$f.tsx" "$host/tests/marketops-chart-fixture/"
+          done
+          cd "$host"
+          cat > vitest.d08.config.ts <<'EOF'
+          import {defineConfig} from "vitest/config";
+          import path from "node:path";
+          export default defineConfig({
+            resolve:{alias:[{find:"@/lib/enterprise-portfolio.mjs",replacement:path.resolve("src/modules/marketops/decision/enterprise-portfolio.mjs")},{find:"@",replacement:path.resolve("src")}]},
+            test:{environment:"jsdom",setupFiles:["tests/setup-jsdom.ts"],maxWorkers:2,
+              include:["tests/enterprise-chart-interactions.dom.test.tsx","tests/enterprise-cash-review-interactions.dom.test.tsx","tests/enterprise-management-interactions.dom.test.tsx"],
+              reporters:[["json",{outputFile:process.env.D08_DOM_REPORT}]]}
+          });
+          EOF
+          export D08_DOM_REPORT="$RUNNER_TEMP/d08-dom.json"
+          rc=0
+          ( npm exec -- vitest run --config vitest.d08.config.ts ) > "$RUNNER_TEMP/d08-dom.log" 2>&1 || rc=$?
+          test -f "$D08_DOM_REPORT" || exit 1
+          node --input-type=module -e 'import fs from "node:fs";const x=JSON.parse(fs.readFileSync(process.env.D08_DOM_REPORT,"utf8"));console.log("D08_DOM_TOTAL="+x.numTotalTests);console.log("D08_DOM_PASS="+x.numPassedTests);console.log("D08_DOM_FAIL="+x.numFailedTests);if(x.numTotalTests!==13||x.numPassedTests!==13||x.numFailedTests!==0)process.exitCode=1'
+          test "$rc" = 0
+      - name: Discard private checkout and raw logs
+        if: always()
+        run: |
+          rm -rf domain site t2 assistant "$RUNNER_TEMP/d08-host"
+          rm -f "$RUNNER_TEMP"/d08-*.log "$RUNNER_TEMP/d08-dom.json" "$RUNNER_TEMP/d08-lint.json"
+  native:
+    needs: gate
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      CI: 'true'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+      IWXA_T2_STAGER_PATH: ${{ github.workspace }}/t2/t2/current/final-successor/canonical-source/scripts/stage-t2-external-module.mjs
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Windows checkout configuration
+        run: |
+          git config --global core.longpaths true
+          git config --global core.autocrlf false
+      - name: Checkout exact private site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: 'aea13121756e4b37a6b8569bdf18449d86bd0d11'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - name: Checkout original accepted T2
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: '49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Confirm original source pins and installed Windows build browser
+        id: pins
+        run: |
+          set -e
+          test "$(git -C site rev-parse HEAD)" = 'aea13121756e4b37a6b8569bdf18449d86bd0d11'
+          test "$(git -C site rev-parse HEAD^{tree})" = '558e8636c61a783fa2ee4f1b3f2319c0f68c91ba'
+          test "$(git -C t2 rev-parse HEAD)" = '49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7'
+          test "$(git -C t2 rev-parse HEAD^{tree})" = '3113d4b05ab18872b1f71388d6763d23fd8ffb19'
+          test -z "$(git -C t2 status --porcelain)"
+          chrome="C:\Program Files\Google\Chrome\Application\chrome.exe"
+          test -f "$chrome" || { echo D08_NATIVE_BUILD_BROWSER=FAIL; exit 1; }
+          echo "PUPPETEER_EXECUTABLE_PATH=$chrome" >> "$GITHUB_ENV"
+          echo D08_NATIVE_PINS=PASS
+      - name: Install exact site lock on Windows
+        id: install
+        working-directory: site
+        run: |
+          rc=0
+          ( npm ci --no-audit --no-fund ) > "$RUNNER_TEMP/d08-install.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-install.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-install.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-install.log" | sort -u | head -35 || true
+            echo D08_INSTALL=FAIL
+            exit "$rc"
+          fi
+          echo D08_INSTALL=PASS
+      - name: Original Kernel ZIP preflight
+        id: zip_preflight
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( node tests/t2-qualified-kernel-source-zip.mjs ) > "$RUNNER_TEMP/d08-zip_preflight.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-zip_preflight.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-zip_preflight.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-zip_preflight.log" | sort -u | head -35 || true
+            echo D08_ZIP_PREFLIGHT=FAIL
+            exit "$rc"
+          fi
+          echo D08_ZIP_PREFLIGHT=PASS
+      - name: Original Kernel schema diagnostic
+        id: kernel_schema
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( node --import tsx tests/d08-original-kernel-schema-probe.mjs ) > "$RUNNER_TEMP/d08-kernel_schema.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-kernel_schema.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-kernel_schema.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-kernel_schema.log" | sort -u | head -35 || true
+            echo D08_KERNEL_SCHEMA=FAIL
+            exit "$rc"
+          fi
+          echo D08_KERNEL_SCHEMA=PASS
+      - name: Actual public business UI
+        id: business_ui
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( node tests/business-project-dev-windows-browser.mjs ) > "$RUNNER_TEMP/d08-business_ui.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-business_ui.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-business_ui.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-business_ui.log" | sort -u | head -35 || true
+            echo D08_BUSINESS_UI=FAIL
+            exit "$rc"
+          fi
+          echo D08_BUSINESS_UI=PASS
+      - name: Real handoff and obligation form preflight
+        id: handoff
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( node tests/d08-business-handoff-preflight.mjs && node tests/d08-obligation-form-native-preflight.mjs ) > "$RUNNER_TEMP/d08-handoff.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-handoff.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-handoff.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-handoff.log" | sort -u | head -35 || true
+            echo D08_HANDOFF=FAIL
+            exit "$rc"
+          fi
+          echo D08_HANDOFF=PASS
+      - name: Real trading preflight
+        id: trade_preflight
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( node tests/d08-trading-business-handoff-preflight.mjs && node tests/d08-trading-public-goods-preflight.mjs ) > "$RUNNER_TEMP/d08-trade_preflight.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-trade_preflight.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-trade_preflight.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-trade_preflight.log" | sort -u | head -35 || true
+            echo D08_TRADE_PREFLIGHT=FAIL
+            exit "$rc"
+          fi
+          echo D08_TRADE_PREFLIGHT=PASS
+      - name: Complete original T2 production dist and mandatory build checks
+        id: build
+        if: always() && !cancelled() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( npm run build ) > "$RUNNER_TEMP/d08-build.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-build.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-build.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-build.log" | sort -u | head -35 || true
+            echo D08_BUILD=FAIL
+            exit "$rc"
+          fi
+          echo D08_BUILD=PASS
+      - name: Original T2 business project cold readback and independent iwxa
+        id: business_roundtrip
+        if: always() && !cancelled() && steps.build.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( D08_BIZ_EXCHANGE_TEST=1 node tests/business-project-native-t2-windows.mjs ) > "$RUNNER_TEMP/d08-business_roundtrip.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-business_roundtrip.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-business_roundtrip.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-business_roundtrip.log" | sort -u | head -35 || true
+            echo D08_BUSINESS_ROUNDTRIP=FAIL
+            exit "$rc"
+          fi
+          echo D08_BUSINESS_ROUNDTRIP=PASS
+      - name: Original T2 obligations and independent iwxa
+        id: obligation_roundtrip
+        if: always() && !cancelled() && steps.build.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( node tests/d08-obligation-native-t2-roundtrip.mjs ) > "$RUNNER_TEMP/d08-obligation_roundtrip.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-obligation_roundtrip.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-obligation_roundtrip.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-obligation_roundtrip.log" | sort -u | head -35 || true
+            echo D08_OBLIGATION_ROUNDTRIP=FAIL
+            exit "$rc"
+          fi
+          echo D08_OBLIGATION_ROUNDTRIP=PASS
+      - name: Original T2 two-goods trading and independent iwxa
+        id: trading_roundtrip
+        if: always() && !cancelled() && steps.build.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          ( node tests/d08-trading-two-goods-native-t2.mjs ) > "$RUNNER_TEMP/d08-trading_roundtrip.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$|^Ran [0-9]+ tests? in [0-9.]+s$|^D08_[A-Z0-9_]+=(PASS|FAIL)$|^MARKETOPS_HOSTING_ARCHIVE=PASS$' "$RUNNER_TEMP/d08-trading_roundtrip.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-trading_roundtrip.log" | sed -E 's/^not ok ([0-9]+).*/D08_FAILED_TEST_ORDINAL=\1/' | head -40 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|D08_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-trading_roundtrip.log" | sort -u | head -35 || true
+            echo D08_TRADING_ROUNDTRIP=FAIL
+            exit "$rc"
+          fi
+          echo D08_TRADING_ROUNDTRIP=PASS
+      - name: Qualify complete hosting ZIP without retaining or publishing
+        if: always() && !cancelled() && steps.build.outcome == 'success'
+        working-directory: site
+        run: |
+          set -e
+          git status --porcelain > "$RUNNER_TEMP/d08-generated.log"
+          python - <<'PY'
+          import os,pathlib
+          rows=pathlib.Path(os.environ['RUNNER_TEMP'],'d08-generated.log').read_text().splitlines()
+          allowed={' M src/routeTree.gen.ts',' M public/sitemap.xml',' M src/data/partners-index.generated.ts'}
+          assert set(rows)<=allowed
+          PY
+          git restore --source=HEAD --worktree -- src/routeTree.gen.ts public/sitemap.xml src/data/partners-index.generated.ts
+          test -z "$(git status --porcelain)"
+          python scripts/package-hosting.py --expected-head aea13121756e4b37a6b8569bdf18449d86bd0d11 --output "$RUNNER_TEMP/d08-qualification.zip" > "$RUNNER_TEMP/d08-package.log" 2>&1 || { echo D08_PACKAGE_FULL=FAIL; exit 1; }
+          grep -q '^MARKETOPS_HOSTING_ARCHIVE=PASS' "$RUNNER_TEMP/d08-package.log"
+          echo D08_PACKAGE_FULL=PASS
+      - name: Discard private checkout, raw logs and disposable ZIP
+        if: always()
+        run: |
+          rm -rf site t2
+          rm -f "$RUNNER_TEMP"/d08-*.log "$RUNNER_TEMP/d08-qualification.zip" "$RUNNER_TEMP/d08-qualification.manifest.json"
