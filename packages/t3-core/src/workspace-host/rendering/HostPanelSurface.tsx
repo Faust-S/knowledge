@@ -3,7 +3,7 @@
  * scoped panels.open/close facade, never loaders or an independent portal.
  */
 import {
-  Component, Suspense, lazy, useEffect, useMemo, useState,
+  Component, Suspense, lazy, useCallback, useMemo, useSyncExternalStore,
   type ComponentType, type ErrorInfo, type ReactNode,
 } from "react";
 import type { PanelContribution } from "@/workspace-contract";
@@ -11,7 +11,7 @@ import type { RegistryEntry } from "../registries/RegistryBase";
 import type { HostRouteMatch } from "../router";
 import { useWorkspaceHostRuntimeHandle } from "../runtime/WorkspaceHostRuntimeProvider";
 import { ModuleRuntimeProvider, type ModuleRuntimeSnapshot } from "./ModuleRenderContext";
-import type { HostPanelsState } from "../context/create-panels-facade";
+import { useHostRouteMatch } from "../router/use-host-route-match";
 
 const lazyPanels = new WeakMap<object, ComponentType<Record<string, never>>>();
 const EMPTY = Object.freeze([] as string[]);
@@ -85,22 +85,12 @@ function PanelItem({ entry, match, onClose }: {
 
 export function HostPanelSurface({ slot }: { slot: PanelSlot }) {
   const runtime = useWorkspaceHostRuntimeHandle();
-  const [ids, setIds] = useState<readonly string[]>(EMPTY);
-  const [match, setMatch] = useState<HostRouteMatch | null>(null);
-
-  useEffect(() => {
-    if (!runtime) {
-      setIds(EMPTY);
-      setMatch(null);
-      return;
-    }
-    const state: HostPanelsState = runtime.panelsState;
-    setIds(state.openIds());
-    setMatch(runtime.router.currentMatch());
-    const offState = state.subscribe(() => setIds(state.openIds()));
-    const offRouter = runtime.router.subscribe((next) => setMatch(next));
-    return () => { offState(); offRouter(); };
-  }, [runtime]);
+  const state = runtime?.panelsState ?? null;
+  const subscribe = useCallback((notify: () => void) =>
+    state?.subscribe(notify) ?? (() => {}), [state]);
+  const getSnapshot = useCallback(() => state?.openIds() ?? EMPTY, [state]);
+  const ids = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const match = useHostRouteMatch(runtime?.router ?? null);
 
   if (!runtime || !match) return null;
   const granted = new Set<string>(runtime.grantedOperations);

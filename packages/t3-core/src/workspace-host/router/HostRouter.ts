@@ -40,6 +40,7 @@ export class HostRouter {
   private readonly reservedStaticBases: ReadonlySet<string>;
   private readonly enforceActive: boolean;
   private lastMatch: HostRouteMatch | null;
+  private disposed = false;
   private readonly listeners = new Set<(m: HostRouteMatch | null) => void>();
   private readonly unsubscribeDriver: () => void;
   private readonly unsubscribeRegistry: () => void;
@@ -58,6 +59,8 @@ export class HostRouter {
     this.unsubscribeRegistry = this.registry.subscribeActive(() => {
       this.refreshMatch(this.driver.current());
     });
+    // Reconcile any change during installation of either subscription.
+    this.refreshMatch(this.driver.current());
   }
 
   currentLocation(): HostLocation {
@@ -73,6 +76,7 @@ export class HostRouter {
   }
 
   subscribe(listener: (m: HostRouteMatch | null) => void): () => void {
+    if (this.disposed) return () => {};
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
@@ -84,6 +88,9 @@ export class HostRouter {
     params?: Readonly<Record<string, string>>,
     opts?: HostRouteNavigationOptions,
   ): void {
+    if (this.disposed) {
+      throw new RouteRegistryError("route-inactive", "HostRouter is disposed");
+    }
     if (this.enforceActive && !this.registry.isActive(ref)) {
       throw new RouteRegistryError(
         "route-inactive",
@@ -113,12 +120,16 @@ export class HostRouter {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.lastMatch = null;
     this.unsubscribeDriver();
     this.unsubscribeRegistry();
     this.listeners.clear();
   }
 
   private refreshMatch(loc: HostLocation): void {
+    if (this.disposed) return;
     const next = this.pickMatch(loc);
     const previousId = this.lastMatch?.binding.routeRef.id ?? null;
     const nextId = next?.binding.routeRef.id ?? null;

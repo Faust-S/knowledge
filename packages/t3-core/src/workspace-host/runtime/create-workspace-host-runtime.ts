@@ -379,14 +379,18 @@ export async function createWorkspaceHostRuntime(
   // Revoke access synchronously, BEFORE the serialized asynchronous module
   // shutdown. A retained signed KernelFacade must stop accepting calls on
   // logout, replacement or unmount even if the old module has a slow stop().
-  const invalidate = () => { disposed = true; };
+  const invalidate = () => {
+    disposed = true;
+    // A retained RouterFacade must stop navigating as soon as this Host loses
+    // authority, not after potentially asynchronous module deactivation.
+    router.dispose();
+  };
   const dispose = async () => {
     invalidate();
     try {
       await moduleRegistry.stop();
     } catch { /* best-effort */ }
     try { hub.clear(); } catch { /* ignore */ }
-    try { router.dispose(); } catch { /* ignore */ }
     try { currentWorkspaceStore.clear(); } catch { /* ignore */ }
     try { dashboardState.clear(); } catch { /* ignore */ }
     try { panelsState.clear(); } catch { /* ignore */ }

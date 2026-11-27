@@ -21,7 +21,9 @@ export interface LegacyHashDriverOptions {
 export function createLegacyHashDriver(
   options: LegacyHashDriverOptions = {},
 ): HostNavigationDriver {
-  const win = options.window ?? (typeof window !== "undefined" ? window : null);
+  const win = options.window === undefined
+    ? (typeof window !== "undefined" ? window : null)
+    : options.window;
 
   const read = (): HostLocation => {
     if (!win) return { pathname: "/workspace/", hash: "" };
@@ -36,11 +38,6 @@ export function createLegacyHashDriver(
     const loc = read();
     for (const l of listeners) l(loc);
   };
-
-  if (win) {
-    win.addEventListener("hashchange", emit);
-    win.addEventListener("popstate", emit);
-  }
 
   return {
     current: read,
@@ -67,11 +64,20 @@ export function createLegacyHashDriver(
         return;
       }
       win.location.hash = target.hash;
+      emit();
     },
     subscribe(listener) {
+      if (listeners.size === 0 && win) {
+        win.addEventListener("hashchange", emit);
+        win.addEventListener("popstate", emit);
+      }
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
+        if (listeners.size === 0 && win) {
+          win.removeEventListener("hashchange", emit);
+          win.removeEventListener("popstate", emit);
+        }
       };
     },
   };

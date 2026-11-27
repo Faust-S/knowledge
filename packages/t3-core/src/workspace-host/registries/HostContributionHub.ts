@@ -186,6 +186,7 @@ export class HostContributionHub {
       legacy_importers: [],
     };
     const rollbacks: Array<() => void> = [];
+    let activateRoutes: (() => boolean) | undefined;
 
     const tryGroup = <T extends { id: string }>(
       group: ContributionGroup,
@@ -230,8 +231,9 @@ export class HostContributionHub {
       return true;
     };
 
-    // Routes are handled first through the RouteRegistry, wrapped in a
-    // rollback closure so a later group failure can undo them.
+    // Validate routes first, but publish activation only after all other
+    // contribution groups succeeded. Synchronous Router listeners must never
+    // observe an active route whose contribution has not been installed.
     if (set.routes.length > 0) {
       const routeCheck = registerRouteContributions({
         ownerModuleId: moduleId,
@@ -247,50 +249,49 @@ export class HostContributionHub {
           accepted: freezeAccepted(accepted),
         };
       }
-      // The route registry only stores Host-owned bindings; module
-      // route contributions are tracked here as ownership references we
-      // can drop on rollback.
-      const routeRefIds = new Set<string>();
-      const activatedRefs = [];
-      for (const r of routeCheck.accepted) {
-        accepted.routes.push(r.id);
-        if (r.routeRef?.id) routeRefIds.add(r.routeRef.id);
-        if (r.routeRef) activatedRefs.push(r.routeRef);
-      }
-      this.ownedRouteIds.set(moduleId, routeRefIds);
-      if (activatedRefs.length > 0) {
-        const act = this.routes.activateOwnerRoutes(moduleId, activatedRefs);
-        if (!act.ok) {
-          this.ownedRouteIds.delete(moduleId);
-          for (const d of act.diagnostics) {
+      activateRoutes = () => {
+        const previous = this.ownedRouteIds.get(moduleId);
+        const routeRefIds = new Set(previous);
+        const activatedRefs = [];
+        for (const r of routeCheck.accepted) {
+          const id = r.routeRef.id;
+          if (routeRefIds.has(id) || this.routeContributionsByRefId.has(id) ||
+              this.routes.isActive(r.routeRef)) {
             diagnostics.push({
-              code: "unknown-route" as never,
-              message: `route activation refused: ${d.message}`,
-              routeRefId: d.routeRefId,
-            } as RouteContributionDiagnostic);
+              code: "route-owner-mismatch",
+              message: `RouteRef "${id}" is already active`,
+              routeRefId: id,
+            });
+            return false;
           }
-          return {
-            ok: false,
-            diagnostics: Object.freeze(diagnostics),
-            accepted: freezeAccepted(accepted),
-          };
+          routeRefIds.add(id);
+          activatedRefs.push(r.routeRef);
         }
-      }
-      for (const r of routeCheck.accepted) {
-        if (r.routeRef?.id) {
+        this.ownedRouteIds.set(moduleId, routeRefIds);
+        for (const r of routeCheck.accepted) {
           this.routeContributionsByRefId.set(r.routeRef.id, {
             contribution: r as RouteContribution,
             moduleId,
           });
         }
-      }
-      rollbacks.push(() => {
-        this.routes.deactivateOwnerRoutes(moduleId);
-        this.ownedRouteIds.delete(moduleId);
-        for (const r of routeCheck.accepted) {
-          if (r.routeRef?.id) this.routeContributionsByRefId.delete(r.routeRef.id);
+        const act = this.routes.activateOwnerRoutes(moduleId, activatedRefs);
+        if (!act.ok) {
+          if (previous) this.ownedRouteIds.set(moduleId, previous);
+          else this.ownedRouteIds.delete(moduleId);
+          for (const r of routeCheck.accepted)
+            this.routeContributionsByRefId.delete(r.routeRef.id);
+          for (const d of act.diagnostics) {
+            diagnostics.push({
+              code: "route-binding-missing",
+              message: `route activation refused: ${d.message}`,
+              routeRefId: d.routeRefId,
+            });
+          }
+          return false;
         }
-      });
+        for (const r of routeCheck.accepted) accepted.routes.push(r.id);
+        return true;
+      };
     }
 
     const ok =
@@ -322,7 +323,7 @@ export class HostContributionHub {
         "legacy_importers",
         this.legacyImporters,
         set.legacy_importers,
-      );
+      ) && (activateRoutes?.() ?? true);
 
     if (!ok) {
       // Rollback in reverse order.
@@ -397,7 +398,8 @@ export class HostContributionHub {
   getRouteContribution(
     routeRefId: string,
   ): { contribution: RouteContribution; moduleId: string } | null {
-    return this.routeContributionsByRefId.get(routeRefId) ?? null;
+    return this.routes.isActive({ id: routeRefId })
+      ? this.routeContributionsByRefId.get(routeRefId) ?? null : null;
   }
 }
 

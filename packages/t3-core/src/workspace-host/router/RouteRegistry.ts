@@ -59,6 +59,10 @@ export class RouteRegistry {
   private readonly activeIds = new Set<string>();
   private readonly activatedByOwner = new Map<string, Set<string>>();
   private readonly activeListeners = new Set<() => void>();
+  private activeRevision = 0;
+
+  /** Stable primitive snapshot for projections of the active registry. */
+  activeVersion(): number { return this.activeRevision; }
 
   subscribeActive(listener: () => void): () => void {
     this.activeListeners.add(listener);
@@ -68,6 +72,7 @@ export class RouteRegistry {
   }
 
   private notifyActiveChanged(): void {
+    this.activeRevision++;
     for (const listener of [...this.activeListeners]) listener();
   }
 
@@ -131,15 +136,22 @@ export class RouteRegistry {
   }
 
   removeOwner(ownerModuleId: string): void {
-    // Also clear any active-route bookkeeping tied to this owner.
-    this.deactivateOwnerRoutes(ownerModuleId);
+    // A Host-owned binding can have been activated by a different module.
+    // Remove both kinds of ownership before notifying the Router once.
     const owned = this.byOwner.get(ownerModuleId);
-    if (!owned) return;
-    for (const id of owned) {
+    const activated = this.activatedByOwner.get(ownerModuleId);
+    let changed = false;
+    for (const id of activated ?? []) {
+      if (this.activeIds.delete(id)) changed = true;
+    }
+    this.activatedByOwner.delete(ownerModuleId);
+    for (const id of owned ?? []) {
       this.byId.delete(id);
-      this.activeIds.delete(id);
+      if (this.activeIds.delete(id)) changed = true;
+      for (const refs of this.activatedByOwner.values()) refs.delete(id);
     }
     this.byOwner.delete(ownerModuleId);
+    if (changed || owned?.size) this.notifyActiveChanged();
   }
 
   /**

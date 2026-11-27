@@ -12,7 +12,8 @@
  *   - planned modules never contribute (they don't activate).
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
+import { useHostRouteMatch } from "../router/use-host-route-match";
 import type { RouteRef } from "@/workspace-contract";
 import { useWorkspaceHostRuntimeHandle } from "../runtime/WorkspaceHostRuntimeProvider";
 
@@ -31,28 +32,14 @@ interface NavEntry {
 
 export function ModuleNavigation(props: ModuleNavigationProps) {
   const runtime = useWorkspaceHostRuntimeHandle();
-  const [activeRefId, setActiveRefId] = useState<string | null>(
-    runtime ? runtime.router.currentRouteRef()?.id ?? null : null,
-  );
-  const [, setRouteActivityEpoch] = useState(0);
-
-  useEffect(() => {
-    if (!runtime) {
-      setActiveRefId(null);
-      return;
-    }
-    setActiveRefId(runtime.router.currentRouteRef()?.id ?? null);
-    const unsubscribeRouter = runtime.router.subscribe((m) =>
-      setActiveRefId(m?.binding.routeRef.id ?? null),
-    );
-    const unsubscribeActivity = runtime.router.registry.subscribeActive(() =>
-      setRouteActivityEpoch((value) => value + 1),
-    );
-    return () => {
-      unsubscribeRouter();
-      unsubscribeActivity();
-    };
-  }, [runtime]);
+  const router = runtime?.router ?? null;
+  const activeRefId = useHostRouteMatch(router)?.binding.routeRef.id ?? null;
+  // Navigation also depends on non-current route activation.
+  const registry = router?.registry ?? null;
+  const subscribe = useCallback((notify: () => void) =>
+    registry?.subscribeActive(notify) ?? (() => {}), [registry]);
+  const getSnapshot = useCallback(() => registry?.activeVersion() ?? 0, [registry]);
+  useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   if (!runtime) return null;
 

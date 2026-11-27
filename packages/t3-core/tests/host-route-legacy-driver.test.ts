@@ -109,3 +109,19 @@ describe("legacy hash driver", () => {
     ).toBe(false);
   });
 });
+
+it("detaches both browser listeners and prevents retained navigation on Router disposal", () => {
+  const win = fakeWindow("#/overview");
+  const registry = new RouteRegistry();
+  registry.registerMany(activeHostRouteBindings());
+  const router = new HostRouter({ registry, driver: createLegacyHashDriver({ window: win }) });
+  expect(win.__listeners.hashchange?.size).toBe(1);
+  expect(win.__listeners.popstate?.size).toBe(1);
+  router.dispose();
+  router.dispose();
+  expect(win.__listeners.hashchange?.size).toBe(0);
+  expect(win.__listeners.popstate?.size).toBe(0);
+  expect(router.currentMatch()).toBeNull();
+  expect(() => router.navigate(hostRouteRefs.base.workspaces)).toThrow(/disposed/);
+  expect(win.location.hash).toBe("#/overview");
+});

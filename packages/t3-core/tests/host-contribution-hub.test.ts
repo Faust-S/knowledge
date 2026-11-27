@@ -210,3 +210,35 @@ describe("HostContributionHub — immutable contribution snapshots", () => {
     expect(Object.isFrozen(stored.contribution.routeRef)).toBe(true);
   });
 });
+
+describe("HostContributionHub active-route publication", () => {
+  const route = (id: string): RouteContribution => ({
+    kind: "route", id, moduleId: "owner", requiredOperations: [],
+    routeRef: hostRouteRefs.base.workspaces, loader: async () => ({ default: () => null }),
+  });
+  it("publishes the contribution and navigation before notifying route observers", () => {
+    const hub = makeHub();
+    const observed: unknown[] = [];
+    hub.routes.subscribeActive(() => {
+      if (hub.routes.isActive(hostRouteRefs.base.workspaces)) {
+        observed.push([hub.getRouteContribution(hostRouteRefs.base.workspaces.id)?.moduleId,
+          hub.navigation.has("owner-nav")]);
+      }
+    });
+    expect(hub.registerModule("owner", { routes: [route("owner-route")],
+      navigation: [nav("owner", "owner-nav")] }).ok).toBe(true);
+    expect(observed).toEqual([["owner", true]]);
+  });
+
+  it("never publishes a route for a batch rejected by a later contribution group", () => {
+    const hub = makeHub();
+    hub.registerModule("existing", { commands: [cmd("existing", "collision")] });
+    const active: boolean[] = [];
+    hub.routes.subscribeActive(() => active.push(hub.routes.isActive(hostRouteRefs.base.workspaces)));
+    expect(hub.registerModule("owner", { routes: [route("owner-route")],
+      commands: [cmd("owner", "collision")] }).ok).toBe(false);
+    expect(active).toEqual([]);
+    expect(hub.getRouteContribution(hostRouteRefs.base.workspaces.id)).toBeNull();
+    expect(hub.commands.has("collision")).toBe(true);
+  });
+});

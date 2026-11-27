@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createRouteRef } from "@/workspace-contract";
 import {
   RouteRegistry,
+  HostRouter,
   hostRouteRefs,
   activeHostRouteBindings,
   type HostRouteBinding,
@@ -55,4 +56,20 @@ describe("removeOwner cleanup", () => {
     ).not.toThrow();
     expect(r.get({ id: "shared.id" })?.ownerModuleId).toBe("mod-b");
   });
+});
+
+it("removes an active binding owned by the Host but activated by another module", () => {
+  const r = new RouteRegistry();
+  r.registerMany(activeHostRouteBindings());
+  r.activateOwnerRoutes("base-module", [hostRouteRefs.base.workspaces]);
+  const router = new HostRouter({
+    registry: r, enforceActive: true,
+    driver: { current: () => ({ pathname: "/workspace/", hash: "#/workspaces" }),
+      navigate() {}, subscribe: () => () => {} },
+  });
+  expect(router.currentMatch()?.binding.routeRef.id).toBe(hostRouteRefs.base.workspaces.id);
+  r.removeOwner("workspace-host");
+  expect(router.currentMatch()).toBeNull();
+  expect(r.listActive()).toEqual([]);
+  router.dispose();
 });

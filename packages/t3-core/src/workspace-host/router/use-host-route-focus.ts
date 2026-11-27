@@ -7,40 +7,33 @@
  * component has time to mount.
  */
 
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, type RefObject } from "react";
 import type { HostRouter } from "./HostRouter";
 
 export function useHostRouteFocus(
   router: HostRouter | null,
   mainRef: RefObject<HTMLElement | null>,
 ): void {
-  const initialRef = useRef(true);
-
   useEffect(() => {
     if (!router) return;
-    const focusMain = () => {
-      if (initialRef.current) {
-        initialRef.current = false;
-        return;
-      }
-      const el = mainRef.current;
-      if (!el) return;
-      const frame = window.requestAnimationFrame(() => {
-        try {
-          el.focus({ preventScroll: false });
-        } catch {
-          /* ignore */
-        }
-      });
-      return () => window.cancelAnimationFrame(frame);
-    };
-    // Subscribe — only ref-id changes should refocus.
+    let frame: number | null = null;
+    // Initial mount does not steal focus; a real subsequent route change does.
     let prevId = router.currentRouteRef()?.id ?? null;
-    return router.subscribe((m) => {
+    const unsubscribe = router.subscribe((m) => {
       const nextId = m?.binding.routeRef.id ?? null;
       if (nextId === prevId) return;
       prevId = nextId;
-      focusMain();
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      frame = null;
+      if (!nextId) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        mainRef.current?.focus({ preventScroll: false });
+      });
     });
+    return () => {
+      unsubscribe();
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
   }, [router, mainRef]);
 }

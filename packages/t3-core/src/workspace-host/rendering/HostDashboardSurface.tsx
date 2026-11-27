@@ -13,6 +13,7 @@ import type { DashboardCardContribution } from "@/workspace-contract";
 import type { RegistryEntry } from "../registries/RegistryBase";
 import { hostRouteRefs, type HostRouteMatch } from "../router";
 import { useWorkspaceHostRuntimeHandle } from "../runtime/WorkspaceHostRuntimeProvider";
+import { useHostRouteMatch } from "../router/use-host-route-match";
 import { ModuleRuntimeProvider, type ModuleRuntimeSnapshot } from "./ModuleRenderContext";
 
 const lazyCards = new WeakMap<object, ComponentType<Record<string, never>>>();
@@ -137,19 +138,8 @@ function DashboardCard({
 
 export function HostDashboardSurface() {
   const runtime = useWorkspaceHostRuntimeHandle();
-  const [match, setMatch] = useState<HostRouteMatch | null>(
-    runtime ? runtime.router.currentMatch() : null,
-  );
+  const match = useHostRouteMatch(runtime?.router ?? null);
   const [, setRefreshEpoch] = useState(0);
-
-  useEffect(() => {
-    if (!runtime) {
-      setMatch(null);
-      return;
-    }
-    setMatch(runtime.router.currentMatch());
-    return runtime.router.subscribe((next) => setMatch(next));
-  }, [runtime]);
 
   useEffect(() => {
     if (!runtime) return;

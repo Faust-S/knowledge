@@ -12,7 +12,7 @@
 import {
   createContext,
   useContext,
-  useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -110,7 +110,7 @@ export function WorkspaceHostRuntimeProvider(
   // invalidations. Detach the previous subject's UI immediately, invalidate
   // retained Kernel facades with the original Host dispose(), then rebuild
   // through the same serialized runtime transition. No second Access state.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!subscribeSignedAccessInvalidation) return;
     return subscribeSignedAccessInvalidation((reason) => {
       const disconnected = reason === "unavailable";
@@ -149,7 +149,15 @@ export function WorkspaceHostRuntimeProvider(
     ? `${session.contract_version}|${(session.granted_operations ?? []).join(",")}|${(session.granted_levels ?? []).join(",")}|cap:${activeCapabilities.join(",")}`
     : null;
 
-  useEffect(() => {
+  // Bind published state to the complete original Host input identity.
+  // On the first render of a changed session/config, children see "starting",
+  // never a ready handle or an error from the preceding Runtime.
+  const inputIdentity = useMemo(() => ({}), [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, signedKernelAccess, signedActivityAccess, reconciliationOwner, reconciliationPort, nativeContinuationOwner, nativeContinuationPort,
+    confirmNativeContinuation, ageOwner, confirmAgeRecipients, publisherHolder, confirmPublisherHandoff, accessEpoch, compileTimeModuleLoaders, preferDomainLanding]);
+  const [publishedIdentity, setPublishedIdentity] = useState<object | null>(null);
+
+  useLayoutEffect(() => {
+    setPublishedIdentity(inputIdentity);
     if (!session || !sessionKey) {
       // Session loss is an authority boundary, not only a UI state change.
       // Invalidate any in-flight generation and detach the active handle
@@ -248,11 +256,10 @@ export function WorkspaceHostRuntimeProvider(
       // this generation stale.
     };
     // Restart only on session identity or workspaceConfig identity change.
-  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, signedKernelAccess, signedActivityAccess, reconciliationOwner, reconciliationPort, nativeContinuationOwner, nativeContinuationPort,
-    confirmNativeContinuation, ageOwner, confirmAgeRecipients, publisherHolder, confirmPublisherHandoff, accessEpoch, compileTimeModuleLoaders, preferDomainLanding]);
+  }, [inputIdentity]);
 
   // Unmount teardown.
-  useEffect(() => {
+  useLayoutEffect(() => {
     return () => {
       ++generationRef.current;
       const prev = activeHandleRef.current;
@@ -268,7 +275,11 @@ export function WorkspaceHostRuntimeProvider(
     };
   }, []);
 
-  const contextValue = useMemo(() => state, [state]);
+  const contextValue = useMemo<WorkspaceHostRuntimeState>(() => {
+    if (!session) return { status: "idle" };
+    if (publishedIdentity !== inputIdentity) return { status: "starting" };
+    return state;
+  }, [session, publishedIdentity, inputIdentity, state]);
 
   return (
     <RuntimeContext.Provider value={contextValue}>
