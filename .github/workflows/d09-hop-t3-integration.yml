@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      SITE_PIN: ee097659757631b17a158d955971c16d46724712
+      SITE_PIN: e5a5860e9604f9513bfbccb066198622601bf364
       SUBJECT_PIN: b5e3d2eb9271ca58ba39161952441e8536f5cf6d
       T3_PIN: a50d40dafc2e029fcc7668dece925f7fc38cc510
       ASSISTANT_PIN: 5419dacf855d81ec089acc23bae0c7aa11713a54
@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable domain request
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-rc5 --revision site=ee097659757631b17a158d955971c16d46724712 --revision subject=b5e3d2eb9271ca58ba39161952441e8536f5cf6d --revision platform=a50d40dafc2e029fcc7668dece925f7fc38cc510 --revision assistant=5419dacf855d81ec089acc23bae0c7aa11713a54
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-rc5 --revision site=e5a5860e9604f9513bfbccb066198622601bf364 --revision subject=b5e3d2eb9271ca58ba39161952441e8536f5cf6d --revision platform=a50d40dafc2e029fcc7668dece925f7fc38cc510 --revision assistant=5419dacf855d81ec089acc23bae0c7aa11713a54
       - name: Checkout HOP site
         uses: actions/checkout@v4
         with:
@@ -65,7 +65,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for spec in "private-site $SITE_PIN 498fc9ce839596be9c59878bfdffefeb3a72676c" "original-platform $T3_PIN d375181e1fd79953cdb9ef4e414936e76b584100" "private-assistant $ASSISTANT_PIN 4b4a84cec91aa268048184a477b91efe94ebdea3"; do
+          for spec in "private-site $SITE_PIN 87832c4e8c731b2cbea4874a4402010dd6c8ad04" "original-platform $T3_PIN d375181e1fd79953cdb9ef4e414936e76b584100" "private-assistant $ASSISTANT_PIN 4b4a84cec91aa268048184a477b91efe94ebdea3"; do
             read -r dir sha tree <<< "$spec"
             test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
             test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
@@ -100,7 +100,29 @@ jobs:
             npx --no-install puppeteer browsers install chrome > "$RUNNER_TEMP/d09-t3/browser-install.log" 2>&1 || { echo D09_T3_CHROME=FAIL; exit 1; }
           fi
           echo D09_T3_NPM=PASS
+      - name: HOP TypeScript and existing product unit tests
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -eu
+          failed=0
+          if npm run typecheck > "$RUNNER_TEMP/d09-t3/typecheck.log" 2>&1; then
+            echo D09_T3_TYPECHECK=PASS
+          else
+            echo D09_T3_TYPECHECK=FAIL
+            grep -E '^([[:alnum:]_./-]+\.(tsx?|mjs)\([0-9]+,[0-9]+\): error TS[0-9]+:)' "$RUNNER_TEMP/d09-t3/typecheck.log" | cut -c1-180 | head -30 || true
+            failed=1
+          fi
+          if npm run test > "$RUNNER_TEMP/d09-t3/vitest.log" 2>&1; then
+            echo D09_T3_UNIT_TESTS=PASS
+          else
+            echo D09_T3_UNIT_TESTS=FAIL
+            failed=1
+          fi
+          sed -E 's/\x1B\[[0-9;]*[mK]//g' "$RUNNER_TEMP/d09-t3/vitest.log" | grep -E '^ *Test Files |^ *Tests ' | cut -c1-120 | tail -4 || true
+          exit "$failed"
       - name: Prepare ONE original T3 Host with HOP editor and assistant
+        if: ${{ !cancelled() }}
         id: prepare
         working-directory: private-site
         shell: bash
@@ -159,6 +181,35 @@ jobs:
           check PROJECT_RESULT_EXCHANGE node tests/d09-original-t2-project-save.browser.mjs
           grep -E '^D09_PROJECT_[A-Z0-9_]+=FAIL ' "$RUNNER_TEMP/d09-t3/PROJECT_RESULT_EXCHANGE.log" | cut -c1-200 | head -5 || true
           exit "$failed"
+      - name: Existing product routes and contracts on T3
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -eu
+          failed=0
+          if npm run test:d09:user-routes > "$RUNNER_TEMP/d09-t3/USER_ROUTES.log" 2>&1; then
+            echo D09_T3_USER_ROUTES=PASS
+          else
+            echo D09_T3_USER_ROUTES=FAIL
+            failed=1
+          fi
+          grep -E '^D09_PRODUCT_ROUTE_STATE |^D09_PRODUCT_ROUTE_FAIL |^D09_PRODUCT_ROUTE_MATRIX=' "$RUNNER_TEMP/d09-t3/USER_ROUTES.log" | cut -c1-240 | tail -30 || true
+          if npm run test:d09 > "$RUNNER_TEMP/d09-t3/CONTRACTS.log" 2>&1; then
+            echo D09_T3_CONTRACTS=PASS
+          else
+            echo D09_T3_CONTRACTS=FAIL
+            grep -E '^not ok [0-9]+ - ' "$RUNNER_TEMP/d09-t3/CONTRACTS.log" | cut -c1-160 | head -30 || true
+            failed=1
+          fi
+          if npm run check:d09:hosting-dist > "$RUNNER_TEMP/d09-t3/HOSTING.log" 2>&1; then
+            echo D09_T3_HOSTING_DIST=PASS
+          else
+            echo D09_T3_HOSTING_DIST=FAIL
+            grep -oE '(D09_[A-Z0-9_]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-t3/HOSTING.log" | sort -u | head -20 || true
+            failed=1
+          fi
+          exit "$failed"
       - name: Real local model installation and cold offline generation
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         working-directory: private-site
@@ -176,28 +227,6 @@ jobs:
             grep -oE '(D09_T3_[A-Z0-9_]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-t3/real-model.log" | sort -u | head -25 || true
             exit 1
           fi
-      - name: Existing product routes and contracts on T3
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        working-directory: private-site
-        shell: bash
-        run: |
-          set -eu
-          failed=0
-          if npm run test:d09:user-routes > "$RUNNER_TEMP/d09-t3/USER_ROUTES.log" 2>&1; then
-            echo D09_T3_USER_ROUTES=PASS
-          else
-            echo D09_T3_USER_ROUTES=FAIL
-            failed=1
-          fi
-          grep -E '^D09_PRODUCT_ROUTE_FAIL |^D09_PRODUCT_ROUTE_MATRIX=' "$RUNNER_TEMP/d09-t3/USER_ROUTES.log" | cut -c1-240 | tail -30 || true
-          if npm run test:d09 > "$RUNNER_TEMP/d09-t3/CONTRACTS.log" 2>&1; then
-            echo D09_T3_CONTRACTS=PASS
-          else
-            echo D09_T3_CONTRACTS=FAIL
-            grep -E '^not ok [0-9]+ - ' "$RUNNER_TEMP/d09-t3/CONTRACTS.log" | cut -c1-160 | head -30 || true
-            failed=1
-          fi
-          exit "$failed"
       - name: Remove private inputs, site and evidence
         if: always()
         shell: bash
