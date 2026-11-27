@@ -27,7 +27,7 @@ const clone=structuredClone;
 async function setup(value=draft()){
   const {owner}=await createProjectProcessSourceOwnerQualificationHarness();
   const result=await createWorkspaceMethodThroughSourceOwner({owner,workspaceId:ws,objects:[material],draft:value,
-    recordIds:{project:'method-source',works:{[projectId+'.analyse']:'analyse-source',[projectId+'.review']:'review-source'}},knowledgeAt:time});
+    recordIds:{project:'method-source',works:Object.fromEntries(value.steps.map(row=>[projectId+'.'+row.id,row.id+'-source']))},knowledgeAt:time});
   const calls=[],nativeCalls=[];let selectedResult=clone(resultObject),native=clone(accepted);
   const readObject=async(workspaceId,id)=>{calls.push([workspaceId,id]);return workspaceId===ws?
     id===material.object_id?{object:clone(material)}:id===resultRef.object_id&&selectedResult?{object:clone(selectedResult)}:null:null;};
@@ -96,7 +96,7 @@ test('accepted owner or exact material changed during observation cannot confirm
       const r=await f.readObject(w,id);return changed&&id==='source'?{object:{...r.object,revision:2}}:r;
     }})),code('METHOD_STAGE_RESULT_BASIS_CHANGED'));
 });
-function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=()=>{},personalComposer=null,confirmPersonalDraft=null}={}){
+function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=()=>{},personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null}={}){
   const workspace={workspace_id:ws,deleted_at:null};
   let chosen=workspace,active=true,allowed=true;const listeners=new Set();
   const currentWorkspace={get:()=>chosen,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);}};
@@ -128,7 +128,7 @@ function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=(
     confirmHuman:async()=>{confirmations++;return true;},isHostActive:()=>active}):null;
   const reader=createTrustedWorkspaceMethodStageReader({kernel,accessForRead:async()=>access,currentWorkspace,sourceOwner:f.owner,
     originalAgentResultOwner:withAgent?{readAccepted:async ref=>{if(hook)await hook();return f.readAccepted(ref);}}:null,
-    nativeContinuation,nativeRecipientId:withNative?recipientId:null,personalComposer,confirmPersonalDraft,isHostActive:()=>active});
+    nativeContinuation,nativeRecipientId:withNative?recipientId:null,personalComposer,confirmPersonalDraft,personalTaskOwner,isHostActive:()=>active});
   const changeSelection=()=>{chosen={...workspace};for(const notify of listeners)notify();};
   return {reader,context,deny:()=>{allowed=false;},changeSelection,dispose:()=>{active=false;},hook:fn=>{hook=fn;},
     nativeHook:fn=>{nativeHook=fn;},nativeContinuation,inspections:()=>inspections,receives:()=>receives,confirmations:()=>confirmations};
@@ -572,4 +572,115 @@ test('original initial revision guidance and native operational skill are distin
   await assert.rejects(f.inspect(),code('T3_METHOD_PERSONAL_TASK_INPUT_CHANGED'));
   f.run.snapshot.source_items[3]={...guidance,path:'iwxa/unrelated.md'};
   await assert.rejects(f.inspect(),code('T3_METHOD_PERSONAL_TASK_INPUT_CHANGED'));
+});
+
+
+// W05.15: original C3 owner + original signed Host binding + controlled
+// original Task/Context/Result owner ports; not an installed Agent claim.
+async function personalChainFixture(){
+  const d=draft();d.steps[1].actor='agent';
+  d.steps.push({id:'finish',name:'Finish',actor:'agent',instruction:'Prepare final conclusions',dependsOn:['review'],materialIds:[]});
+  const f=await setup(d),c=composerFixture(),runs=new Map(),reads=[],documents=[];
+  const hash=text=>createHash('sha256').update(text,'utf8').digest('hex');
+  const addRun=(taskId,summary)=>{
+    const plan=c.view(),suffix=taskId.slice(5);
+    const run={task:{task_id:taskId,objective:plan.text.trim()},result:{task_id:taskId,result_id:'RES-'+suffix,
+      task_digest:'a'.repeat(64),context_projection_digest:'b'.repeat(64),run_bundle_digest:'c'.repeat(64),
+      performed_external_actions:false,summary},
+      snapshot:{task_id:taskId,snapshot_id:'CSN-'+suffix,snapshot_digest:'d'.repeat(64),projection_digest:'b'.repeat(64),
+        bundle_digest:'c'.repeat(64),retrieval_refs:[],source_items:plan.attachments.map((a,i)=>({
+          path:'attachments/'+String(i+1).padStart(2,'0')+'-'+a.name,origin:'interaction_attachment',sha256:hash(a.text),bytes:Buffer.byteLength(a.text)}))},
+      acceptedSource:{task_id:taskId,workspace_ref:'personal',contract_version:'PA.K01_ACCEPTED_RESULT_SOURCE/0.1.0',
+        state:'accepted',kind:'result',source_ref:'agent-result:'+taskId,read_only:true,commercial_approval_claimed:false,
+        result_id:'RES-'+suffix,review_id:'REV-'+suffix,accepted_artifact_digest:hash(taskId+summary),
+        revision:'sha256:'+hash(summary),content:summary}};
+    runs.set(taskId,{run,attachments:structuredClone(plan.attachments)});
+    c.edit({text:'',attachments:[],knowledge_sources:[]});return run;
+  };
+  let hook=null,assetReads=0;
+  const taskOwner={readAcceptedRun:async(id,binding)=>{
+    assert.equal(binding.agentWorkspaceId,'personal');reads.push(id);
+    if(hook)await hook(id);
+    return structuredClone(runs.get(id)?.run);
+  },taskDocumentSource:async(id,sid,path,digest,binding)=>{
+    assert.equal(binding.agentWorkspaceId,'personal');documents.push([id,path]);
+    return {task_id:id,snapshot_id:sid,path,sha256:digest,text:runs.get(id).attachments[Number(path.slice(12,14))-1].text};
+  }};
+  const h=trusted(f,{withAgent:false,withAssets:true,personalComposer:c.port,personalTaskOwner:taskOwner,
+    confirmPersonalDraft:()=>true,assetHook:kind=>{if(kind==='get')assetReads++;}});
+  const input=(stepId,personalResultSelections)=>({...hostInput(f),stepId,resultSelections:[],includeMaterialEvidence:true,
+    ...(personalResultSelections===undefined?{}:{personalResultSelections})});
+  const prepare=async(stepId,selections)=>{
+    const request=input(stepId,selections),preview=await h.reader.previewHandoff(request);
+    const receipt=await h.reader.createPersonalDraft({...request,expectedCandidateDigest:preview.candidateDigest});
+    assert.equal(receipt.state,'DRAFT_CONFIRMED');return {preview,request};
+  };
+  await prepare('analyse');
+  const rootRun=addRun('TASK-root','Accepted original analysis\r\nстрока 2\n');
+  return {f,c,h,input,prepare,addRun,rootRun,reads,documents,assetReads:()=>assetReads,hook:fn=>{hook=fn;}};
+}
+const rootSelection=[{stepId:'analyse',taskId:'TASK-root'}];
+test('personal dependent Work transfers exact accepted K01 content through original composer and accepted Task inspection',async()=>{
+  const x=await personalChainFixture(),before=x.assetReads();
+  const request=x.input('review',rootSelection),preview=await x.h.reader.previewHandoff(request);
+  assert.equal(preview.state,'PERSONAL_PRIOR_RESULTS_OBSERVED_DECLARED_INPUTS_MATCHED');
+  assert.equal(preview.personalResults.length,1);assert.equal(preview.personalResults[0].acceptedTask.taskId,'TASK-root');
+  assert.equal(preview.materialEvidence.observation.counts.materials,1);
+  assert.equal(x.assetReads()-before,2);assert.deepEqual(x.reads,['TASK-root','TASK-root']);
+  assert.equal(JSON.stringify(preview).includes('Accepted original analysis'),false);
+  const receipt=await x.h.reader.createPersonalDraft({...request,expectedCandidateDigest:preview.candidateDigest});
+  assert.equal(receipt.state,'DRAFT_CONFIRMED');assert.equal(receipt.taskCreated,false);
+  assert.equal(x.c.view().attachments.find(a=>a.name==='result-001.txt').text,x.rootRun.result.summary);
+  const manifest=JSON.parse(x.c.view().attachments.at(-1).text);
+  assert.equal(manifest.handoff.predecessorResults[0].acceptedTask.acceptedDigest,x.rootRun.acceptedSource.accepted_artifact_digest);
+  x.addRun('TASK-review','Accepted review conclusion');
+  const accepted=await x.h.reader.inspectPersonalTask({...request,expectedCandidateDigest:preview.candidateDigest,taskId:'TASK-review'});
+  assert.equal(accepted.declaredDraftInputsVerified,true);assert.equal(accepted.workCompleted,false);
+  assert.equal(JSON.stringify(accepted).includes('Accepted review conclusion'),false);
+  const after=x.assetReads(),offset=x.reads.length;
+  await x.prepare('finish',[...rootSelection,{stepId:'review',taskId:'TASK-review'}]);
+  assert.equal(x.c.view().attachments.find(a=>a.name==='result-001.txt').text,'Accepted review conclusion');
+  assert.equal(x.c.view().attachments.filter(a=>a.name.startsWith('result-')).length,1);
+  // Preview and save (including consent revalidation): two full passes
+  // each, one addressed shared material per pass; not per predecessor.
+  assert.equal(x.assetReads()-after,6);
+  assert.deepEqual(x.reads.slice(offset),Array.from({length:6},()=>['TASK-root','TASK-review']).flat());
+  assert.equal((await x.f.owner.audit()).length,4);
+});
+test('personal chain refuses missing, unrelated, duplicate and wrong Task assignments before draft writes',async()=>{
+  const x=await personalChainFixture(),before=x.assetReads();
+  for(const selections of [[],[{stepId:'finish',taskId:'TASK-root'}],
+    [...rootSelection,{stepId:'review',taskId:'TASK-root'}]]){
+    await assert.rejects(x.h.reader.previewHandoff(x.input('finish',selections)),code('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED'));
+  }
+  assert.equal(x.assetReads(),before);assert.equal(x.c.writes(),1);
+  await assert.rejects(x.h.reader.previewHandoff({...x.input('review',rootSelection),resultSelections:selection}),code('T3_METHOD_STAGE_SELECTION_REQUIRED'));
+  x.h.context.kind='CORP';
+  await assert.rejects(x.h.reader.previewHandoff(x.input('review',rootSelection)),code('T3_METHOD_PERSONAL_DRAFT_PERSONAL_OWNER_REQUIRED'));
+  assert.equal(x.assetReads(),before);
+});
+test('personal chain refuses changed original accepted Task inputs and changing accepted evidence',async()=>{
+  const x=await personalChainFixture(),request=x.input('review',rootSelection);
+  const old=x.rootRun.task.objective;x.rootRun.task.objective='Wrong work';
+  await assert.rejects(x.h.reader.previewHandoff(request),code('T3_METHOD_PERSONAL_TASK_INPUT_CHANGED'));
+  x.rootRun.task.objective=old;
+  let reads=0;x.hook(()=>{if(++reads===2)x.rootRun.acceptedSource.accepted_artifact_digest='f'.repeat(64);});
+  await assert.rejects(x.h.reader.previewHandoff(request),code('METHOD_PERSONAL_CHAIN_EVIDENCE_CHANGED'));
+  assert.equal(x.c.writes(),1);
+});
+test('personal chain checks native WorkArea epoch throughout observation and does not accept stale preview',async()=>{
+  const x=await personalChainFixture(),request=x.input('review',rootSelection);
+  const preview=await x.h.reader.previewHandoff(request);
+  x.rootRun.acceptedSource.accepted_artifact_digest='f'.repeat(64);
+  await assert.rejects(x.h.reader.createPersonalDraft({...request,expectedCandidateDigest:preview.candidateDigest}),code('METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED'));
+  x.hook(()=>x.c.binding({contextEpoch:'changed'}));
+  await assert.rejects(x.h.reader.previewHandoff(request),code('T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED'));
+  assert.equal(x.c.writes(),1);
+});
+test('personal chain refuses oversized accepted Result rather than truncating it',async()=>{
+  const x=await personalChainFixture(),large='x'.repeat(48001);
+  x.rootRun.result.summary=large;x.rootRun.acceptedSource.content=large;
+  x.rootRun.acceptedSource.revision='sha256:'+createHash('sha256').update(large).digest('hex');
+  await assert.rejects(x.h.reader.previewHandoff(x.input('review',rootSelection)),code('METHOD_PERSONAL_DRAFT_CONTENT_LIMIT'));
+  assert.equal(x.c.writes(),1);
 });

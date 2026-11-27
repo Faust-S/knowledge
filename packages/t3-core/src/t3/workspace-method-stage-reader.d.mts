@@ -3,7 +3,9 @@ import type { WorkspaceMethodActor } from '../modules/base/features/workspace/wo
 export type WorkspaceMethodReaderSelection = Readonly<{workspaceId:string;projectId:string;expected:WorkspaceMethodRevisionSelection}>;
 export type WorkspaceMethodPublishedResultRef = Readonly<{workspace_id:string;object_id:string;schema_id:'iwxa.agent.accepted-result';revision:number}>;
 export type WorkspaceMethodResultSelection = Readonly<{stepId:string;reference:WorkspaceMethodPublishedResultRef}>;
-export type WorkspaceMethodStageRequest = WorkspaceMethodReaderSelection & Readonly<{stepId:string;resultSelections?:readonly WorkspaceMethodResultSelection[]}>;
+export type WorkspaceMethodPersonalResultSelection = Readonly<{stepId:string;taskId:string}>;
+export type WorkspaceMethodStageRequest = WorkspaceMethodReaderSelection & Readonly<{stepId:string;resultSelections?:readonly WorkspaceMethodResultSelection[];
+  personalResultSelections?:readonly WorkspaceMethodPersonalResultSelection[]}>;
 export type WorkspaceMethodOverviewStage = Readonly<{
   stepId:string;name:string;actor:WorkspaceMethodActor;workRef:WorkspaceMethodSourceRef;
   state:'MATERIAL_REVIEW_REQUIRED'|'PREDECESSOR_RESULTS_REQUIRED'|'INPUT_REFERENCES_VERIFIED';
@@ -28,6 +30,8 @@ export type WorkspaceMethodHandoffPreview = Readonly<{
   schema:'IWXA_T2_WORKSPACE_METHOD_STAGE_HANDOFF_PREVIEW_V1';state:string;inspection:WorkspaceMethodStageInspection;
   candidateDigest:string|null;requiredOriginalOwnerChecks:readonly string[];
   subjectKind?:'PERSONAL'|'CORP';
+  personalResults?:readonly Readonly<{stepId:string;canonicalWorkRef:WorkspaceMethodSourceRef;
+    acceptedTask:Readonly<{taskId:string;resultId:string;reviewId:string;acceptedDigest:string;acceptedSummarySha256:string;candidateDigest:string;agentWorkspaceId:string}>}>[];
   materialEvidenceRequested?:true;materialEvidence?:WorkspaceMethodMaterialEvidence|null;
   signedTaskIssued:false;taskCreated:false;contentBindingProven:false;exactInputBindingProven:false;
   dispatchAuthorized:false;executionAuthority:false;writeAuthorized:false;resultReuseProven:false;

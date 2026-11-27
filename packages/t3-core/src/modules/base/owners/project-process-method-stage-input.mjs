@@ -200,13 +200,14 @@ function captureDraftAsset(capture,asset,bytes){
     fail('METHOD_PERSONAL_DRAFT_ATTACHMENT_UNSUPPORTED','The selected attachment cannot be represented without changing its bytes');
   appendPersonalDraftAttachment(capture,'attachment-'+String(++capture.assetCount).padStart(3,'0')+'.'+ext,text);
 }
-async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,materials},draftCapture=null){
+async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,materials},draftCapture=null,materialCaptures=null){
   const limits=WORKSPACE_METHOD_MATERIAL_EVIDENCE_LIMITS;
   if(materials.length>limits.materials)fail('METHOD_MATERIAL_EVIDENCE_BUDGET_EXCEEDED','Too many materials for one observation');
   const budget={assets:0,assetBytes:0,canonicalBytes:0},seenAssets=new Set(),rows=[];
   // Sequential addressed reads bound the retained bytes. No whole-Workspace
   // enumeration and no material payload or attachment bytes in the report.
   for(const selected of materials){
+    const captureStart=draftCapture?.attachments.length??0;
     const current=selected.current,object=(await readObject(workspaceId,selected.object_id))?.object;
     if(!object||object.deleted===true||object.deleted_at!=null||!current
         ||['workspace_id','object_id','schema_id','schema_version','revision'].some(key=>object[key]!==current[key])){
@@ -237,6 +238,7 @@ async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,works
       if(draftCapture)captureDraftAsset(draftCapture,asset,actual.bytes);
     }
     rows.push(Object.freeze({reference:current,payloadDigest,visibleAssets:Object.freeze(assets)}));
+    if(materialCaptures)materialCaptures.set(selected.object_id,draftCapture.attachments.slice(captureStart));
   }
   return Object.freeze({materials:Object.freeze(rows),counts:Object.freeze({materials:rows.length,
     assets:budget.assets,assetBytes:budget.assetBytes,canonicalBytes:budget.canonicalBytes})});
@@ -494,7 +496,10 @@ export async function buildWorkspaceMethodPersonalTaskDraft(input={}){
   const report=handoffReport(inspection,true,'PERSONAL');
   if(report.candidateDigest!==expectedCandidateDigest||!report.materialEvidence?.observation)
     fail('METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED','The exact selected handoff content changed; review it again');
-  const basis=inspection.stageInput.basis;
+  return materializePersonalDraft(report,capture);
+}
+function materializePersonalDraft(report,capture){
+  const basis=report.inspection.stageInput.basis;
   // Provenance accompanies the actual selected input text. It does not
   // authorize a task or claim complete/immutable input binding.
   const manifest=canonicalStringify({handoff:report.binding,candidateDigest:report.candidateDigest,
@@ -507,7 +512,119 @@ export async function buildWorkspaceMethodPersonalTaskDraft(input={}){
     workspaceId:basis.workspaceId,projectId:basis.projectId,stepId:basis.stepId,
     draft:Object.freeze({text,knowledge_sources:Object.freeze([]),attachments:Object.freeze(capture.attachments)}),
     counts:Object.freeze({materials:capture.materialCount,assets:capture.assetCount,
-      attachments:capture.attachments.length,attachmentBytes:capture.bytes})});
+      attachments:capture.attachments.length,attachmentBytes:capture.bytes,
+      ...(capture.resultCount?{results:capture.resultCount}:{})})});
+}
+
+// W05.15. Personal execution uses explicitly selected original accepted
+// Tasks, not the signed corporate publication route. Reconstruct each
+// predecessor's declared input in dependency order and observe the entire
+// selected closure twice, sharing material observations within each pass.
+// No new persistent owner, task creation, completion, or result publication.
+function personalCapture(){return {attachments:[],bytes:0,materialCount:0,assetCount:0,resultCount:0};}
+function personalMaterialSlice(stage,all,byMaterial){
+  const capture=personalCapture(),ids=new Set(stage.materials.map(row=>row.object_id));
+  const materials=Object.freeze(all.materials.filter(row=>ids.has(row.reference.object_id)));
+  let canonicalBytes=0,assetBytes=0;
+  for(const row of materials){
+    for(const a of byMaterial.get(row.reference.object_id)){
+      if(a.name.startsWith('material-')){
+        appendPersonalDraftAttachment(capture,'material-'+String(++capture.materialCount).padStart(3,'0')+'.json',a.text);
+        canonicalBytes+=Buffer.byteLength(a.text,'utf8');
+      }else{
+        appendPersonalDraftAttachment(capture,'attachment-'+String(++capture.assetCount).padStart(3,'0')+'.'+a.name.split('.').at(-1),a.text);
+        assetBytes+=Buffer.byteLength(a.text,'utf8');
+      }
+    }
+  }
+  return {capture,materialEvidence:materialEvidenceReport(stage,Object.freeze({materials,
+    counts:Object.freeze({materials:materials.length,assets:capture.assetCount,assetBytes,canonicalBytes})}))};
+}
+function personalChainReport(stage,materialEvidence,prior){
+  const inspection=Object.freeze({state:prior.length?'PERSONAL_PRIOR_RESULTS_OBSERVED_DECLARED_INPUTS_MATCHED':'NO_PREDECESSOR_RESULTS_REQUIRED',
+    stageInput:stage,results:Object.freeze([]),atomicSnapshot:false,executionAuthority:false,resultReuseProven:false,
+    writeAuthorized:false,exactInputBindingProven:false,originalExecutionOwnerRequired:true,materialEvidence});
+  const base=handoffReport(inspection,true,'PERSONAL');
+  // Preserve the accepted W05.10 root draft/manifest bytes.
+  if(!prior.length)return base;
+  const basis=stage.basis,personalResults=Object.freeze(prior.map(row=>Object.freeze({
+    stepId:row.stepId,canonicalWorkRef:row.workRef,acceptedTask:row.evidence,
+  })));
+  const binding=Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_HANDOFF_PREVIEW_V1',
+    personalTaskChain:true,workspaceId:basis.workspaceId,projectId:basis.projectId,stepId:basis.stepId,
+    projectRef:basis.projectRef,workRef:basis.stageRef,intendedActor:basis.intendedActor,subjectKind:'PERSONAL',
+    inputBasisDigest:stage.inputBasisDigest,materialEvidenceDigest:materialEvidence.materialEvidenceDigest,
+    predecessorResults:personalResults});
+  return Object.freeze({...base,state:inspection.state,binding,personalResults,
+    candidateDigest:createHash('sha256').update(canonicalStringify(binding)).digest('hex')});
+}
+export async function prepareWorkspaceMethodPersonalChain(input={}){
+  const {stepId,workspaceId,projectId,subjectKind,personalResultSelections,listAssets,getAsset,readObject,
+    readVerifiedPersonalResult,expectedCandidateDigest}=input;
+  if(subjectKind!=='PERSONAL'||typeof readVerifiedPersonalResult!=='function'
+      ||typeof listAssets!=='function'||typeof getAsset!=='function')
+    fail('METHOD_PERSONAL_CHAIN_ORIGINAL_OWNER_REQUIRED','Original personal Task and material owners required');
+  if(!Array.isArray(personalResultSelections)||!personalResultSelections.length||personalResultSelections.length>63
+      ||(input.resultSelections??[]).length!==0)
+    fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','Select one original accepted Task per prerequisite, without mixing published Results');
+  const selections=Array.from(personalResultSelections,row=>{
+    if(!row||typeof row.stepId!=='string'||!/^[A-Za-z0-9_-]{1,63}$/.test(row.stepId)
+        ||typeof row.taskId!=='string'||!/^TASK-[A-Za-z0-9_-]{1,120}$/.test(row.taskId))
+      fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','Exact prerequisite and original Task identities required');
+    return Object.freeze({stepId:row.stepId,taskId:row.taskId});
+  });
+  const byStep=new Map(selections.map(row=>[row.stepId,row.taskId]));
+  if(byStep.size!==selections.length||new Set(selections.map(row=>row.taskId)).size!==selections.length)
+    fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','A Task cannot stand for multiple prerequisites');
+  const observation=await openInputObservation({...input,stepId},false);
+  const stages=observation.closure.works.map(row=>observation.reportFor(row.work.methodology.stepId));
+  const target=stages.at(-1);
+  if(!target||target.basis.stepId!==stepId||!target.predecessors.length
+      ||byStep.size!==stages.length-1||stages.slice(0,-1).some(stage=>!byStep.has(stage.basis.stepId)))
+    fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','Every exact prerequisite Work requires its own selected accepted Task');
+  if(stages.some(stage=>stage.basis.intendedActor!=='agent'))
+    fail('METHOD_PERSONAL_CHAIN_ACTOR_UNSUPPORTED','Human and program Results require their original owner route');
+  if(stages.some(stage=>stage.inputBasisDigest===null))
+    fail('METHOD_PERSONAL_CHAIN_MATERIAL_CHANGED','A prerequisite material requires review');
+  const pass=async()=>{
+    const byMaterial=new Map();
+    const all=await readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,
+      materials:observation.materials},personalCapture(),byMaterial);
+    const accepted=new Map();
+    for(const stage of stages){
+      const {capture,materialEvidence}=personalMaterialSlice(stage,all,byMaterial);
+      const prior=stage.predecessors.map(row=>accepted.get(row.stepId));
+      if(prior.some(row=>!row))fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','Original prerequisite Result unavailable');
+      for(const row of prior){
+        // The exact original K01 accepted content, not an invented summary
+        // or a recursively embedded Task package.
+        appendPersonalDraftAttachment(capture,'result-'+String(++capture.resultCount).padStart(3,'0')+'.txt',row.summary);
+      }
+      const report=personalChainReport(stage,materialEvidence,prior);
+      const plan=materializePersonalDraft(report,capture);
+      if(stage.basis.stepId===stepId)return {report,plan};
+      const taskId=byStep.get(stage.basis.stepId);
+      const actual=await readVerifiedPersonalResult(plan,taskId);
+      const evidence=actual?.evidence,summary=actual?.summary;
+      if(!evidence||evidence.taskId!==taskId||!HEX.test(evidence.acceptedDigest??'')
+          ||typeof summary!=='string'||!summary.trim()||summary.includes('\0')
+          ||Buffer.from(summary,'utf8').toString('utf8')!==summary
+          ||createHash('sha256').update(summary,'utf8').digest('hex')!==evidence.acceptedSummarySha256)
+        fail('METHOD_PERSONAL_CHAIN_RESULT_MISMATCH','Original accepted Task and exact Result content must agree');
+      accepted.set(stage.basis.stepId,Object.freeze({stepId:stage.basis.stepId,workRef:stage.basis.stageRef,summary,
+        evidence:Object.freeze({...evidence,candidateDigest:plan.candidateDigest})}));
+    }
+    fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','Selected target Work unavailable');
+  };
+  const first=await pass();
+  await observation.revalidate('METHOD_PERSONAL_CHAIN_MATERIAL_CHANGED');
+  const last=await pass();
+  await observation.revalidate('METHOD_PERSONAL_CHAIN_MATERIAL_CHANGED');
+  if(first.plan.candidateDigest!==last.plan.candidateDigest||!equal(first.plan.draft,last.plan.draft))
+    fail('METHOD_PERSONAL_CHAIN_EVIDENCE_CHANGED','Original accepted chain or actual material content changed');
+  if(expectedCandidateDigest!==undefined&&last.plan.candidateDigest!==expectedCandidateDigest)
+    fail('METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED','The exact selected handoff content changed; review it again');
+  return Object.freeze(last);
 }
 
 // W07.1. Reuse the existing trusted D6 recipient preview/recovery port.

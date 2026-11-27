@@ -36,6 +36,7 @@ export async function saveOriginalPersonalWorkflowDraft({plan,refreshPlan,compos
     &&typeof guarded==='function'&&typeof refreshPlan==='function'&&typeof confirm==='function',
     'T3_METHOD_PERSONAL_DRAFT_ORIGINAL_OWNER_REQUIRED');
   const binding=nativeBinding(await guarded(()=>composer.currentBinding()),plan.workspaceId);
+  if(plan.nativeBinding)check(equal(plan.nativeBinding,binding),'T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED');
   const currentBinding=async()=>check(equal(nativeBinding(await guarded(()=>composer.currentBinding()),plan.workspaceId),binding),
     'T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED');
   const read=async()=>{
@@ -62,6 +63,7 @@ export async function saveOriginalPersonalWorkflowDraft({plan,refreshPlan,compos
   const fresh=await refreshPlan();
   check(fresh.candidateDigest===plan.candidateDigest&&equal(fresh.draft,plan.draft),
     'T3_METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED');
+  if(fresh.nativeBinding)check(equal(fresh.nativeBinding,binding),'T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED');
   const latest=await read();
   if(sameDraft(latest,plan))return response('DRAFT_ALREADY_PRESENT',latest);
   if(latest.draft_digest!==beforeDigest||!emptyDraft(latest)||canonicalStringify(latest.local_model)!==model)
@@ -93,15 +95,20 @@ export async function saveOriginalPersonalWorkflowDraft({plan,refreshPlan,compos
 // Core Task/Result/Review chain and return its accepted-run snapshot.
 // No acceptance, publication, workflow completion, or new Task is written.
 const sha=text=>createHash('sha256').update(text,'utf8').digest('hex');
-export async function inspectOriginalPersonalWorkflowTask({plan,taskId,composer,taskOwner,guarded,refreshPlan}){
-  check(typeof taskId==='string'&&/^TASK-[A-Za-z0-9_-]{1,120}$/.test(taskId)
-    &&typeof composer?.currentBinding==='function'&&typeof taskOwner?.readAcceptedRun==='function'
-    &&typeof taskOwner?.taskDocumentSource==='function'&&typeof guarded==='function'&&typeof refreshPlan==='function',
+// One original accepted-run observation, used by the ordinary two-read
+// inspection and by the personal chain's two complete source passes.
+// The result text is for trusted Host composition, never a UI receipt.
+export async function createOriginalPersonalWorkflowTaskObserver({workspaceId,composer,taskOwner,guarded}){
+  check(typeof composer?.currentBinding==='function'&&typeof taskOwner?.readAcceptedRun==='function'
+    &&typeof taskOwner?.taskDocumentSource==='function'&&typeof guarded==='function',
     'T3_METHOD_PERSONAL_TASK_ORIGINAL_OWNER_REQUIRED');
-  const binding=nativeBinding(await guarded(()=>composer.currentBinding()),plan.workspaceId);
-  const current=async()=>check(equal(nativeBinding(await guarded(()=>composer.currentBinding()),plan.workspaceId),binding),
+  const binding=nativeBinding(await guarded(()=>composer.currentBinding()),workspaceId);
+  const current=async()=>check(equal(nativeBinding(await guarded(()=>composer.currentBinding()),workspaceId),binding),
     'T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED');
-  const read=async()=>{
+  const read=async(plan,taskId)=>{
+    check(plan?.workspaceId===workspaceId&&typeof taskId==='string'&&/^TASK-[A-Za-z0-9_-]{1,120}$/.test(taskId),
+      'T3_METHOD_PERSONAL_TASK_ORIGINAL_OWNER_REQUIRED');
+    if(plan.nativeBinding)check(equal(plan.nativeBinding,binding),'T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED');
     await current();
     const value=structuredClone(await guarded(()=>taskOwner.readAcceptedRun(taskId,binding)));
     await current();
@@ -160,19 +167,24 @@ export async function inspectOriginalPersonalWorkflowTask({plan,taskId,composer,
     systemSources.sort((a,b)=>a.path.localeCompare(b.path));
     const nativeSystemSourcesDigest=sha(canonicalStringify(systemSources));
     await current();
-    // Never project Task, Result, or document text to the Workspace UI.
-    return Object.freeze({taskId,resultId:result.result_id,taskDigest:result.task_digest,
+    const evidence=Object.freeze({agentWorkspaceId:binding.agentWorkspaceId,taskId,resultId:result.result_id,taskDigest:result.task_digest,
       reviewId:acceptedSource.review_id,acceptedDigest:acceptedSource.accepted_artifact_digest,
       acceptedSummarySha256:sha(result.summary),snapshotId:snapshot.snapshot_id,snapshotDigest:snapshot.snapshot_digest,
       projectionDigest:snapshot.projection_digest,bundleDigest:snapshot.bundle_digest,
       nativeSystemSourceCount:systemSources.length,nativeSystemSourcesDigest});
+    return Object.freeze({evidence,summary:result.summary});
   };
-  const first=await read(),fresh=await refreshPlan();
+  return Object.freeze({binding,verifyCurrent:current,read});
+}
+export async function inspectOriginalPersonalWorkflowTask({plan,taskId,composer,taskOwner,guarded,refreshPlan}){
+  check(typeof refreshPlan==='function','T3_METHOD_PERSONAL_TASK_ORIGINAL_OWNER_REQUIRED');
+  const observer=await createOriginalPersonalWorkflowTaskObserver({workspaceId:plan.workspaceId,composer,taskOwner,guarded});
+  const first=await observer.read(plan,taskId),fresh=await refreshPlan();
   check(fresh.candidateDigest===plan.candidateDigest&&equal(fresh.draft,plan.draft),'T3_METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED');
-  const last=await read();
+  const last=await observer.read(fresh,taskId);
   check(equal(first,last),'T3_METHOD_PERSONAL_TASK_ACCEPTED_RUN_CHANGED');
   return Object.freeze({state:'ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED',workspaceId:plan.workspaceId,projectId:plan.projectId,
-    stepId:plan.stepId,candidateDigest:plan.candidateDigest,agentWorkspaceId:binding.agentWorkspaceId,...last,
+    stepId:plan.stepId,candidateDigest:plan.candidateDigest,...last.evidence,
     declaredDraftInputsVerified:true,allAssetsProven:false,exactInputBindingProven:false,
     workCompleted:false,resultReuseProven:false,executionAuthority:false,writeAuthorized:false});
 }
