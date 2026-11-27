@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { canonicalStringify } from '../../../persistence/canonical-codec.mjs';
 import {
   PROJECT_PROCESS_NORMALIZERS,
   assertProjectMethodologyWork,
@@ -305,6 +306,24 @@ function normalizeSource(kind, input) {
   return payload;
 }
 
+// An optional caller constraint on the original resolved references, not
+// a grant or a substitute for the owner resolving its own live heads.
+// Snapshot before awaiting any head lookup; never persist caller refs.
+function expectedMethodRefs(kind,payload,expected){
+  if(expected===undefined)return null;
+  if(!['project','work'].includes(kind)||!payload.methodology||!expected||typeof expected!=='object'){
+    throw new ProjectProcessSourceOwnerError('Exact method reference constraint requires a planned Project/Work',
+      'PROJECT_PROCESS_METHOD_EXPECTED_REFS_INVALID');
+  }
+  return canonicalStringify(expected);
+}
+function assertExpectedMethodRefs(expected,actual){
+  if(expected!==null&&expected!==canonicalStringify(actual)){
+    throw new ProjectProcessSourceOwnerError('Resolved source references changed before the method write',
+      'PROJECT_PROCESS_METHOD_EXPECTED_REFS_CHANGED');
+  }
+}
+
 class ProjectProcessSourceOwnerCore {
   #gateway;
 
@@ -312,13 +331,15 @@ class ProjectProcessSourceOwnerCore {
     this.#gateway=gateway;
   }
 
-  async create(kind,{recordId,knowledgeAt,...input}) {
+  async create(kind,{recordId,knowledgeAt,expectedCanonicalRefs,...input}) {
     const payload=normalizeSource(kind,input);
+    const expectedRefs=expectedMethodRefs(kind,payload,expectedCanonicalRefs);
     const binding=projectProcessSourceBinding(kind);
     const commands=commandsFor(kind);
     const exactRecordId=requireText(recordId,'recordId');
     if(kind==='project') assertProjectMethodologyCreation(payload,exactRecordId);
     const refs=await this.#resolveRefs(kind,payload,{recordId:exactRecordId,knowledgeAt});
+    assertExpectedMethodRefs(expectedRefs,refs);
     return this.#gateway.execute({
       ownerId:OWNER_ID,
       commandId:commands.create,
@@ -333,8 +354,9 @@ class ProjectProcessSourceOwnerCore {
     });
   }
 
-  async revise(kind,{recordId,baseRevisionId,knowledgeAt,...input}) {
+  async revise(kind,{recordId,baseRevisionId,knowledgeAt,expectedCanonicalRefs,...input}) {
     const payload=normalizeSource(kind,input);
+    const expectedRefs=expectedMethodRefs(kind,payload,expectedCanonicalRefs);
     const binding=projectProcessSourceBinding(kind);
     const commands=commandsFor(kind);
     if(kind === 'project' || kind === 'work'){
@@ -354,6 +376,7 @@ class ProjectProcessSourceOwnerCore {
       }
     }
     const refs=await this.#resolveRefs(kind,payload);
+    assertExpectedMethodRefs(expectedRefs,refs);
     return this.#gateway.execute({
       ownerId:OWNER_ID,
       commandId:commands.revise,

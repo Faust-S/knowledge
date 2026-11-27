@@ -67,7 +67,10 @@ function verifyMethodSet({workspaceId,project,projectRef,ids,loaded}){
       fail('METHOD_SOURCE_REFERENCE_CHANGED','Project/Work references no longer form the captured revision set');
     }
   }
-  return {draft,workRefs};
+  // This immutable metadata belongs to the selected Project revision;
+  // retaining it avoids a separate history read during revision planning.
+  const originalCreation=normalizeProject(project.value).methodology.creation??null;
+  return {draft,workRefs,originalCreation};
 }
 
 /** Read a complete planned methodology via the existing source owner's load
@@ -81,7 +84,7 @@ export async function readWorkspaceMethodFromSourceOwner({owner,workspaceId,proj
   const projectRef=sourceRef('project',workspaceId,projectId,project);
   const ids=methodWorkIds(project,projectId);
   const loaded=await Promise.all(ids.map(id=>owner.load('work',workspaceId,id)));
-  const {draft,workRefs}=verifyMethodSet({workspaceId,project,projectRef,ids,loaded});
+  const {draft,workRefs,originalCreation}=verifyMethodSet({workspaceId,project,projectRef,ids,loaded});
   // A concurrent edit observed during readback must cause explicit review.
   // The source owner's immutable record IDs, not payload similarity, bind
   // this read. Revalidation is still required for any future mutation.
@@ -93,7 +96,7 @@ export async function readWorkspaceMethodFromSourceOwner({owner,workspaceId,proj
       || ref.revision!==[projectRef,...workRefs][index].revision)){
     fail('METHOD_SOURCE_REFERENCE_CHANGED','Source head changed during readback');
   }
-  return Object.freeze({workspaceId,projectId,draft,projectRef,workRefs:Object.freeze(workRefs),
+  return Object.freeze({workspaceId,projectId,draft,projectRef,workRefs:Object.freeze(workRefs),originalCreation,
     revisionSetVerified:true,atomicSnapshot:false,writeAuthorized:false,executionAuthority:false});
 }
 
@@ -159,7 +162,7 @@ export async function readHistoricalWorkspaceMethod({owner,workspaceId,projectId
   qualifyProjectProcessSameWorkspaceHistory({workspaceId,
     records:[...projectHistory.prefix,...histories.flatMap(item=>item.prefix)],requireReferencedHeads:false});
   const loaded=histories.map(item=>item.loaded);
-  const {draft,workRefs}=verifyMethodSet({workspaceId,project,projectRef,ids,loaded});
-  return Object.freeze({workspaceId,projectId,draft,projectRef,workRefs:Object.freeze(workRefs),revisionSetVerified:true,
+  const {draft,workRefs,originalCreation}=verifyMethodSet({workspaceId,project,projectRef,ids,loaded});
+  return Object.freeze({workspaceId,projectId,draft,projectRef,workRefs:Object.freeze(workRefs),originalCreation,revisionSetVerified:true,
     historicalRead:true,currentHeadVerified:false,atomicSnapshot:false,writeAuthorized:false,executionAuthority:false});
 }

@@ -45,7 +45,8 @@ function runCurrentNativeSourceTests(){
     'tests/c3-process-intelligence.test.mjs',
     'tests/c3-project-process-qualification.test.mjs',
     'tests/c3-workspace-method-source-lifecycle.test.mjs',
-    'tests/c3-workspace-method-comparison.test.mjs'],
+    'tests/c3-workspace-method-comparison.test.mjs',
+    'tests/c3-workspace-method-revision-apply.test.mjs'],
     {cwd:root,encoding:'utf8',maxBuffer:12*1024*1024});
   process.stdout.write(tests.stdout??'');process.stderr.write(tests.stderr??'');
   if(tests.error||tests.status!==0)throw new Error('C3_CURRENT_NATIVE_SOURCE_TESTS_FAILED');
@@ -55,7 +56,7 @@ function runCurrentNativeSourceTests(){
     if(rows.length!==1)throw new Error('C3_NATIVE_TEST_SUMMARY_INVALID:'+name);
     counts[name]=Number(rows[0][1]);
   }
-  if(counts.tests<110||counts.pass!==counts.tests||counts.fail||counts.cancelled||counts.skipped||counts.todo){
+  if(counts.tests<127||counts.pass!==counts.tests||counts.fail||counts.cancelled||counts.skipped||counts.todo){
     throw new Error('C3_NATIVE_SOURCE_TEST_COUNTS_INVALID');
   }
   return Object.freeze(counts);
