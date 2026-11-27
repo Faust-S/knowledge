@@ -61,6 +61,8 @@ export function useWorkspaceContent(
 ): WorkspaceContentController {
   const { kernel, workspaceId, deferEvents = false } = options;
 
+  const [requestScope, setRequestScope] = useState<{ kernel: KernelFacade | null; workspaceId: string } | null>(null);
+  const scopeMatches = requestScope?.kernel === kernel && requestScope.workspaceId === workspaceId;
   const [workspaceState, setWorkspaceState] =
     useState<WorkspaceRecordState>("idle");
   const [workspace, setWorkspace] = useState<WorkspaceRecord | null>(null);
@@ -86,6 +88,7 @@ export function useWorkspaceContent(
   useEffect(() => {
     const gen = ++generation.current;
 
+    setRequestScope({ kernel, workspaceId });
     setWorkspace(null);
     setWorkspaceError(null);
     setObjects(EMPTY_OBJECTS);
@@ -131,15 +134,20 @@ export function useWorkspaceContent(
         setWorkspaceState("error");
       }
     })();
+    return () => {
+      // An unmounted surface must not publish any outstanding readback.
+      if (generation.current === gen) generation.current += 1;
+    };
   }, [kernel, workspaceId]);
 
-  const rawProfile = workspace?.profile ?? null;
+  const rawProfile = scopeMatches ? workspace?.profile ?? null : null;
   const profile = useWorkspaceProfile(rawProfile);
 
   const profileMatchesWorkspace =
     rawProfile !== null && profile.requestedProfile === rawProfile;
 
   const profileReadyForData =
+    scopeMatches && workspaceState === "ready" && workspace?.workspace_id === workspaceId &&
     profileMatchesWorkspace &&
     (profile.status === "ready" || profile.status === "fallback");
 
@@ -186,16 +194,17 @@ export function useWorkspaceContent(
         clean.push(o);
       }
       if (duplicateObjectIds.size > 0) {
-        // An object id is the canonical selector for detail, compare and owner-command
-        // preflight. If the kernel returns two live records with the same id, neither
-        // record is safe to render or mutate until the source ambiguity is resolved.
+        // Preserve the diagnostic order and refuse every conflicting identity.
+        // Do not splice an array repeatedly: duplicated data must not create
+        // quadratic work during a large Workspace read.
         for (let index = clean.length - 1; index >= 0; index -= 1) {
           if (!duplicateObjectIds.has(clean[index].object_id)) continue;
           warnings.push({ objectId: clean[index].object_id, reason: "duplicate-object-id" });
-          clean.splice(index, 1);
         }
       }
-      setObjects(sortWorkspaceObjects(clean));
+      const admitted = duplicateObjectIds.size > 0
+        ? clean.filter(object => !duplicateObjectIds.has(object.object_id)) : clean;
+      setObjects(sortWorkspaceObjects(admitted));
       setObjectIntegrityWarnings(warnings.length ? warnings : EMPTY_WARNINGS);
       setObjectsState("ready");
     } catch (e) {
@@ -252,10 +261,11 @@ export function useWorkspaceContent(
         for (let index = clean.length - 1; index >= 0; index -= 1) {
           if (!duplicateEventIds.has(clean[index].event_id)) continue;
           warnings.push({ eventId: clean[index].event_id, reason: "duplicate-event-id" });
-          clean.splice(index, 1);
         }
       }
-      setEvents(Object.freeze(clean));
+      const admitted = duplicateEventIds.size > 0
+        ? clean.filter(event => !duplicateEventIds.has(event.event_id)) : clean;
+      setEvents(Object.freeze(admitted));
       setEventIntegrityWarnings(warnings.length ? Object.freeze(warnings) : EMPTY_EVENT_WARNINGS);
       setEventsState("ready");
     } catch (e) {
@@ -278,23 +288,25 @@ export function useWorkspaceContent(
 
   return useMemo<WorkspaceContentController>(
     () => ({
-      workspaceState,
-      workspace,
-      workspaceError,
+      // Render-time scope fence: effects clear state after a render. Never
+      // expose the old Workspace, even when a new session uses the same ID.
+      workspaceState: scopeMatches ? workspaceState : "idle",
+      workspace: scopeMatches ? workspace : null,
+      workspaceError: scopeMatches ? workspaceError : null,
       profile,
-      objectsState,
-      objects,
-      objectsError,
-      objectIntegrityWarnings,
-      eventsState,
-      events,
-      eventsError,
-      eventIntegrityWarnings,
+      objectsState: scopeMatches ? objectsState : "idle",
+      objects: scopeMatches ? objects : EMPTY_OBJECTS,
+      objectsError: scopeMatches ? objectsError : null,
+      objectIntegrityWarnings: scopeMatches ? objectIntegrityWarnings : EMPTY_WARNINGS,
+      eventsState: scopeMatches ? eventsState : "idle",
+      events: scopeMatches ? events : EMPTY_EVENTS,
+      eventsError: scopeMatches ? eventsError : null,
+      eventIntegrityWarnings: scopeMatches ? eventIntegrityWarnings : EMPTY_EVENT_WARNINGS,
       refreshObjects: doLoadObjects,
       refreshEvents: doLoadEvents,
     }),
     [
-      workspaceState, workspace, workspaceError,
+      scopeMatches, workspaceState, workspace, workspaceError,
       profile,
       objectsState, objects, objectsError, objectIntegrityWarnings,
       eventsState, events, eventsError, eventIntegrityWarnings,

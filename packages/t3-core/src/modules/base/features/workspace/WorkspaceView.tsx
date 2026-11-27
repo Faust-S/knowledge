@@ -42,6 +42,9 @@ export interface WorkspaceViewProps {
   onBack: () => void;
 }
 
+const PENDING_OBJECTS: readonly import("../../../../kernel-client").ObjectRecord[] = Object.freeze([]);
+const PENDING_EVENTS: readonly import("../../../../kernel-client").EventRecord[] = Object.freeze([]);
+
 const SENSITIVITY_LABELS: Record<string, string> = {
   standard: "обычный",
   public: "публичный",
@@ -601,8 +604,8 @@ function WorkspaceCatalogSurface(props: CatalogSurfaceProps) {
           grantedOperations={grantedOperations}
           activeCapabilities={activeCapabilities}
           catalogReady={objectsState === "ready"}
-          objects={objectsState === "ready" ? objects : []}
-          events={eventsState === "ready" ? events : []}
+          objects={objectsState === "ready" ? objects : PENDING_OBJECTS}
+          events={eventsState === "ready" ? events : PENDING_EVENTS}
           eventsAvailable={eventsState === "ready"}
           historyState={eventsState}
           profileDefinition={profileDefinition}

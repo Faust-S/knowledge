@@ -96,6 +96,8 @@ const VIEW_SAVE_MESSAGES: Readonly<Record<string, string>> = {
   VIEW_STATE_SELECTION_REVIEW_REQUIRED: "Проверьте изменившиеся или недоступные материалы перед сохранением.",
 };
 
+const UNLOADED_EVENTS: readonly EventRecord[] = Object.freeze([]);
+
 const VIEW_MODE_TITLES: Readonly<Record<WorkspaceMode, string>> = {
   browse: "Объекты", queues: "Очереди", compare: "Сравнение", receipts: "Receipts", canvas: "Полотно",
 };
@@ -123,9 +125,12 @@ export function RichWorkspaceReadModel(props: {
   onOpenObject: (workspaceId: string, objectId: string) => void;
 }) {
   const { workspace, objects, events, profileDefinition, eventsAvailable = true, commands, onRefreshObjects, onOpenObject } = props;
+  const historyState = props.historyState ?? (eventsAvailable ? "ready" : "unavailable");
+  const historyReady = historyState === "ready";
+  const admittedEvents = historyReady ? events : UNLOADED_EVENTS;
   const model = useMemo(
-    () => buildRichWorkspaceReadModel({ workspace, objects, events, profileDefinition }),
-    [events, objects, profileDefinition, workspace],
+    () => buildRichWorkspaceReadModel({ workspace, objects, events: admittedEvents, profileDefinition }),
+    [admittedEvents, objects, profileDefinition, workspace],
   );
   const [query, setQuery] = useState("");
   const [areaId, setAreaId] = useState<string | null>(null);
@@ -135,8 +140,6 @@ export function RichWorkspaceReadModel(props: {
   const [methodError, setMethodError] = useState("");
   const [windowOffset, setWindowOffset] = useState(0);
   const [historyPage, setHistoryPage] = useState(0);
-  const historyState = props.historyState ?? (eventsAvailable ? "ready" : "unavailable");
-  const historyReady = historyState === "ready";
   // Only render one page, while keeping the actual full authorized count.
   const historyWindow = useMemo(() => paginate(model.timeline, historyPage, 50), [model.timeline, historyPage]);
   useEffect(() => { setHistoryPage(0); }, [workspace.workspace_id, profileDefinition.id, props.kernel]);
