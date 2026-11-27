@@ -1,0 +1,11 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d11-live-product-acceptance",
+  "prepared_sha": "1fbb460ff78841726cd0a81072007e331e05fa08",
+  "profile": "t3-live-os",
+  "revisions": {
+    "domain": "c4406c29abd639862fc21edf417c5d049184e926",
+    "site": "89e1e2c1c29568cc2e680da7af360fef706f8f88",
+    "t3": "a50d40dafc2e029fcc7668dece925f7fc38cc510"
+  }
+}
