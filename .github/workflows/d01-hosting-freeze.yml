@@ -1,4 +1,4 @@
-name: D01 retained-input T3 reproducibility
+name: D01 exact retained inputs encrypted handoff
 on:
   workflow_dispatch:
   push:
@@ -16,11 +16,11 @@ permissions:
 jobs:
   t3:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
-    name: T3 retained-input reproducibility qualification
+    name: T3 retained-input encrypted transport
     runs-on: ubuntu-24.04
     timeout-minutes: 110
     permissions:
-      contents: read
+      contents: write
       actions: read
     env:
       D01_T2_SOURCE: ${{ github.workspace }}/private/t2/t2/current/final-successor/canonical-source
@@ -36,7 +36,7 @@ jobs:
         run: |
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-hosting-freeze \
-            --profile retained-input-reproduction \
+            --profile retained-input-encrypted-transfer \
             --revision site=e745c22c44dce1de6d3446cfedaf0960110389d1 \
             --revision subject=1e8700f4fd6f11c50db154f9f080b2406bef02ec \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1 \
@@ -96,19 +96,11 @@ jobs:
           run-id: 45395047723
           name: iwxa-t3-mobile-portable-candidate-326f725c44d69ac99f6b912241e9e8a6c3d716a5
           path: original/artifact
-      - name: T3 source and original offline controller tests
+      - name: Install locked site tooling for the exact retained transfer
+        working-directory: private/site
         shell: bash
         run: |
-          set -eu
-          node --test --test-reporter=tap original/core/packages/t3-core/tests/t3-domain-offline.test.mjs >"$RUNNER_TEMP/d01-t3-core.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-core.log" | cut -c1-160 || true; echo D01_SOURCE_TEST_FAIL; exit 1; }
-          grep -E '^(# |ℹ )(tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-core.log" || true
-          cd private/site
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/d01-t3-deps.log" 2>&1 || { echo D01_T3_DEPENDENCY_FAIL; exit 1; }
-          node --test --test-reporter=tap scripts/test-practice-model-write.mjs scripts/test-study-form-navigation.mjs scripts/test-practice-history.mjs scripts/test-learn-workspace-regression.mjs scripts/test-first-use-profile.mjs scripts/test-learn-exact-workspace.mjs scripts/test-practice-program-write.mjs scripts/test-practice-session-start.mjs scripts/test-practice-workspace-selection.mjs scripts/test-mind-complete-history.mjs scripts/test-custom-practice-launch.mjs scripts/test-browser-product-origin.mjs >"$RUNNER_TEMP/d01-t3-journey-regression.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail) ' "$RUNNER_TEMP/d01-t3-journey-regression.log" | cut -c1-160 || true; echo D01_T3_JOURNEY_REGRESSION_FAIL; exit 1; }
-          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d01-t3-journey-regression.log"
-          npm run test:learn-t3-assembly >"$RUNNER_TEMP/d01-t3-tests.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-tests.log" | cut -c1-160 || true; echo D01_SOURCE_TEST_FAIL; exit 1; }
-          npm run t3:skills:check >"$RUNNER_TEMP/d01-t3-skills.log" 2>&1 || { echo D01_T3_SKILLS_FAIL; exit 1; }
-          grep -E '^(# |ℹ )(tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-tests.log" || true
       - name: T3 prepare one compiled original Host and retained inputs
         id: prepare
         timeout-minutes: 45
@@ -139,35 +131,49 @@ jobs:
           grep '^D01_T3_ORIGINAL_KERNEL_PASSPORTS=' "$RUNNER_TEMP/d01-t3-build.log"
           npm run verify:hosting-dist
           npm run audit:links
-      - name: Isolated retained-input build witness tests
+      - name: Seal only the previously reproduced retained inputs for the developer
         working-directory: private/site
-        shell: bash
-        run: |
-          node --test --test-reporter=tap scripts/test-learn-t3-reproducibility.mjs >"$RUNNER_TEMP/d01-t3-repro-tests.log" 2>&1 || { echo D01_T3_REPRO_UNIT_FAIL; grep -E '^(not ok|# (tests|pass|fail) )' "$RUNNER_TEMP/d01-t3-repro-tests.log" | cut -c1-180; exit 1; }
-          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d01-t3-repro-tests.log"
-      - name: Two isolated ordinary builds with original checkouts unavailable
-        working-directory: private/site
-        timeout-minutes: 25
+        env:
+          D01_TRANSIT_PUBLIC_KEY: MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAqsetDNqhubnzDGOBb4cAXmVuZSfkfsdVohy9552PUVEElJfNq8WFZgvH+/a4VakgwUKBKk3UfXVELijFfjLX0RO5+HfU4v6/prdX1IB2DpupMH6202qbljvOc6w+oTFj6MTrAqpbQXrutgK+g90vSo028cCoWwLH+j41bHveuJFm8Ez65d8KLV4CP+f60+FnGOi/1vcO3grV3G5gxd8orH3R9bk57lkBaVvCedUnMVt1q1K0goSyy7x1D51MGyS1ovJndmfwlcv3r178BEPCzzsUBGbUafJ9VITrwjJWHGuxffLwBy7alLI98lg5sNloCzYXiMxskipfroWLCyNItPm3os59DJCFSrNp78uexjgj++rMJAYY+F7cYY+8MuGdQLrPtTdZ+noVNnfdFzhg1SnvuQP2bM57MbFTB22QKIJmkpHJhIh79ApeWb7MjAX71MNXvLt2o+YhKl4s7oGPjYdV7d8sG2mbetOnbL0+oiJ63hd8wyaGn2zDEJplUi7DAgMBAAE=
         shell: bash
         run: |
           set -eu
-          # A private mount namespace masks the original source trees and
-          # prepared temporary Host; the network namespace has loopback only.
-          # The tested site keeps its own retained, verified inputs.
-          sudo -n unshare --mount --net --propagation private -- bash -euc '
-            ip link set lo up
-            empty=$(mktemp -d)
-            chmod 755 "$empty"
-            trap "rmdir \"$empty\"" EXIT
-            for p in "$3/original" "$3/private/assistant" "$3/private/t2" "$3/private/domain" "$4/d01-t3-host"; do
-              test -d "$p" || exit 1
-              mount --bind "$empty" "$p"
-            done
-            runuser -u "$1" -- "$2" scripts/verify-learn-t3-reproducibility.mjs
-          ' _ "$(id -un)" "$(command -v node)" "$GITHUB_WORKSPACE" "$RUNNER_TEMP" >"$RUNNER_TEMP/d01-t3-repro.log" 2>&1 || {
-            echo D01_T3_REPRO_FAIL
-            grep -Eo '(D01_|T3_|ERR_)[A-Z0-9_]+(:[A-Z0-9_]+)*|AssertionError|TypeError|ReferenceError|SyntaxError|ENOENT|EACCES|MODULE_NOT_FOUND|Operation not permitted' "$RUNNER_TEMP/d01-t3-repro.log" | sort -u | head -80 || true
-            grep -Eo 'D01_T3_REPRO_DIST_MISMATCH:\{"added":[0-9]+,"removed":[0-9]+,"changed":[0-9]+\}' "$RUNNER_TEMP/d01-t3-repro.log" | head -5 || true
-            exit 1
-          }
-          grep '^D01_T3_REPRODUCTION=' "$RUNNER_TEMP/d01-t3-repro.log"
+          node "$GITHUB_WORKSPACE/ci-harness/scripts/d01-stage-qualified-result.mjs" "$PWD" "$RUNNER_TEMP/d01-transit" "e745c22c44dce1de6d3446cfedaf0960110389d1" "0b70f6e33adef9e5239f942ec74007f4fd160ab5de9a67953a30ab19aec9617f" "$GITHUB_RUN_ID" "$D01_TRANSIT_PUBLIC_KEY" "18346d05e2650ffa090eacf8c4e06f18f3efb1a79166a39b9e44f1ef88f9f2a3"
+      - name: Publish ciphertext parts only to a temporary public transit branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          unset GIT_TRACE GIT_TRACE_PACKET GIT_TRACE_CURL GIT_CURL_VERBOSE GIT_TRACE2 GIT_TRACE2_EVENT GH_DEBUG
+          export GIT_TERMINAL_PROMPT=0
+          test "$GITHUB_REPOSITORY" = Faust-S/knowledge
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
+          target="refs/heads/transit/d01/e745c22c44dce1de6d3446cfedaf0960110389d1/$GITHUB_RUN_ID"
+          out="$RUNNER_TEMP/d01-transit"
+          test -f "$out/header.json"
+          test -d "$out/parts"
+          git -C "$out" init -q
+          git -C "$out" add -- header.json parts
+          git -C "$out" -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "D01 encrypted transient build result [skip ci] [skip actions]"
+          ask="$RUNNER_TEMP/d01-public-askpass"
+          cat > "$ask" <<'ASKPASS'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' x-access-token ;;
+            *Password*) printf '%s\n' "$GH_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          ASKPASS
+          chmod 700 "$ask"
+          export GIT_ASKPASS="$ask"
+          url=https://github.com/Faust-S/knowledge.git
+          git -C "$out" -c credential.helper= -c http.extraheader= -c http.https://github.com/.extraheader= push "$url" "HEAD:$target" > "$RUNNER_TEMP/d01-transit-push.log" 2>&1 || { echo D01_TRANSIT_PUBLIC_WRITE=FAIL; exit 1; }
+          sha="$(git -C "$out" rev-parse HEAD)"
+          observed="$(git -C "$out" -c credential.helper= ls-remote --exit-code "$url" "$target")"
+          test "$observed" = "$(printf '%s\t%s' "$sha" "$target")"
+          echo "D01_TRANSIT_BRANCH=$target"
+          echo "D01_TRANSIT_COMMIT=$sha"
+          echo D01_TRANSIT_PUBLIC_WRITE=PASS
+          echo D01_T3_PRIVATE_WRITE=NOT_ATTEMPTED
