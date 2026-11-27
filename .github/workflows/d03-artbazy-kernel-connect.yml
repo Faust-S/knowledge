@@ -36,7 +36,7 @@ jobs:
           fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.16.0'
+          node-version: '24.11.0'
       - name: Qualify original Kernel and exact domain metadata
         shell: bash
         run: |
@@ -99,7 +99,7 @@ jobs:
           npm install --ignore-scripts --no-audit --no-fund --save-exact fake-indexeddb@6.2.5 >"$stage/npm.log" 2>&1 || { echo INDEXEDDB_TEST_DEPENDENCY=FAIL; exit 1; }
           node -e 'const p=require("./package-lock.json").packages["node_modules/fake-indexeddb"]; if(p.version!=="6.2.5"||p.integrity!=="sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w==")process.exit(1)'
           echo ORIGINAL_TEST_DEPENDENCY=PASS
-          node "$GITHUB_WORKSPACE/ci-harness/tools/ci/artbazy-delivery/verify-calculation-storage.mjs" "$stage/candidate" "$GITHUB_WORKSPACE/private-site" "$stage/deps"
+          timeout --kill-after=5s 120s node "$GITHUB_WORKSPACE/ci-harness/tools/ci/artbazy-delivery/verify-calculation-storage.mjs" "$stage/candidate" "$GITHUB_WORKSPACE/private-site" "$stage/deps"
       - name: Remove private inputs
         if: always()
         run: rm -rf -- "$GITHUB_WORKSPACE/private-site" "$RUNNER_TEMP/d03-kernel"

@@ -1,5 +1,6 @@
 // Real original Kernel and ArtBazy commands. Only IndexedDB is the original
 // Kernel test dependency (fake-indexeddb), and fetch is local file transport.
+// Node 24 supplies the native Web Locks API (no lock mock).
 // No browser/physical persistence/PRODUCT_ACCEPTED claim.
 import assert from 'node:assert/strict';
 import { readFileSync, realpathSync } from 'node:fs';
@@ -10,6 +11,22 @@ import { createHash } from 'node:crypto';
 const [rootArg, siteArg, dependencyArg] = process.argv.slice(2);
 const root = realpathSync(resolve(rootArg)), site = realpathSync(resolve(siteArg)), dep = realpathSync(resolve(dependencyArg));
 await import(pathToFileURL(join(dep, 'node_modules/fake-indexeddb/auto/index.mjs')).href);
+// Verify native lock coordination before importing or invoking the Kernel.
+assert.equal(typeof navigator?.locks?.request,'function','NATIVE_WEB_LOCKS_REQUIRED');
+let release;
+const held=new Promise(resolve=>{release=resolve;});
+let entered;
+const acquired=new Promise(resolve=>{entered=resolve;});
+const first=navigator.locks.request('artbazy-ci-native-lock',{mode:'exclusive'},async lock=>{
+  assert.equal(lock.mode,'exclusive');entered();await held;
+});
+await acquired;
+try{
+  await navigator.locks.request('artbazy-ci-native-lock',{ifAvailable:true},lock=>assert.equal(lock,null));
+}finally{release();}
+await first;
+await navigator.locks.request('artbazy-ci-native-lock',lock=>assert.equal(lock.name,'artbazy-ci-native-lock'));
+console.log('NATIVE_WEB_LOCKS_COORDINATION=PASS');
 const {IDBFactory}=globalThis;
 assert.equal(typeof IDBFactory,'function');
 const service='ru.iwxa.artbazy.workspace';
@@ -115,9 +132,14 @@ try{
    assert.deepEqual((await client.t1.getObject(ws,id(1))).object,saved.object);
    assert.deepEqual((await client.t1.getObject(ws,id(2))).object,linked.object);
  });
- console.log(JSON.stringify({status:'ORIGINAL_KERNEL_STORAGE_AND_EXCHANGE_PASS',passed:results.length,indexedDB:'fake-indexeddb@6.2.5',runtime:runtime.RUNTIME_VERSION,browser:'NOT_RUN',coldProcessRestart:'NOT_RUN',productAccepted:false}));
+ console.log(JSON.stringify({status:'ORIGINAL_KERNEL_STORAGE_AND_EXCHANGE_PASS',passed:results.length,indexedDB:'fake-indexeddb@6.2.5',webLocks:'native Node LockManager',runtime:runtime.RUNTIME_VERSION,browser:'NOT_RUN',coldProcessRestart:'NOT_RUN',productAccepted:false}));
 }catch(e){
  console.error('ARTBAZY_STORAGE_FAILED_AT='+results.length+' CODE='+(typeof e.code==='string'?e.code:'ASSERTION_OR_RUNTIME'));
  // Error message is from a synthetic test; no source, customer data or credentials.
  console.error(String(e.message).slice(0,500));process.exitCode=1;
 }finally{globalThis.fetch=originalFetch;}
+// The original runtime owns long-lived notification channels. Once all awaited
+// assertions have completed, flush the diagnostic streams and terminate this
+// isolated test process with its actual exit status rather than waiting for CI.
+await Promise.all([process.stdout,process.stderr].map(stream=>new Promise(resolve=>stream.write('',resolve))));
+process.exit(process.exitCode??0);
