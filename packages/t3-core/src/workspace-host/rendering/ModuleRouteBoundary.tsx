@@ -17,24 +17,30 @@ interface Props {
 
 interface State {
   error: Error | null;
+  routeRefId: string;
+  moduleId?: string;
+  contextIdentity?: object;
 }
 
 export class ModuleRouteBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  state: State = {
+    error: null, routeRefId: this.props.routeRefId,
+    moduleId: this.props.moduleId, contextIdentity: this.props.contextIdentity,
+  };
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Pick<State, "error"> {
     return { error };
+  }
+
+  static getDerivedStateFromProps(props: Props, state: State): State | null {
+    if (props.routeRefId === state.routeRefId && props.moduleId === state.moduleId &&
+        props.contextIdentity === state.contextIdentity) return null;
+    return { error: null, routeRefId: props.routeRefId,
+      moduleId: props.moduleId, contextIdentity: props.contextIdentity };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     this.props.onError?.(error, info);
-  }
-
-  componentDidUpdate(prev: Props): void {
-    if (this.state.error && (prev.routeRefId !== this.props.routeRefId ||
-      prev.moduleId !== this.props.moduleId || prev.contextIdentity !== this.props.contextIdentity)) {
-      this.setState({ error: null });
-    }
   }
 
   render(): ReactNode {

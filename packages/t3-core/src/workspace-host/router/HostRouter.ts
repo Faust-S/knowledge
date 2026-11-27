@@ -54,8 +54,8 @@ export class HostRouter {
     bases.add(this.driver.current().pathname);
     this.reservedStaticBases = bases;
     const initialLocation = this.driver.current();
-    this.lastMatch = this.pickMatch(initialLocation);
-    this.lastDeclaredMatch = this.registry.match(initialLocation);
+    this.lastMatch = freezeMatch(this.pickMatch(initialLocation));
+    this.lastDeclaredMatch = freezeMatch(this.registry.match(initialLocation));
     this.unsubscribeDriver = this.driver.subscribe((loc) => {
       this.refreshMatch(loc);
     });
@@ -147,8 +147,8 @@ export class HostRouter {
     const activeChanged = !same(this.lastMatch, next);
     const declaredChanged = !same(this.lastDeclaredMatch, declared);
     if (!activeChanged && !declaredChanged) return;
-    if (activeChanged) this.lastMatch = next;
-    if (declaredChanged) this.lastDeclaredMatch = declared;
+    if (activeChanged) this.lastMatch = freezeMatch(next);
+    if (declaredChanged) this.lastDeclaredMatch = freezeMatch(declared);
     for (const listener of [...this.listeners]) listener(this.lastMatch);
   }
 
@@ -157,6 +157,10 @@ export class HostRouter {
       ? this.registry.matchActive(loc)
       : this.registry.match(loc);
   }
+}
+
+function freezeMatch(match: HostRouteMatch | null): HostRouteMatch | null {
+  return match ? Object.freeze(match) : null;
 }
 
 function splitUrl(url: string): HostLocation {

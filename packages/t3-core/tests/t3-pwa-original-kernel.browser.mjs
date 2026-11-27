@@ -201,6 +201,24 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       '<meta charset="utf-8"><title>IWXA Workspace</title></head><body>'+
       '<main><h1>Единая Workspace</h1></main>'+
       '<script src="/_iwxa/loader.js"></script></body></html>');
+    // For platform qualification, reuse the actual compiled original Host.
+    // The legacy kernel-only witness remains available to earlier lanes.
+    const compiledHost=process.env.T3_PWA_COMPILED_HOST_DIR;
+    if(compiledHost){
+      for(const path of ["index.html","exchange/index.html","lifecycle/index.html"]){
+        const bytes=readFileSync(join(compiledHost,path));
+        assert.ok(bytes.includes("/workspace/assets/"),"ORIGINAL_COMPILED_HOST_ENTRY_REQUIRED");
+        put(dist,"workspace/"+path,bytes);
+      }
+      cpSync(join(compiledHost,"assets"),join(dist,"workspace","assets"),{recursive:true});
+    }
+    const workspacePath=compiledHost?"/workspace/#/workspace/"+workspace:"/workspace/";
+    const assertHost=async page=>{
+      if(!compiledHost)return;
+      await page.getByTestId("workspace-view").waitFor({state:"visible",timeout:45000});
+      assert.equal(await page.getByTestId("module-route-not-found").count(),0);
+      assert.equal(await page.getByTestId("module-route-error").count(),0);
+    };
     const packaged=materializeDomainMode(dist);
     assert.ok(packaged.files>12);
     const asset=JSON.parse(readFileSync(join(dist,"t3-offline-manifest.json"),"utf8"));
@@ -282,8 +300,9 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
     const deliveryA=sealed?.opened[0]??Uint8Array.from(saved.archiveBytes);
     const deliveryB=sealed?.opened[1]??Uint8Array.from(saved.archiveBytes);
     const second=await context.newPage();
-    await second.goto(live.origin+"/workspace/");
+    await second.goto(live.origin+workspacePath);
     await second.waitForFunction(()=>typeof window.IWXA?.connect==="function");
+    await assertHost(second);
     const read=async page=>page.evaluate(async({SERVICE,workspace,object})=>{
       const original=await window.IWXA.connect({service_id:SERVICE});
       const record=await original.t1.getObject(workspace,object);
@@ -314,10 +333,11 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
     context=await launch();
     await context.setOffline(true);
     site=context.pages()[0]||await context.newPage();
-    await site.goto(live.origin+"/workspace/",{waitUntil:"domcontentloaded",
+    await site.goto(live.origin+workspacePath,{waitUntil:"domcontentloaded",
       timeout:30000});
     await site.waitForFunction(()=>typeof window.IWXA?.connect==="function",
       null,{timeout:30000});
+    await assertHost(site);
     const cold=await read(site);
     assert.equal(cold.text,title);
     assert.equal(cold.revision,1);
@@ -643,8 +663,9 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       await t2Recipient.close();t2Recipient=null;
       t2Recipient=await launchT2Recipient();
       independent=t2Recipient.pages()[0]||await t2Recipient.newPage();
-      await independent.goto(live.origin+"/workspace/");
+      await independent.goto(live.origin+workspacePath);
       await independent.waitForFunction(()=>typeof window.IWXA?.connect==="function");
+      await assertHost(independent);
       const recovered=await read(independent);
       const coldAsset=await independent.evaluate(async({SERVICE,workspace,assetId})=>{
         const original=await IWXA.connect({service_id:SERVICE});
@@ -693,6 +714,7 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       originalExchangeExport:true,originalExchangeImport:true,
       browserWindows:2,fullSiteAutonomy:true,coldOfflineReadback:true,
       userDataUnchanged:true,appOsInstallationQualified:false,
+      compiledOriginalHost: Boolean(compiledHost),
     }));
   }finally{
     if(context)await context.close().catch(()=>{});

@@ -255,7 +255,7 @@ export class ModuleRegistry {
               registryDiagnostic(
                 "contribution-invalid",
                 `HostContributionHub отказал в регистрации модуля "${moduleId}": ${d.message}`,
-                { moduleId, details: { hubCode: d.code } },
+                { moduleId, details: { hubCode: d.code, routeRefId: d.routeRefId } },
               ),
             );
           }

@@ -99,7 +99,7 @@ export interface RegistryStartInput {
     registerModule(
       moduleId: string,
       contributions: Record<string, readonly unknown[]>,
-    ): { ok: boolean; diagnostics: readonly { code: string; message: string }[] };
+    ): { ok: boolean; diagnostics: readonly { code: string; message: string; routeRefId?: string }[] };
     removeModule(moduleId: string): void;
   };
 }

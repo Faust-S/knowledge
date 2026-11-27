@@ -2,9 +2,9 @@ import {
   Component,
   lazy,
   Suspense,
-  useEffect,
+  useCallback,
   useMemo,
-  useState,
+  useSyncExternalStore,
   type ComponentType,
   type ErrorInfo,
   type ReactNode,
@@ -77,13 +77,18 @@ class DashboardCardBoundary extends Component<BoundaryProps, BoundaryState> {
 function DashboardCard({
   entry,
   match,
-  refreshVersion,
 }: {
   entry: RegistryEntry<DashboardCardContribution>;
   match: HostRouteMatch;
-  refreshVersion: number;
 }) {
   const runtime = useWorkspaceHostRuntimeHandle();
+  const state = runtime?.dashboardState ?? null;
+  const cardId = entry.contributionId;
+  const subscribe = useCallback((notify: () => void) =>
+    state?.subscribe(changedId => { if (changedId === cardId) notify(); }) ?? (() => {}),
+    [state, cardId]);
+  const getSnapshot = useCallback(() => state?.version(cardId) ?? 0, [state, cardId]);
+  const refreshVersion = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const LazyCard = useMemo(() => {
     let existing = lazyCards.get(entry.contribution);
     if (!existing) {
@@ -139,15 +144,6 @@ function DashboardCard({
 export function HostDashboardSurface() {
   const runtime = useWorkspaceHostRuntimeHandle();
   const match = useHostRouteMatch(runtime?.router ?? null);
-  const [, setRefreshEpoch] = useState(0);
-
-  useEffect(() => {
-    if (!runtime) return;
-    return runtime.dashboardState.subscribe(() => {
-      setRefreshEpoch((value) => value + 1);
-    });
-  }, [runtime]);
-
   if (!runtime || !match || match.binding.routeRef.id !== hostRouteRefs.base.home.id) {
     return null;
   }
@@ -170,7 +166,6 @@ export function HostDashboardSurface() {
           key={entry.contributionId}
           entry={entry}
           match={match}
-          refreshVersion={runtime.dashboardState.version(entry.contributionId)}
         />
       ))}
     </section>

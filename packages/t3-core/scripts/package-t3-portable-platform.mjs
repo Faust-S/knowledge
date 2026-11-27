@@ -37,8 +37,8 @@ export function packagePortablePlatform({output,sourceCommit,qualificationRun}={
  const trackedPackage=JSON.parse(git("show","HEAD:packages/t3-core/package.json"));
  if(trackedPackage.version!==version)fail("TRACKED_VERSION");
  if(hash(readFileSync(join(core,kernelFile)))!==kernelHash)fail("ORIGINAL_KERNEL_HASH");
- const roots=["dist",kernelFile,"integration-sources/bli1/SOURCE_PIN.json",
-   "integration-sources/bli1/catalog.mjs","package.json","package-lock.json",
+ const roots=["dist",kernelFile,"integration-sources/bli1",
+   "package.json","package-lock.json",
    "scripts/assemble-signed-control-dist.mjs","scripts/register-t3-local-inference.mjs",
    "scripts/materialize-t3-domain-mode.mjs","scripts/t3-pwa-manifest.mjs",
    "scripts/prepare-t3-one-dist-candidate.mjs","scripts/zip-store.mjs","scripts/real-kernel-e2e.mjs",
@@ -76,6 +76,9 @@ export function packagePortablePlatform({output,sourceCommit,qualificationRun}={
    .sort((a,b)=>a.path.localeCompare(b.path,"en"));
  const manifest={schema:"IWXA_T3_PORTABLE_PLATFORM_INPUTS/1",version,sourceCommit,
   sourceTree:git("rev-parse","HEAD:packages/t3-core/src"),
+  repositoryGitTree:git("rev-parse","HEAD^{tree}"),
+  sourcePackageGitTree:git("rev-parse","HEAD:packages/t3-core"),
+  webllm:"0.2.87",lockSha256:hash(readFileSync(join(core,"package-lock.json"))),
   originalT2SourceCommit:originalT2,originalKernel:"0.3.6",runtimeContract:"1.3.0",
   originalKernelArtifact:artifactId,releaseSubject:"LOCAL_BUILD_INPUT_FOR_ONE_PRODUCT_OWNED_FINAL_DIST",
   status:"TECHNOLOGY_CANDIDATE_NOT_RELEASED",nativeSignerIncluded:false,modelWeightsIncluded:false,
@@ -92,7 +95,9 @@ export function packagePortablePlatform({output,sourceCommit,qualificationRun}={
   const check=readStoredZip(zip);
   if(check.size!==entries.length||entries.some(x=>!check.get(x.name)?.equals(x.bytes)))fail("ARCHIVE_READBACK");
   const receipt={version,sourceCommit,sourceTree:manifest.sourceTree,
-   sourcePackageGitTree:git("rev-parse","HEAD:packages/t3-core"),qualificationRun,
+   sourcePackageGitTree:manifest.sourcePackageGitTree,
+   repositoryGitTree:manifest.repositoryGitTree,webllm:manifest.webllm,
+   lockSha256:manifest.lockSha256,qualificationRun,
    archiveSha256:hash(readFileSync(zip)),manifestSha256,manifestFiles:files.length,
    originalT2SourceCommit:originalT2,kernel:"0.3.6",contract:"1.3.0",kernelArtifact:artifactId,
    kernelArchiveSha256:kernelHash,status:"TECHNOLOGY_CANDIDATE_DOMAIN_NOT_ACCEPTED",

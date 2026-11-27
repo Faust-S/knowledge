@@ -28,7 +28,7 @@ const browserLaunch={
   ...(process.platform==="darwin"?{channel:"chromium"}:{}),
   args:process.platform==="darwin"
     ? ["--enable-unsafe-webgpu","--ignore-certificate-errors"]
-    : ["--no-sandbox","--enable-unsafe-webgpu","--use-angle=swiftshader","--ignore-certificate-errors"],
+    : ["--no-sandbox","--enable-unsafe-webgpu","--ignore-certificate-errors"],
   viewport:{width:1280,height:900},
 };
 const qualified=process.env.IWXA_T2_QUALIFIED_KERNEL_DIST;

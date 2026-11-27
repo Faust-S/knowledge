@@ -132,6 +132,7 @@ export class RouteRegistry {
       }
       owned.add(id);
     }
+    if (batch.size > 0) this.notifyActiveChanged();
     return { ok: true, diagnostics: [] };
   }
 

@@ -468,10 +468,20 @@ function AppShellRuntimeBridge({
   subscribeSignedAccessInvalidation, children,
 }: RuntimeBridgeProps) {
   const { terminology, layout } = useDomainShell();
-  const [activeCapabilities, setActiveCapabilities] = useState<readonly string[]>([]);
+  const emptyCapabilities = useMemo(() => Object.freeze([] as string[]), []);
+  // A newly connected session must not start with the preceding session's
+  // capability snapshot while the asynchronous watcher is being replaced.
+  const [capabilitySnapshot, setCapabilitySnapshot] = useState<{
+    session: KernelSession | null; values: readonly string[];
+  }>(() => ({ session, values: emptyCapabilities }));
+  const activeCapabilities = capabilitySnapshot.session === session
+    ? capabilitySnapshot.values : emptyCapabilities;
   const receiveCapabilities = useCallback((next: readonly string[]) => {
-    setActiveCapabilities((previous) => previous.length === next.length && previous.every((cap, i) => cap === next[i]) ? previous : Object.freeze([...next]));
-  }, []);
+    setCapabilitySnapshot(previous =>
+      previous.session === session && previous.values.length === next.length &&
+      previous.values.every((cap, i) => cap === next[i])
+        ? previous : { session, values: Object.freeze([...next]) });
+  }, [session]);
   useEffect(() => { receiveCapabilities([]); }, [session, receiveCapabilities]);
   const workspaceConfig = useMemo(
     () => ({

@@ -23,7 +23,6 @@ import type { WorkspaceHostRuntimeHandle } from "../runtime/types";
 import { BASE_ROUTE_INVENTORY } from "@/modules/base/routes";
 import { EXCHANGE_ROUTE_INVENTORY } from "@/modules/exchange/routes";
 import { LIFECYCLE_ROUTE_INVENTORY } from "@/modules/lifecycle/routes";
-import { hostRouteRefs } from "../router/host-route-refs";
 import { useWorkspaceHostRuntimeHandle } from "../runtime/WorkspaceHostRuntimeProvider";
 import type { HostRouteMatch } from "../router";
 import { useHostRouteMatch } from "../router/use-host-route-match";
@@ -63,13 +62,17 @@ function unavailableReason(runtime: WorkspaceHostRuntimeHandle, routeRefId: stri
   const base = BASE_ROUTE_INVENTORY.find(r => r.routeRef.id === routeRefId);
   const exchange = EXCHANGE_ROUTE_INVENTORY.find(r => r.routeRef.id === routeRefId);
   const lifecycle = LIFECYCLE_ROUTE_INVENTORY.find(r => r.routeRef.id === routeRefId);
-  const domain = routeRefId === hostRouteRefs.domain.home.id
-    ? (runtime.moduleSnapshot ?? []).filter(m => m.moduleId.startsWith("iwxa.domain.") && m.declaredState === "active")
-    : [];
+  // Multiple compiled domain modules may share the same URL base but
+  // contribute different surfaces. Do not guess ownership from module count.
+  const exact = (runtime.moduleSnapshot ?? []).flatMap(module =>
+    module.diagnostics.filter(d =>
+      (d.details as { routeRefId?: string } | undefined)?.routeRefId === routeRefId));
+  if (exact.some(d => ["route-operation-missing", "route-capability-missing"].includes(
+    (d.details as { hubCode?: string } | undefined)?.hubCode ?? ""))) return "forbidden";
+  if (exact.length) return "module-error";
   const owner = base ? "iwxa.workspace.base"
     : exchange ? "iwxa.workspace.exchange"
-    : lifecycle ? "iwxa.workspace.lifecycle"
-    : domain.length === 1 ? domain[0]?.moduleId : undefined;
+    : lifecycle ? "iwxa.workspace.lifecycle" : undefined;
   if (runtime.diagnostics?.modules.some(d => String(d.code) === "module-registry-start-failed")) return "module-error";
   const status = owner ? runtime.moduleRegistry?.getStatus(owner) : null;
   if (!status || status.status === "planned" || status.status === "disabled") return "unavailable";
@@ -150,7 +153,7 @@ function ActiveModuleRoute(props: ActiveModuleRouteProps) {
     return existing;
   }, [found]);
 
-   const snapshot: ModuleRuntimeSnapshot = Object.freeze({
+  const snapshot: ModuleRuntimeSnapshot = Object.freeze({
     moduleId: found.moduleId,
     context,
     routeRef: props.match.binding.routeRef,

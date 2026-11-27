@@ -12,12 +12,17 @@ permissions:
 jobs:
   platform:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
+    defaults:
+      run:
+        working-directory: packages/t3-core
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24.18.1'
       - name: Exact public original Kernel
         working-directory: packages/t3-core
         run: |
@@ -31,13 +36,77 @@ jobs:
           npm run test:product:core
           npm run test:product:workspace
           node --test tests/t3-activity/*.test.mjs tests/t3-mobile-model-catalog.test.mjs tests/t3-domain-offline.test.mjs tests/t3-pwa-install.test.mjs tests/t3-d5-model-install-cancellation.test.mjs
+      - name: Five route regressions with exact original negative control
+        run: |
+          node node_modules/vitest/vitest.mjs run --config vitest.t3-product.config.mjs tests/host-route-snapshot.dom.test.tsx
+      - name: Negative control against exact unmodified original source
+        env:
+          ORIGINAL: '326f725c44d69ac99f6b912241e9e8a6c3d716a5'
+        run: |
+          set -euo pipefail
+          git cat-file -e "$ORIGINAL^{commit}" || git fetch --no-tags origin "$ORIGINAL"
+          trap 'git restore --source=HEAD -- src/workspace-host/router/use-host-route-match.ts src/workspace-host/rendering/ModuleRouteOutlet.tsx' EXIT
+          for name in src/workspace-host/router/use-host-route-match.ts src/workspace-host/rendering/ModuleRouteOutlet.tsx; do
+            git show "$ORIGINAL:packages/t3-core/$name" > "$name"
+          done
+          # Use the exact reporter path declared by the original config.
+          # Remove the positive-control report so it cannot be mistaken for
+          # negative-control evidence, and expose diagnostics if no new report.
+          report=artifacts/t3-product-test-report.json
+          rm -f "$report"
+          set +e
+          node node_modules/vitest/vitest.mjs run --config vitest.t3-product.config.mjs --project t3-product-dom tests/host-route-snapshot.dom.test.tsx > "$RUNNER_TEMP/t3-route-negative.log" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/t3-route-negative.log"
+          test "$code" -eq 1
+          test -s "$report"
+          node --input-type=module - "$report" <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          assert.equal(report.success, false);
+          const tests = report.testResults.flatMap(row => row.assertionResults);
+          const expected = [
+            "never commits a false unavailable route when the runtime first becomes ready",
+            "does not resolve the previous router's route against a replacement runtime",
+            "rechecks a changed original snapshot when the subscription is registered"
+          ];
+          assert.equal(tests.length, 5);
+          for (const title of expected) {
+            const found = tests.find(row => row.title === title);
+            assert.equal(found?.status, 'failed', title);
+          }
+          for (const row of tests.filter(row => !expected.includes(row.title))) {
+            assert.equal(row.status, 'passed', row.title);
+          }
+          console.log('T3_ROUTE_NEGATIVE_CONTROL=' + JSON.stringify({expectedFailures: expected.length, passed: tests.length - expected.length}));
+          NODE
       - name: Compile original generic Host with the exact candidate shared BLI
         working-directory: packages/t3-core
         run: node scripts/qualify-bli-inherited-host.mjs
+      - name: Stage the exact original Kernel and real browser for engineering qualification
+        run: |
+          mkdir -p "$RUNNER_TEMP/qualified-kernel"
+          unzip -q qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip -d "$RUNNER_TEMP/qualified-kernel"
+          npx --no-install playwright install chromium
+      - name: Original compiled Host and full independent .iwxa cold readback
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/qualified-kernel
+          T3_PWA_COMPILED_HOST_DIR: ${{ github.workspace }}/packages/t3-core/dist
+        run: node --test tests/t3-pwa-original-kernel.browser.mjs
+      - name: Original compiled BLI consent, Kernel context and actual GPU detection
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/qualified-kernel
+        run: node tests/t3-d5-full-bli.browser.mjs
       - name: Package and independently read every portable input back
         working-directory: packages/t3-core
         run: |
           node scripts/package-t3-portable-platform.mjs "$RUNNER_TEMP/t3-platform-candidate" "$GITHUB_SHA" "$GITHUB_RUN_ID"
+          node scripts/package-t3-portable-platform.mjs "$RUNNER_TEMP/t3-platform-repeat" "$GITHUB_SHA" "$GITHUB_RUN_ID"
+          cmp "$RUNNER_TEMP/t3-platform-candidate/platform-inputs.zip" "$RUNNER_TEMP/t3-platform-repeat/platform-inputs.zip"
+          cmp "$RUNNER_TEMP/t3-platform-candidate/candidate-receipt.json" "$RUNNER_TEMP/t3-platform-repeat/candidate-receipt.json"
+          echo T3_PORTABLE_IDENTICAL_PACKAGING_PASS
           mkdir "$RUNNER_TEMP/t3-platform-extract"
           unzip -q "$RUNNER_TEMP/t3-platform-candidate/platform-inputs.zip" -d "$RUNNER_TEMP/t3-platform-extract"
           cd "$RUNNER_TEMP/t3-platform-extract"
@@ -49,4 +118,42 @@ jobs:
           name: iwxa-t3-mobile-portable-candidate-${{ github.sha }}
           path: ${{ runner.temp }}/t3-platform-candidate/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
+  retain-version:
+    # Only an explicitly requested candidate version may create a durable public
+    # prerelease. Never replace an existing tag/asset or mark a domain accepted.
+    if: contains(github.event.head_commit.message, '[t3-portable-rc2]')
+    needs: platform
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: iwxa-t3-mobile-portable-candidate-${{ github.sha }}
+          path: portable
+      - name: Permanently retain the public platform candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const r=JSON.parse(readFileSync('portable/candidate-receipt.json'));
+          assert.equal(r.version,'0.3.1-rc.2');
+          assert.equal(r.sourceCommit,process.env.GITHUB_SHA);
+          assert.equal(r.status,'TECHNOLOGY_CANDIDATE_DOMAIN_NOT_ACCEPTED');
+          assert.equal(r.privateDomainIncluded,false);
+          assert.equal(r.modelWeightsIncluded,false);
+          assert.equal(createHash('sha256').update(readFileSync('portable/platform-inputs.zip')).digest('hex'),r.archiveSha256);
+          NODE
+          mkdir extracted
+          unzip -q portable/platform-inputs.zip -d extracted
+          (cd extracted && sha256sum -c t3-platform-inputs.sha256)
+          cp extracted/t3-platform-inputs.json portable/
+          cp extracted/t3-platform-inputs.sha256 portable/
+          tag=t3-platform-v0.3.1-rc.2
+          gh release create "$tag" portable/platform-inputs.zip portable/candidate-receipt.json portable/t3-platform-inputs.json portable/t3-platform-inputs.sha256 --target "$GITHUB_SHA" --prerelease --latest=false --title "IWXA T3 portable platform 0.3.1-rc.2" --notes "Public generic platform candidate. Original Kernel 0.3.6 / Runtime Contract 1.3.0 / WebLLM 0.2.87. Source, browser engineering and packaging evidence: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Hardware inference and independent installed/domain acceptance are separate. No private source, model weights, or domain migration approval."
