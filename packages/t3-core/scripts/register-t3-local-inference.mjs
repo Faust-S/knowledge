@@ -1,7 +1,7 @@
 // Build-time registration of the existing BLI1 module in the inherited T2 Host.
 // This changes only the assembled T3 dist metadata, never the normative T2
 // source, original Kernel, Store, Access owner, or browser model cache.
-import {LOCAL_INFERENCE_DRAFT_SCHEMA,LOCAL_INFERENCE_DRAFT_DECLARATION}
+import {LOCAL_INFERENCE_DRAFT_SCHEMA,LOCAL_INFERENCE_DRAFT_DECLARATION,ANDROID_LOCAL_INFERENCE_DRAFT_DECLARATION}
   from "../src/t3/local-inference-draft.mjs";
 
 export const LOCAL_INFERENCE_MODULE_ID="iwxa.t3.local-inference";
@@ -9,8 +9,14 @@ const fail=code=>{throw Error("T3_D5_MODULE_"+code);};
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const append=(rows,value)=>{if(!rows.includes(value))rows.push(value);};
 
-export function registerT3LocalInferenceService({domain,workspaceConfig,passport}={}){
+export function registerT3LocalInferenceService({domain,workspaceConfig,passport,androidNativeInference=false}={}){
+  if(typeof androidNativeInference!=="boolean"||
+     (androidNativeInference&&(domain?.domain_id!=="iwxa.personal-agent"||
+      domain.origin!=="https://localhost"||
+      workspaceConfig?.workspace_service_id!=="iwxa.personal-agent.workspace")))
+    fail("NATIVE_PRODUCT_REQUIRED");
   const schema=LOCAL_INFERENCE_DRAFT_SCHEMA;
+  const declaration=androidNativeInference?ANDROID_LOCAL_INFERENCE_DRAFT_DECLARATION:LOCAL_INFERENCE_DRAFT_DECLARATION;
   const module={
     module_id:LOCAL_INFERENCE_MODULE_ID,state:"active",ui_mode:"standard",
     route_base:"/workspace/",slots:["inspector"],required_levels:["T1"],
@@ -41,15 +47,16 @@ export function registerT3LocalInferenceService({domain,workspaceConfig,passport
     row.module_id===LOCAL_INFERENCE_MODULE_ID);
   if(existing.length>1||(existing.length===1&&!same(existing[0],module)))
     fail("MODULE_CONFLICT");
-  if(Object.hasOwn(passport.schemas,schema) &&
-     !same(passport.schemas[schema],LOCAL_INFERENCE_DRAFT_DECLARATION))
+  // The same ID/version with changed bytes is a Kernel schema conflict.
+  // No browser declaration is replaced by the Android producer.
+  if(Object.hasOwn(passport.schemas,schema)&&!same(passport.schemas[schema],declaration))
     fail("SCHEMA_CONFLICT");
   // All preflight checks above run before the first mutation. Existing
   // service and other subject/module permissions are never replaced.
   if(existing.length===0)workspaceConfig.modules.push(module);
   for(const row of rows)append(row,schema);
   if(!Object.hasOwn(passport.schemas,schema))
-    passport.schemas[schema]=LOCAL_INFERENCE_DRAFT_DECLARATION;
+    passport.schemas[schema]=declaration;
   return {module_id:LOCAL_INFERENCE_MODULE_ID,schema_id:schema,
     registered:true,already_registered:existing.length===1};
 }

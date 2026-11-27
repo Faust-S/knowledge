@@ -145,10 +145,27 @@ export function toExportOptions(selection: ExportSelection): ExportOptions {
   };
 }
 
+/** Shared admission predicates: UI and reducer must agree before a Kernel call. */
+export function canStartExportPreview(state: ExportState): boolean {
+  return ["ready", "error", "preview-ready", "package-ready", "download-initiated", "confirmed"].includes(state.status) &&
+    state.selection.workspaces.length > 0 &&
+    state.selection.workspaces.every(id => state.catalog.some(w => w.workspace_id === id));
+}
+
+export function canStartExportPackage(state: ExportState): boolean {
+  return state.status === "preview-ready" && !!state.preview && state.ackSensitive &&
+    !!state.previewSnapshot && selectionsEqual(state.previewSnapshot, state.selection);
+}
+
 export function exportReducer(state: ExportState, event: ExportEvent): ExportState {
   switch (event.type) {
     case "load-workspaces":
-      return { ...state, status: "loading-workspaces", error: null };
+      // A new service/catalog must not leave a previously prepared archive
+      // available, even if its asynchronous catalog lookup later fails.
+      return {
+        ...invalidate(state, { catalog: [], selection: { ...state.selection, workspaces: [] } }),
+        status: "loading-workspaces",
+      };
     case "workspaces-loaded":
       if (state.status !== "loading-workspaces") return state;
       return {
@@ -161,6 +178,8 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
         receipt: null,
         ackSensitive: false,
         fileSavedConfirmed: false,
+        previewSnapshot: null,
+        packageSnapshot: null,
         error: null,
       };
     case "workspaces-failed":
@@ -199,11 +218,10 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
           !state.artifact || state.status === "confirming") return state;
       return { ...state, fileSavedConfirmed: event.value };
     case "preview-started":
-      if (!["ready", "error"].includes(state.status)) return state;
-      if (state.selection.workspaces.length === 0) return state;
+      if (!canStartExportPreview(state)) return state;
       return {
-        ...state, status: "previewing", error: null, artifact: null, receipt: null,
-        fileSavedConfirmed: false,
+        ...state, status: "previewing", error: null, preview: null, artifact: null, receipt: null,
+        ackSensitive: false, fileSavedConfirmed: false,
         previewSnapshot: state.selection, packageSnapshot: null,
       };
     case "preview-succeeded":
@@ -213,12 +231,7 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
       if (state.status !== "previewing") return state;
       return { ...state, status: "error", error: event.error };
     case "package-started":
-      if (state.status !== "preview-ready" || !state.preview ||
-          !state.ackSensitive) return state;
-      // §3 — freshness: refuse to package if selection drifted from preview snapshot.
-      if (state.previewSnapshot && !selectionsEqual(state.previewSnapshot, state.selection)) {
-        return state;
-      }
+      if (!canStartExportPackage(state)) return state;
       return {
         ...state, status: "packaging", error: null, artifact: null, receipt: null,
         fileSavedConfirmed: false, packageSnapshot: state.selection,
@@ -230,7 +243,7 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
       if (state.status !== "packaging") return state;
       return { ...state, status: "error", error: event.error };
     case "download-initiated":
-      if (state.status !== "package-ready" || !state.artifact) return state;
+      if (!["package-ready", "download-initiated"].includes(state.status) || !state.artifact) return state;
       return { ...state, status: "download-initiated", fileSavedConfirmed: false };
     case "confirm-started":
       if (state.status !== "download-initiated" || !state.artifact ||

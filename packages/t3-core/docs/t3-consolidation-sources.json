@@ -1,6 +1,6 @@
 {
   "schema": "iwxa.t3.consolidation-sources/1",
-  "status": "INTERMEDIATE_SOURCE_CANDIDATE_NOT_QUALIFIED",
+  "status": "SOURCE_CANDIDATE_NOT_QUALIFIED",
   "base": "3056eef0665fb3503294d49b89d937af2ea060e2",
   "rc2": "4b3314079600f5d95b3dd9e0defe3be8e845378e",
   "corporate": "8db847058cab231d2d39c34df46024b60564d2ad",
@@ -16,9 +16,36 @@
     "sourceDisposition": "private owner; separate signed native integration"
   },
   "android": {
-    "status": "PENDING_DIRECT_DELTA",
+    "status": "DIRECT_T3_DELTA_INTEGRATED",
     "base": "6b780d1b0559258e9204f17ab9b547339db57193",
-    "head": "04d4db509bf87da88e5883f66fc6ddf924b4a5e2"
+    "head": "04d4db509bf87da88e5883f66fc6ddf924b4a5e2",
+    "paths": [
+      "packages/t3-core/scripts/assemble-signed-control-dist.mjs",
+      "packages/t3-core/scripts/build-original-agent-one-dist.mjs",
+      "packages/t3-core/scripts/register-t3-local-inference.mjs",
+      "packages/t3-core/src/modules/exchange/features/packages/ExportView.tsx",
+      "packages/t3-core/src/modules/exchange/features/packages/ImportView.tsx",
+      "packages/t3-core/src/modules/exchange/features/state/export-machine.ts",
+      "packages/t3-core/src/modules/exchange/features/state/import-machine.ts",
+      "packages/t3-core/src/t3/index.d.mts",
+      "packages/t3-core/src/t3/index.mjs",
+      "packages/t3-core/src/t3/local-inference-draft.mjs",
+      "packages/t3-core/tests/t3-local-inference-draft.test.mjs",
+      "packages/t3-core/src/modules/exchange/features/packages/android-package-file.d.mts",
+      "packages/t3-core/src/modules/exchange/features/packages/android-package-file.mjs",
+      "packages/t3-core/tests/android-package-file.test.mjs",
+      "packages/t3-core/tests/exchange/export-actions.test.mjs",
+      "packages/t3-core/tests/exchange/import-commit-expiry.test.mjs"
+    ],
+    "mergedBlobShas": {
+      "scripts/assemble-signed-control-dist.mjs": "555da23312d99b68cf988a6101e1bf33eefc07fc",
+      "scripts/build-original-agent-one-dist.mjs": "0f56ce03469a6df466bb719767fefb7ba089d3da",
+      "src/modules/exchange/features/packages/ExportView.tsx": "91579569ef4c169f9ac0e377732ad1b6811e7ea9",
+      "src/modules/exchange/features/packages/ImportView.tsx": "00f13ec03dd20d63ff8bdecc8e7bb7a498a4547f",
+      "src/modules/exchange/features/state/import-machine.ts": "95ff70778042f9d7fad03d604cba95014f0253b4",
+      "src/t3/index.d.mts": "c93d5f926b9782559fed39d73b4c9a4d0e4eb37e"
+    },
+    "scope": "Only direct T3 delta; preserve corporate admission, whole-workspace exchange and Android accepted original Kernel; no T4 network layer"
   },
   "kernel": {
     "version": "0.3.6",
@@ -34,6 +61,8 @@
     "packages/t3-core/docs/IWXA_WORKSPACE_WORKFLOW_DEVELOPMENT_RU.md",
     "packages/t3-core/docs/T3_CORPORATE_K036_INSTALLED_CANDIDATE_2026_11_25.md",
     "packages/t3-core/handoff/G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json",
+    "packages/t3-core/package-lock.json",
+    "packages/t3-core/package.json",
     "packages/t3-core/scripts/assemble-signed-control-dist.mjs",
     "packages/t3-core/scripts/build-original-agent-one-dist.mjs",
     "packages/t3-core/scripts/check-active-runtime-contract.mjs",
@@ -45,6 +74,7 @@
     "packages/t3-core/scripts/probe-k036-c3-mapping.mjs",
     "packages/t3-core/scripts/probe-k036-current-object-history.mjs",
     "packages/t3-core/scripts/qualify-k036-c3-original-owner.mjs",
+    "packages/t3-core/scripts/register-t3-local-inference.mjs",
     "packages/t3-core/scripts/run-c3-project-process-qualification.mjs",
     "packages/t3-core/src/main-trusted-kernel-realm.ts",
     "packages/t3-core/src/modules/base/features/object/object-integrity.ts",
@@ -78,6 +108,9 @@
     "packages/t3-core/src/modules/exchange/features/packages/ExportView.tsx",
     "packages/t3-core/src/modules/exchange/features/packages/ImportView.tsx",
     "packages/t3-core/src/modules/exchange/features/packages/PackagesView.tsx",
+    "packages/t3-core/src/modules/exchange/features/packages/android-package-file.d.mts",
+    "packages/t3-core/src/modules/exchange/features/packages/android-package-file.mjs",
+    "packages/t3-core/src/modules/exchange/features/state/export-machine.ts",
     "packages/t3-core/src/modules/exchange/features/state/import-machine.ts",
     "packages/t3-core/src/modules/view-state/commands.ts",
     "packages/t3-core/src/modules/view-state/schema.ts",
@@ -93,6 +126,8 @@
     "packages/t3-core/src/t3/company-workspace-readback.d.mts",
     "packages/t3-core/src/t3/company-workspace-readback.mjs",
     "packages/t3-core/src/t3/index.d.mts",
+    "packages/t3-core/src/t3/index.mjs",
+    "packages/t3-core/src/t3/local-inference-draft.mjs",
     "packages/t3-core/src/t3/native-result-continuation.mjs",
     "packages/t3-core/src/t3/origin-isolated-kernel-transport.mjs",
     "packages/t3-core/src/t3/original-company-workspace-persistence.mjs",
@@ -106,6 +141,7 @@
     "packages/t3-core/src/workspace-host/bootstrap/SignedSelectedWorkspaceGate.tsx",
     "packages/t3-core/src/workspace-host/context/create-kernel-facade.ts",
     "packages/t3-core/src/workspace-host/rendering/HostViewer.tsx",
+    "packages/t3-core/tests/android-package-file.test.mjs",
     "packages/t3-core/tests/c2-persisted-view-ui-integration.test.mjs",
     "packages/t3-core/tests/c2-workspace-canvas-presentation.test.mjs",
     "packages/t3-core/tests/c2-workspace-view-identity-lifecycle.test.mjs",
@@ -118,6 +154,8 @@
     "packages/t3-core/tests/c3-workspace-method-stage-input.test.mjs",
     "packages/t3-core/tests/c3-workspace-method-stage-results.test.mjs",
     "packages/t3-core/tests/c3-workspace-project-method.test.mjs",
+    "packages/t3-core/tests/exchange/export-actions.test.mjs",
+    "packages/t3-core/tests/exchange/import-commit-expiry.test.mjs",
     "packages/t3-core/tests/g4-current-release-ledger.test.mjs",
     "packages/t3-core/tests/g4-installed-original-center-first-use.ps1",
     "packages/t3-core/tests/g4-installed-original-owner-cold-state.ps1",
@@ -142,6 +180,7 @@
     "packages/t3-core/tests/t3-d6-native-continuation.test.mjs",
     "packages/t3-core/tests/t3-d7-publisher-handoff.test.mjs",
     "packages/t3-core/tests/t3-host-signed-kernel.test.ts",
+    "packages/t3-core/tests/t3-local-inference-draft.test.mjs",
     "packages/t3-core/tests/t3-reconciliation-kernel-apply.test.mjs",
     "packages/t3-core/tests/t3-subject-kernel-scope.test.mjs",
     "packages/t3-core/tests/view-state-command-receipt-authority.test.ts",
@@ -152,5 +191,6 @@
     "packages/t3-core/tests/workspace-relation-index.dom.test.tsx",
     "packages/t3-core/tests/workspace-view-profile-sections.dom.test.tsx"
   ],
-  "qualification": "required; prior individual branch results are not combined evidence"
+  "qualification": "required; prior individual branch results are not combined evidence",
+  "version": "0.3.1-rc.3"
 }

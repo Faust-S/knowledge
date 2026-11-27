@@ -109,6 +109,7 @@ export type ImportEvent =
   | { type: "cancel"; reason: "explicit" | "new-file" | "unmount" | "session-change" }
   | { type: "cancel-failed"; error: string }
   | { type: "expire" }
+  | { type: "commit-expired" }
   | { type: "reset" };
 
 function previewObjectKeysFromHandle(
@@ -402,6 +403,7 @@ export function toKernelImportPlan(plan: ImportPlanForm): ImportPlan {
 export function importReducer(state: ImportState, event: ImportEvent): ImportState {
   switch (event.type) {
     case "preview-started":
+      if (state.status === "committing") return state;
       return { ...INITIAL_IMPORT_STATE, status: "previewing" };
     case "preview-succeeded": {
       if (state.status !== "previewing") return state;
@@ -553,13 +555,21 @@ export function importReducer(state: ImportState, event: ImportEvent): ImportSta
         return state;
       return {...state,status:"committed",receipt:event.receipt,error:null};
     case "cancel":
-      if (["committed","incomplete","unconfirmed"].includes(state.status)) return state;
+      // A preview can be cancelled; an admitted original Kernel write
+      // must retain its terminal receipt rather than be reset by a UI event.
+      if (["committing","committed","incomplete","unconfirmed"].includes(state.status)) return state;
       return { ...INITIAL_IMPORT_STATE, status: "cancelled" };
     case "cancel-failed":
       if (["committed","incomplete","unconfirmed"].includes(state.status)) return state;
       return { ...state, error: event.error };
     case "expire":
-      if (!state.handle || state.status === "committed") return state;
+      // The preview clock cannot determine the outcome of a write which
+      // the original Kernel has already admitted.
+      if (!state.handle || state.status === "committing" || state.status === "committed") return state;
+      return { ...INITIAL_IMPORT_STATE, status: "expired", error: "preview_token_expired" };
+    case "commit-expired":
+      // Only an explicit expiry rejection from the original commit path.
+      if (state.status !== "committing" || !state.handle) return state;
       return { ...INITIAL_IMPORT_STATE, status: "expired", error: "preview_token_expired" };
     case "reset":
       return INITIAL_IMPORT_STATE;

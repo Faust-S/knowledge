@@ -21,6 +21,20 @@ export const LOCAL_INFERENCE_DRAFT_DECLARATION = Object.freeze({
   embedded: {},
 });
 
+// Schema identity is (schema_id, schema_version, canonical digest) in
+// the ORIGINAL Kernel. Never alter the already issued browser 1.0.0.
+export const ANDROID_LOCAL_INFERENCE_DRAFT_DECLARATION = Object.freeze({
+  ...LOCAL_INFERENCE_DRAFT_DECLARATION,
+  schema_version: "1.1.0",
+  json_schema: {
+    ...LOCAL_INFERENCE_DRAFT_DECLARATION.json_schema,
+    properties: {
+      ...LOCAL_INFERENCE_DRAFT_DECLARATION.json_schema.properties,
+      origin: {enum: ["BROWSER_LOCAL", "ANDROID_NATIVE"]},
+    },
+  },
+});
+
 function refuse(code, details) {
   const error = new Error(code);
   error.code = code;
@@ -76,12 +90,31 @@ function watch(context, choice) {
   return { validate, unsubscribe };
 }
 
-export async function saveLocalInferenceDraft(context, {
+export async function saveLocalInferenceDraft(context, input = {}) {
+  // Existing browser callers cannot relabel their own output as native.
+  return saveInferenceDraft(context, input, "BROWSER_LOCAL", LOCAL_INFERENCE_DRAFT_DECLARATION.schema_version);
+}
+
+/** The installed Android product explicitly binds its completed native
+ * llama.cpp receipt to this same D5 persistence path. This is still an
+ * untrusted draft, not an attested model result or a signed Task outcome. */
+export async function saveAndroidNativeInferenceDraft(context, {
+  expected_workspace_id, model_id, output,
+} = {}) {
+  if (typeof model_id !== "string" ||
+      !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}_[A-Za-z0-9._-]{1,80}\.gguf$/.test(model_id))
+    refuse("T3_D5_NATIVE_MODEL_ID_REQUIRED");
+  return saveInferenceDraft(context, {
+    expected_workspace_id, model_id, engine: "llama.cpp", output,
+  }, "ANDROID_NATIVE", ANDROID_LOCAL_INFERENCE_DRAFT_DECLARATION.schema_version);
+}
+
+async function saveInferenceDraft(context, {
   expected_workspace_id,
   model_id,
   engine,
   output,
-} = {}) {
+} = {}, origin, schemaVersion) {
   // This is called by an explicit Save action AFTER local inference. Neither
   // the prompt nor source workspace objects are copied into the draft.
   const { workspaceId, choice } = selected(context, expected_workspace_id);
@@ -108,7 +141,7 @@ export async function saveLocalInferenceDraft(context, {
       text: draftText,
       model_id: modelId,
       engine: engineId,
-      origin: "BROWSER_LOCAL",
+      origin,
       source: "USER_EXPLICIT_SAVE",
       model_integrity: "NOT_ATTESTED",
     };
@@ -120,7 +153,7 @@ export async function saveLocalInferenceDraft(context, {
       workspace_id: workspaceId,
       object_id: objectId,
       schema_id: LOCAL_INFERENCE_DRAFT_SCHEMA,
-      schema_version: "1.0.0",
+      schema_version: schemaVersion,
       base_revision: 0,
       data,
       extensions: {},
@@ -142,6 +175,7 @@ export async function saveLocalInferenceDraft(context, {
         detail.object.object_id !== objectId ||
         detail.object.revision !== receipt.object.revision ||
         detail.object.schema_id !== LOCAL_INFERENCE_DRAFT_SCHEMA ||
+        detail.object.schema_version !== schemaVersion ||
         !sameDraftData(detail.object.data,data)) {
       refuse("T3_D5_DRAFT_READBACK_MISMATCH");
     }
@@ -233,10 +267,15 @@ export async function getLocalInferenceDraft(context, {
     const data=object?.data;
     if (!object || object.workspace_id!==workspaceId ||
         object.object_id!==object_id || object.schema_id!==LOCAL_INFERENCE_DRAFT_SCHEMA ||
-        object.schema_version!=="1.0.0" || object.deleted || object.deleted_at ||
+        !["1.0.0","1.1.0"].includes(object.schema_version) || object.deleted || object.deleted_at ||
         !Number.isInteger(object.revision) || object.revision<1 ||
         !data || data.status!=="DRAFT_UNTRUSTED" ||
-        data.origin!=="BROWSER_LOCAL" || data.source!=="USER_EXPLICIT_SAVE" ||
+        !["BROWSER_LOCAL","ANDROID_NATIVE"].includes(data.origin) ||
+        (object.schema_version==="1.0.0"&&data.origin!=="BROWSER_LOCAL") ||
+        (data.origin==="ANDROID_NATIVE"&&(data.engine!=="llama.cpp"||
+          typeof data.model_id!=="string"||
+          !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}_[A-Za-z0-9._-]{1,80}\.gguf$/.test(data.model_id))) ||
+        data.source!=="USER_EXPLICIT_SAVE" ||
         data.model_integrity!=="NOT_ATTESTED" ||
         typeof data.text!=="string" || !data.text.trim() ||
         typeof data.model_id!=="string" || !data.model_id.trim() ||
@@ -245,7 +284,7 @@ export async function getLocalInferenceDraft(context, {
     }
     return Object.freeze({
       workspace_id:workspaceId,object_id,revision:object.revision,
-      status:"DRAFT_UNTRUSTED",model_id:data.model_id,engine:data.engine,text:data.text,
+      status:"DRAFT_UNTRUSTED",model_id:data.model_id,engine:data.engine,origin:data.origin,text:data.text,
       readback:true,
     });
   } finally {unsubscribe();}
