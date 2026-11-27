@@ -1,5 +1,5 @@
 /**
- * Browser acceptance for the public T3 autonomous-site switch, with a
+ * Browser acceptance for public T3 autonomous-site installation, with a
  * Club-shaped neutral domain fixture. The Kernel file is a stand-in here:
  * real original T2 Kernel qualification runs separately in this same workflow.
  * No private Club source, model weights, credentials or network service.
@@ -20,7 +20,8 @@ function write(root,path,content) {
 }
 function fixture(root) {
   const page=(name)=>'<!doctype html><html lang="ru"><head><title>'+name+
-    '</title></head><body><main><h1>'+name+
+    '</title><style>:root{--iwxa-assistant-accent:#5e276c;--iwxa-assistant-accent-ink:#fff;--iwxa-assistant-radius:3px}'+
+    '.dark{--iwxa-assistant-accent:#d5ade0;--iwxa-assistant-accent-ink:#28132c}</style></head><body><div data-iwxa-update-offer-slot></div><main><h1>'+name+
     '</h1><a href="/workspace/">Workspace</a><a href="/tools/">Инструменты</a></main></body></html>';
   write(root,"index.html",page("Тестовый домен"));
   write(root,"tools/index.html",'<!doctype html><html lang="ru"><head>'+
@@ -95,7 +96,7 @@ async function profileWitness(page,operation) {
   }),operation);
 }
 
-test("real Chromium: explicit switch, full-site offline, cold restart and persistent opt-out",{
+test("real Chromium: explicit installation, site theme, weekly offer, cold restart and update",{
   timeout:180000,
 },async()=>{
   const root=mkdtempSync(join(tmpdir(),"t3-domain-chromium-"));
@@ -149,6 +150,15 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     await toggle.waitFor();
     await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-install-offline").disabled);
     assert.equal(await page.evaluate(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),false,"normal site is initial default");
+    // The same ordinary button must follow the site's live theme.
+    const design = () => toggle.evaluate(node=>{
+      const style=getComputedStyle(node);
+      return [style.backgroundColor,style.color,style.borderRadius];
+    });
+    assert.deepEqual(await design(),["rgb(94, 39, 108)","rgb(255, 255, 255)","3px"]);
+    await page.evaluate(()=>document.documentElement.classList.add("dark"));
+    assert.deepEqual(await design(),["rgb(213, 173, 224)","rgb(40, 19, 44)","3px"]);
+    await page.evaluate(()=>document.documentElement.classList.remove("dark"));
     assert.equal(await page.evaluate(()=>navigator.serviceWorker.getRegistrations()
       .then(rows=>rows.length)),0,"T3 does not silently register a worker");
     let companion=await context.newPage();
@@ -180,11 +190,12 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     assert.equal(await page.locator("#iwxa-t3-update-offer").isVisible(),false,"fresh install is not asked to update");
     await page.evaluate(()=>localStorage.setItem("iwxa.t3.offline.last-update-offer.v2",String(Date.now()-7*86400000)));
     await page.reload();
-    await page.locator("#iwxa-t3-update-offer").waitFor({state:"visible"});
-    await page.getByRole("button",{name:"Позже",exact:true}).click();
+    await page.locator("#iwxa-t3-weekly-offer").waitFor({state:"visible"});
+    assert.equal(await page.locator("#iwxa-t3-weekly-offer").evaluate(n=>n.parentElement.hasAttribute("data-iwxa-update-offer-slot")),true);
+    await page.locator("#iwxa-t3-weekly-later").click();
     await page.reload();
     await page.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous"));
-    assert.equal(await page.locator("#iwxa-t3-update-offer").isVisible(),false,"weekly offer is not repeated");
+    assert.equal(await page.locator("#iwxa-t3-weekly-offer").isVisible(),false,"weekly offer is not repeated");
 
     await companion.getByRole("button",{name:"Применить изменения в этом окне"})
       .waitFor({state:"visible",timeout:15000});
