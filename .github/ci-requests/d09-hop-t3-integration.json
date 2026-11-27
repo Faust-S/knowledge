@@ -1,0 +1,12 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d09-hop-t3-integration",
+  "prepared_sha": "12152ffba7c3d3c48e5ed630a86b3390b0818f6e",
+  "profile": "hop-original-t3-rc5",
+  "revisions": {
+    "site": "b6622118f139af2fc117c566e8bbc7b6335c25e5",
+    "subject": "94fd40413525b099a141ea4b077c6eb117ed7722",
+    "platform": "a50d40dafc2e029fcc7668dece925f7fc38cc510",
+    "assistant": "5419dacf855d81ec089acc23bae0c7aa11713a54"
+  }
+}
