@@ -24,3 +24,14 @@ export function readOriginalCompanyWorkspace(input:{
 
 export function completeCompanyMergePlan(preview:unknown,plan:unknown,workspaceId:string):boolean;
 export function validateCompanyMergeReceipt(preview:unknown,plan:unknown,receipt:unknown):readonly string[];
+
+export function readOriginalCompanyTaskRecords(input:{
+  kernel:Pick<KernelFacade,'sessionInfo'|'hasOperation'|'getWorkspace'|'getObject'|'listEventsSince'>;
+  organizationId:string;workspaceId:string;executorId:string;taskId:string;
+  taskRevisionId:string;taskPackageSha256:string;
+}):Promise<Readonly<{
+  organizationId:string;workspaceId:string;executorId:string;taskId:string;
+  taskRevisionId:string;taskPackageSha256:string;originalKernelReadback:true;
+  signedReceiptVerified:false;task:CompanyWorkReadbackRecord|null;
+  results:readonly CompanyWorkReadbackRecord[];
+}>>;
