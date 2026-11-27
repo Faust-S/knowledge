@@ -15,7 +15,7 @@ import {createT4OriginalNativeHostNetworkOwner} from '../src/network/original-na
 import {createT4NetworkTopology,openT4NativeTopologyTransport} from '../src/network/network-topology.mjs';
 import {createT4OriginalHostCaptureLedgerPort} from '../src/network/original-host-capture-ledger.mjs';
 import {captureT4OriginalObjectMutation} from '../src/network/original-object-mutation-capture.mjs';
-import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
+import {readT4OriginalEventWindow,digestT4OriginalEventRecord} from '../src/network/original-event-window.mjs';
 import {readT4OriginalHostCapturedSubject,verifyT4OriginalHostCapturedSubjectSource} from '../src/network/original-host-outbox-delivery.mjs';
 import {digestT4OriginalObjectContent} from '../src/network/original-object-delta.mjs';
 import {decodeT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION} from '../src/network/standard-network-wire-candidate.mjs';
@@ -31,6 +31,7 @@ function kernelFixture(name){
     async getObject(ws,id){return clone(rows.get(ws+':'+id)??null)},
     async listObjects(q){return clone([...rows.values()].filter(r=>r.object.workspace_id===q.workspace_id).map(r=>r.object))},
     async listEventsSince(ws){return clone(events.filter(e=>e.workspace_id===ws))},
+    async listAssets(){return []},
     async putObject(p){
       const key=p.workspace_id+':'+p.object_id,prev=rows.get(key)?.object;
       assert.equal(p.base_revision,prev?.revision??0);writes++;
@@ -136,7 +137,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
   localCapture=false,localGraph=false,localAdmission=allow,frameAdmission=allow,
   indexMigration=false,localResultVerification=false,technicalRead=allow,explicitResume=false,resumeInput=null,resumeAdmission=deny,
   nativeTopologyTransport=null,requireSignedTopologyAccess=false,originalVaultNodeSignaturePort=null,
-  replacementRecovery=false,terminalRecovery=false,peerHistoryRead=async()=>null,portOverrides={},canWake=()=>true,onResult=()=>{},testScopedVaultUnlock=false}){
+  replacementRecovery=false,terminalRecovery=false,freshBaseline=null,peerHistoryRead=async()=>null,portOverrides={},canWake=()=>true,onResult=()=>{},testScopedVaultUnlock=false}){
   const tech=store.technicalWorkspaceId;
   const localOps=['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject',
     't1.commitObjectGraph','t1.deleteObject','t1.listAssets','t1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation'];
@@ -183,6 +184,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     },
   };
   Object.assign(originalPorts,portOverrides);
+  if(freshBaseline!==null){delete originalPorts.authorizeOriginalBaselineAdmission;delete originalPorts.verifyOriginalBaselineEvidence;}
   if(originalVaultNodeSignaturePort)for(const k of ['verifyOriginalNodeSignature','resolveOriginalSigningContext','signOriginalNodeBytes'])
     delete originalPorts[k];
   const owner=createT4OriginalNativeHostNetworkOwner({...scope(tech),role,requiredCryptoSuite:SUITE,
@@ -190,7 +192,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     getMode:()=>mode,...(nativeTopologyTransport?{nativeTopologyTransport}:{wireTransport:wire.wire}),originalPorts,enableLocalSourceCapture:localCapture,enablePublicationIndexMigration:indexMigration,monotonicNow:()=>clock,
     enableLocalRecipientResultVerification:localResultVerification,enableExplicitNetworkResume:explicitResume,readOriginalNetworkResumeInput:resumeInput,requireSignedTopologyAccess,
     enableLocalReplacementRecovery:replacementRecovery,enableReplacementTerminalRecovery:terminalRecovery,
-    readOriginalBaselineAdmissionInput:async()=>requestBaseline?baselineInput:null,
+    ...(freshBaseline===null?{readOriginalBaselineAdmissionInput:async()=>requestBaseline?baselineInput:null}:{originalFreshWorkspaceBaseline:freshBaseline}),
     onStep:r=>{results.push(r);onResult(r);}});
   const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,onDetach:()=>{local.closeOriginalVault();technical.closeOriginalVault();},networkOwner:{
     ...owner,async onIdleWake(p){try{if(canWake())await owner.onIdleWake(p)}catch(e){failure=e;throw e}}
@@ -1059,5 +1061,31 @@ test('fixed installed profile cannot start replacement multipart or accept a non
     assert.throws(()=>createT4OriginalNativeHostNetworkProfile({role,enableOriginalReplacementAttempts:false,
       enableOriginalMultipartNegotiation:true,enableOriginalReplacementMultipartNegotiation:true}),
       {code:'NATIVE_NETWORK_PROFILE_REPLACEMENT_MULTIPART_REQUIRED'});
+  }
+});
+
+
+test('both native roles admit the same original fresh Workspace through the signed Kernel relay without external baseline callbacks',async()=>{
+  const creation={workspace_id:WS,event_id:'event:pilot:creation',event_type:'workspace.created',
+    service_id:'iwxa.admin-center.workspace',occurred_at:'2026-11-27T12:00:00.000Z',
+    payload:{profile:'generic',capabilities:[],read_only:false}};
+  const selection={confirmed:true,eventId:creation.event_id,eventDigest:digestT4OriginalEventRecord(creation,WS)};
+  let shared;
+  for(const role of ['SOURCE','RECIPIENT']){
+    const store=kernelFixture('fresh-'+role);store.technicalWorkspaceId='ws:pilot:technical:'+role;
+    store.events.push(clone(creation));
+    const wire=wireFixture(true),f=nativeFixture({role,store,wire,freshBaseline:selection});
+    try{
+      const session=await f.attach();await f.drive(session,'ADMITTED');
+      const admission=f.results.find(x=>x.state==='ADMITTED');
+      assert.equal(admission.baseline.originalBaselineRef,creation.event_id);
+      assert.equal(admission.baseline.originalBaselineDigest,selection.eventDigest);
+      if(shared)assert.deepEqual(admission.baseline.sourceCursor,shared);else shared=admission.baseline.sourceCursor;
+      assert.equal(store.events.filter(e=>e.workspace_id===WS).length,1);
+      assert.equal(store.events.filter(e=>e.event_type==='t4.network.original.baseline.admitted').length,1);
+      assert.ok(f.local.proofCount>0&&f.technical.proofCount>0);
+      assert.equal(wire.puts,0);assert.equal(wire.gets,0);
+      assert.ok(f.commands.filter(c=>c.method==='putObject').every(c=>c.args[0].workspace_id===store.technicalWorkspaceId));
+    }finally{f.relay.close();}
   }
 });

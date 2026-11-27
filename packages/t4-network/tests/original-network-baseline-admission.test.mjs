@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {createT4OriginalNetworkBaselineAdmissionPort} from '../src/network/original-network-baseline-admission.mjs';
+import {createT4OriginalFreshWorkspaceBaseline,createT4OriginalNetworkBaselineAdmissionPort} from '../src/network/original-network-baseline-admission.mjs';
+
+import {digestT4OriginalEventRecord} from '../src/network/original-event-window.mjs';
 
 const H=x=>'sha256:'+createHash('sha256').update(x).digest('hex');
 const clone=x=>structuredClone(x);
@@ -130,4 +132,61 @@ test('K125 exact baseline does not use a legacy route on original authority deni
     authorizeOriginalTechnicalRead:async p=>p.operation!=='t1.listEventObjectCommitWindow'}).admitOriginalBaseline(input),
     error('BASELINE_ADMISSION_ORIGINAL_ACCESS_DENIED'));
   assert.equal(f.puts,0);
+});
+
+
+const freshEvent=()=>({event_id:'event:original:creation',event_type:'workspace.created',
+  workspace_id:identity.sourceWorkspaceId,occurred_at:'2026-11-27T12:00:00.000Z',
+  service_id:'iwxa.admin-center.workspace',payload:{profile:'generic',capabilities:[],read_only:false}});
+function freshFixture(role='SOURCE'){
+  const creation=freshEvent(),events=[creation],objects=[],assets=[],reads=[];
+  const selection={confirmed:true,eventId:creation.event_id,eventDigest:digestT4OriginalEventRecord(creation,identity.sourceWorkspaceId)};
+  let active=true,allowed=true,mode='T4_NETWORK',afterAssets=null;
+  const kernel={hasOperation:op=>['t1.listEventsSince','t1.listObjects','t1.listAssets'].includes(op),
+    async listEventsSince(ws){assert.equal(ws,identity.sourceWorkspaceId);reads.push('events');return clone(events)},
+    async listObjects(q){assert.deepEqual(q,{workspace_id:identity.sourceWorkspaceId,include_deleted:true});reads.push('objects');return clone(objects)},
+    async listAssets(q){assert.deepEqual(q,{workspace_id:identity.sourceWorkspaceId});reads.push('assets');const out=clone(assets);afterAssets?.();return out}};
+  const create=()=>createT4OriginalFreshWorkspaceBaseline({selection,role,workspaceId:identity.sourceWorkspaceId,
+    originalWriteOwnerRef:identity.originalWriteOwnerRef,originalKernel:kernel,getMode:()=>mode,
+    authorizeOriginalRead:async p=>{assert.equal(p.workspaceId,identity.sourceWorkspaceId);return allowed;},
+    requireCurrent:()=>{if(!active)throw Error('HOST_CLOSED')}});
+  const proof=(baseline,admit)=>({...identity,role,operation:'t4.network.original.baseline.'+(admit?'admit':'verify'),
+    baseline,originalMaterializationWitnessRequired:true,networkMetadataIsNotAdmission:true});
+  return {creation,events,objects,assets,reads,selection,create,proof,deny:()=>allowed=false,
+    disable:()=>mode='LOCAL_T3',close:()=>active=false,afterAssets:f=>afterAssets=f};
+}
+test('first-use copies with the SAME original creation Event derive the identical source cursor; cold read does not require emptiness',async()=>{
+  const s=freshFixture(),r=freshFixture('RECIPIENT');
+  const source=s.create(),recipient=r.create();
+  const input=await source.readOriginalBaselineAdmissionInput();
+  assert.deepEqual(input,await recipient.readOriginalBaselineAdmissionInput());
+  assert.equal(input.sourceCursor.lastEventId,s.creation.event_id);
+  assert.equal(input.sourceCursor.seenEventCount,1);
+  assert.equal(await source.verifyOriginalBaselineEvidence(s.proof(input,true)),true);
+  assert.equal(await source.authorizeOriginalBaselineAdmission(s.proof(input,true)),true);
+  s.events.push({...s.creation,event_id:'event:later',occurred_at:'2026-11-27T12:00:01.000Z',
+    event_type:'business.created',object_id:'object:later',revision:1,payload:{title:'Later'}});
+  s.objects.push({object_id:'object:later'});
+  assert.equal(await s.create().verifyOriginalBaselineEvidence(s.proof(input,false)),true);
+  await assert.rejects(s.create().readOriginalBaselineAdmissionInput(),{code:'BASELINE_FRESH_WORKSPACE_NOT_EMPTY'});
+  assert.equal(await recipient.verifyOriginalBaselineEvidence(r.proof({...input,sourceCursor:{...input.sourceCursor,seenEventCount:2}},false)),false);
+});
+test('different creation Event, changed bytes, pre-existing data and mid-read mutation are not an admitted fresh baseline',async()=>{
+  for(const [change,code] of [
+    [f=>f.events[0].event_id='event:different','BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH'],
+    [f=>f.events[0].payload.capabilities.push('different'),'BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH'],
+    [f=>f.objects.push({object_id:'hidden-tombstone',deleted:true}),'BASELINE_FRESH_WORKSPACE_NOT_EMPTY'],
+    [f=>f.assets.push({asset_id:'asset:existing'}),'BASELINE_FRESH_WORKSPACE_NOT_EMPTY'],
+    [f=>f.afterAssets(()=>f.events.push({...f.creation,event_id:'event:second',occurred_at:'2026-11-27T12:00:01.000Z'})),'BASELINE_FRESH_WORKSPACE_CHANGED']]){
+    const f=freshFixture(),port=f.create();change(f);
+    await assert.rejects(port.readOriginalBaselineAdmissionInput(),{code});
+  }
+});
+test('explicit original read permission and native lifetime remain required for first-use baseline',async()=>{
+  const f=freshFixture(),port=f.create();f.deny();
+  await assert.rejects(port.readOriginalBaselineAdmissionInput(),e=>['ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED','BASELINE_ADMISSION_ORIGINAL_ACCESS_DENIED'].includes(e.code));
+  assert.deepEqual(f.reads,[]);
+  const g=freshFixture(),p=g.create();g.disable();
+  await assert.rejects(p.readOriginalBaselineAdmissionInput(),{code:'BASELINE_ADMISSION_NETWORK_MODE_OFF'});
+  const h=freshFixture(),q=h.create();h.close();await assert.rejects(q.readOriginalBaselineAdmissionInput(),/HOST_CLOSED/);
 });
