@@ -1,0 +1,119 @@
+name: Cehovod final build from published T3 0.3.2
+on:
+  push:
+    branches: ['ci/once/t3-032-stable-cehovod/457c8f1870fbfdbd0fca35993600433ec4a97de4']
+    paths: ['.github/ci-requests/t3-032-stable-cehovod.json']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  cehovod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      SOURCE: '8e26076ce66f0c26693a647e061fcd568e055b77'
+      ASSISTANT: '2c247482306f218a7d5be668de11e98f168862d4'
+      SITE: '457c8f1870fbfdbd0fca35993600433ec4a97de4'
+      PLATFORM_ARTIFACT: '15230599751'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '8e26076ce66f0c26693a647e061fcd568e055b77'
+          persist-credentials: false
+          path: original-core
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: '2c247482306f218a7d5be668de11e98f168862d4'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-assistant
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod.ru
+          ref: '457c8f1870fbfdbd0fca35993600433ec4a97de4'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download the published stable release, not a temporary candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download t3-platform-v0.3.2 --repo Faust-S/knowledge --dir "$RUNNER_TEMP/platform" --pattern platform-inputs.zip --pattern candidate-receipt.json
+          echo '5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b  '"$RUNNER_TEMP/platform/platform-inputs.zip" | sha256sum -c -
+          echo '3de5d10178abb35ce0841d4f5ba5d127229eb0df765f6432fc8d44e9f73dc146  '"$RUNNER_TEMP/platform/candidate-receipt.json" | sha256sum -c -
+      - name: Explicit stable input import, exact owner bytes
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SITE"
+          test "$(git -C ../original-core rev-parse HEAD)" = "$SOURCE"
+          test "$(git -C ../private-assistant rev-parse HEAD)" = "$ASSISTANT"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          import {createHash} from 'node:crypto';
+          const root='runtime/t3-platform',active=JSON.parse(readFileSync(join(root,'active.json'),'utf8'));
+          assert.equal(active.version,'0.3.2');
+          const pin=JSON.parse(readFileSync(join(root,active.version,'release.json'),'utf8'));
+          const ap=JSON.parse(readFileSync(join(root,active.version,'domain-assistant.json'),'utf8'));
+          const r=JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,'platform','candidate-receipt.json'),'utf8'));
+          assert.equal(r.sourceCommit,process.env.SOURCE);assert.equal(pin.sourceCommit,r.sourceCommit);
+          assert.equal(pin.archiveSha256,r.archiveSha256);assert.equal(pin.manifestSha256,r.manifestSha256);
+          assert.equal(pin.portableArtifactId,Number(process.env.PLATFORM_ARTIFACT));
+          assert.equal(ap.sourceCommit,process.env.ASSISTANT);assert.equal(ap.sharedEngineSource,r.sourceCommit);
+          const sp=JSON.parse(readFileSync(join(root,active.version,'domain-skills.json'),'utf8'));
+          assert.equal(sp.sourceCommit,'6852d55ae8e7100b480b2d5c0a10b92de1c7d467');assert.equal(sp.sourceBlob,'15c4e99fbbf2a5c842bcbc810da03effff725230');
+          assert.equal(createHash('sha256').update(readFileSync(join(process.env.RUNNER_TEMP,'platform','platform-inputs.zip'))).digest('hex'),r.archiveSha256);
+          NODE
+          echo CEHOVOD_PUBLISHED_STABLE_INPUT_PIN_READY
+          echo "PUPPETEER_EXECUTABLE_PATH=$(command -v google-chrome)" >> "$GITHUB_ENV"
+      - name: Existing site build and original shared Host
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_private() {
+            local label="$1"; shift
+            local log="$RUNNER_TEMP/cehovod-$label.log"
+            if "$@" > "$log" 2>&1; then
+              echo "CEHOVOD_${label}_PASS"
+            else
+              grep -Eo 'CEHOVOD_[A-Z0-9_]{5,100}|T3_PORTABLE_PLATFORM_[A-Z0-9_]+|error TS[0-9]+' "$log" | sort -u | tail -40 || true
+              echo "CEHOVOD_${label}_FAIL"
+              exit 1
+            fi
+          }
+          run_private DEPENDENCIES npm ci --ignore-scripts --no-audit --no-fund
+          run_private SOURCE_TYPES npm run typecheck
+          run_private SKILLS npm run verify:t3-skills
+          run_private PLATFORM_IMPORT npm run import:t3-platform -- "$RUNNER_TEMP/platform/platform-inputs.zip"
+          run_private HOST npm run prepare:t3-host -- "$GITHUB_WORKSPACE/original-core/packages/t3-core" "$RUNNER_TEMP/domain-host" "$RUNNER_TEMP/platform/platform-inputs.zip" "$GITHUB_WORKSPACE/private-assistant"
+          run_private RETAIN npm run retain:t3-inputs -- "$RUNNER_TEMP/domain-host" "$RUNNER_TEMP/platform/platform-inputs.zip"
+          run_private ONE_DIST npm run build:product:t3
+          run_private PRODUCT_STRUCTURE npm run verify:product:t3
+      - name: Existing actual form and result route, domain design, full-site cold offline
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -euo pipefail
+          for route in check-t3-assistant-dynamic check-t3-public-offline; do
+            log="$RUNNER_TEMP/$route.log"
+            if node node_modules/tsx/dist/cli.mjs "scripts/$route.ts" > "$log" 2>&1; then
+              grep -Eo 'CEHOVOD_T3_[A-Z0-9_]{5,100}' "$log" | sort -u
+              echo "$route PASS"
+            else
+              grep -Eo 'CEHOVOD_[A-Z0-9_]{5,100}|TimeoutError|AssertionError|TypeError|ReferenceError|SyntaxError|__name is not defined|net::ERR_[A-Z_]+|Failed to launch|Could not find Chrome|Cannot find module|Target closed' "$log" | sort -u | tail -40 || true
+              echo "$route FAIL"
+              exit 1
+            fi
+          done
+          echo CEHOVOD_STABLE_BUILD_AND_BROWSER_ROUTE_PASS_NOT_INDEPENDENT_PRODUCT_ACCEPTANCE
+
