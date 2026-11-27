@@ -3,7 +3,7 @@
 // Task, Result, acceptance, storage or grant. This is a non-atomic read.
 import { createHash } from 'node:crypto';
 import { canonicalStringify } from '../../../persistence/canonical-codec.mjs';
-import { openWorkspaceMethodStageClosure } from './project-process-method-readback.mjs';
+import { openWorkspaceMethodStageClosure,openWorkspaceMethodCompleteClosure } from './project-process-method-readback.mjs';
 
 function fail(code,message){throw Object.assign(new Error(message),{code});}
 const text=value=>typeof value==='string'&&value.length>0&&value.trim()===value;
@@ -38,47 +38,112 @@ async function observeMaterial(readObject,workspaceId,pin){
     schema_id:o.schema_id,schema_version:o.schema_version});
   return Object.freeze({object_id:pin.object_id,revision:pin.revision,state:o.revision===pin.revision?'CURRENT':'CHANGED',current});
 }
-async function openStageInputObservation({owner,readObject,workspaceId,projectId,expected,stepId}={}){
-  if(!text(workspaceId)||!text(projectId)||typeof stepId!=='string'||!/^[A-Za-z0-9_-]{1,63}$/u.test(stepId)
-      ||typeof readObject!=='function'){
-    fail('METHOD_STAGE_INPUT_INVALID','Original method owner, addressed material port and exact stage required');
-  }
-  const selected=selection(expected);
-  const closure=await openWorkspaceMethodStageClosure({owner,workspaceId,projectId,expected:selected,stepId});
+// Build the same exact digest from a single selected closure or a complete
+// current method observation. Whole-method order is the original
+// dependency wave/declaration order, not an execution schedule.
+function stageReport({workspaceId,projectId,stepId,closure,observedById}){
   const byStage=new Map(closure.works.map(row=>[row.work.methodology.stepId,row]));
-  const work=byStage.get(stepId).work;
+  const selected=byStage.get(stepId);
+  if(!selected)fail('METHOD_STAGE_UNKNOWN','Selected stage is not declared in the original Project');
+  const ancestors=new Set();
+  function include(id){
+    if(ancestors.has(id))return;
+    const item=byStage.get(id);
+    if(!item)fail('METHOD_SOURCE_INCOMPLETE','Undeclared prerequisite Work');
+    ancestors.add(id);
+    for(const dep of item.work.dependencies)include(dep.predecessorWorkId.slice(projectId.length+1));
+  }
+  include(stepId);
+  const relevant=closure.works.filter(row=>ancestors.has(row.work.methodology.stepId));
+  const pins=[...new Set(relevant.flatMap(row=>row.work.methodology.materialRefs.map(pin=>pin.object_id)))].sort(order);
+  const materials=Object.freeze(pins.map(id=>{
+    const observed=observedById.get(id);
+    if(!observed)fail('METHOD_STAGE_MATERIAL_IDENTITY_MISMATCH','Selected material observation is missing');
+    return observed;
+  }));
+  const work=selected.work;
+  const predecessors=Object.freeze(work.dependencies.map(dep=>{
+    const id=dep.predecessorWorkId.slice(projectId.length+1);
+    return Object.freeze({stepId:id,workRef:byStage.get(id).workRef,acceptedResultRef:null,state:'ORIGINAL_RESULT_OWNER_REQUIRED'});
+  }));
+  const closureRefs=Object.freeze(relevant.map(row=>Object.freeze({stepId:row.work.methodology.stepId,workRef:row.workRef})));
+  const current=materials.every(row=>row.state==='CURRENT');
+  const basis=Object.freeze({workspaceId,projectId,stepId,projectRef:closure.projectRef,stageRef:selected.workRef,
+    prerequisiteClosure:closureRefs,materialRefs:Object.freeze(materials.map(row=>row.current)),
+    objective:closure.project.methodology.objective,domainApplicability:Object.freeze([...closure.project.domainApplicability]),
+    intendedActor:work.methodology.intendedActor,instruction:work.methodology.instruction});
+  const inputBasisDigest=current?createHash('sha256').update(canonicalStringify(basis)).digest('hex'):null;
+  return Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_STAGE_INPUT_BASIS_V1',
+    state:current?'INPUT_REFERENCES_VERIFIED':'MATERIAL_REVIEW_REQUIRED',basis,inputBasisDigest,
+    materials,predecessors,requiredResultOwnerReadback:predecessors.length>0,
+    selectedClosureVerified:true,completeMethodCurrentVerified:closure.completeMethodCurrentVerified===true,
+    unrelatedHeadsNotRead:closure.completeMethodCurrentVerified!==true,
+    atomicSnapshot:false,writeAuthorized:false,executionAuthority:false,resultReuseProven:false});
+}
+async function openInputObservation({owner,readObject,workspaceId,projectId,expected,stepId},wholeMethod){
+  if(!text(workspaceId)||!text(projectId)||(!wholeMethod&&(typeof stepId!=='string'||!/^[A-Za-z0-9_-]{1,63}$/u.test(stepId)))
+      ||typeof readObject!=='function'){
+    fail('METHOD_STAGE_INPUT_INVALID','Original method owner, addressed material port and exact scope required');
+  }
+  const selected=selection(expected),args={owner,workspaceId,projectId,expected:selected,stepId};
+  const closure=await (wholeMethod?openWorkspaceMethodCompleteClosure(args):openWorkspaceMethodStageClosure(args));
   const pins=new Set(closure.works.flatMap(row=>row.work.methodology.materialRefs.map(pin=>pin.object_id)));
   const chosen=closure.project.methodology.materialRefs.filter(pin=>pins.has(pin.object_id))
     .sort((a,b)=>order(a.object_id,b.object_id));
   const readMaterials=()=>Promise.all(chosen.map(pin=>observeMaterial(readObject,workspaceId,pin)));
-  const materials=await readMaterials();
+  const materials=Object.freeze(await readMaterials());
   await closure.verifyCurrent();
   const revalidate=async(code='METHOD_STAGE_MATERIAL_CHANGED')=>{
     if(!equal(materials,await readMaterials()))fail(code,'A selected material changed during addressed readback');
     await closure.verifyCurrent();
   };
   await revalidate();
-  const predecessors=Object.freeze(work.dependencies.map(dep=>{
-    const id=dep.predecessorWorkId.slice(projectId.length+1);
-    return Object.freeze({stepId:id,workRef:byStage.get(id).workRef,acceptedResultRef:null,state:'ORIGINAL_RESULT_OWNER_REQUIRED'});
-  }));
-  const stageRef=byStage.get(stepId).workRef;
-  const closureRefs=Object.freeze(closure.works.map(row=>Object.freeze({stepId:row.work.methodology.stepId,workRef:row.workRef})));
-  const current=materials.every(row=>row.state==='CURRENT');
-  const basis=Object.freeze({workspaceId,projectId,stepId,projectRef:closure.projectRef,stageRef,
-    prerequisiteClosure:closureRefs,materialRefs:Object.freeze(materials.map(row=>row.current)),
-    objective:closure.project.methodology.objective,domainApplicability:Object.freeze([...closure.project.domainApplicability]),
-    intendedActor:work.methodology.intendedActor,instruction:work.methodology.instruction});
-  const inputBasisDigest=current?createHash('sha256').update(canonicalStringify(basis)).digest('hex'):null;
-  const report=Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_STAGE_INPUT_BASIS_V1',
-    state:current?'INPUT_REFERENCES_VERIFIED':'MATERIAL_REVIEW_REQUIRED',basis,inputBasisDigest,
-    materials:Object.freeze(materials),predecessors,requiredResultOwnerReadback:predecessors.length>0,
-    selectedClosureVerified:true,completeMethodCurrentVerified:false,unrelatedHeadsNotRead:true,
-    atomicSnapshot:false,writeAuthorized:false,executionAuthority:false,resultReuseProven:false});
-  return {report,revalidate};
+  const observedById=new Map(materials.map(row=>[row.object_id,row]));
+  const reportFor=id=>stageReport({workspaceId,projectId,stepId:id,closure,observedById});
+  return {closure,materials,reportFor,revalidate};
+}
+async function openStageInputObservation(input){
+  const observation=await openInputObservation(input,false);
+  return {report:observation.reportFor(input.stepId),revalidate:observation.revalidate};
 }
 export async function readWorkspaceMethodStageInputBasis(input){
   return (await openStageInputObservation(input)).report;
+}
+
+/** W05.5: all Work input observations in ONE bounded complete-method read.
+ * Does not interpret predecessor execution, compute a schedule or declare
+ * readiness to launch. Reuse the original selected-stage digest algorithm.
+ * The caller selects the exact complete current method; unrelated histories
+ * are never enumerated. Material payloads and full basis per stage are not
+ * copied into the overview.
+ */
+export async function readWorkspaceMethodInputOverview(input={}){
+  const {workspaceId,projectId}=input;
+  const observation=await openInputObservation(input,true);
+  const {closure,materials,reportFor}=observation;
+  const rowsById=new Map(closure.works.map(row=>[row.work.workId,row]));
+  // Display order is the original Project order, not the topological order.
+  const stages=Object.freeze(closure.project.methodology.workIds.map(id=>{
+    const row=rowsById.get(id),report=reportFor(row.work.methodology.stepId);
+    const state=report.state!=='INPUT_REFERENCES_VERIFIED'?'MATERIAL_REVIEW_REQUIRED':
+      report.predecessors.length?'PREDECESSOR_RESULTS_REQUIRED':'INPUT_REFERENCES_VERIFIED';
+    return Object.freeze({stepId:row.work.methodology.stepId,name:row.work.name,actor:row.work.methodology.intendedActor,
+      workRef:row.workRef,state,inputBasisDigest:report.inputBasisDigest,
+      directPredecessorStepIds:Object.freeze(report.predecessors.map(p=>p.stepId)),
+      prerequisiteCount:report.basis.prerequisiteClosure.length-1,
+      materialIssues:Object.freeze(report.materials.filter(material=>material.state!=='CURRENT').map(material=>material.object_id))});
+  }));
+  const counts=Object.freeze({
+    total:stages.length,
+    inputReferencesVerified:stages.filter(row=>row.inputBasisDigest!==null).length,
+    materialReviewRequired:stages.filter(row=>row.state==='MATERIAL_REVIEW_REQUIRED').length,
+    predecessorResultsRequired:stages.filter(row=>row.state==='PREDECESSOR_RESULTS_REQUIRED').length,
+    rootInputsVerified:stages.filter(row=>row.state==='INPUT_REFERENCES_VERIFIED').length,
+  });
+  return Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_INPUT_OVERVIEW_V1',workspaceId,projectId,
+    projectRef:closure.projectRef,stages,materials,counts,completeMethodCurrentVerified:true,
+    atomicSnapshot:false,writeAuthorized:false,executionAuthority:false,resultReuseProven:false,
+    executionStatusObserved:false});
 }
 
 

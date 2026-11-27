@@ -192,7 +192,16 @@ export async function readHistoricalWorkspaceMethod({owner,workspaceId,projectId
  * need not still match. This is NOT verification of the whole method or an
  * execution authorization. The original immutable source owner is required.
  */
-export async function openWorkspaceMethodStageClosure({owner,workspaceId,projectId,expected,stepId}){
+export async function openWorkspaceMethodStageClosure(input){
+  return openMethodInputClosure({...input,wholeMethod:false});
+}
+/** Read all current declared planned Works once, using the SAME source
+ * authority, creation/closure validation and exact revision fences as a
+ * single stage. No catalog or history enumeration, no persisted cache. */
+export async function openWorkspaceMethodCompleteClosure(input){
+  return openMethodInputClosure({...input,wholeMethod:true});
+}
+async function openMethodInputClosure({owner,workspaceId,projectId,expected,stepId,wholeMethod}){
   if(!owner||typeof owner.load!=='function')fail('METHOD_SOURCE_INCOMPATIBLE','Original source owner read port required');
   const projectRef=historyRef('project',workspaceId,projectId,expected?.projectRef);
   const requested=Array.from(expected?.workRefs??[],row=>Object.freeze({
@@ -221,14 +230,17 @@ export async function openWorkspaceMethodStageClosure({owner,workspaceId,project
   }
   const refs=new Map(ids.map(id=>[id,historyRef('work',workspaceId,id,byObject.get(projectProcessSourceObjectId('work',workspaceId,id)))]));
   const selectedId=projectId+'.'+stepId;
-  if(!refs.has(selectedId))fail('METHOD_STAGE_UNKNOWN','Selected stage is not declared in the original Project');
+  if(!wholeMethod&&!refs.has(selectedId))fail('METHOD_STAGE_UNKNOWN','Selected stage is not declared in the original Project');
   const loaded=new Map(),depth=new Map(),visiting=new Set();
+  // Complete overview addresses all Works concurrently once. Selected
+  // stage traversal still loads ONLY its ancestors.
+  const prefetched=wholeMethod?new Map(await Promise.all(ids.map(async id=>[id,await loadExact('work',id,refs.get(id))]))):null;
   async function visit(id){
     if(visiting.has(id))fail('METHOD_DEPENDENCY_CYCLE','The selected closure has cyclic prerequisites');
     if(loaded.has(id))return depth.get(id);
     if(!refs.has(id))fail('METHOD_SOURCE_INCOMPLETE','Undeclared prerequisite Work');
     visiting.add(id);
-    const row=await loadExact('work',id,refs.get(id)),value=row.value;
+    const row=prefetched?prefetched.get(id):await loadExact('work',id,refs.get(id)),value=row.value;
     if(value.projectId!==projectId||value.status!=='planned'||!value.methodology||!value.schedule
         ||value.schedule.plannedStart!==null||value.schedule.plannedFinish!==null){
       fail('METHOD_SOURCE_INCOMPATIBLE','Selected Work is not an unscheduled planned method step');
@@ -242,15 +254,20 @@ export async function openWorkspaceMethodStageClosure({owner,workspaceId,project
     loaded.set(id,{row,work});depth.set(id,level);visiting.delete(id);
     return level;
   }
-  await visit(selectedId);
+  if(wholeMethod){for(const id of ids)await visit(id);}else await visit(selectedId);
   // Preserve the original structural preview's wave/declaration ordering;
   // ancestors of a selected node are closed under prerequisites.
   const ordered=ids.filter(id=>loaded.has(id)).sort((a,b)=>depth.get(a)-depth.get(b));
-  verifyMethodWorkBindings({project,projectRef,loaded:ordered.map(id=>loaded.get(id).row),
-    byId:new Map(ordered.map(id=>[id,refs.get(id)]))});
+  if(wholeMethod){
+    verifyMethodSet({workspaceId,project,projectRef,ids,loaded:ids.map(id=>loaded.get(id).row)});
+  }else{
+    verifyMethodWorkBindings({project,projectRef,loaded:ordered.map(id=>loaded.get(id).row),
+      byId:new Map(ordered.map(id=>[id,refs.get(id)]))});
+  }
   const works=Object.freeze(ordered.map(id=>Object.freeze({work:loaded.get(id).work,workRef:refs.get(id)})));
   const verifyCurrent=async()=>{
     await Promise.all([loadExact('project',projectId,projectRef),...ordered.map(id=>loadExact('work',id,refs.get(id)))]);
   };
-  return Object.freeze({project:normalized,projectRef,works,verifyCurrent,atomicSnapshot:false});
+  return Object.freeze({project:normalized,projectRef,works,verifyCurrent,
+    completeMethodCurrentVerified:wholeMethod,atomicSnapshot:false});
 }

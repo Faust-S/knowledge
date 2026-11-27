@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { applyWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
-import { readWorkspaceMethodStageInputBasis } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
+import { readWorkspaceMethodStageInputBasis,readWorkspaceMethodInputOverview } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
 
 const workspaceId='stage-scope',projectId='research',time='2026-11-27T13:00:00Z',nextTime='2026-11-27T13:01:00Z';
 const objects=['source','model','unused'].map((object_id,i)=>({workspace_id:workspaceId,object_id,revision:i+1,
@@ -141,4 +141,66 @@ test('selected closure rejects a complete-looking selection containing duplicate
   const workRefs=f.base.workRefs.map(row=>({...row}));
   workRefs[1].recordId=workRefs[0].recordId;
   await assert.rejects(read(f,'compute',{expected:{...f.base,workRefs}}),code('METHOD_STAGE_SELECTION_INVALID'));
+});
+
+
+const overview=(f,extra={})=>readWorkspaceMethodInputOverview({owner:f.owner,workspaceId,projectId,
+  expected:f.base,readObject:f.readObject,...extra});
+test('complete method overview shares original stage digests with one bounded set of source and material observations',async()=>{
+  const f=await setup(),loads=[];
+  const owner={load:async(kind,ws,id)=>{loads.push([kind,id]);return f.owner.load(kind,ws,id);}};
+  const r=await overview(f,{owner});
+  assert.deepEqual(r.stages.map(s=>s.stepId),['review','prepare','analyse','compute']);
+  assert.deepEqual(r.counts,{total:4,inputReferencesVerified:4,materialReviewRequired:0,predecessorResultsRequired:3,rootInputsVerified:1});
+  assert.equal(loads.length,15);
+  assert.deepEqual(f.calls.map(c=>c[1]),['model','source','model','source']);
+  for(const row of r.stages){
+    const single=await read(f,row.stepId);
+    assert.equal(row.inputBasisDigest,single.inputBasisDigest);
+    assert.equal(row.prerequisiteCount,single.basis.prerequisiteClosure.length-1);
+  }
+  assert.equal(r.completeMethodCurrentVerified,true);assert.equal(r.executionStatusObserved,false);
+  assert.equal(r.executionAuthority,false);assert.equal(r.resultReuseProven,false);
+  assert.equal(JSON.stringify(r).includes('material body'),false);
+  assert.equal((await f.owner.audit()).length,5);
+});
+test('overview identifies material issues only for affected Work closures and ignores unused material',async()=>{
+  const f=await setup();
+  const readObject=async(ws,id)=>{const row=await f.readObject(ws,id);return id==='model'?{object:{...row.object,revision:9}}:row;};
+  const r=await overview(f,{readObject});
+  assert.deepEqual(r.stages.map(s=>[s.stepId,s.state,s.materialIssues]),[
+    ['review','MATERIAL_REVIEW_REQUIRED',['model']],['prepare','INPUT_REFERENCES_VERIFIED',[]],
+    ['analyse','PREDECESSOR_RESULTS_REQUIRED',[]],['compute','MATERIAL_REVIEW_REQUIRED',['model']]]);
+  assert.equal(r.counts.inputReferencesVerified,2);assert.equal(r.counts.materialReviewRequired,2);
+  assert.equal(r.counts.predecessorResultsRequired,1);
+  assert.equal(r.stages[0].inputBasisDigest,null);
+  assert.equal(r.stages[3].inputBasisDigest,null);
+  assert.equal(f.calls.some(c=>c[1]==='unused'),false);
+});
+test('overview refuses a stale complete method while independent selected Work stays readable',async()=>{
+  const f=await setup(),before=await overview(f);
+  const next=await edit(f,'analyse');
+  await assert.rejects(overview(f),code('METHOD_STAGE_SOURCE_CHANGED'));
+  const independent=await read(f,'compute');
+  const after=await overview(f,{expected:next});
+  assert.equal(independent.inputBasisDigest,before.stages.find(s=>s.stepId==='compute').inputBasisDigest);
+  assert.equal(after.stages.find(s=>s.stepId==='compute').inputBasisDigest,independent.inputBasisDigest);
+  assert.notEqual(after.stages.find(s=>s.stepId==='review').inputBasisDigest,before.stages.find(s=>s.stepId==='review').inputBasisDigest);
+});
+test('overview refuses material or original source change during shared readback',async()=>{
+  const f=await setup();let n=0;
+  await assert.rejects(overview(f,{readObject:async(ws,id)=>{
+    const row=await f.readObject(ws,id);return id==='model'?{object:{...row.object,revision:++n}}:row;
+  }}),code('METHOD_STAGE_MATERIAL_CHANGED'));
+  const g=await setup();let once=false;
+  await assert.rejects(overview(g,{readObject:async(ws,id)=>{
+    if(!once){once=true;await edit(g,'analyse');}
+    return g.readObject(ws,id);
+  }}),code('METHOD_STAGE_SOURCE_CHANGED'));
+});
+test('complete method overview rejects missing or duplicate original revisions before presenting a partial board',async()=>{
+  const f=await setup();
+  await assert.rejects(overview(f,{expected:{...f.base,workRefs:f.base.workRefs.slice(1)}}),code('METHOD_STAGE_SOURCE_CHANGED'));
+  const rows=f.base.workRefs.map(row=>({...row}));rows[1].recordId=rows[0].recordId;
+  await assert.rejects(overview(f,{expected:{...f.base,workRefs:rows}}),code('METHOD_STAGE_SELECTION_INVALID'));
 });
