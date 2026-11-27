@@ -1,4 +1,4 @@
-name: D01 integrated original assistant and learning journeys
+name: D01 frozen T3 1.2.8 candidate complete qualification
 on:
   workflow_dispatch:
   push:
@@ -7,7 +7,7 @@ on:
     paths:
       - '.github/ci-requests/d01-hosting-freeze.json'
 concurrency:
-  group: d01-learn-assistant-environment
+  group: d01-learn-frozen-candidate
   # Finish the running candidate. GitHub keeps at most one pending run in
   # this group, replacing an older pending candidate when a new one is queued.
   cancel-in-progress: false
@@ -16,13 +16,18 @@ permissions:
 jobs:
   t3:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
-    name: Exact Learn T3 assistant, Workspace and offline qualification
+    name: Exact Learn T3 ${{ matrix.lane }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 65
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [functional, audit, model]
     permissions:
       contents: read
       actions: read
     env:
+      D01_T3_REQUIRE_STABLE_HOST: '1'
       D01_T2_SOURCE: ${{ github.workspace }}/private/t2/t2/current/final-successor/canonical-source
     steps:
       - name: Checkout public request guard only
@@ -36,29 +41,29 @@ jobs:
         run: |
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-hosting-freeze \
-            --profile learn-integrated-original-assistant \
-            --revision site=1d22b5bb81342282ca089dd8b81d59b8b95b1f8d \
-            --revision subject=ec62607efd85058a7eb97e73e321187c741dc177 \
+            --profile learn-frozen-t3-candidate-1-2-8 \
+            --revision site=1057804a8ba68a1d3c9d0173aa615e1a53b51c46 \
+            --revision subject=77336a8a481005dda0c10c0df9a9f56655fb3fc6 \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1 \
-            --revision core=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
-            --revision assistant=244ad469a71ae65910144c6918488a2d061eecce
+            --revision core=8f55367b3c8f310aad4e3217fe0b53b6950ce220 \
+            --revision assistant=5419dacf855d81ec089acc23bae0c7aa11713a54
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 1d22b5bb81342282ca089dd8b81d59b8b95b1f8d
+          ref: 1057804a8ba68a1d3c9d0173aa615e1a53b51c46
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          ref: 8f55367b3c8f310aad4e3217fe0b53b6950ce220
           persist-credentials: false
           path: original/core
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 244ad469a71ae65910144c6918488a2d061eecce
+          ref: 5419dacf855d81ec089acc23bae0c7aa11713a54
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/assistant
@@ -72,7 +77,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn
-          ref: ec62607efd85058a7eb97e73e321187c741dc177
+          ref: 77336a8a481005dda0c10c0df9a9f56655fb3fc6
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -83,20 +88,27 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 1d22b5bb81342282ca089dd8b81d59b8b95b1f8d
-          test "$(git -C private/domain rev-parse HEAD)" = ec62607efd85058a7eb97e73e321187c741dc177
-          test "$(git -C original/core rev-parse HEAD)" = 326f725c44d69ac99f6b912241e9e8a6c3d716a5
-          test "$(git -C private/assistant rev-parse HEAD)" = 244ad469a71ae65910144c6918488a2d061eecce
+          test "$(git -C private/site rev-parse HEAD)" = 1057804a8ba68a1d3c9d0173aa615e1a53b51c46
+          test "$(git -C private/domain rev-parse HEAD)" = 77336a8a481005dda0c10c0df9a9f56655fb3fc6
+          test "$(git -C original/core rev-parse HEAD)" = 8f55367b3c8f310aad4e3217fe0b53b6950ce220
+          test "$(git -C private/assistant rev-parse HEAD)" = 5419dacf855d81ec089acc23bae0c7aa11713a54
           test "$(git -C private/t2 rev-parse HEAD)" = 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
+      - name: Original assistant complete regression
+        working-directory: private/assistant
+        shell: bash
+        run: |
+          node --check browser-local-inference/domain-assistant/main.mjs
+          node --test --test-reporter=tap browser-local-inference/tests/domain-assistant-*.test.mjs >"$RUNNER_TEMP/d01-assistant-source.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-assistant-source.log" | cut -c1-180; exit 1; }
+          grep -E '^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-assistant-source.log"
       - name: Obtain the original pinned portable T3 input
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
           repository: Faust-S/knowledge
-          run-id: 45395047723
-          name: iwxa-t3-mobile-portable-candidate-326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          run-id: 45990975472
+          name: iwxa-t3-mobile-portable-candidate-8f55367b3c8f310aad4e3217fe0b53b6950ce220
           path: original/artifact
-      - name: Exact original subject knowledge and held-out consultation qualification
+      - name: Exact original subject knowledge and consultation corpus
         shell: bash
         run: |
           set -eu
@@ -131,7 +143,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          expected=b778474d011b34a77cd60b945f02295fb24654c833f3ab12ff36bd3c0bdd8863
+          expected=c153df67ed0f4665d43404bb7952f2b86ffbb7ab6169b4838d10f008836684b6
           mapfile -t archives < <(find "$GITHUB_WORKSPACE/original/artifact" -type f -name '*.zip' -print0 | xargs -0 -r sha256sum | awk -v expected="$expected" '$1==expected {print substr($0,67)}')
           test "${#archives[@]}" = 1 || { echo D01_T3_EXACT_INNER_ARCHIVE_MISSING; exit 1; }
           archive="${archives[0]}"
@@ -151,16 +163,19 @@ jobs:
             grep -Eo '(D01_|T3_|ERR_)[A-Z0-9_]+(:[A-Z0-9_]+)*|[A-Za-z0-9_.-]+\.(mjs|js|tsx?|mts|cts):[0-9]+:[0-9]+|AssertionError|TypeError|ReferenceError|SyntaxError|ENOENT|EACCES|MODULE_NOT_FOUND' "$RUNNER_TEMP/d01-t3-build.log" | sort -u | head -80 || true
             exit 1
           }
+          grep -E '^(# |ℹ )(tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-build.log" || true
           grep '^D01_T3_ORIGINAL_KERNEL_PASSPORTS=' "$RUNNER_TEMP/d01-t3-build.log"
           npm run verify:hosting-dist
           npm run audit:links
       - name: Isolated retained-input build witness tests
+        if: matrix.lane == 'functional'
         working-directory: private/site
         shell: bash
         run: |
           node --test --test-reporter=tap scripts/test-learn-t3-reproducibility.mjs >"$RUNNER_TEMP/d01-t3-repro-tests.log" 2>&1 || { echo D01_T3_REPRO_UNIT_FAIL; grep -E '^(not ok|# (tests|pass|fail) )' "$RUNNER_TEMP/d01-t3-repro-tests.log" | cut -c1-180; exit 1; }
           grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d01-t3-repro-tests.log"
       - name: Two isolated ordinary builds with original checkouts unavailable
+        if: matrix.lane == 'functional'
         working-directory: private/site
         timeout-minutes: 25
         shell: bash
@@ -187,7 +202,17 @@ jobs:
           }
           grep '^D01_T3_REPRODUCTION=' "$RUNNER_TEMP/d01-t3-repro.log"
 
-      - name: Browser prerequisites for real original assistant without a model
+      - name: Preserve verified build inputs only in the private Learn repository
+        if: matrix.lane == 'functional'
+        id: retained
+        continue-on-error: true
+        working-directory: private/site
+        env:
+          D01_SITE_TOKEN: ${{ secrets.DOMEN }}
+          D01_SITE_REVISION: '1057804a8ba68a1d3c9d0173aa615e1a53b51c46'
+        shell: bash
+        run: python3 "$GITHUB_WORKSPACE/ci-harness/tools/ci/retain-d01-private-inputs.py"
+      - name: Browser prerequisites for exact Learn runtime
         id: browser
         timeout-minutes: 12
         shell: bash
@@ -196,6 +221,7 @@ jobs:
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/d01-assistant-browser-deps.log" 2>&1 || { echo D01_ASSISTANT_BROWSER_DEPS_FAIL; exit 1; }
           npx playwright install --with-deps chromium >"$RUNNER_TEMP/d01-assistant-browser-install.log" 2>&1 || { echo D01_ASSISTANT_BROWSER_INSTALL_FAIL; exit 1; }
       - name: Actual Learn assistant, query routing, explicit form and result context
+        if: matrix.lane == 'functional'
         timeout-minutes: 12
         working-directory: private/site
         shell: bash
@@ -208,7 +234,7 @@ jobs:
           exit "$code"
       - name: Every native first-user learning journey on both viewports
         id: journeys
-        if: ${{ always() && !cancelled() && steps.browser.outcome == 'success' }}
+        if: ${{ always() && !cancelled() && matrix.lane == 'functional' && steps.browser.outcome == 'success' }}
         timeout-minutes: 24
         working-directory: private/site
         shell: bash
@@ -221,7 +247,7 @@ jobs:
           exit "$code"
       - name: Real autonomous T3, assistant proposal, cold restart and independent archive import
         id: offline
-        if: ${{ always() && !cancelled() && steps.browser.outcome == 'success' }}
+        if: ${{ always() && !cancelled() && matrix.lane == 'functional' && steps.browser.outcome == 'success' }}
         timeout-minutes: 18
         working-directory: private/site
         shell: bash
@@ -231,4 +257,43 @@ jobs:
           code=$?
           set -e
           grep -E '^D01_T3_(OFFLINE_|STORE_METADATA|SNAPSHOT_INSTALLED|INDEPENDENT_RECIPIENT_INSTALLED|KERNEL_PROBE|ROUTE_TRANSIENT)' "$RUNNER_TEMP/d01-offline.log" | cut -c1-1200 || true
+          exit "$code"
+      - name: Full browser audit on the same immutable candidate in an isolated network
+        if: matrix.lane == 'audit'
+        timeout-minutes: 78
+        working-directory: private/site
+        env:
+          D01_BROWSER_AUDIT_BUDGET_MS: '4200000'
+        shell: bash
+        run: |
+          set -o pipefail
+          set +e
+          sudo -n unshare --net -- bash -euc '
+            ip link set lo up
+            runuser -u "$1" -- env CI=true D01_T3_REQUIRE_STABLE_HOST=1 D01_T2_SOURCE="$3" GITHUB_STEP_SUMMARY="$4" D01_BROWSER_AUDIT_BUDGET_MS="$5" "$2" scripts/audit-browser-navigation.mjs
+          ' _ "$(id -un)" "$(command -v node)" "$D01_T2_SOURCE" "$GITHUB_STEP_SUMMARY" "$D01_BROWSER_AUDIT_BUDGET_MS" 2>&1 |
+            tee "$RUNNER_TEMP/d01-navigation.log" |
+            awk '/^D01_BROWSER_(REALM_COVERAGE|PAGE_COVERAGE|NAV_AUDIT|CHECKPOINT|NAV_FINDING|LINK_PLAN|LINK_PROGRESS|DIRECT_LOOPBACK_REQUESTS)=/ {print substr($0,1,2400); fflush()}'
+          code=$?
+          set -e
+          echo "D01_BROWSER_DIAGNOSTIC_EXIT=$code"
+          if [ "$code" -ne 0 ]; then
+            grep -Eo 'D01_BROWSER_[A-Z0-9_]+|D01_PRODUCT_MOUNT_FAILED|Operation not permitted|TimeoutError' "$RUNNER_TEMP/d01-navigation.log" | sort -u | head -30 || true
+          fi
+          exit "$code"
+      - name: Actual original local model installation and online plus cold-offline consultation
+        if: matrix.lane == 'model'
+        timeout-minutes: 65
+        working-directory: private/site
+        env:
+          D01_T3_ALLOW_REAL_MODEL: '1'
+          D01_T3_MODEL_PROFILE: 'light'
+        shell: bash
+        run: |
+          set +e
+          node qa/d01-product-witness-2026-10-26/t3-real-model-witness.mjs >"$RUNNER_TEMP/d01-real-model.log" 2>&1
+          code=$?
+          set -e
+          grep -E '^D01_T3_(MODEL_DEVICE|REAL_MODEL_|CONSULTATION_GENERATED|CONSULTATION_QUALITY)=' "$RUNNER_TEMP/d01-real-model.log" | cut -c1-240 || true
+          grep -E '^D01_T3_(REAL_MODEL_[A-Z_]+|MODEL_DEVICE|CONSULTATION_[A-Z_]+)=' "$RUNNER_TEMP/d01-real-model.log" | cut -c1-240 || true
           exit "$code"
