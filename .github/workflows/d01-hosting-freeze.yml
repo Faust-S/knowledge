@@ -7,7 +7,7 @@ on:
     paths:
       - '.github/ci-requests/d01-hosting-freeze.json'
 concurrency:
-  group: d01-learn-t3-first-user-isolated
+  group: d01-learn-t3-real-model-isolated
   # Finish the running candidate. GitHub keeps at most one pending run in
   # this group, replacing an older pending candidate when a new one is queued.
   cancel-in-progress: false
@@ -16,7 +16,7 @@ permissions:
 jobs:
   t3:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
-    name: T3 original platform and first-use candidate qualification
+    name: T3 original platform and real-model capability qualification
     runs-on: ubuntu-24.04
     timeout-minutes: 110
     permissions:
@@ -37,7 +37,7 @@ jobs:
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-hosting-freeze \
             --profile full-hosting-qualification \
-            --revision site=9f9210cac5f8f3b674ac5865879c2dccfa67692d \
+            --revision site=f0ce97db046488b944a23988c44c164483f5e84f \
             --revision subject=1e8700f4fd6f11c50db154f9f080b2406bef02ec \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1 \
             --revision core=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 9f9210cac5f8f3b674ac5865879c2dccfa67692d
+          ref: f0ce97db046488b944a23988c44c164483f5e84f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -83,7 +83,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 9f9210cac5f8f3b674ac5865879c2dccfa67692d
+          test "$(git -C private/site rev-parse HEAD)" = f0ce97db046488b944a23988c44c164483f5e84f
           test "$(git -C private/domain rev-parse HEAD)" = 1e8700f4fd6f11c50db154f9f080b2406bef02ec
           test "$(git -C original/core rev-parse HEAD)" = 326f725c44d69ac99f6b912241e9e8a6c3d716a5
           test "$(git -C private/assistant rev-parse HEAD)" = 5e3083788aa541921559de29d3457d4a52bbba00
@@ -148,25 +148,24 @@ jobs:
           cd "$D01_T2_SOURCE"
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/d01-t3-browser-deps.log" 2>&1 || { echo D01_T3_BROWSER_DEPS_FAIL; exit 1; }
           npx playwright install --with-deps chromium >"$RUNNER_TEMP/d01-t3-browser-install.log" 2>&1 || { echo D01_T3_BROWSER_INSTALL_FAIL; exit 1; }
-      - name: T3 offline install, saved Study goal, independent Exchange and cold browser restart
-        if: ${{ always() && !cancelled() && steps.t3browser.outcome == 'success' }}
-        timeout-minutes: 30
-        working-directory: private/site
-        shell: bash
-        run: |
-          node qa/d01-product-witness-2026-10-26/t3-offline-witness.mjs >"$RUNNER_TEMP/d01-t3-offline.log" 2>&1 || { grep -E '^D01_T3_|^AssertionError|^Error: D01_T3_' "$RUNNER_TEMP/d01-t3-offline.log" | cut -c1-1000 | tail -20; exit 1; }
-          grep '^D01_T3_' "$RUNNER_TEMP/d01-t3-offline.log"
 
-      - name: T3 online first-use and Workspace user journeys without a model
+      - name: T3 real model installation and cold offline inference
         if: ${{ always() && !cancelled() && steps.t3browser.outcome == 'success' }}
-        timeout-minutes: 45
+        timeout-minutes: 40
         working-directory: private/site
+        env:
+          D01_T3_ALLOW_REAL_MODEL: '1'
+          D01_T3_MODEL_PROFILE: light
         shell: bash
         run: |
-          node scripts/audit-first-user.mjs >"$RUNNER_TEMP/d01-t3-first.log" 2>&1 || {
-            echo D01_T3_FIRST_USER_FAIL
-            grep -E '^D01_FIRST_USER_(PASS|FAIL|RESULT)=' "$RUNNER_TEMP/d01-t3-first.log" | cut -c1-1600 | tail -40 || true
+          set +e
+          node qa/d01-product-witness-2026-10-26/t3-real-model-witness.mjs >"$RUNNER_TEMP/d01-t3-real-model.log" 2>&1
+          status=$?
+          set -e
+          grep -E '^D01_T3_(MODEL_DEVICE|REAL_MODEL_(BLOCKED|NOT_RUN|FIRST_GENERATION|COLD_OFFLINE_GENERATION|PASS|FAIL))=' "$RUNNER_TEMP/d01-t3-real-model.log" | cut -c1-500 || true
+          if [ "$status" = 78 ]; then
+            echo D01_T3_REAL_MODEL_UNQUALIFIED_DEVICE
             exit 1
-          }
-          grep -E '^D01_FIRST_USER_(PASS|RESULT)=' "$RUNNER_TEMP/d01-t3-first.log" | cut -c1-1600
-          echo D01_T3_FIRST_USER_PASS
+          fi
+          test "$status" = 0
+          grep -q '^D01_T3_REAL_MODEL_PASS=light$' "$RUNNER_TEMP/d01-t3-real-model.log"
