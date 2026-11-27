@@ -1,13 +1,13 @@
 {
   "schema": "iwxa.t3.consolidation-sources/1",
-  "status": "ENGINEERING_QUALIFIED_STABLE_INPUTS_PENDING_PUBLICATION",
+  "status": "DOMAIN_ASSISTANT_UI_SUCCESSOR_CANDIDATE_NOT_RELEASED",
   "base": "3056eef0665fb3503294d49b89d937af2ea060e2",
   "rc2": "4b3314079600f5d95b3dd9e0defe3be8e845378e",
   "corporate": "8db847058cab231d2d39c34df46024b60564d2ad",
   "workflow": "196e3cd824f2a21078f75576f09c1153a6b17d17",
   "originalAssistant": {
     "repository": "Faust-S/T3",
-    "commit": "3b8c2fb25bf5205e53331f5db3e035210b7aac9f",
+    "commit": "ce79b696739efb7183cc52b281009fddeab95949",
     "sourceDisposition": "private owner; build only through authorized qualification"
   },
   "originalCorporateWorkflow": {
@@ -203,7 +203,7 @@
     "packages/t3-core/docs/EXCHANGE_RECEIPT_EXISTING_RECORDS_2026_11_27_RU.md"
   ],
   "qualification": "Generic T3 exact Host, accepted Kernel, complete .iwxa restore, cold autonomy, BLI and portable artifact. Separate original corporate installed A-B-A qualification remains open, not a domain/platform release prerequisite.",
-  "version": "0.3.1",
+  "version": "0.3.2-rc.1",
   "snapshot": "Metadata-only stable promotion of published engineering-qualified rc.6. All executable files, compiled Host/BLI, original Kernel and domain materialization mechanisms are unchanged.",
   "qualificationAttempts": [
     {
@@ -415,5 +415,13 @@
     "independentCodex": "PARTIAL_ON_RC5_OWNER_DIRECTED_ENGINEERING_COMPLETION",
     "nativeCorporateProducts": "SEPARATE_NOT_IMPLIED_ACCEPTED",
     "migrationAutoAuthorized": false
+  },
+  "domainAssistantUi": {
+    "baseStableRelease": "0.3.1",
+    "baseStableSource": "d7f439fe974fab1709270e515721da72d887240f",
+    "previousQualifiedUiSource": "5819814c401820ad02f5fac1cd62e348b30b4f3c",
+    "previousQualifiedUiRun": 46054005187,
+    "scope": "DOMAIN_INLINE_ASSISTANT_INSTALL_ONLY_AND_DESIGN_TOKENS",
+    "publishedStableUnchanged": true
   }
 }

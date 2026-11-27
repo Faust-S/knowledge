@@ -145,55 +145,47 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
       "native Web Install API is called directly from user activation");
     assert.equal(await installButton.isVisible(),false,
       "successful install confirmation hides the redundant button");
-    const toggle=page.locator("#iwxa-t3-domain-switch");
+    const toggle=page.locator("#iwxa-t3-install-offline");
     await toggle.waitFor();
-    await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-domain-switch").disabled);
-    assert.equal(await toggle.isChecked(),false,"normal site is initial default");
+    await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-install-offline").disabled);
+    assert.equal(await page.evaluate(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),false,"normal site is initial default");
     assert.equal(await page.evaluate(()=>navigator.serviceWorker.getRegistrations()
       .then(rows=>rows.length)),0,"T3 does not silently register a worker");
     let companion=await context.newPage();
     await companion.goto(base+"/tools/");
-    await companion.locator("#iwxa-t3-domain-switch").waitFor();
-    assert.equal(await companion.locator("#iwxa-t3-domain-switch").isChecked(),false);
+    await companion.locator("#iwxa-t3-install-offline").waitFor();
+    assert.equal(await companion.evaluate(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),false);
     assert.equal(await profileWitness(page,"write"),"saved");
     assert.equal(await profileWitness(companion,"read"),"same-origin-persistent-result",
       "site and separate same-profile window share the original browser storage");
-    const automatic=page.locator("#iwxa-t3-auto-check-updates");
-    assert.equal(await automatic.isChecked(),false,
-      "automatic network update checks must be off by default");
-    await automatic.check();
-    await companion.waitForFunction(()=>document.querySelector(
-      "#iwxa-t3-auto-check-updates")?.checked===true);
-    await automatic.uncheck();
-    await companion.waitForFunction(()=>document.querySelector(
-      "#iwxa-t3-auto-check-updates")?.checked===false);
-    assert.equal(await page.evaluate(()=>localStorage.getItem(
-      "iwxa.t3.offline.offer-updates.v1")),"off",
-      "update preference persists in the existing same-origin browser profile");
+    assert.equal(await page.locator("#iwxa-t3-domain-controls input[type=checkbox]").count(),0);
+    assert.equal(await page.locator("#iwxa-t3-update-offer").isVisible(),false);
 
     // Rejecting the explicit installation must leave ordinary site unaffected.
-    // A checkbox "check()" waits for a permanently checked state, but a
-    // dismissed consent intentionally and immediately reverts the switch.
-    // Trigger a real click, then assert the resulting cancelled state.
+    // Cancel the real installation action and verify the ordinary site.
     page.once("dialog",dialog=>dialog.dismiss());
     await toggle.click();
-    await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-domain-switch").disabled);
-    assert.equal(await toggle.isChecked(),false,"user can decline the entire site snapshot");
+    await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-install-offline").disabled);
+    assert.equal(await page.evaluate(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),false,"user can decline the entire site snapshot");
 
     page.once("dialog",dialog=>{
       assert.match(dialog.message(),/офлайн|автономн/i);
       return dialog.accept();
     });
-    await toggle.check();
+    await toggle.click();
     await page.waitForFunction(()=>document.documentElement
       .hasAttribute("data-iwxa-t3-autonomous"),null,{timeout:60000});
-    assert.equal(await toggle.isChecked(),true,"T3 is visibly enabled after full install");
-    assert.match(await page.locator("#iwxa-t3-domain-controls").innerText(),/Модель ИИ устанавливается отдельно/);
-    await automatic.check();
-    await page.getByRole("status").filter({hasText:/актуальную|актуальна|недоступна/}).waitFor();
-    assert.equal(await page.getByRole("button",{name:"Установить обновление"}).isVisible(),
-      false,"automatic opt-in checks availability but never installs an update");
-    await automatic.uncheck();
+    assert.equal(await toggle.isVisible(),false,"complete snapshot does not need another installation");
+    assert.match(await page.locator("#iwxa-t3-domain-controls").innerText(),/Модель помощника устанавливается отдельно/);
+    assert.equal(await page.locator("#iwxa-t3-update-offer").isVisible(),false,"fresh install is not asked to update");
+    await page.evaluate(()=>localStorage.setItem("iwxa.t3.offline.last-update-offer.v2",String(Date.now()-7*86400000)));
+    await page.reload();
+    await page.locator("#iwxa-t3-update-offer").waitFor({state:"visible"});
+    await page.getByRole("button",{name:"Позже",exact:true}).click();
+    await page.reload();
+    await page.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous"));
+    assert.equal(await page.locator("#iwxa-t3-update-offer").isVisible(),false,"weekly offer is not repeated");
+
     await companion.getByRole("button",{name:"Применить изменения в этом окне"})
       .waitFor({state:"visible",timeout:15000});
     await companion.locator("#a").fill("19");
@@ -215,7 +207,8 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     assert.equal(await page.locator("#sum").textContent(),"13","domain JavaScript works without network");
     await page.goto(base+"/workspace/");
     assert.match(await page.locator("main h1").textContent(),/Исходный Workspace/);
-    assert.equal(await page.locator("#iwxa-t3-domain-switch").isChecked(),true);
+    await page.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous"));
+    assert.equal(await page.evaluate(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),true);
 
     // Reopen an actual persistent browser profile while the network is down.
     await context.close();context=null;
@@ -230,7 +223,7 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     assert.equal(await page.locator("#sum").textContent(),"42","domain calculator still works after cold offline restart");
     await page.waitForFunction(()=>document.documentElement
       .hasAttribute("data-iwxa-t3-autonomous"),null,{timeout:10000});
-    assert.equal(await page.locator("#iwxa-t3-domain-switch").isChecked(),true,
+    assert.equal(await page.evaluate(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),true,
       "opt-in survives a browser restart with no network");
     companion=await context.newPage();
     await companion.goto(base+"/tools/",{waitUntil:"domcontentloaded",timeout:30000});
@@ -246,7 +239,7 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
       "<h1>Калькулятор домена — обновлён</h1>"));
     const updated=materializeDomainMode(root);
     assert.notEqual(updated.version,built.version,"a new on-disk site changes the release");
-    const check=page.getByRole("button",{name:"Проверить обновление T3"});
+    const check=page.getByRole("button",{name:"Проверить обновление"});
     updateServer.blockUpdates=true;
     await check.click();
     await page.getByRole("status").filter({hasText:/Проверка обновления недоступна/}).waitFor();
@@ -262,7 +255,7 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     await installUpdate.waitFor({state:"visible",timeout:15000});
     const upgradedReload=page.waitForEvent("load",{timeout:45000});
     page.once("dialog",dialog=>{
-      assert.match(dialog.message(),/обновление автономного T3/i);
+      assert.match(dialog.message(),/обновление автономной версии/i);
       return dialog.accept();
     });
     await installUpdate.click();
@@ -298,21 +291,9 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     assert.equal(await profileWitness(page,"read"),"same-origin-persistent-result",
       "user data remains readable after two cold offline restarts and a release update");
 
-    // Opt-out does not erase user data and remains off after a new process.
-    await context.setOffline(false);
-    const ordinaryReload=page.waitForEvent("load",{timeout:30000});
-    await page.locator("#iwxa-t3-domain-switch").uncheck();
-    await ordinaryReload;
-    await page.waitForFunction(()=>document.querySelector("#iwxa-t3-domain-switch") &&
-      !document.querySelector("#iwxa-t3-domain-switch").checked,null,{timeout:30000});
-    assert.match(await page.locator("#iwxa-t3-domain-controls").innerText(),/обычном режиме/);
-    await context.close();context=null;
-    context=await launch();
-    page=context.pages()[0]||await context.newPage();
-    await page.goto(base+"/");
-    await page.locator("#iwxa-t3-domain-switch").waitFor();
-    assert.equal(await page.locator("#iwxa-t3-domain-switch").isChecked(),false,
-      "autonomy is never re-enabled by stale cache after opt-out");
+    // The unchanged worker disable protocol is covered by the offline worker tests.
+    assert.equal(await page.locator("#iwxa-t3-domain-controls input[type=checkbox]").count(),0);
+    assert.equal(await page.locator("#iwxa-t3-install-offline").isVisible(),false);
   } finally {
     if(context)await context.close().catch(()=>{});
     if(server.listening)await new Promise(resolve=>server.close(resolve));

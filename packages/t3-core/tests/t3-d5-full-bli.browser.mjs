@@ -94,11 +94,11 @@ try {
   const errors=[];
   page.on("pageerror",error=>errors.push(error.message));
   await page.goto(live.origin+"/workspace/",{waitUntil:"domcontentloaded",timeout:45000});
-  const modeSwitch=page.locator("#iwxa-t3-domain-switch");
+  const modeSwitch=page.locator("#iwxa-t3-install-offline");
   await modeSwitch.waitFor({state:"visible",timeout:30000});
-  await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-domain-switch")?.disabled);
+  await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-install-offline")?.disabled);
   page.once("dialog",dialog=>dialog.accept());
-  await modeSwitch.check();
+  await modeSwitch.click();
   try {
     await page.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous") &&
       Boolean(navigator.serviceWorker.controller?.scriptURL.endsWith("/t3-sw.js")),
@@ -108,8 +108,8 @@ try {
       const registrations=await navigator.serviceWorker.getRegistrations().catch(()=>[]);
       return {
         url:location.href,secure:window.isSecureContext,
-        selected:document.querySelector("#iwxa-t3-domain-switch")?.checked,
-        disabled:document.querySelector("#iwxa-t3-domain-switch")?.disabled,
+        installed:document.documentElement.hasAttribute("data-iwxa-t3-autonomous"),
+        disabled:document.querySelector("#iwxa-t3-install-offline")?.disabled,
         controls:document.querySelector("#iwxa-t3-domain-controls")?.innerText,
         active:document.documentElement.hasAttribute("data-iwxa-t3-autonomous"),
         controller:navigator.serviceWorker.controller?.scriptURL,
@@ -121,7 +121,7 @@ try {
     throw Error("T3_D5_AUTONOMOUS_REAL_HOST_NOT_READY "+
       JSON.stringify({diagnosis,pageErrors:errors,wait:String(error)}));
   }
-  assert.equal(await modeSwitch.isChecked(),true);
+  assert.equal(await page.evaluate(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),true);
   console.log("T3_D5_ORIGINAL_HOST_ONE_DIST_OFFLINE_MODE_PASS",JSON.stringify({
     pages:offlineDist.site_pages,files:offlineDist.files,
     originalKernel:true,modelDownloadSeparate:true,
