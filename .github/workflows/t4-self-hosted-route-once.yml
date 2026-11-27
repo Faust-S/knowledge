@@ -1,0 +1,35 @@
+name: T4 installed self-hosted route on real Apache
+on:
+  push:
+    branches:
+      - 'ci/once/t4-self-hosted-route/af29b5efdc8a'
+permissions:
+  contents: read
+jobs:
+  native-https:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: af29b5efdc8a02a156c37e26c8494cd568d7d3be
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Original transport and real Apache
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "af29b5efdc8a02a156c37e26c8494cd568d7d3be"
+          test "$(git rev-parse HEAD^{tree})" = "291106de8a292990373a1a5a491b00961e3cbe1f"
+          test ! -d packages/t4-network/node_modules
+          node --input-type=module -e "const p=await import('./packages/t4-network/src/network/original-product-network-profile.mjs'); if(typeof p.createT4OriginalProductProfileFactory!=='function') process.exit(2); console.log('INSTALLED_INDEXED_PROFILE_IMPORT_WITHOUT_XML_DEPENDENCY_PASS')"
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+          node --check packages/t4-network/src/network/original-self-hosted-pilot-route.mjs
+          node --check packages/t4-network/src/network/original-product-network-profile.mjs
+          node --test packages/t4-network/tests/network-topology.test.mjs packages/t4-network/tests/original-signed-route-access.test.mjs packages/t4-network/tests/original-installed-control-factories.test.mjs packages/t4-network/tests/original-native-network-product-activation.test.mjs
+          if ! command -v apache2 >/dev/null || ! command -v htpasswd >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y apache2 apache2-utils
+          fi
+          sudo env PATH="$PATH" python3 packages/t4-network/scripts/qualify_webdav.py
