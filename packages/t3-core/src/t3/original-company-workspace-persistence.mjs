@@ -107,22 +107,38 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
     active();
     return task;
   };
-  const signed=(op,{onCommitObjectGraphDispatch=null,readerTask=null}={})=>{
+  const signed=(op,{onCommitObjectGraphDispatch=null}={})=>{
     active();
     const access=selectSignedAccess(op);
     requireThat(access&&typeof access.currentContext==='function',
       'T3_COMPANY_SIGNED_JIT_REQUIRED');
-    // Shared company data must be read by the CURRENT independent employee,
-    // under original Workspace DATA, not by the source executor or Admin.
-    const bound=readerTask===null?access:{
-      currentContext:async()=>{
-        const ctx=await access.currentContext();
-        requireThat(ctx?.kind==='CORP'&&ctx.organization_id===readerTask.organizationId&&
-          ctx.principal_id===readerTask.organizationId&&ctx.actor_id===readerTask.executorId&&
-          ctx.workspace_id===readerTask.workspaceId&&ctx.resource===readerTask.workspaceId&&
-          ctx.purpose==='workspace.read','T3_COMPANY_SHARED_READER_SCOPE_REQUIRED');
-        return ctx;
-      },
+    return createSubjectKernelBinding({kernel,access,isHostActive,
+      onCommitObjectGraphDispatch});
+  };
+  async function sharedReadBinding(target){
+    active();
+    const access=selectSignedAccess('getObject');
+    requireThat(access&&typeof access.currentContext==='function',
+      'T3_COMPANY_SIGNED_JIT_REQUIRED');
+    const fields=['kind','context_id','actor_id','principal_id','role_id',
+      'grant_id','realm_id','audience','resource','purpose','workspace_id',
+      'organization_id','scope_revision'];
+    const identity=ctx=>JSON.stringify(fields.map(k=>ctx?.[k]));
+    const scopeCheck=ctx=>requireThat(ctx?.kind==='CORP'&&ctx.organization_id===target.organizationId&&
+      ctx.principal_id===target.organizationId&&ctx.actor_id===target.executorId&&
+      ctx.workspace_id===target.workspaceId&&ctx.resource===target.workspaceId&&
+      ctx.purpose==='workspace.read','T3_COMPANY_SHARED_READER_SCOPE_REQUIRED');
+    const selected=await access.currentContext();scopeCheck(selected);
+    const captured=identity(selected);
+    const currentContext=async()=>{
+      active();const ctx=await access.currentContext();active();scopeCheck(ctx);
+      requireThat(identity(ctx)===captured,'T3_COMPANY_SHARED_READER_CONTEXT_CHANGED');
+      return ctx;
+    };
+    // One original employee read owner and one selected D1 scope across
+    // the whole Object/Event observation, including the final readback.
+    const bound={
+      currentContext,
       actionFor:async operation=>{
         const action=await access.actionFor(operation);
         requireThat(action==='workspace.read','T3_COMPANY_SHARED_READER_DATA_REQUIRED');
@@ -132,17 +148,16 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
       authorize:request=>access.authorize(request),
       verifyDecisionBinding:(request,decision)=>access.verifyDecisionBinding(request,decision),
     };
-    return createSubjectKernelBinding({kernel,access:bound,isHostActive,
-      onCommitObjectGraphDispatch});
-  };
+    return {binding:createSubjectKernelBinding({kernel,access:bound,isHostActive}),currentContext};
+  }
   const unchanged=async original=>{
     const recent=await current();
     requireThat(eq(recent,original,Object.keys(original)),
       'T3_COMPANY_SIGNED_TASK_CHANGED');
   };
-  async function observedWorkspace(task,readerTask=null){
+  async function observedWorkspace(task,shared=null){
     let ws=null;
-    try{ws=await signed('getWorkspace',{readerTask}).getWorkspace(task.workspaceId);}
+    try{ws=await (shared??signed('getWorkspace')).getWorkspace(task.workspaceId);}
     catch(error){if(!workspaceAbsent(error))throw error;}
     if(ws!==null&&ws!==undefined){
       requireThat(ws.workspace_id===task.workspaceId&&ws.deleted_at==null,
@@ -175,13 +190,13 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
     if(createError)throw createError;
     fail('T3_COMPANY_ORIGINAL_CREATE_READBACK_MISSING');
   }
-  async function recorded(task,kind,artifactId,readerTask=null){
+  async function recorded(task,kind,artifactId,readerTask=null,shared=null){
     const where=locator(task,kind,artifactId);
     await unchanged(readerTask??task);
-    const ws=await observedWorkspace(task,readerTask);
+    const ws=await observedWorkspace(task,shared);
     if(ws===null)return {where,record:null,workspaceMissing:true};
     let read;
-    try{read=await signed('getObject',{readerTask}).getObject(where.workspace_id,where.object_id);}
+    try{read=await (shared??signed('getObject')).getObject(where.workspace_id,where.object_id);}
     catch(error){
       if(readOnlyAbsent(error))return {where,record:null};
       throw error;
@@ -207,7 +222,7 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
       data.text.length<=2000000&&
       hex(data.sha256)&&digest(data.text)===data.sha256,
       'T3_COMPANY_ORIGINAL_CONTENT_READBACK_CHANGED');
-    const events=await signed('listEventsSince',{readerTask}).listEventsSince(where.workspace_id);
+    const events=await (shared??signed('listEventsSince')).listEventsSince(where.workspace_id);
     const expected=eventFor(data,where).payload;
     const matches=events.filter(e=>
       e.workspace_id===where.workspace_id&&
@@ -238,8 +253,10 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
     requireThat(source.organizationId===target.organizationId&&
       source.workspaceId===target.workspaceId&&id(artifactId)&&hex(artifactSha256),
       'T3_COMPANY_SHARED_RESULT_SCOPE_REQUIRED');
-    const seen=await recorded(source,'RESULT',artifactId,target);
+    const shared=await sharedReadBinding(target);
+    const seen=await recorded(source,'RESULT',artifactId,target,shared.binding);
     await unchanged(target);
+    await shared.currentContext();
     requireThat(seen.record!==null,'T3_COMPANY_SHARED_RESULT_NOT_FOUND');
     const {schema,...data}=seen.record.data;
     const content=freezeSource(data,source,'RESULT',artifactId);

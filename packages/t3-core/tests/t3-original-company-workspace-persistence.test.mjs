@@ -10,7 +10,7 @@ import {createTrustedOriginalCompanyWorkspacePersistence,
 const sha=s=>createHash('sha256').update(s).digest('hex');
 function fixture({text='Результат исследования. '.repeat(60000),
   lostAck=false,writeRight=true,createRight=true,workspaceMissing=false,
-  lostCreateAck=false,jitDenied=false,mutateSource=null,kind='RESULT'}={}){
+  lostCreateAck=false,jitDenied=false,mutateSource=null,afterWorkspaceRead=null,kind='RESULT'}={}){
   let task={organizationId:'org:factory',workspaceId:'ws:factory',
     executorId:'person:employee',taskId:'task:signed',
     taskRevisionId:'a'.repeat(64),packageSha256:'b'.repeat(64)};
@@ -50,8 +50,10 @@ function fixture({text='Результат исследования. '.repeat(60
     hasOperation:op=>['t1.getWorkspace','t1.getObject',
       't1.listEventsSince','t1.commitObjectGraph',
       't1.createWorkspace'].includes(op),
-    getWorkspace:async ws=>workspace&&workspace.workspace_id===ws
-      ?structuredClone(workspace):null,
+    getWorkspace:async ws=>{
+      const value=workspace&&workspace.workspace_id===ws?structuredClone(workspace):null;
+      afterWorkspaceRead?.();return value;
+    },
     createWorkspace:async input=>{
       creates++;
       assert.equal(input.workspace_id,task.workspaceId);
@@ -266,5 +268,22 @@ test('another employee observes the exact original Result via own signed Workspa
   fx.mutateContext({purpose:'workspace.read'});
   fx.tamperEvent();
   await assert.rejects(reader.readSharedResult(reference),{code:'T3_COMPANY_ORIGINAL_EVENT_READBACK_CHANGED'});
+  assert.equal(fx.commits,1);
+});
+
+
+test('shared Result read is fenced across the complete original employee context, not just actor and workspace',async()=>{
+  let switchContext=false,fx;
+  fx=fixture({text:'Original result',afterWorkspaceRead:()=>{
+    if(switchContext)fx.mutateContext({scope_revision:2,context_id:'ctx:changed'});
+  }});
+  await fx.make().commit('RESULT','RES-accepted');
+  const d=fx.stored.data,sourceTask={organizationId:d.organizationId,workspaceId:d.workspaceId,
+    executorId:d.executorId,taskId:d.taskId,taskRevisionId:d.taskRevisionId,packageSha256:d.taskPackageSha256};
+  fx.mutateTask({executorId:'person:next',taskId:'task:next',taskRevisionId:'c'.repeat(64),packageSha256:'d'.repeat(64)});
+  fx.mutateContext({actor_id:'person:next',grant_id:'grant:next-read',purpose:'workspace.read'});
+  switchContext=true;
+  await assert.rejects(fx.make().readSharedResult({sourceTask,artifactId:d.artifactId,artifactSha256:d.sha256}),
+    {code:'T3_COMPANY_SHARED_READER_CONTEXT_CHANGED'});
   assert.equal(fx.commits,1);
 });
