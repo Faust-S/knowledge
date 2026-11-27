@@ -538,4 +538,32 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     expect(screen.queryByTestId("workflow-handoff-preview")).toBeNull();
   });
 
+  it("saves a personal root stage only through the installed draft capability and recovers uncertainty without resend",async()=>{
+    const f=fixture(),original=await f.previewHandoff({workspaceId:"w",projectId:"research",expected:f.binding.expected,stepId:"analyse"});
+    const materialEvidence:WorkspaceMethodMaterialEvidence={
+      schema:"IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1",state:"VISIBLE_MATERIAL_CONTENT_OBSERVED",
+      stageInput:makeInspection("analyse").stageInput,materialEvidenceDigest:"d".repeat(64),
+      observation:{materials:[],counts:{materials:1,assets:0,assetBytes:0,canonicalBytes:9}},
+      atomicSnapshot:false,allAssetsProven:false,contentBindingProven:false,exactInputBindingProven:false,
+      writeAuthorized:false,executionAuthority:false,resultReuseProven:false,dispatchAuthorized:false};
+    const digest="e".repeat(64);
+    f.previewHandoff.mockResolvedValueOnce({...original,subjectKind:"PERSONAL",candidateDigest:digest,materialEvidenceRequested:true,materialEvidence});
+    const createPersonalDraft=vi.fn(async()=>{throw Error("lost acknowledgement");});
+    const recoverPersonalDraft=vi.fn(async()=>({state:"DRAFT_ALREADY_PRESENT" as const,candidateDigest:digest,workspaceId:"w",projectId:"research",
+      stepId:"analyse",agentWorkspaceId:"personal",draftDigest:"a".repeat(64),draftSaved:true,taskCreated:false as const,
+      executionPerformed:false as const,modelInvoked:false as const,allAssetsProven:false as const,exactInputBindingProven:false as const}));
+    const binding={...f.binding,reader:{...f.binding.reader,inspectMaterialEvidence:vi.fn(async()=>materialEvidence),createPersonalDraft,recoverPersonalDraft}};
+    render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:"Подготовить передачу"}));
+    fireEvent.click(await screen.findByRole("button",{name:"Передать в черновик Agent"}));
+    const recovery=await screen.findByRole("button",{name:"Проверить черновик Agent"});
+    expect(screen.queryByRole("button",{name:"Передать в черновик Agent"})).toBeNull();
+    fireEvent.click(recovery);
+    await screen.findByText("Тот же черновик Agent найден. Задача не запущена.");
+    const expected={workspaceId:"w",projectId:"research",expected:f.binding.expected,stepId:"analyse",resultSelections:[],expectedCandidateDigest:digest};
+    expect(createPersonalDraft).toHaveBeenCalledExactlyOnceWith(expected);
+    expect(recoverPersonalDraft).toHaveBeenCalledExactlyOnceWith(expected);
+  });
+
 });

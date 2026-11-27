@@ -24,7 +24,7 @@ function originalDraft(row,binding){
   check(row.state!=='EMPTY_OR_UNREADABLE'||(row.text===''&&row.knowledge_sources.length===0
     &&row.attachments.length===0&&row.local_model===null&&row.pending_submission===null),
     'T3_METHOD_PERSONAL_DRAFT_READBACK_INVALID');
-  return row;
+  return structuredClone(row);
 }
 const sameDraft=(row,plan)=>row.state==='SAVED'&&row.pending_submission===null&&
   row.text===plan.draft.text&&equal(row.knowledge_sources,plan.draft.knowledge_sources)&&
@@ -39,7 +39,7 @@ export async function saveOriginalPersonalWorkflowDraft({plan,refreshPlan,compos
     'T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED');
   const read=async()=>{
     await currentBinding();
-    const row=originalDraft(await guarded(()=>composer.composerDraft({context:'task'})),binding);
+    const row=originalDraft(await guarded(()=>composer.composerDraft({context:'task'},binding)),binding);
     await currentBinding();return row;
   };
   const response=(state,row=null)=>Object.freeze({state,candidateDigest:plan.candidateDigest,
@@ -66,13 +66,15 @@ export async function saveOriginalPersonalWorkflowDraft({plan,refreshPlan,compos
   if(latest.draft_digest!==beforeDigest||!emptyDraft(latest)||canonicalStringify(latest.local_model)!==model)
     return response('DRAFT_CHANGED');
   // The existing SessionRuntime CAS includes the original active WorkArea
-  // identity. No caller-derived digest, no overwrite of an unrelated draft,
+  // identity. The installed adapter MUST check this binding and pending
+  // submission/empty state under the original SessionRuntime mutation lock.
+  // No caller-derived digest, no overwrite of an unrelated draft,
   // no model selection, pending submission, or automatic task launch.
   await currentBinding();
   let dispatched=false;
   try{
     await guarded(()=>{dispatched=true;return composer.composerDraft({context:'task',text:fresh.draft.text,
-      knowledge_sources:fresh.draft.knowledge_sources,attachments:fresh.draft.attachments,expected_draft_digest:beforeDigest});});
+      knowledge_sources:fresh.draft.knowledge_sources,attachments:fresh.draft.attachments,expected_draft_digest:beforeDigest},binding);});
   }catch(error){
     if(!dispatched)throw error;
     // Save may have committed before the acknowledgement was lost.

@@ -419,10 +419,13 @@ function composerFixture(){
   let state={workspace_id:'personal',state:'EMPTY_OR_UNREADABLE',text:'',knowledge_sources:[],attachments:[],local_model:null,pending_submission:null};
   let reads=0,writes=0,lose=false,hook=null;
   const view=()=>({...structuredClone(state),draft_digest:hash(state)});
-  const port={currentBinding:async()=>({...binding}),composerDraft:async input=>{
+  const port={currentBinding:async()=>({...binding}),composerDraft:async (input,expectedBinding)=>{
+    assert.deepEqual(expectedBinding,binding);
     if(!Object.hasOwn(input,'text')){reads++;return view();}
     writes++;if(hook)await hook();
-    if(input.expected_draft_digest!==view().draft_digest)throw Error('composer_draft_changed');
+    if(JSON.stringify(expectedBinding)!==JSON.stringify(binding)||input.expected_draft_digest!==view().draft_digest
+      ||state.pending_submission!==null||state.text!==''||state.attachments.length||state.knowledge_sources.length)
+      throw Error('composer_draft_changed');
     state={...state,state:'SAVED',text:input.text,knowledge_sources:structuredClone(input.knowledge_sources),attachments:structuredClone(input.attachments)};
     if(lose)throw Error('lost ACK');return view();
   }};
@@ -481,4 +484,24 @@ test('personal draft recovery of absent or different content only reads, never c
   assert.equal((await x.h.reader.recoverPersonalDraft(x.input)).state,'OUTCOME_UNKNOWN');
   c.edit({state:'SAVED',text:'Different'});assert.equal((await x.h.reader.recoverPersonalDraft(x.input)).state,'OUTCOME_UNKNOWN');
   assert.equal(c.writes(),0);
+});
+
+test('personal composer adapter fences pending submission even when content digest is unchanged',async()=>{
+  const f=await setup(),c=composerFixture(),x=await personalHost(f,c);
+  c.hook(()=>c.edit({pending_submission:{submission_id:'new reservation'}}));
+  const r=await x.h.reader.createPersonalDraft(x.input);
+  assert.equal(r.state,'OUTCOME_UNKNOWN');assert.equal(c.view().text,'');
+  assert.equal(c.view().pending_submission.submission_id,'new reservation');
+});
+test('personal draft Host permits only one outstanding approval and preserves original model preference',async()=>{
+  const f=await setup(),c=composerFixture();
+  c.edit({state:'SAVED',local_model:'original-model'});
+  let approve,entered;const started=new Promise(resolve=>{entered=resolve;});
+  const x=await personalHost(f,c,()=>{entered();return new Promise(resolve=>{approve=resolve;});});
+  const first=x.h.reader.createPersonalDraft(x.input);await started;
+  await assert.rejects(x.h.reader.createPersonalDraft(x.input),code('T3_METHOD_PERSONAL_DRAFT_IN_PROGRESS'));
+  await assert.rejects(x.h.reader.recoverPersonalDraft(x.input),code('T3_METHOD_PERSONAL_DRAFT_IN_PROGRESS'));
+  approve(true);
+  assert.equal((await first).state,'DRAFT_CONFIRMED');assert.equal(c.writes(),1);
+  assert.equal(c.view().local_model,'original-model');
 });

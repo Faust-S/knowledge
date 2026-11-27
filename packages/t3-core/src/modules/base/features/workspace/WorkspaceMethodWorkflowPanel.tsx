@@ -2,7 +2,7 @@ import { useEffect,useMemo,useRef,useState } from "react";
 import type { ObjectRecord } from "../../../../kernel-client/contracts/runtime-1.3.0";
 import type { WorkspaceMethodReaderSelection,WorkspaceMethodStageReader,WorkspaceMethodInputOverview,
   WorkspaceMethodPublishedResultRef,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,
-  WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence } from "../../../../t3/workspace-method-stage-reader.mjs";
+  WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence,WorkspaceMethodPersonalDraftReceipt } from "../../../../t3/workspace-method-stage-reader.mjs";
 
 /** Trusted Host supplies this selection only after original source readback.
  * contextEpoch changes on subject/grant/session changes. Never derive it or
@@ -27,11 +27,19 @@ const handoffStates:Record<string,string>={
 const checkLabels:Record<string,string>={
   EXACT_MATERIAL_CONTENT_AND_ASSET_BINDING:"Точная привязка содержимого и вложений",
   EXACT_PREDECESSOR_RESULT_INPUT_BINDING:"Точная привязка входов предшествующих результатов",
+  ORIGINAL_PERSONAL_TASK_AND_CONTEXT_BINDING:"Оригинальная личная задача и её контекст",
   ORIGINAL_SIGNED_TASK_BINDING:"Оригинальная подписанная задача",
   CURRENT_MODEL_AND_AUTHORITY:"Модель и действующие полномочия",
   EXPLICIT_PROGRAM_OPERATION_AND_ARGUMENTS:"Выбор программы, операции и параметров",
   CURRENT_CONNECTION_AND_TOOL_APPROVAL:"Подключение и подтверждение инструмента",
   HUMAN_REVIEW_AND_ORIGINAL_RESULT_OWNER:"Решение человека и оригинальный владелец результата",
+};
+const draftLabels:Record<WorkspaceMethodPersonalDraftReceipt['state'],string>={
+  DRAFT_CONFIRMED:"Черновик Agent сохранён. Задача не запущена.",
+  DRAFT_ALREADY_PRESENT:"Тот же черновик Agent найден. Задача не запущена.",
+  DRAFT_OCCUPIED:"В Agent уже есть черновик или ожидающая отправка. Существующие данные сохранены.",
+  DRAFT_CHANGED:"Черновик изменился при подтверждении. Существующие данные сохранены.",
+  USER_CANCELLED:"Передача отменена.",OUTCOME_UNKNOWN:"Сохранение не подтверждено. Проверьте оригинальный черновик без повторной записи.",
 };
 const nativeLabels={AVAILABLE:"Получатель доступен для отдельного подтверждения",RECOVER_ONLY:"Требуется восстановление существующей передачи",
   OPERATION_IN_PROGRESS:"Передача уже выполняется"} as const;
@@ -82,17 +90,18 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
   const [selections,setSelections]=useState<Record<string,string>>({});
   const [nativeStep,setNativeStep]=useState("");
   const [detail,setDetail]=useState<{reader:WorkspaceMethodStageReader;key:string;report:Detail}|null>(null);
+  const [draftAttempt,setDraftAttempt]=useState<{reader:WorkspaceMethodStageReader;key:string;digest:string;state:WorkspaceMethodPersonalDraftReceipt['state']|null}|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const sequence=useRef(0),liveReader=useRef(reader),liveObjects=useRef(objects);
   liveReader.current=reader;liveObjects.current=objects;
-  useEffect(()=>{sequence.current++;setOverview(null);setDetail(null);setSelections({});setFocus("");setNativeStep("");setBusy(false);setError("");
+  useEffect(()=>{sequence.current++;setOverview(null);setDetail(null);setDraftAttempt(null);setSelections({});setFocus("");setNativeStep("");setBusy(false);setError("");
     return ()=>{sequence.current++;};},[reader]);
   const materialKey=useMemo(()=>overview?materialCatalogKey(overview.value,objects):null,[overview,objects]);
   const overviewStale=overview!==null&&materialKey!==overview.materialKey;
   useEffect(()=>{
     if(!overviewStale)return;
-    sequence.current++;setOverview(null);setDetail(null);setSelections({});setNativeStep("");setFocus("");setBusy(false);
+    sequence.current++;setOverview(null);setDetail(null);setDraftAttempt(null);setSelections({});setNativeStep("");setFocus("");setBusy(false);
     setError("Материалы изменились. Проверьте входы заново.");
   },[overviewStale]);
   const visible=overview?.reader===reader&&!overviewStale?overview.value:null;
@@ -119,18 +128,22 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
   useEffect(()=>{
     // Even an externally removed selection that later returns cannot
     // resurrect a pending or completed preview for the earlier selection.
-    sequence.current++;setDetail(null);setSelections({});setNativeStep("");setBusy(false);
+    sequence.current++;setDetail(null);setDraftAttempt(null);setSelections({});setNativeStep("");setBusy(false);
   },[candidateKey]);
   const detailKey=JSON.stringify([stage?.stepId??null,resultSelections,nativeStep,candidateKey]);
   const liveDetailKey=useRef(detailKey);liveDetailKey.current=detailKey;
   const visibleDetail=detail?.reader===reader&&detail.key===detailKey?detail.report:null;
+  const draftDigest=visibleDetail?.kind==='handoff'&&visibleDetail.value.subjectKind==='PERSONAL'
+    &&visibleDetail.value.materialEvidence?.observation&&stage?.actor==='agent'&&stage.directPredecessorStepIds.length===0
+    &&reader.createPersonalDraft&&reader.recoverPersonalDraft?visibleDetail.value.candidateDigest:null;
+  const visibleAttempt=draftAttempt?.reader===reader&&draftAttempt.key===detailKey&&draftAttempt.digest===draftDigest?draftAttempt:null;
   const request:WorkspaceMethodReaderSelection={workspaceId:binding.workspaceId,projectId:binding.projectId,expected:binding.expected};
   function invalidateDetail(){
-    sequence.current++;setDetail(null);setBusy(false);setError("");
+    sequence.current++;setDetail(null);setDraftAttempt(null);setBusy(false);setError("");
   }
   const checkOverview=async()=>{
     const epoch=++sequence.current,startObjects=objects;
-    setBusy(true);setError("");setDetail(null);setOverview(null);setSelections({});setNativeStep("");
+    setBusy(true);setError("");setDetail(null);setDraftAttempt(null);setOverview(null);setSelections({});setNativeStep("");
     try{
       const report=await reader.overview(request);
       if(sequence.current!==epoch||liveReader.current!==reader)return;
@@ -147,7 +160,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     if((mode==="preview"||mode==="recover")&&!resultSelections.some(row=>row.stepId===nativeStep))return;
     if(mode==="material"&&typeof reader.inspectMaterialEvidence!=="function")return;
     const epoch=++sequence.current,key=detailKey;
-    setBusy(true);setError("");setDetail(null);
+    setBusy(true);setError("");setDetail(null);setDraftAttempt(null);
     const stillCurrent=()=>sequence.current===epoch&&liveReader.current===reader&&liveDetailKey.current===key;
     const args={...request,stepId:stage.stepId,resultSelections};
     try{
@@ -193,6 +206,28 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
       setDetail({reader,key,report});
     }catch(err){if(stillCurrent())setError(message(err));}
     finally{if(sequence.current===epoch&&liveReader.current===reader)setBusy(false);}
+  };
+  const saveDraft=async(recoverOnly:boolean)=>{
+    if(busy||!stage||!draftDigest||!reader.createPersonalDraft||!reader.recoverPersonalDraft
+        ||(recoverOnly?visibleAttempt?.state!=='OUTCOME_UNKNOWN':!!visibleAttempt))return;
+    const epoch=++sequence.current,key=detailKey,digest=draftDigest;
+    setBusy(true);setError("");setDraftAttempt({reader,key,digest,state:null});
+    const current=()=>sequence.current===epoch&&liveReader.current===reader&&liveDetailKey.current===key;
+    try{
+      const args={...request,stepId:stage.stepId,resultSelections:[],expectedCandidateDigest:digest};
+      const receipt=await (recoverOnly?reader.recoverPersonalDraft(args):reader.createPersonalDraft(args));
+      if(!current())return;
+      const saved=receipt.state==='DRAFT_CONFIRMED'||receipt.state==='DRAFT_ALREADY_PRESENT';
+      if(!Object.hasOwn(draftLabels,receipt.state)||receipt.candidateDigest!==digest||receipt.workspaceId!==binding.workspaceId
+          ||receipt.projectId!==binding.projectId||receipt.stepId!==stage.stepId
+          ||!/^(personal|AREA-[0-9a-f]{18})$/.test(receipt.agentWorkspaceId)||receipt.draftSaved!==saved
+          ||(saved?!/^[a-f0-9]{64}$/.test(receipt.draftDigest??''):receipt.draftDigest!==null)
+          ||receipt.taskCreated!==false||receipt.executionPerformed!==false||receipt.modelInvoked!==false
+          ||receipt.allAssetsProven!==false||receipt.exactInputBindingProven!==false)
+        throw Error('draft receipt mismatch');
+      setDraftAttempt({reader,key,digest,state:receipt.state});
+    }catch{if(current())setDraftAttempt({reader,key,digest,state:'OUTCOME_UNKNOWN'});}
+    finally{if(current())setBusy(false);}
   };
   return <section aria-label="Сохранённая методика" data-testid="workspace-method-workflow" className="min-w-0 space-y-3 rounded border border-emerald-900/60 p-3">
     <div className="flex flex-wrap items-center gap-2"><div className="flex-1 min-w-0">
@@ -270,6 +305,12 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
         <p className="text-slate-300">До запуска необходимо:</p>
         <ul className="list-disc pl-4 text-slate-400">{visibleDetail.value.requiredOriginalOwnerChecks.map(key=><li key={key}>{checkLabels[key]??"Проверка оригинального владельца"}</li>)}</ul>
         <p className="text-slate-300">Задача не создана. Запуск не выполнялся.</p>
+        {draftDigest&&<div className="space-y-1 border-t border-slate-800 pt-2" data-testid="workflow-personal-draft">
+          <p className="text-slate-400">Передаются доступные текстовые входы в редактируемый черновик. Полнота вложений и запуск требуют отдельной проверки.</p>
+          {!visibleAttempt&&<button type="button" className={button} disabled={busy} onClick={()=>void saveDraft(false)}>Передать в черновик Agent</button>}
+          {visibleAttempt?.state&&<p role="status" className="text-slate-200">{draftLabels[visibleAttempt.state]}</p>}
+          {visibleAttempt?.state==='OUTCOME_UNKNOWN'&&<button type="button" className={button} disabled={busy} onClick={()=>void saveDraft(true)}>Проверить черновик Agent</button>}
+        </div>}
       </div>}
       {visibleDetail?.kind==="native"&&<div data-testid="workflow-native-receipt" className="space-y-1 rounded border border-slate-800 p-2 text-xs">
         {visibleDetail.value.nativeContinuation?<><p className="text-slate-200">{nativeLabels[visibleDetail.value.nativeContinuation.preview.status]}</p>

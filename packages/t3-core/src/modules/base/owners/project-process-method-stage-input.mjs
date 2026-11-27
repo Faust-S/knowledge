@@ -190,7 +190,8 @@ function appendPersonalDraftAttachment(capture,name,text){
   capture.bytes+=bytes;capture.attachments.push(Object.freeze({name,text}));
 }
 function captureDraftAsset(capture,asset,bytes){
-  const ext=DRAFT_TEXT_MIME[asset.mime.toLowerCase()];
+  const mime=asset.mime.toLowerCase();
+  const ext=Object.hasOwn(DRAFT_TEXT_MIME,mime)?DRAFT_TEXT_MIME[mime]:null;
   if(!ext)fail('METHOD_PERSONAL_DRAFT_ATTACHMENT_UNSUPPORTED','The existing Agent text composer cannot represent this attachment');
   let text;
   try{text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);}
@@ -472,6 +473,7 @@ function handoffReport(inspection,includeMaterialEvidence,subjectKind){
     'PRIOR_RESULTS_OBSERVED_EXACT_BINDING_REQUIRED':'INPUTS_PREPARED_OWNER_SELECTION_REQUIRED';
   return Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_STAGE_HANDOFF_PREVIEW_V1',state,
     inspection,binding,candidateDigest,requiredOriginalOwnerChecks:needs,
+    ...(subjectKind===null?{}:{subjectKind}),
     ...(includeMaterialEvidence?{materialEvidenceRequested:true,materialEvidence}:{}),
     signedTaskIssued:false,taskCreated:false,contentBindingProven:false,exactInputBindingProven:false,
     dispatchAuthorized:false,executionAuthority:false,writeAuthorized:false,resultReuseProven:false,atomicSnapshot:false});

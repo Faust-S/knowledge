@@ -27,6 +27,7 @@ export type WorkspaceMethodStageInspection = Readonly<{
 export type WorkspaceMethodHandoffPreview = Readonly<{
   schema:'IWXA_T2_WORKSPACE_METHOD_STAGE_HANDOFF_PREVIEW_V1';state:string;inspection:WorkspaceMethodStageInspection;
   candidateDigest:string|null;requiredOriginalOwnerChecks:readonly string[];
+  subjectKind?:'PERSONAL'|'CORP';
   materialEvidenceRequested?:true;materialEvidence?:WorkspaceMethodMaterialEvidence|null;
   signedTaskIssued:false;taskCreated:false;contentBindingProven:false;exactInputBindingProven:false;
   dispatchAuthorized:false;executionAuthority:false;writeAuthorized:false;resultReuseProven:false;

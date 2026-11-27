@@ -25,6 +25,12 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
     &&(personalComposer===null||(typeof personalComposer.currentBinding==='function'
       &&typeof personalComposer.composerDraft==='function'&&typeof confirmPersonalDraft==='function'))
     &&typeof isHostActive==='function','T3_METHOD_STAGE_TRUSTED_HOST_REQUIRED');
+  let personalDraftInFlight=false;
+  async function personalDraft(input,mode){
+    check(!personalDraftInFlight,'T3_METHOD_PERSONAL_DRAFT_IN_PROGRESS');
+    personalDraftInFlight=true;
+    try{return await read(input,mode);}finally{personalDraftInFlight=false;}
+  }
   async function read(input,mode){
     // Snapshot selections before any original owner await. No caller port,
     // context, Result content, digest, permission or dispatch callback.
@@ -147,8 +153,8 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
     previewHandoff:input=>read(input,'handoff'),
     inspectMaterialEvidence:input=>read(input,'material-evidence'),
     ...(personalComposer===null?{}:{
-      createPersonalDraft:input=>read(input,'personal-draft'),
-      recoverPersonalDraft:input=>read(input,'personal-draft-recover'),
+      createPersonalDraft:input=>personalDraft(input,'personal-draft'),
+      recoverPersonalDraft:input=>personalDraft(input,'personal-draft-recover'),
     }),
     previewContinuation:input=>read(input,'native-preview'),
     recoverContinuation:input=>read(input,'native-recover'),
