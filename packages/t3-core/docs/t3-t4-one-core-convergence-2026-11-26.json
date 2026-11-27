@@ -650,6 +650,93 @@
       "actualTwoNode": "NOT_RUN",
       "T4_READY": false,
       "FEATURE_FREEZE": true
+    },
+    "latestEnrollmentAndKeyCustody": {
+      "date": "2026-11-27",
+      "state": "STAGED_NOT_ACCEPTED",
+      "sourceCandidate": {
+        "commit": "9bbef4d7b63f6bec7d28c1f392a05780b103ddf8",
+        "tree": "44ab2dbbf36f5289a9f8f12f52d8ee61decdef1d"
+      },
+      "nativeOwner": {
+        "commit": "0fb94b0273e429abcd5452484e8a81d269183f65",
+        "tree": "0297787871b92b62497f3b0a7ca88fa2a995f223",
+        "selectionCasesPass": 26,
+        "syntaxModulesPass": 7,
+        "scope": "Exact isolated selection cases in local V8 with adapted Node helpers and modeled ports; syntax-only compilation for seven private modules. Full native owner NOT_RUN."
+      },
+      "agent": {
+        "commit": "08013ee9546971805e6c7b15dd9cff1fe71faade",
+        "tree": "9cd1936ab40411990a17f2020c18e5cbd11c677e",
+        "build": "NOT_RUN",
+        "installedProvider": "NOT_CONFIGURED",
+        "note": "Optional custody loader currently can reject a malformed legacy core layout during ordinary startup; compatibility follow-up unqualified."
+      },
+      "center": {
+        "commit": "978063e947d53922603bc6c439fa7b014de05de3",
+        "tree": "a4f6c1e4159a03706c8db7272ea23314a128d3d0",
+        "launcher": "NOT_RUN_THIS_REVISION",
+        "fullQualification": "NOT_RUN"
+      },
+      "enrollment": {
+        "commit": "75796fa2705fc5d7294e4a2cc5fb64234d294ebd",
+        "run": 46004730621,
+        "pass": 25,
+        "scope": "Original signed grant issue, single Registry CAS plus STATUS, modeled Kernel."
+      },
+      "keyCustody": {
+        "commit": "99c61207a024cda6eac6aa5e39b2544540ec505d",
+        "sourceEd25519": 1,
+        "recipientEd25519": 1,
+        "recipientX25519": 1,
+        "existingEncryptedVault": true,
+        "independentRoleBinding": true,
+        "physicalDeviceProvisioning": "NOT_RUN"
+      },
+      "qualification": {
+        "run": 46006131313,
+        "job": 140529631152,
+        "ciCommit": "f1d171c015aa6a3f4c07cd849f30aa07bc73bf01",
+        "employeeAndVault": {
+          "pass": 28,
+          "fail": 0
+        },
+        "networkKeyLifecycle": {
+          "pass": 30,
+          "fail": 0
+        },
+        "scope": "Real crypto and encrypted Vault; modeled Kernel ports. K158 rejects advanced installed profile and still exercises unchanged generic native extended profile.",
+        "diagnosticRuns": [
+          {
+            "run": 46005615329,
+            "employeePass": 27,
+            "issue": "Lifecycle suite missing locked saxes dependency in CI."
+          },
+          {
+            "run": 46005931654,
+            "employeePass": 28,
+            "lifecyclePass": 29,
+            "lifecycleFail": 1,
+            "issue": "K158 obsolete installed-profile expectation; corrected regression test without changing runtime admission."
+          }
+        ]
+      },
+      "open": [
+        "Materialize original Registry Object/Event history on second device through original Exchange",
+        "Real installed product provider and endpoint credentials",
+        "Native Windows build, UI and activation",
+        "Corrected K036 integrated qualification",
+        "Physical server and two-device transfer",
+        "Independent final acceptance"
+      ],
+      "kernelChanges": 0,
+      "wireChanges": 0,
+      "newPublicActions": 4,
+      "newPrivateActions": 0,
+      "codexUsed": false,
+      "actualTwoNode": "NOT_RUN",
+      "T4_READY": false,
+      "FEATURE_FREEZE": true
     }
   }
 }
