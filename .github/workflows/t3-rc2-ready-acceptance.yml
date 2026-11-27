@@ -67,6 +67,11 @@ jobs:
             $cer=Join-Path $tls.FullName 'localhost.cer'
             Export-PfxCertificate -Cert $cert -FilePath $env:IWXA_ACCEPTANCE_PFX -Password (ConvertTo-SecureString $password -AsPlainText -Force) | Out-Null
             Export-Certificate -Cert $cert -FilePath $cer | Out-Null
+            # Disposable runner user only. Match the consented launcher trust;
+            # Chromium SW requests must not depend on page-only TLS exceptions.
+            certutil.exe -user -f -addstore Root $cer
+            if ($LASTEXITCODE -ne 0) { throw 'CI_LOCAL_CERT_TRUST_FAILED' }
+            if (!(Test-Path ('Cert:\CurrentUser\Root\'+$cert.Thumbprint))) { throw 'CI_LOCAL_CERT_NOT_TRUSTED' }
             $process=Start-Process -FilePath (Join-Path $dest 'runtime\node.exe') -ArgumentList 'serve-acceptance.mjs' -WorkingDirectory $dest -PassThru -RedirectStandardOutput (Join-Path $tls.FullName 'stdout.log') -RedirectStandardError (Join-Path $tls.FullName 'stderr.log')
             node acceptance/rc2/smoke.mjs $dest $cer
             if ($LASTEXITCODE -ne 0) { throw 'EXACT_DELIVERY_SMOKE_FAILED' }
@@ -75,7 +80,10 @@ jobs:
             Get-Content (Join-Path $tls.FullName 'stdout.log'),(Join-Path $tls.FullName 'stderr.log') -ErrorAction SilentlyContinue
             Remove-Item Env:\IWXA_ACCEPTANCE_PFX -ErrorAction SilentlyContinue
             Remove-Item Env:\IWXA_ACCEPTANCE_PFX_PASSWORD -ErrorAction SilentlyContinue
-            if ($cert) { Remove-Item ('Cert:\CurrentUser\My\'+$cert.Thumbprint) -ErrorAction SilentlyContinue }
+            if ($cert) {
+              Remove-Item ('Cert:\CurrentUser\Root\'+$cert.Thumbprint) -ErrorAction SilentlyContinue
+              Remove-Item ('Cert:\CurrentUser\My\'+$cert.Thumbprint) -ErrorAction SilentlyContinue
+            }
             Remove-Item $tls.FullName -Recurse -Force
           }
       - name: Package the exact launched delivery and independently extract it

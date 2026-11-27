@@ -20,9 +20,15 @@ for(const path of ["/","/workspace/","/workspace/exchange/","/workspace/lifecycl
  assert.equal((await request(path)).status,200);
 const browser=await chromium.launch({headless:true});
 try{
- // Engineering CI only. Local launcher prompts for real certificate trust.
- const context=await browser.newContext({ignoreHTTPSErrors:true});
+ // The ephemeral CI user trusts the SAME kind of localhost certificate
+ // as the Windows launcher. Do not suppress TLS validation in the browser.
+ const context=await browser.newContext();
  const page=await context.newPage();
+ const diagnostics=[];
+ page.on("pageerror",e=>diagnostics.push("pageerror: "+e.message));
+ page.on("console",m=>{if(m.type()==="error")diagnostics.push(m.text());});
+ page.on("requestfailed",r=>diagnostics.push(r.url()+": "+r.failure()?.errorText));
+ page.on("response",r=>{if(r.status()>=400)diagnostics.push(r.status()+" "+r.url());});
  await page.goto(origin+"/workspace/",{waitUntil:"domcontentloaded"});
  await page.waitForFunction(()=>typeof window.IWXA?.connect==="function");
  const gate=page.getByTestId("t2-first-run-create");
@@ -56,7 +62,15 @@ try{
  // Install only by explicit click; actual served snapshot must be usable.
  page.once("dialog",d=>d.accept());
  await page.locator("#iwxa-t3-domain-switch").check();
- await page.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")&&Boolean(navigator.serviceWorker.controller),null,{timeout:60000});
+ try{
+  await page.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")&&Boolean(navigator.serviceWorker.controller),null,{timeout:60000});
+ }catch(error){
+  const status=await page.evaluate(async()=>({secure:window.isSecureContext,
+    controls:document.getElementById("iwxa-t3-domain-controls")?.innerText,
+    registrations:(await navigator.serviceWorker.getRegistrations()).map(r=>({scope:r.scope,active:r.active?.scriptURL})),
+    controller:navigator.serviceWorker.controller?.scriptURL})).catch(e=>({probeError:String(e)}));
+  throw Error("T3_RC2_DELIVERED_OFFLINE_INSTALL_FAILED "+JSON.stringify({status,diagnostics:diagnostics.slice(-25),wait:String(error)}));
+ }
  await context.setOffline(true);
  await page.reload({waitUntil:"domcontentloaded"});
  await page.getByTestId("workspace-view").waitFor({state:"visible",timeout:45000});
