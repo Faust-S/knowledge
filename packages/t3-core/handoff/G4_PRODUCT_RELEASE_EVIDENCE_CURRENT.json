@@ -2693,7 +2693,7 @@
         "scope": "LIGHT_QWEN_MODEL_GENERATION_AND_COLD_OFFLINE_SECOND_GENERATION_NOT_MODEL_QUALITY_OR_PHYSICAL_PHONE_ACCEPTANCE"
       },
       "independent_acceptance_delivery": {
-        "state": "DELIVERY_QUALIFICATION_IN_PROGRESS",
+        "state": "PUBLISHED_READY_FOR_INDEPENDENT_BROWSER_ACCEPTANCE",
         "scope": "LOCAL_READY_ORIGINAL_GENERIC_HOST_NO_REBUILD",
         "origin": "https://localhost:18443",
         "independent_acceptance": "PENDING",
@@ -2712,8 +2712,22 @@
             "LAUNCHER_SYNTAX"
           ]
         },
-        "next": "RETRY_DELIVERY_ONLY_WITH_DISPOSABLE_CI_MACHINE_CERTIFICATE_TRUST; USER_LAUNCHER_UNCHANGED",
-        "latest_windows_job": 140604669318
+        "next": "INDEPENDENT_BUILT_IN_BROWSER_ON_ACCESSIBLE_HOST_OR_REPORT_ACCESS_BLOCKER_NO_REPEAT_CI",
+        "latest_windows_job": 140604669318,
+        "conclusion": "SUCCESS",
+        "windows_job": 140604669318,
+        "retain_job": 140605241807,
+        "release_assets": {
+          "archive": "acceptance-host-windows-x64.zip",
+          "archive_bytes": 40694869,
+          "archive_sha256": "03e0c30e9602f5fafe66a2ff65aa7c8b5821bd3d9b21704411608183e2060328",
+          "receipt": "acceptance-host-receipt.json",
+          "receipt_sha256": "0d8d99b3f491616c0e2b672897114c28d41968f28f2550163014ad1ffe65fea7",
+          "file_count": 103,
+          "example_sha256": "eb19a618cbbb2d70a7517c7da702e4d77e419c8f30cbe972d9fefb1a34cc4e8a",
+          "offline_manifest_sha256": "1c2292044ab24d67bf420de80668799a83c4c823b651a01e44801353062fa188"
+        },
+        "evidence": "EXACT_ORIGINAL_HOST_HTTPS_BLI_OFFLINE_AND_REAL_IWXA_PASS_WITHOUT_MODEL_DOWNLOAD"
       },
       "independent_end_user_acceptance": "PENDING_NOT_CODEX_ACCEPTED",
       "corporate_aba": "SEPARATE_OPEN_ACCEPTED_KERNEL_EVENT_COLLISION",
