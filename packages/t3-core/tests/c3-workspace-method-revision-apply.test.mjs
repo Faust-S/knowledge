@@ -198,3 +198,54 @@ test('full readback refuses a concurrent head change after the final write',asyn
   await assert.rejects(applyWorkspaceMethodRevision(request(wrapped,base)),code('METHOD_SOURCE_REFERENCE_CHANGED'));
   assert.equal((await owner.audit()).length,8);
 });
+
+
+test('partial project revision resumes all dependent records with the original creation plan intact',async()=>{
+  const {owner,base}=await setup();const next=draft();next.objective='Revised objective';
+  const stopped=port(owner,{revise:async(kind,input)=>{
+    if(kind==='work'&&input.workId===projectId+'.compute'){
+      throw Object.assign(new Error('stopped after Project and two stages'),{code:'TEST_PROJECT_PARTIAL'});
+    }
+    return owner.revise(kind,input);
+  }});
+  await assert.rejects(applyWorkspaceMethodRevision(request(stopped,base,next)),code('TEST_PROJECT_PARTIAL'));
+  assert.equal((await owner.audit()).length,8);
+  const args=request(owner,base,next),progress=await inspectWorkspaceMethodRevision(args);
+  assert.equal(progress.state,'PARTIAL');assert.equal(progress.confirmedCount,3);assert.equal(progress.pendingCount,2);
+  assert.equal(progress.resumeCandidate,true);
+  const result=await applyWorkspaceMethodRevision(args);
+  assert.equal(result.alreadyPresentCount,3);assert.equal(result.revisedCount,2);
+  assert.deepEqual(result.method.originalCreation,base.originalCreation);
+  assert.equal((await owner.audit()).length,10);
+  assert.deepEqual(result.method.draft,next);
+});
+test('partial new-stage creation resumes without duplicating a confirmed create',async()=>{
+  const {owner,base}=await setup();const next=draft();
+  next.steps.push({id:'validate',name:'Validate',actor:'human',instruction:'Check',dependsOn:['prepare'],materialIds:['source']});
+  next.steps.find(s=>s.id==='review').dependsOn.push('validate');
+  const lost=port(owner,{create:async(kind,input)=>{
+    await owner.create(kind,input);
+    throw new Error('new stage ACK lost');
+  },revise:async(kind,input)=>{
+    if(input.workId===projectId+'.review'){
+      throw Object.assign(new Error('review not saved'),{code:'TEST_NEW_STAGE_PARTIAL'});
+    }
+    return owner.revise(kind,input);
+  }});
+  await assert.rejects(applyWorkspaceMethodRevision(request(lost,base,next)),code('TEST_NEW_STAGE_PARTIAL'));
+  const args=request(owner,base,next),progress=await inspectWorkspaceMethodRevision(args);
+  assert.equal(progress.state,'PARTIAL');assert.equal(progress.confirmedCount,5);assert.equal(progress.pendingCount,1);
+  assert.equal(progress.records.find(row=>row.id===projectId+'.validate').state,'CONFIRMED');
+  const result=await applyWorkspaceMethodRevision(args);
+  assert.equal(result.alreadyPresentCount,5);assert.equal(result.createdCount,0);assert.equal(result.revisedCount,1);
+  assert.equal(ref(result.method,'validate').revision,1);assert.deepEqual(result.method.draft,next);
+  assert.equal((await owner.audit()).length,11);
+});
+test('a stale no-change attempt cannot disguise another saved revision as an unchanged method',async()=>{
+  const {owner,base}=await setup();
+  await applyWorkspaceMethodRevision(request(owner,base));
+  const stale=request(owner,base,draft(),{operationId:'stale-no-change'});
+  assert.equal((await inspectWorkspaceMethodRevision(stale)).state,'CONFLICT');
+  await assert.rejects(applyWorkspaceMethodRevision(stale),code('METHOD_REVISION_CONFLICT'));
+  assert.equal((await owner.audit()).length,7);
+});

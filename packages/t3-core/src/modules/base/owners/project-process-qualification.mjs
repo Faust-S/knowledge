@@ -11,7 +11,8 @@ import { canonicalStringify } from '../../../persistence/canonical-codec.mjs';
 import { createWorkspaceMethodThroughSourceOwner,readWorkspaceMethodCreationIntent,
   resumeWorkspaceMethodThroughSourceOwner,inspectWorkspaceMethodCreation } from './project-process-method-materialization.mjs';
 import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from './project-process-method-readback.mjs';
-import { previewWorkspaceMethodRevision } from './project-process-method-revision.mjs';
+import { previewWorkspaceMethodRevision,applyWorkspaceMethodRevision,
+  inspectWorkspaceMethodRevision } from './project-process-method-revision.mjs';
 import { compareWorkspaceMethodRevisions } from './project-process-method-comparison.mjs';
 import {
   createProjectProcessSourceOwnerQualificationHarness,
@@ -109,16 +110,37 @@ async function qualifyWorkspaceMethodWithOriginalOwner(owner){
     &&preview.workOperations.filter(item=>item.operation==='REVISE').map(item=>item.workId).join(',')
       ===projectId+'.analyse,'+projectId+'.compare'
     &&preview.resultReuseProven===false&&preview.writeAuthorized===false;
-  // Exercise the exact plan against original revise commands in the isolated
-  // qualification only. This is NOT a product batch executor or durable
-  // revision command. Each write is explicitly supplied its original base.
-  for(const op of preview.workOperations.filter(item=>item.operation==='REVISE')){
-    await owner.revise('work',{...op.input,recordId:op.baseRef.recordId+'-r2',
-      baseRevisionId:op.baseRef.recordId,knowledgeAt:'2026-11-26T18:05:00Z'});
-  }
-  const actual=await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId});
-  const expectedRefs=new Map(preview.workOperations.map(op=>[op.baseRef.objectId,
-    op.operation==='REVISE'?op.baseRef.recordId+'-r2':op.baseRef.recordId]));
+  // Exercise the original selective operation, not a manual test-only loop.
+  // The first revision commits but loses its response; the second has not
+  // been written. A retained request must resume without rewriting the first.
+  let revisionAckLost=false;
+  const revisionPort={
+    load:owner.load.bind(owner),history:owner.history.bind(owner),create:owner.create.bind(owner),
+    revise:async(kind,input)=>{
+      if(input.workId===projectId+'.compare'){
+        throw Object.assign(new Error('qualification interrupted revision'),{code:'C3_METHOD_REVISION_BEFORE_WRITE'});
+      }
+      const result=await owner.revise(kind,input);
+      revisionAckLost=true;
+      throw Object.assign(new Error('qualification lost revision acknowledgement'),{code:'C3_METHOD_REVISION_ACK_LOST'});
+    },
+  };
+  const revisionRequest={owner,workspaceId,projectId,expected:base,draft:changed,objects,
+    operationId:'c3-method-revision-2',knowledgeAt:'2026-11-26T18:05:00Z'};
+  const revisionInterrupted=await rejectsWithCode(()=>applyWorkspaceMethodRevision({
+    ...revisionRequest,owner:revisionPort,
+  }),'C3_METHOD_REVISION_BEFORE_WRITE');
+  const revisionPartial=await inspectWorkspaceMethodRevision(revisionRequest);
+  const revisionRecovery=await applyWorkspaceMethodRevision(revisionRequest);
+  const revisionReplay=await applyWorkspaceMethodRevision(revisionRequest);
+  const revisionResume=revisionInterrupted&&revisionAckLost
+    &&revisionPartial.state==='PARTIAL'&&revisionPartial.confirmedCount===1
+    &&revisionPartial.pendingCount===1&&revisionPartial.resumeCandidate
+    &&revisionRecovery.alreadyPresentCount===1&&revisionRecovery.revisedCount===1
+    &&revisionReplay.alreadyPresentCount===2&&revisionReplay.revisedCount===0
+    &&revisionRecovery.attemptDigest===revisionReplay.attemptDigest;
+  const actual=revisionRecovery.method;
+  const expectedRefs=new Map(revisionPartial.records.map(row=>[row.targetRef.objectId,row.targetRef.recordId]));
   const selectiveReadback=actual.projectRef.recordId===base.projectRef.recordId
     &&actual.workRefs.every(row=>row.recordId===expectedRefs.get(row.objectId))
     &&canonicalStringify(actual.draft)===canonicalStringify(changed)
@@ -151,7 +173,7 @@ async function qualifyWorkspaceMethodWithOriginalOwner(owner){
   const historicalPlan=history.find(row=>row.recordId===recordIds.project)?.payload?.methodology?.creation;
   const originalPlanRetained=historicalPlan?.steps.find(step=>step.workId===projectId+'.analyse')?.instruction===draft.steps[1].instruction;
   const checks=Object.freeze({interrupted,lostAckObserved:acknowledgedLost,partialReadback,originalIntent,
-    exactRecovery,compositionReview,selectivePlan,selectiveReadback,semanticComparison,staleBaseRejected,
+    exactRecovery,compositionReview,selectivePlan,selectiveReadback,revisionResume,semanticComparison,staleBaseRejected,
     historicalReadback,historicalAfterRelease,currentTombstone,originalPlanRetained,
     sameWorkspaceHistory:verifiedHistory.status==='PASS'&&verifiedHistory.recordCount===8});
   return Object.freeze({status:Object.values(checks).every(Boolean)?'PASS':'FAIL',
