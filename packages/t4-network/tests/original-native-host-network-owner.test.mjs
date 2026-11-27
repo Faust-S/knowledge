@@ -1077,10 +1077,16 @@ test('both native roles admit the same original fresh Workspace through the sign
     const wire=wireFixture(true),f=nativeFixture({role,store,wire,freshBaseline:selection});
     try{
       const session=await f.attach();await f.drive(session,'ADMITTED');
-      const admission=f.results.find(x=>x.state==='ADMITTED');
-      assert.equal(admission.baseline.originalBaselineRef,creation.event_id);
-      assert.equal(admission.baseline.originalBaselineDigest,selection.eventDigest);
-      if(shared)assert.deepEqual(admission.baseline.sourceCursor,shared);else shared=admission.baseline.sourceCursor;
+      // onStep intentionally projects only operational metadata. Read the
+      // persisted original technical Object, not an imaginary baseline field
+      // in that notification.
+      const admitted=[...store.rows.values()].map(r=>r.object).filter(o=>
+        o.workspace_id===store.technicalWorkspaceId&&o.data?.schema==='IWXA_T4_ORIGINAL_NETWORK_BASELINE_ADMISSION_RECORD_V1');
+      assert.equal(admitted.length,1);
+      const admission=admitted[0].data.baseline;
+      assert.equal(admission.originalBaselineRef,creation.event_id);
+      assert.equal(admission.originalBaselineDigest,selection.eventDigest);
+      if(shared)assert.deepEqual(admission.sourceCursor,shared);else shared=admission.sourceCursor;
       assert.equal(store.events.filter(e=>e.workspace_id===WS).length,1);
       assert.equal(store.events.filter(e=>e.event_type==='t4.network.original.baseline.admitted').length,1);
       assert.ok(f.local.proofCount>0&&f.technical.proofCount>0);
