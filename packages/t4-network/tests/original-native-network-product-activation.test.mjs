@@ -441,3 +441,64 @@ test('ordinary or wrong role cannot negotiate private Registry Exchange',async()
     finally{f.relay.close();}
   }
 });
+
+test('explicit first-use preparation creates only the local technical Workspace before peer admission',async()=>{
+  for(const role of ['SOURCE','RECIPIENT']){
+    let prepared;
+    const f=fixture({installed:true,role,grants:[...new Set([...base,...operations,'t1.createWorkspace'])],
+      async createHook(lifetime){
+        prepared=await lifetime.prepareOriginalTechnicalWorkspace({confirmed:true});
+      }});
+    try{
+      const session=await f.attach();
+      assert.throws(()=>f.relay.nativeKernel.createWorkspace({workspace_id:TECH,profile:'generic'}),
+        {code:'T3_ORIGINAL_NETWORK_WORKSPACE_CREATION_DENIED'});
+      await f.command(session,'getWorkspace',[WS],{workspace_id:WS,profile:'generic'});
+      await f.command(session,'getWorkspace',[TECH],null);
+      const cmd=await f.next(session);
+      assert.equal(cmd.kind,'COMMAND');assert.equal(cmd.method,'createWorkspace');
+      assert.deepEqual(cmd.args,[{workspace_id:TECH,profile:'generic'}]);
+      // The creation may have committed despite an application error.
+      await f.ex(session,'result',{id:cmd.id,ok:false,code:'SIMULATED_LOST_CREATE_ACK'});
+      await f.command(session,'getWorkspace',[TECH],{workspace_id:TECH,profile:'generic'});
+      await f.command(session,'listEventsSince',[REG]);
+      const done=await f.next(session);
+      assert.equal(done.activation.state,'READY');assert.deepEqual(prepared,
+        {workspaceId:TECH,created:true,originalReadback:true});
+    }finally{f.relay.close();}
+  }
+});
+test('cold preparation reads the existing Workspace, never re-creates it or writes business data',async()=>{
+  let prepare;
+  const f=fixture({installed:true,async createHook(lifetime){
+    prepare=lifetime.prepareOriginalTechnicalWorkspace;
+    assert.deepEqual(await prepare({confirmed:true}),{workspaceId:TECH,created:false,originalReadback:true});
+  }});
+  try{
+    const session=await f.attach();
+    await f.command(session,'getWorkspace',[WS],{workspace_id:WS,profile:'generic'});
+    await f.command(session,'getWorkspace',[TECH],{workspace_id:TECH,profile:'generic'});
+    await f.command(session,'listEventsSince',[REG]);assert.equal((await f.next(session)).activation.state,'READY');
+    await assert.rejects(prepare({confirmed:true}),{code:'T3_ORIGINAL_NETWORK_PREPARATION_LIFETIME_ENDED'});
+    assert.equal(f.calls.some(([method])=>method==='createWorkspace'),false);
+  }finally{f.relay.close();}
+});
+test('missing business Workspace or unconfirmed technical Workspace never becomes an implicit create',async()=>{
+  for(const absent of ['business','technical']){
+    let caught;
+    const f=fixture({installed:true,grants:[...new Set([...base,...operations,'t1.createWorkspace'])],
+      async createHook(lifetime){
+        try{await lifetime.prepareOriginalTechnicalWorkspace({confirmed:absent==='business'});}
+        catch(e){caught=e.code;throw e;}
+      }});
+    try{
+      const session=await f.attach();
+      await f.command(session,'getWorkspace',[WS],absent==='business'?null:{workspace_id:WS,profile:'generic'});
+      if(absent==='technical')await f.command(session,'getWorkspace',[TECH],null);
+      assert.equal((await f.next(session)).activation.state,'DENIED');
+      assert.equal(caught,absent==='business'?'T3_ORIGINAL_NETWORK_BUSINESS_WORKSPACE_REQUIRED':
+        'T3_ORIGINAL_NETWORK_TECHNICAL_WORKSPACE_CONFIRMATION_REQUIRED');
+      assert.equal(f.calls.some(([method])=>method==='createWorkspace'),false);
+    }finally{f.relay.close();}
+  }
+});
