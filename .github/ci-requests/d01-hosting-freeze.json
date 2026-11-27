@@ -1,0 +1,9 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d01-hosting-freeze",
+  "prepared_sha": "128bdb1f0dbce3e57a4b6423ace557cfec55638d",
+  "profile": "assistant-natural-consultation-source",
+  "revisions": {
+    "assistant": "8d7990ec47565939c1c853919cefef56f5cfdda0"
+  }
+}
