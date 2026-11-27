@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_T3_T4_ONE_CORE_CONVERGENCE_STAGE/1",
-  "state": "PUBLIC_ORIGINAL_PILOT_PASSPORT_QUALIFIED_NATIVE_OWNER_SOURCE_STAGED",
+  "state": "NATIVE_ORIGINAL_CUSTODY_AND_EXPLICIT_SOURCE_PACKAGE_STAGED",
   "mergeBase": "fd927a1efb083219442d9504285f75fa738dbdda",
   "corporateT3": "8db847058cab231d2d39c34df46024b60564d2ad",
   "networkT4": "896515f361611e311b0df22dbcfebfefa8e58fa0",
@@ -27,8 +27,8 @@
   "networkWireUnchanged": true,
   "accepted": false,
   "blocking": [
-    "Restore authorized private T2 source availability for disposable public Center qualification of exact corrected original K036 candidate; complete corporate return archive remains FAIL on old accepted K036.",
-    "Supply actual installed SOURCE/RECIPIENT provider, existing signed Registry history and explicit original signed native grant selection; no fallback, bootstrapping or automatic grant issuance.",
+    "Execute exact corrected original K036 qualification with authorized local Git snapshots using Center 9d224c1c, or restore authorized public Center access. Complete corporate return archive remains FAIL on accepted K036; corrected candidate NOT_RUN.",
+    "Finish installed canonical module-root resolution and supply actual SOURCE/RECIPIENT provider, existing signed Registry history, original signed native grant selection and authenticated port configuration. No fallback, bootstrapping or automatic grant issuance.",
     "Provision real original device grants, existing durable keys/Vault, separate technical workspace and authenticated peer topology.",
     "Qualify actual DB9 and installed two-node pilot.",
     "Independent final acceptance."
@@ -48,7 +48,11 @@
     "Latest exact public source run: 110/110 changed contracts, TypeScript and complete build PASS; legacy accepted K036 failed the return archive before pilot execution. Split test witnesses and keep the prior failure visible. No original Kernel modification or fabricated receipts.",
     "2026-11-27: independently qualified accepted K036 pilot with natural process exit; corrected Node BroadcastChannel lifetime in test fixture, not production Runtime.",
     "Shared original native owner SOURCE/RECIPIENT Registry binding and SOURCE enrollment/grant composition staged; native Agent worker still rejects unconfigured T4 passport. Eight exact local helper cases PASS; not a full private runtime qualification.",
-    "One public source run PASS, one public Center run BLOCKED by HTTP 403 before private source tests. No private Actions, no Codex, no retries to bypass access."
+    "One public source run PASS, one public Center run BLOCKED by HTTP 403 before private source tests. No private Actions, no Codex, no retries to bypass access.",
+    "2026-11-27: exact local K036 qualification route published, tested launcher only; no authorized local full source checkout in this environment.",
+    "Native original private owner aligned byte-for-byte with canonical Access/Vault/strict JSON modules; actual crypto and legacy compatibility addressed, full private Runtime NOT_RUN.",
+    "Explicit SOURCE forwarded by qualified Agent builder and CLI. Agent build-only packaging admits a single canonical sibling layout, pinned native owner, canonical SOURCE passport and unaccepted package metadata; actual Windows build and native mount NOT_RUN. Existing local owner still refuses pilot passport.",
+    "All 66 original frozen network source blobs unchanged; five integration additions. No new Actions or Codex."
   ],
   "additionalTests": {
     "packages/t4-network/tests/original-native-network-product-activation.test.mjs": "9f1fd80a9f76a2dd9f99d7367d804cc1acfe0f02",
@@ -273,6 +277,87 @@
       },
       "privateFull": "NOT_RUN",
       "installed": "NOT_RUN"
+    },
+    "latestSourcePreparation": {
+      "state": "STAGED_NOT_ACCEPTED",
+      "sourceCandidate": {
+        "commit": "a82210cfe0352c934bb941323a189cc59afaa562",
+        "tree": "31ac3723d52a42e3eac2b295153fe495fd0b8d39",
+        "scope": "Builder route only; historical original Runtime qualification remains tied to 683b8c14"
+      },
+      "signedGrantSelection": {
+        "commit": "acec1ccc23fe89871e23a46187abcc013c30810e",
+        "local": {
+          "pass": 11,
+          "fail": 0,
+          "scope": "Exact shared helper tests, includes previous eight; modeled owner ports"
+        }
+      },
+      "nativeCustody": {
+        "commit": "38ae0d22e4093f4ec19e3d6d2a8a271224f1ae2a",
+        "tree": "5259b6acf4f4fcde3c4d8da6c37cce17308badb2",
+        "canonicalBlobs": {
+          "core": "f34b1bdb78dde12ed71b3d440d7ff0c71ec5acda",
+          "vault": "9304eb5733d0bb39d4bd5f195114f8b4d08f2536",
+          "strictJson": "1fb5a7303ec4c1c65c76efb52ecebdca03a9bbbc"
+        },
+        "local": {
+          "pass": 10,
+          "fail": 0,
+          "committedFocused": 7,
+          "localDifferential": 3,
+          "scope": "Actual encrypted Vault, Ed25519/X25519, signed grant/status/proof and exact legacy compatibility; not full native owner/DPAPI"
+        },
+        "privateRuntime": "NOT_RUN"
+      },
+      "qualifiedBuilderRoute": {
+        "commit": "a82210cfe0352c934bb941323a189cc59afaa562",
+        "local": {
+          "pass": 11,
+          "fail": 0,
+          "scope": "Isolated exact forwarding and CLI route with modeled materializer/assembler; original artifact witness NOT_RUN after change"
+        }
+      },
+      "agentPackage": {
+        "commit": "3008e065a492dc60352940dd8efbe65442d2023d",
+        "tree": "980f77e31fee1bb4d43b06ddab9d98579005e919",
+        "local": {
+          "pass": 10,
+          "fail": 0,
+          "scope": "9 exact published package helper fixtures plus 1 local actual canonical SOURCE passport validator check with denial subcases"
+        },
+        "mode": "EXPLICIT_DEVELOPMENT_SOURCE_BUILD_ONLY",
+        "originalSourcePins": {
+          "core": "a82210cfe0352c934bb941323a189cc59afaa562",
+          "owner": "38ae0d22e4093f4ec19e3d6d2a8a271224f1ae2a"
+        },
+        "windowsBuild": "NOT_RUN",
+        "installedMount": "NOT_RUN",
+        "runtimeLayoutResolution": "OPEN",
+        "provider": "NOT_CONFIGURED"
+      },
+      "localCorrectedKernel": {
+        "repository": "Faust-S/Center",
+        "branch": "work/2026-11-27-t4-native-pilot-k036-local",
+        "commit": "9d224c1cca746c265ac14f84d3d9732ca576836a",
+        "tree": "8e69f72612e826d4423c564ce367c76a19c9c75e",
+        "initial": "53adedb3f9d1eb9d4fb70a91222cdb72786969e4",
+        "local": {
+          "python": 9,
+          "node": 5,
+          "fail": 0,
+          "scope": "Exact Git snapshot and launcher descriptor fixtures; rerun after pin change"
+        },
+        "correctedKernel": "NOT_RUN",
+        "privateOwner": "NOT_RUN"
+      },
+      "publicActionsStarted": 0,
+      "privateActionsStarted": 0,
+      "codexUsed": false,
+      "realDeviceGrants": "NOT_PROVISIONED",
+      "independentAcceptance": "NOT_RUN",
+      "T4_READY": false,
+      "FEATURE_FREEZE": true
     }
   }
 }
