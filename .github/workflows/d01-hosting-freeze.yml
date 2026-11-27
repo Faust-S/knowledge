@@ -121,6 +121,7 @@ jobs:
         run: |
           npm run build:product:t3 >"$RUNNER_TEMP/d01-t3-build.log" 2>&1 || {
             echo D01_T3_BUILD_FAILED
+            grep '^D01_OFFLINE_LINK=' "$RUNNER_TEMP/d01-t3-build.log" | python3 -c 'import json,sys; pairs=set(); [pairs.add((x.get("tag"),x.get("target"),x.get("canonical"))) for line in sys.stdin if (x:=json.loads(line.split("=",1)[1])) and all(isinstance(x.get(k),str) and len(x[k])<200 and not any(c in x[k] for c in ("?","#","\n","\r")) for k in ("tag","target","canonical"))]; print(json.dumps(sorted(pairs),ensure_ascii=True))' || true
             grep -E '^(✖|not ok|ℹ (tests|pass|fail|skipped) |# (tests|pass|fail|skipped) )' "$RUNNER_TEMP/d01-t3-build.log" | cut -c1-160 | head -40 || true
             grep -Eo '(D01_|T3_|ERR_)[A-Z0-9_]+(:[A-Z0-9_]+)*|[A-Za-z0-9_.-]+\.(mjs|js|tsx?|mts|cts):[0-9]+:[0-9]+|AssertionError|TypeError|ReferenceError|SyntaxError|ENOENT|EACCES|MODULE_NOT_FOUND' "$RUNNER_TEMP/d01-t3-build.log" | sort -u | head -80 || true
             exit 1
