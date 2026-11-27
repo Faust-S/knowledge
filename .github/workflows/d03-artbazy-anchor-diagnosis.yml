@@ -1,0 +1,54 @@
+# Source diagnosis only; no private Actions, no source artifacts or site build.
+name: D03 ArtBazy source anchor diagnosis
+on:
+  push:
+    branches:
+      - 'ci/once/d03-artbazy-anchor-diagnosis/**'
+    paths:
+      - '.github/ci-requests/d03-artbazy-anchor-diagnosis.json'
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    if: github.event.created == false && github.event.deleted == false && github.event.forced == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      SITE_PIN: 5994bc36837beb5534797c5349019d12ed30797c
+      SITE_TREE: 47dee32dd4f17e7eb41ba29af66595e59ab3407d
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ci-harness
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify immutable source-only request
+        working-directory: ci-harness
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-anchor-diagnosis --profile source-anchor-diagnosis --revision site=5994bc36837beb5534797c5349019d12ed30797c
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/artbazy.ru
+          ref: 5994bc36837beb5534797c5349019d12ed30797c
+          token: ${{ secrets.DOMEN }}
+          path: private-site
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.10'
+      - name: Inspect exact source anchors without building
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$(git -C private-site rev-parse HEAD)" = "$SITE_PIN"
+          test "$(git -C private-site rev-parse 'HEAD^{tree}')" = "$SITE_TREE"
+          (cd private-site && bun install --frozen-lockfile --ignore-scripts) >"$RUNNER_TEMP/d03-anchor-install.log" 2>&1 || { echo SOURCE_DEPENDENCIES=FAIL; exit 1; }
+          node ci-harness/tools/ci/artbazy-delivery/audit-public-anchors.cjs private-site
+      - name: Remove private checkout and diagnostic log
+        if: always()
+        run: rm -rf -- "$GITHUB_WORKSPACE/private-site" "$RUNNER_TEMP/d03-anchor-install.log"
