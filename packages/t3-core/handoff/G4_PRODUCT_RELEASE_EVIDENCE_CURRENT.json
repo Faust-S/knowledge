@@ -2769,7 +2769,20 @@
           ],
           "failed_at": "FIRST_IMPORT_COMMIT_POINTER_INTERCEPTED_BY_FIXED_T3_DOMAIN_CONTROLS",
           "product_defect": true,
-          "next": "RC6_INLINE_FALLBACK_CORRECTION_TARGETED_QUALIFICATION"
+          "next": "RC6_INLINE_FALLBACK_CORRECTION_TARGETED_QUALIFICATION",
+          "layout_successor": {
+            "version": "0.3.1-rc.6",
+            "source_commit": "3e8c40fc5a80866f32f4547f1780ebef525c964c",
+            "prepared_commit": "515c14dc16d90c5a194f451abeace7bc980c9edf",
+            "request_commit": "6b620c9b3257f2f14f86d26e3c9c1cc18d47d691",
+            "run": 46048628242,
+            "status": "IN_PROGRESS",
+            "product_change": "ONLY_IN_FLOW_RESPONSIVE_FALLBACK_T3_CONTROLS",
+            "compiled_host_and_bli": "EXACT_RC5_BYTES_REQUIRED",
+            "kernel": "ORIGINAL_ACCEPTED_0.3.6_UNCHANGED_REQUIRED",
+            "scope": "FOCUSED_EXISTING_OFFLINE_TESTS_AND_REAL_UI_IMPORT_REPEAT_EXPORT_INDEPENDENT_RESTORE_COLD_OFFLINE_ON_NEW_CANDIDATE",
+            "publication": "NOT_PUBLISHED"
+          }
         }
       },
       "independent_acceptance_attempt": {
