@@ -1,19 +1,19 @@
 {
   "schema": "iwxa.t3.consolidation-sources/1",
-  "status": "QUALIFIED_DOMAIN_ASSISTANT_INTEGRATION_CANDIDATE_NOT_RELEASED",
+  "status": "ENGINEERING_QUALIFIED_STABLE_INPUTS_PENDING_PUBLICATION",
   "base": "3056eef0665fb3503294d49b89d937af2ea060e2",
   "rc2": "4b3314079600f5d95b3dd9e0defe3be8e845378e",
   "corporate": "8db847058cab231d2d39c34df46024b60564d2ad",
   "workflow": "196e3cd824f2a21078f75576f09c1153a6b17d17",
   "originalAssistant": {
     "repository": "Faust-S/T3",
-    "commit": "8b5a62fcaf2ac2cd714dc8af4468d5ac4e4f5922",
+    "commit": "2c247482306f218a7d5be668de11e98f168862d4",
     "sourceDisposition": "private owner; build only through authorized qualification",
     "sourceRoot": "browser-local-inference/domain-assistant",
     "files": [
       {
         "path": "main.mjs",
-        "blob": "d79b9e33d3f79a5b05278880298b5c83a8f300ef"
+        "blob": "4b6c54064b67d06c3ac767eaafaec30df247aa9a"
       },
       {
         "path": "field-policy.mjs",
@@ -21,7 +21,7 @@
       },
       {
         "path": "skill-runtime.mjs",
-        "blob": "1288a888aa5232984e5bd2caae168e43aa7b70ef"
+        "blob": "9a9704df6b2b41df119827dd357d7ac2058bdd34"
       },
       {
         "path": "device-policy.mjs",
@@ -222,8 +222,8 @@
     "packages/t3-core/docs/EXCHANGE_RECEIPT_EXISTING_RECORDS_2026_11_27_RU.md"
   ],
   "qualification": "Generic T3 exact Host, accepted Kernel, complete .iwxa restore, cold autonomy, BLI and portable artifact. Separate original corporate installed A-B-A qualification remains open, not a domain/platform release prerequisite.",
-  "version": "0.3.2-rc.2",
-  "snapshot": "Exact qualified domain assistant source pin over the 0.3.2-rc.1 public platform. Generic compiled Host, BLI catalog/engine, original Kernel and all executable platform files remain unchanged relative to rc.1.",
+  "version": "0.3.2",
+  "snapshot": "0.3.2 stable promotion: original platform executable bytes unchanged from rc.2; exact qualified original domain assistant source pin and metadata.",
   "qualificationAttempts": [
     {
       "candidate": "f3d0404da883c98fed4188fdff9006aa43c07eec",
@@ -495,7 +495,52 @@
       "priorGenericHardware": "PASS_REAL_QWEN_LIGHT_COLD_OFFLINE",
       "softwareDomainRun": 46058573231,
       "softwareDomain": "INSTALL_AND_COLD_LOAD_PASS; DOMAIN_GENERATION_TIMEOUT_ON_SOFTWARE_WEBGPU_ONLINE_AND_OFFLINE; WORKER_EXIT_NOT_OBSERVED",
-      "domainHardware": "NOT_YET_RUN_ON_THIS_CANDIDATE"
+      "domainHardware": {
+        "run": 46065502722,
+        "assistant": "2c247482306f218a7d5be668de11e98f168862d4",
+        "site": "0b5c4063573bba491f8b574484862463469b90bf",
+        "profiles": [
+          {
+            "profile": "light",
+            "scenarios": 7,
+            "exactSource": 7,
+            "expectedChoices": 7,
+            "actualInference": true,
+            "coldOffline": true
+          },
+          {
+            "profile": "balanced",
+            "scenarios": 7,
+            "exactSource": 7,
+            "expectedChoices": 7,
+            "actualInference": true,
+            "coldOffline": true
+          },
+          {
+            "profile": "extended",
+            "scenarios": 7,
+            "exactSource": 7,
+            "expectedChoices": 7,
+            "actualInference": true,
+            "coldOffline": true
+          }
+        ],
+        "semanticAcceptance": "SEVEN_EXISTING_SCENARIOS_PER_PROFILE_ONLY",
+        "independentProductAcceptance": false
+      }
+    },
+    "finalRelease": {
+      "version": "0.3.2",
+      "prior": "0.3.2-rc.2",
+      "source": "0a2cd84af5d56e148e003326bada030da8fb62e2",
+      "run": 46065502722,
+      "sourceTests": 137,
+      "assistant": "2c247482306f218a7d5be668de11e98f168862d4",
+      "site": "0b5c4063573bba491f8b574484862463469b90bf",
+      "subject": "6852d55ae8e7100b480b2d5c0a10b92de1c7d467",
+      "filesIdenticalToRc2": 171,
+      "installedProductsSeparate": true,
+      "domainMigrationAutoAuthorized": false
     }
   }
 }
