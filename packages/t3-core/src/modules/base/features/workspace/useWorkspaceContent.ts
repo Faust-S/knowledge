@@ -38,6 +38,10 @@ import { sortWorkspaceObjects } from "./workspace-object-sort";
 export interface UseWorkspaceContentOptions {
   kernel: KernelFacade | null;
   workspaceId: string;
+  /** The standard Workspace surface requests the full journal only on demand.
+   * Other existing callers retain the previous automatic read behavior.
+   */
+  deferEvents?: boolean;
 }
 
 const EMPTY_OBJECTS: readonly ObjectRecord[] = Object.freeze([]);
@@ -55,7 +59,7 @@ function safeEventToken(value: unknown): value is string {
 export function useWorkspaceContent(
   options: UseWorkspaceContentOptions,
 ): WorkspaceContentController {
-  const { kernel, workspaceId } = options;
+  const { kernel, workspaceId, deferEvents = false } = options;
 
   const [workspaceState, setWorkspaceState] =
     useState<WorkspaceRecordState>("idle");
@@ -264,7 +268,13 @@ export function useWorkspaceContent(
   }, [kernel, workspaceId, profileReadyForData]);
 
   useEffect(() => { void doLoadObjects(); }, [doLoadObjects]);
-  useEffect(() => { void doLoadEvents(); }, [doLoadEvents]);
+  useEffect(() => {
+    // In deferred mode still surface lack of permission, not an empty journal.
+    // A manual refreshEvents is the only path to the full authorized history.
+    if (!deferEvents || (kernel && !kernel.hasOperation("t1.listEventsSince"))) {
+      void doLoadEvents();
+    }
+  }, [doLoadEvents, deferEvents, kernel]);
 
   return useMemo<WorkspaceContentController>(
     () => ({

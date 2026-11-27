@@ -319,3 +319,30 @@ describe("Revision-bound working view composition", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 });
+
+
+describe("bounded history rendering", () => {
+  it("distinguishes deferred from empty and can navigate all authorized historical events", () => {
+    const journal: EventRecord[] = Array.from({ length: 121 }, (_, index) => ({
+      event_id: "history-" + String(index).padStart(3, "0"), event_type: "UPDATED", workspace_id: "w",
+      service_id: "svc", object_id: "note-1", occurred_at: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(), payload: {},
+    }));
+    const props = { workspace, objects, profileDefinition: profile, onOpenObject: () => {} };
+    const { rerender } = render(<RichWorkspaceReadModel {...props} events={[]} historyState="idle" />);
+    expect(screen.getByTestId("rich-workspace-event-count").textContent).toBe("—");
+    expect(screen.getByTestId("rich-workspace-history-status").textContent).toContain("История не загружена");
+    expect(screen.queryAllByTestId("rich-workspace-event")).toHaveLength(0);
+    rerender(<RichWorkspaceReadModel {...props} events={journal} historyState="ready" />);
+    expect(screen.getByTestId("rich-workspace-event-count").textContent).toBe("121");
+    expect(screen.getAllByTestId("rich-workspace-event")).toHaveLength(50);
+    expect(screen.getByTestId("workspace-history-window").textContent).toContain("1–50 из 121");
+    fireEvent.click(screen.getByTestId("workspace-history-next"));
+    expect(screen.getAllByTestId("rich-workspace-event")).toHaveLength(50);
+    fireEvent.click(screen.getByTestId("workspace-history-next"));
+    expect(screen.getAllByTestId("rich-workspace-event")).toHaveLength(21);
+    expect(screen.getByTestId("workspace-history-window").textContent).toContain("101–121 из 121");
+    rerender(<RichWorkspaceReadModel {...props} events={journal.slice(0, 2)} historyState="ready" />);
+    expect(screen.getAllByTestId("rich-workspace-event")).toHaveLength(2);
+    expect(screen.queryByTestId("workspace-history-next")).toBeNull();
+  });
+});

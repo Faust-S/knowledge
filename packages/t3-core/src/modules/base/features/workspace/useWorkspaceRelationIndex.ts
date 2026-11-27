@@ -61,15 +61,17 @@ export function useWorkspaceRelationIndex(options: {
 
     setState("loading");
     const selected = sourceSelection.objects;
+    const abort = new AbortController();
 
     void (async () => {
       const results = await loadRelationIndexSources({
         workspaceId,
         sourceObjects: selected,
+        signal: abort.signal,
         getObject: (activeWorkspaceId, objectId) =>
           kernel.getObject(activeWorkspaceId, objectId),
       });
-      if (gen !== generation.current) return;
+      if (abort.signal.aborted || gen !== generation.current) return;
 
       const nextModel = buildWorkspaceRelationIndex({
         workspaceId,
@@ -87,7 +89,8 @@ export function useWorkspaceRelationIndex(options: {
     })();
 
     return () => {
-      // Generation guard above makes every stale completion inert.
+      // Stop queued reads as well as ignoring results already in flight.
+      abort.abort();
       generation.current += 1;
     };
   }, [enabled, kernel, objects, sourceSelection, workspaceId]);

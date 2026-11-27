@@ -154,6 +154,7 @@ describe("WorkspaceView — profile-driven catalog", () => {
       />,
     );
     expect(await screen.findByTestId("r-note")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("workspace-load-history"));
     expect(await screen.findByTestId("events-error")).toBeInTheDocument();
   });
 
@@ -218,5 +219,54 @@ describe("WorkspaceView — profile-driven catalog", () => {
     for (const label of [/Создать объект/i, /Редактировать объект/i, /Удалить объект/i]) {
       expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
     }
+  });
+});
+
+
+describe("Workspace fast opening", () => {
+  beforeEach(() => { viewerRegistry = new ViewerRegistry(); });
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  it.each([100, 1000, 10000])("opens %i objects without requesting the history or graph details", async (count) => {
+    setupGenericRenderers();
+    const session = createDevMockClient({ seedWorkspaces: [ws("fast", "generic")],
+      seedObjects: Array.from({ length: count }, (_, i) => obj("fast", "note-" + i)) });
+    const events = vi.spyOn(adapter, "listEventsSince").mockResolvedValue([]);
+    const details = vi.spyOn(adapter, "getObject");
+    const kernel = createKernelFacade({ session });
+    render(<WorkspaceView viewerRegistry={viewerRegistry} kernel={kernel} currentShellServiceId="svc" workspaceId="fast"
+      onOpenObject={() => {}} onExportThis={() => {}} onBack={() => {}} />);
+    const nav = await screen.findByTestId("object-section-nav");
+    expect(within(nav).getByTestId("section-tab-all").textContent).toContain("(" + count + ")");
+    expect(screen.getByTestId("workspace-history-deferred")).toBeTruthy();
+    expect(screen.getByTestId("rich-workspace-event-count").textContent).toBe("—");
+    expect(events).not.toHaveBeenCalled();
+    expect(details).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("workspace-load-history"));
+    await waitFor(() => expect(screen.getByTestId("rich-workspace-event-count").textContent).toBe("0"));
+    expect(events).toHaveBeenCalledTimes(1);
+    expect(details).not.toHaveBeenCalled();
+  }, 20000);
+
+  it("starts the graph only on demand, closes it and does not reopen it in another Workspace", async () => {
+    setupGenericRenderers();
+    const session = createDevMockClient({ seedWorkspaces: [ws("a", "generic"), ws("b", "generic")], seedObjects: [obj("a", "a1"), obj("b", "b1")] });
+    const details = vi.spyOn(adapter, "getObject");
+    const kernel = createKernelFacade({ session });
+    const props = { viewerRegistry, kernel, currentShellServiceId: "svc", onOpenObject: () => {}, onExportThis: () => {}, onBack: () => {} };
+    const { rerender } = render(<WorkspaceView {...props} workspaceId="a" />);
+    await screen.findByTestId("object-section-nav");
+    expect(details).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("workspace-toggle-relations"));
+    await waitFor(() => expect(details).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("workspace-toggle-relations").getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByTestId("workspace-toggle-relations"));
+    expect(screen.getByTestId("workspace-toggle-relations").getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByTestId("workspace-relation-index")).toBeNull();
+    fireEvent.click(screen.getByTestId("workspace-toggle-relations"));
+    await waitFor(() => expect(details).toHaveBeenCalledTimes(2));
+    rerender(<WorkspaceView {...props} workspaceId="b" />);
+    await screen.findByTestId("object-section-nav");
+    expect(screen.getByTestId("workspace-toggle-relations").getAttribute("aria-expanded")).toBe("false");
+    expect(details).toHaveBeenCalledTimes(2);
   });
 });

@@ -118,23 +118,27 @@ export async function loadRelationIndexSources(input: {
   workspaceId: string;
   sourceObjects: readonly ObjectRecord[];
   getObject: (workspaceId: string, objectId: string) => Promise<ObjectWithRelations | null>;
+  /** Stops scheduling new reads; already dispatched kernel calls may settle. */
+  signal?: AbortSignal;
 }): Promise<RelationIndexSourceResult[]> {
-  const { workspaceId, sourceObjects, getObject } = input;
+  const { workspaceId, sourceObjects, getObject, signal } = input;
   const results: RelationIndexSourceResult[] = new Array(sourceObjects.length);
   let next = 0;
 
   const worker = async () => {
-    while (true) {
+    while (!signal?.aborted) {
       const index = next;
       next += 1;
       if (index >= sourceObjects.length) return;
       const sourceObjectId = sourceObjects[index].object_id;
       try {
         const detail = await getObject(workspaceId, sourceObjectId);
+        if (signal?.aborted) return;
         results[index] = detail
           ? { sourceObjectId, state: "ready", detail }
           : { sourceObjectId, state: "missing" };
       } catch {
+        if (signal?.aborted) return;
         results[index] = { sourceObjectId, state: "error" };
       }
     }
@@ -142,7 +146,8 @@ export async function loadRelationIndexSources(input: {
 
   const workerCount = Math.min(RELATION_INDEX_MAX_CONCURRENCY, sourceObjects.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return results;
+  // Cancellation must not publish a partial relation model as complete.
+  return signal?.aborted ? [] : results;
 }
 
 export function buildWorkspaceRelationIndex(input: {

@@ -258,3 +258,36 @@ describe("workspace relation index model", () => {
     expect(selected.objects[99].object_id).toBe("o-099");
   });
 });
+
+
+describe("relation request cancellation", () => {
+  it("stops undispatched work immediately after cancellation and never publishes a partial result", async () => {
+    const objects = Array.from({ length: 100 }, (_, i) => object("o-" + i));
+    const abort = new AbortController();
+    let started = 0;
+    const releases: (() => void)[] = [];
+    const result = loadRelationIndexSources({
+      workspaceId: "w", sourceObjects: objects, signal: abort.signal,
+      getObject: async () => {
+        started += 1;
+        await new Promise<void>(resolve => { releases.push(resolve); });
+        return null;
+      },
+    });
+    expect(started).toBe(4);
+    abort.abort();
+    for (const release of releases) release();
+    expect(await result).toEqual([]);
+    expect(started).toBe(4);
+  });
+
+  it("does not call the kernel if cancellation precedes the first read", async () => {
+    const abort = new AbortController();
+    abort.abort();
+    let calls = 0;
+    const result = await loadRelationIndexSources({ workspaceId: "w", sourceObjects: [object("a")],
+      signal: abort.signal, getObject: async () => { calls++; return null; } });
+    expect(calls).toBe(0);
+    expect(result).toEqual([]);
+  });
+});

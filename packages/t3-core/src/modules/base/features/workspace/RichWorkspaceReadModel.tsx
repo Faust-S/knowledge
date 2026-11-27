@@ -12,6 +12,8 @@ import { WorkspaceMaterialCanvas } from "./WorkspaceMaterialCanvas";
 import { WorkspaceMethodEditor } from "./WorkspaceMethodEditor";
 import { createWorkspaceMethodDraft, type WorkspaceMethodDraft } from "./workspace-project-method.mjs";
 import { formatWorkspaceDate } from "../workspaces/workspace-format";
+import { paginate } from "./workspace-catalog-model";
+import type { LoadState } from "./content-types";
 import {
   RICH_WORKSPACE_RECEIPTS_BOUNDARY,
   RICH_WORKSPACE_WINDOW_SIZE,
@@ -109,6 +111,8 @@ export function RichWorkspaceReadModel(props: {
   events: readonly EventRecord[];
   profileDefinition: WorkspaceProfileDefinition;
   eventsAvailable?: boolean;
+  /** Distinguishes a deferred journal from a denied or empty journal. */
+  historyState?: LoadState;
   commands?: CommandsFacade;
   kernel?: KernelFacade;
   viewerRegistry?: ViewerRegistry;
@@ -130,6 +134,12 @@ export function RichWorkspaceReadModel(props: {
   const [methodState, setMethodState] = useState<MethodDraftState | null>(null);
   const [methodError, setMethodError] = useState("");
   const [windowOffset, setWindowOffset] = useState(0);
+  const [historyPage, setHistoryPage] = useState(0);
+  const historyState = props.historyState ?? (eventsAvailable ? "ready" : "unavailable");
+  const historyReady = historyState === "ready";
+  // Only render one page, while keeping the actual full authorized count.
+  const historyWindow = useMemo(() => paginate(model.timeline, historyPage, 50), [model.timeline, historyPage]);
+  useEffect(() => { setHistoryPage(0); }, [workspace.workspace_id, profileDefinition.id, props.kernel]);
   const [detailState, setDetailState] = useState<{ workspaceId: string; objectId: string | null }>({
     workspaceId: workspace.workspace_id,
     objectId: null,
@@ -654,7 +664,7 @@ export function RichWorkspaceReadModel(props: {
         <dt>Workspace</dt><dd className="text-slate-200 break-all"><code>{model.workspaceId}</code></dd>
         <dt>Профиль</dt><dd className="text-slate-200 break-all"><code>{model.profileId}</code></dd>
         <dt>Объектов</dt><dd className="text-slate-200">{model.metadata.objectCount}</dd>
-        <dt>Событий</dt><dd className="text-slate-200">{model.metadata.eventCount}</dd>
+        <dt>Событий</dt><dd className="text-slate-200" data-testid="rich-workspace-event-count">{historyReady ? model.metadata.eventCount : "—"}</dd>
       </dl>
 
       <div className="grid gap-2 sm:grid-cols-3" data-testid="rich-workspace-dashboard">
@@ -904,9 +914,15 @@ export function RichWorkspaceReadModel(props: {
       <div className="space-y-2" data-testid="rich-workspace-timeline">
         <div className="flex flex-wrap items-baseline gap-2"><h5 className="text-xs font-medium text-slate-200">Лента событий</h5><span className="text-[11px] text-amber-200">Порядок показа не является семантическим порядком событий.</span></div>
         <p className="text-[11px] text-slate-500">Runtime 1.2 не предоставляет отдельные effective-time / knowledge-time; они не подменяются occurred_at.</p>
-        {!eventsAvailable ? <p className="text-xs text-slate-500" role="status">События не предоставлены ядром в текущем режиме.</p> : model.timeline.length === 0 ? <p className="text-xs text-slate-500">Событий нет.</p> : (
+        {!historyReady ? <p className="text-xs text-slate-500" role="status" data-testid="rich-workspace-history-status">
+          {historyState === "idle" ? "История не загружена. Выберите «Загрузить историю»."
+            : historyState === "loading" ? "Загрузка истории…"
+            : historyState === "error" ? "Не удалось загрузить историю."
+            : "События не предоставлены ядром в текущем режиме."}
+        </p> : model.timeline.length === 0 ? <p className="text-xs text-slate-500">Событий нет.</p> : (
+          <>
           <ul className="divide-y divide-slate-800 border border-slate-800 rounded">
-            {model.timeline.map((event) => (
+            {historyWindow.pageItems.map((event) => (
               <li key={event.eventId} className="p-2 text-xs space-y-1" data-testid="rich-workspace-event">
                 <div className="flex flex-wrap gap-2"><code className="text-slate-200">{event.eventType}</code><span className="ml-auto text-slate-500">{formatWorkspaceDate(event.occurredAt)}</span></div>
                 <div className="text-[11px] text-slate-500 break-all">event <code>{event.eventId}</code> · service <code>{event.serviceId}</code>{event.objectId ? <> · object <code>{event.objectId}</code></> : null}</div>
@@ -914,6 +930,16 @@ export function RichWorkspaceReadModel(props: {
               </li>
             ))}
           </ul>
+          {historyWindow.totalPages > 1 && <nav aria-label="Страницы истории" className="flex flex-wrap items-center gap-2">
+            <button type="button" data-testid="workspace-history-prev" disabled={historyWindow.normalizedPage === 0}
+              onClick={() => setHistoryPage(historyWindow.normalizedPage - 1)}
+              className="px-3 py-1.5 rounded bg-slate-800 text-xs min-h-[44px] disabled:opacity-50">Назад</button>
+            <span className="text-xs text-slate-400" data-testid="workspace-history-window">{historyWindow.startIndex}–{historyWindow.endIndex} из {historyWindow.total}</span>
+            <button type="button" data-testid="workspace-history-next" disabled={historyWindow.normalizedPage + 1 >= historyWindow.totalPages}
+              onClick={() => setHistoryPage(historyWindow.normalizedPage + 1)}
+              className="px-3 py-1.5 rounded bg-slate-800 text-xs min-h-[44px] disabled:opacity-50">Далее</button>
+          </nav>}
+          </>
         )}
       </div>
 
