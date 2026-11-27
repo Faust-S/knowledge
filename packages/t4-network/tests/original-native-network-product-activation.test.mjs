@@ -54,7 +54,7 @@ function fixture({role='SOURCE',installed=false,registryExchangeOperations=[],gr
       },async bindPeerHistoryReceiver(receiver){counts.bind++;assert.equal(typeof receiver.read,'function');if(bindHook)return bindHook(receiver);return ()=>{counts.stop++;};}
     }});
   const attach=(version=1)=>relay.exchange({verb:'attach',payload:{sessionInfo:info(grants),networkRelayVersion:1,
-    networkActivationVersion:version,...(installed?{installedNetworkScope:installedScope,registryExchangeOperations}:{}),...(role==='SOURCE'?{localSourceMutationVersion:1,localSourceGraphVersion:1}:{})}},epoch);
+    networkActivationVersion:version,...(installed?{installedNetworkScope:installedScope}:{}),...(registryExchangeOperations.length?{registryExchangeOperations}:{}),...(role==='SOURCE'?{localSourceMutationVersion:1,localSourceGraphVersion:1}:{})}},epoch);
   const ex=(s,verb,rest={})=>relay.exchange({verb,payload:{sessionId:s.sessionId,...rest}},s.contextEpoch);
   const next=s=>ex(s,'next');
   async function command(s,method,args,result){
