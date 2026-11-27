@@ -6,7 +6,7 @@ import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from
 import { applyWorkspaceMethodRevision,inspectWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
 import { openK036C3QualificationOwner,captureK036C3CopyFixture,verifyK036C3CopyFixture } from './k036-c3-owner-qualification-adapter.mjs';
 import { projectProcessSourceObjectId } from '../src/modules/base/owners/project-process-source-owner.mjs';
-import { readWorkspaceMethodStageInputBasis,readWorkspaceMethodInputOverview,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodMaterialEvidence,buildWorkspaceMethodPersonalTaskDraft,prepareWorkspaceMethodPersonalChain,buildWorkspaceMethodCorporateTaskReference } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
+import { readWorkspaceMethodStageInputBasis,readWorkspaceMethodInputOverview,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodMaterialEvidence,buildWorkspaceMethodPersonalTaskDraft,prepareWorkspaceMethodPersonalChain,buildWorkspaceMethodCorporateTaskReference,buildWorkspaceMethodCorporateTaskInputs } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
 import { createOriginalPersonalWorkflowTaskObserver,recoverOriginalPersonalWorkflowTaskSelection,recoverOriginalPersonalWorkflowTaskSelections,personalWorkflowTaskInspection } from '../src/t3/workspace-method-personal-draft.mjs';
 import { compareWorkspaceMethodAlternatives } from '../src/modules/base/owners/project-process-method-comparison.mjs';
 import { previewWorkspaceMethodAlternative,createWorkspaceMethodAlternativeThroughSourceOwner,readWorkspaceMethodAlternativeOrigin } from '../src/modules/base/owners/project-process-method-alternative.mjs';
@@ -306,6 +306,14 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
     !JSON.stringify(corporateReference).includes('Original K036 text attachment')&&
     corporateReference.workflowInput.materialEvidenceDigest===corporatePreview.materialEvidence.materialEvidenceDigest&&
     corporateReference.signedTaskIssued===false&&corporateReference.executionAuthority===false&&corporateReference.exactInputBindingProven===false);
+  const corporateInputs=await buildWorkspaceMethodCorporateTaskInputs({...corporateArgs,
+    expectedCandidateDigest:corporatePreview.candidateDigest});
+  same('original K036 corporate native inputs carry exact attachment bytes',corporateInputs.attachments[1].text,actualText);
+  same('original K036 corporate native inputs carry actual Object data',
+    exact(JSON.parse(corporateInputs.attachments[0].text).data),exact(personalMaterial.data));
+  same('original K036 corporate native inputs carry same signed reference',exact(corporateInputs.workflowInput),exact(corporateReference.workflowInput));
+  check('original K036 native input preparation does not authorize execution or claim complete visibility',
+    corporateInputs.observedMaterialBytesVerified===true&&corporateInputs.allAssetsProven===false&&corporateInputs.executionAuthority===false);
   const personalPreview=await previewWorkspaceMethodStageHandoff(personalArgs);
   const personalPlan=await buildWorkspaceMethodPersonalTaskDraft({...personalArgs,expectedCandidateDigest:personalPreview.candidateDigest});
   same('original K036 root personal draft has exact text attachment',personalPlan.draft.attachments[1].text,actualText);
@@ -366,6 +374,10 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
     expectedCandidateDigest:corporatePreview.candidateDigest});
   same('original K036 same-ID Exchange preserves exact corporate Task reference',
     exact(restoredCorporate),exact(corporateReference));
+  const restoredCorporateInputs=await buildWorkspaceMethodCorporateTaskInputs({...restoredCorporateArgs,
+    expectedCandidateDigest:corporatePreview.candidateDigest});
+  same('original K036 same-ID Exchange preserves actual corporate native input bytes and reference',
+    exact(restoredCorporateInputs),exact(corporateInputs));
   const recovered=await recoverOriginalPersonalWorkflowTaskSelection({workspaceId:ws,projectId:personalProjectId,
     stepId:'finish',taskId:'TASK-k036-finish',expected:personal.method,observer});
   same('original K036 same-ID restore retains canonical Work identity',recovered.canonicalWorkRef.recordId,'personal-root-finish@1');
@@ -388,6 +400,9 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   await expectReject('original K036 actual attachment edit invalidates previous corporate Task reference',
     ()=>buildWorkspaceMethodCorporateTaskReference({...restoredCorporateArgs,expectedCandidateDigest:corporatePreview.candidateDigest}),
     ['METHOD_CORPORATE_TASK_EVIDENCE_CHANGED']);
+  await expectReject('original K036 changed actual attachment refuses old corporate native inputs',
+    ()=>buildWorkspaceMethodCorporateTaskInputs({...restoredCorporateArgs,expectedCandidateDigest:corporatePreview.candidateDigest}),
+    ['METHOD_CORPORATE_TASK_EVIDENCE_CHANGED']);
   same('fixture owner and Exchange use only original database',(await indexedDB.databases()).map(d=>d.name),['iwxa-local']);
   return {status:'PASS_ORIGINAL_OWNER_FIXTURE_ONLY',recordCount:9,restoredPartial:true,copyBinding:'EXPLICIT_EPHEMERAL_FIXTURE_PASS_PRODUCTION_BLOCKED',
     currentMethodAddressedReads:{before:beforeReads,after:afterReads},unfilteredCatalog:{before:catalogBefore,after:catalogAfter},
@@ -395,7 +410,8 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
     copiedMethodLocalProjection:true,copyOfCopyLocalProjection:true,durableCopyProvenance:false,
     stageInputBasisVerified:true,selectedStageAddressedReads:{before:beforeStageReads,after:afterStageReads},
     completeOverviewAddressedReads:{before:beforeOverviewReads,after:afterOverviewReads},rootHandoffPreview:true,
-    corporateReferenceOriginalK036:{sameIdRestore:true,changedAssetRejected:true,actualSignedIssuerQualifiedSeparately:true},
+    corporateReferenceOriginalK036:{sameIdRestore:true,changedAssetRejected:true,actualSignedIssuerQualifiedSeparately:true,
+      nativeTextInputsSameIdRestore:true,actualTextAndObjectBytesVerified:true,executionAuthorized:false},
     personalChainOriginalK036:{sameIdRestore:true,directSelection:true,sharedAssetReads:2,changedAssetRejected:true,
       acceptedTaskOwner:'CONTROLLED_FIXTURE_ONLY',workCompleted:false},physicalBrowser:false,productionAdapterApproved:false};
 }

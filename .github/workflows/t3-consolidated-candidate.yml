@@ -1,0 +1,471 @@
+name: T3 rc.3 consolidated source and portable candidate
+on:
+  push:
+    branches: ['ci/once/t3-consolidated-candidate/**']
+    paths: ['.github/ci-requests/t3-consolidated-candidate.json']
+permissions:
+  contents: read
+concurrency:
+  group: t3-consolidated-candidate
+  cancel-in-progress: false
+jobs:
+  request:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate one-time exact candidate request before other jobs
+        env:
+          BEFORE: ${{ github.event.before }}
+          CREATED: ${{ github.event.created }}
+          DELETED: ${{ github.event.deleted }}
+          FORCED: ${{ github.event.forced }}
+        run: |
+          set -euo pipefail
+          test "$CREATED" = false
+          test "$DELETED" = false
+          test "$FORCED" = false
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $BEFORE"
+          test "$GITHUB_REF_NAME" = "ci/once/t3-consolidated-candidate/$BEFORE"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = "$(printf 'A\t.github/ci-requests/t3-consolidated-candidate.json')"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('.github/ci-requests/t3-consolidated-candidate.json','utf8'));
+          const m=JSON.parse(readFileSync('packages/t3-core/docs/t3-consolidation-sources.json','utf8'));
+          assert.deepEqual(r,{schema:'iwxa.ci.once/1',workflow:'t3-consolidated-candidate',preparedSha:process.env.BEFORE,profile:'SOURCE_SHARED_HOST_PORTABLE_NO_PRIVATE_OUTPUT',assistant:m.originalAssistant.commit,corporateWorkflow:m.originalCorporateWorkflow.commit,reason:'QUALIFY_CONSOLIDATED_ORIGINAL_T3'});
+          assert.equal(m.version,'0.3.1-rc.3');
+          assert.equal(m.originalAssistant.commit,'3b8c2fb25bf5205e53331f5db3e035210b7aac9f');
+          assert.equal(m.originalCorporateWorkflow.commit,'3a30878acca2d2f62f5573e9d03c3ffcecc441ae');
+          console.log('T3_CONSOLIDATED_EXACT_REQUEST_PASS');
+          NODE
+
+  platform:
+    needs: request
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BEFORE: ${{ github.event.before }}
+    defaults:
+      run:
+        working-directory: packages/t3-core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.before }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Exact public original Kernel
+        working-directory: packages/t3-core
+        run: |
+          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip" | sha256sum -c -
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Broad inherited T3 product regressions (before BLI staging)
+        working-directory: packages/t3-core
+        run: |
+          npm run check:source
+          npm run typecheck
+          npm run test:product:core
+          npm run test:product:workspace
+          node --test tests/t3-activity/*.test.mjs tests/t3-mobile-model-catalog.test.mjs tests/t3-domain-offline.test.mjs tests/t3-pwa-install.test.mjs tests/t3-d5-model-install-cancellation.test.mjs
+      - name: Five route regressions with exact original negative control
+        run: |
+          node node_modules/vitest/vitest.mjs run --config vitest.t3-product.config.mjs tests/host-route-snapshot.dom.test.tsx
+      - name: Negative control against exact unmodified original source
+        env:
+          ORIGINAL: '326f725c44d69ac99f6b912241e9e8a6c3d716a5'
+        run: |
+          set -euo pipefail
+          git cat-file -e "$ORIGINAL^{commit}" || git fetch --no-tags origin "$ORIGINAL"
+          trap 'git restore --source=HEAD -- src/workspace-host/router/use-host-route-match.ts src/workspace-host/rendering/ModuleRouteOutlet.tsx' EXIT
+          for name in src/workspace-host/router/use-host-route-match.ts src/workspace-host/rendering/ModuleRouteOutlet.tsx; do
+            git show "$ORIGINAL:packages/t3-core/$name" > "$name"
+          done
+          # Use the exact reporter path declared by the original config.
+          # Remove the positive-control report so it cannot be mistaken for
+          # negative-control evidence, and expose diagnostics if no new report.
+          report=artifacts/t3-product-test-report.json
+          rm -f "$report"
+          set +e
+          node node_modules/vitest/vitest.mjs run --config vitest.t3-product.config.mjs --project t3-product-dom tests/host-route-snapshot.dom.test.tsx > "$RUNNER_TEMP/t3-route-negative.log" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/t3-route-negative.log"
+          test "$code" -eq 1
+          test -s "$report"
+          node --input-type=module - "$report" <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          assert.equal(report.success, false);
+          const tests = report.testResults.flatMap(row => row.assertionResults);
+          const expected = [
+            "never commits a false unavailable route when the runtime first becomes ready",
+            "does not resolve the previous router's route against a replacement runtime",
+            "rechecks a changed original snapshot when the subscription is registered"
+          ];
+          assert.equal(tests.length, 5);
+          for (const title of expected) {
+            const found = tests.find(row => row.title === title);
+            assert.equal(found?.status, 'failed', title);
+          }
+          for (const row of tests.filter(row => !expected.includes(row.title))) {
+            assert.equal(row.status, 'passed', row.title);
+          }
+          console.log('T3_ROUTE_NEGATIVE_CONTROL=' + JSON.stringify({expectedFailures: expected.length, passed: tests.length - expected.length}));
+          NODE
+      - name: Compile original generic Host with the exact candidate shared BLI
+        working-directory: packages/t3-core
+        run: node scripts/qualify-bli-inherited-host.mjs
+      - name: Stage the exact original Kernel and real browser for engineering qualification
+        run: |
+          mkdir -p "$RUNNER_TEMP/qualified-kernel"
+          unzip -q qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip -d "$RUNNER_TEMP/qualified-kernel"
+          npx --no-install playwright install chromium
+      - name: Original compiled Host and full independent .iwxa cold readback
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/qualified-kernel
+          T3_PWA_COMPILED_HOST_DIR: ${{ github.workspace }}/packages/t3-core/dist
+        run: node --test tests/t3-pwa-original-kernel.browser.mjs
+      - name: Original compiled BLI consent, Kernel context and actual GPU detection
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/qualified-kernel
+        run: node tests/t3-d5-full-bli.browser.mjs
+      - name: Package and independently read every portable input back
+        working-directory: packages/t3-core
+        run: |
+          node scripts/package-t3-portable-platform.mjs "$RUNNER_TEMP/t3-platform-candidate" "$BEFORE" "$GITHUB_RUN_ID"
+          node scripts/package-t3-portable-platform.mjs "$RUNNER_TEMP/t3-platform-repeat" "$BEFORE" "$GITHUB_RUN_ID"
+          cmp "$RUNNER_TEMP/t3-platform-candidate/platform-inputs.zip" "$RUNNER_TEMP/t3-platform-repeat/platform-inputs.zip"
+          cmp "$RUNNER_TEMP/t3-platform-candidate/candidate-receipt.json" "$RUNNER_TEMP/t3-platform-repeat/candidate-receipt.json"
+          echo T3_PORTABLE_IDENTICAL_PACKAGING_PASS
+          mkdir "$RUNNER_TEMP/t3-platform-extract"
+          unzip -q "$RUNNER_TEMP/t3-platform-candidate/platform-inputs.zip" -d "$RUNNER_TEMP/t3-platform-extract"
+          cd "$RUNNER_TEMP/t3-platform-extract"
+          sha256sum -c t3-platform-inputs.sha256
+          node --input-type=module -e 'import("./scripts/materialize-t3-domain-mode.mjs").then(x=>{if(typeof x.materializeDomainMode!=="function")process.exit(1);console.log("T3_PORTABLE_MATERIALIZER_IMPORT_PASS")})'
+      - name: Retain public-only exact portable candidate input, no private domain
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-t3-mobile-portable-candidate-${{ github.event.before }}
+          path: ${{ runner.temp }}/t3-platform-candidate/
+          if-no-files-found: error
+          retention-days: 90
+
+  assistant:
+    needs: request
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.before }}
+          persist-credentials: false
+      - name: Exact original assistant source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 3b8c2fb25bf5205e53331f5db3e035210b7aac9f
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-bli
+      - name: Exact actual Club skills
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: 0a9e8e335cc9e2d6d4f4ca7a9aaf56b9fb9626e1
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-club
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Exact canonical Club semantic owner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club
+          ref: b66b036d16bf44adb0304351d762f5c098f5312a
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-club-owner
+      - name: Verify byte-identical original domain projection and owner tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp private-club-owner/models/assistant-skills.json private-club/assets/club-assistant-skills.json
+          node private-club/scripts/club-assistant-skills.mjs
+          if ! node --input-type=module - "$GITHUB_WORKSPACE/private-club-owner" 'b66b036d16bf44adb0304351d762f5c098f5312a' > "$RUNNER_TEMP/private-skill-import.log" 2>&1 <<'NODE'
+          import {importClubSkills} from './private-club/scripts/import-club-skills.mjs';
+          const plan=importClubSkills(process.argv[2],process.argv[3]);
+          if(plan.bytesChanged||plan.pinChanged||plan.applied)throw Error('EXACT_OWNER_IMPORT_MISMATCH');
+          console.log('CLUB_SKILL_IMPORT_NO_CHANGES');
+          const {reportClubAssistantCoverage}=await import('./private-club/scripts/club-assistant-skills.mjs');
+          const report=reportClubAssistantCoverage();
+          console.log('T3_CLUB_SKILL_COVERAGE forms='+report.totalForms+' bound='+report.boundForms+' unbound='+report.unboundForms+' excluded='+report.excludedForms);
+          NODE
+          then
+            echo T3_CLUB_EXACT_DEVELOPER_IMPORT_FAIL; exit 1
+          fi
+          echo T3_CLUB_EXACT_DEVELOPER_IMPORT_PASS
+          grep -E '^T3_CLUB_SKILL_COVERAGE forms=[0-9]+ bound=[0-9]+ unbound=[0-9]+ excluded=[0-9]+$' "$RUNNER_TEMP/private-skill-import.log"
+          if ! (cd private-club-owner && node scripts/club-skill-authoring.mjs check && node --test tests/assistant-skills.test.mjs) > "$RUNNER_TEMP/private-owner-skills.log" 2>&1; then
+            echo T3_CLUB_OWNER_SKILLS_FAIL
+            exit 1
+          fi
+          echo T3_CLUB_OWNER_SKILLS_PASS
+      - name: Exact previous released skill projection for real upgrade test
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: 01d5cd2b49307d00bf130ac32df761dd4f8482bb
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-club-previous-skills
+          sparse-checkout: |
+            assets/club-assistant-skills.json
+            runtime/t3-platform/0.3.1-rc.1/domain-skills.json
+          sparse-checkout-cone-mode: false
+      - name: Real developer upgrade 1.3.0 to 1.4.0 and idempotent reapply
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! node --input-type=module - "$GITHUB_WORKSPACE/private-club-owner" 'b66b036d16bf44adb0304351d762f5c098f5312a' > "$RUNNER_TEMP/private-skill-upgrade.log" 2>&1 <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {join,relative} from 'node:path';
+          import {importClubSkills} from './private-club/scripts/import-club-skills.mjs';
+          import {skillAsset,skillPinPath,verifyClubSkillProjection} from './private-club/scripts/club-assistant-skills.mjs';
+          const asset=join('private-club',skillAsset);
+          const pinRel=relative(join(process.cwd(),'private-club'),skillPinPath);
+          const expectedAsset=readFileSync(asset),expectedPin=readFileSync(skillPinPath);
+          const oldAsset=readFileSync(join('private-club-previous-skills',skillAsset));
+          const oldPin=readFileSync(join('private-club-previous-skills',pinRel));
+          try{
+            writeFileSync(asset,oldAsset);writeFileSync(skillPinPath,oldPin);
+            const plan=importClubSkills(process.argv[2],process.argv[3]);
+            assert.equal(plan.from,'1.3.0');assert.equal(plan.to,'1.4.0');
+            assert.equal(plan.formsChange.added.length,5);assert.equal(plan.formsChange.removed.length,0);
+            assert.equal(plan.bytesChanged,true);assert.equal(plan.applied,false);
+            assert.ok(readFileSync(asset).equals(oldAsset));assert.ok(readFileSync(skillPinPath).equals(oldPin));
+            const applied=importClubSkills(process.argv[2],process.argv[3],{apply:true});
+            assert.equal(applied.applied,true);
+            assert.ok(readFileSync(asset).equals(expectedAsset));assert.ok(readFileSync(skillPinPath).equals(expectedPin));
+            assert.equal(verifyClubSkillProjection().formHints,26);
+            const repeat=importClubSkills(process.argv[2],process.argv[3],{apply:true});
+            assert.equal(repeat.bytesChanged,false);assert.equal(repeat.pinChanged,false);
+            assert.ok(readFileSync(asset).equals(expectedAsset));assert.ok(readFileSync(skillPinPath).equals(expectedPin));
+          }finally{
+            writeFileSync(asset,expectedAsset);writeFileSync(skillPinPath,expectedPin);
+          }
+          NODE
+          then
+            echo T3_CLUB_SKILL_REAL_UPGRADE_FAIL; exit 1
+          fi
+          echo T3_CLUB_SKILL_REAL_UPGRADE_21_TO_26=PASS
+      - name: Original assistant field skill and profile tests
+        shell: bash
+        working-directory: private-bli/browser-local-inference
+        run: |
+          set -euo pipefail
+          if ! (node --check domain-assistant/main.mjs && node --check domain-assistant/device-policy.mjs && node --test tests/domain-assistant-*.test.mjs) > "$RUNNER_TEMP/private-mobile-source.log" 2>&1; then
+            echo T3_MOBILE_ORIGINAL_ASSISTANT_SOURCE_FAIL
+            exit 1
+          fi
+          grep '^# tests ' "$RUNNER_TEMP/private-mobile-source.log" || true
+          grep '^# pass ' "$RUNNER_TEMP/private-mobile-source.log" || true
+          echo T3_MOBILE_ORIGINAL_ASSISTANT_SOURCE_PASS
+      - name: Prepare one shared catalog and actual assistant DOM qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/assistant-candidate"
+          mkdir -p "$stage/domain-assistant" "$stage/src"
+          cp private-bli/browser-local-inference/domain-assistant/{main,field-policy,skill-runtime,device-policy}.mjs "$stage/domain-assistant/"
+          cp packages/t3-core/integration-sources/bli1/{catalog,engine,domain-model-install,storage,policy,cache-readiness,model-worker}.mjs "$stage/src/"
+          cp packages/t3-core/tests/t3-mobile-assistant-dom-candidate.mjs "$stage/"
+          cp packages/t3-core/tests/t3-prepare-domain-quality.mjs "$stage/"
+          cp packages/t3-core/tests/t3-explicit-facts-regression.mjs "$stage/"
+          cd "$stage"
+          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund @mlc-ai/web-llm@0.2.87 jsdom@29.1.1
+          set +e
+          node t3-mobile-assistant-dom-candidate.mjs "$stage" "$GITHUB_WORKSPACE/private-club/assets/club-assistant-skills.json" > "$RUNNER_TEMP/private-mobile-dom.log" 2>&1
+          result=$?
+          set -e
+          grep -E '^T3_MOBILE_DOM_(CASE_PASS|CASE_FAIL|CONTRACT_PASS) [a-zA-Z0-9 _-]+$' "$RUNNER_TEMP/private-mobile-dom.log" || true
+          if test "$result" != 0; then echo T3_MOBILE_ORIGINAL_ASSISTANT_DOM_FAIL; exit 1; fi
+          echo T3_MOBILE_ORIGINAL_ASSISTANT_DOM_PASS
+          if ! node t3-prepare-domain-quality.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" "$RUNNER_TEMP/heldout-prompts.json" > "$RUNNER_TEMP/heldout-preparation.log" 2>&1; then
+            echo T3_MOBILE_HELDOUT_PROMPT_PREPARATION_FAIL
+            exit 1
+          fi
+          grep -E '^T3_QUALITY_PROMPTS_PREPARED [0-9]+ forms [0-9]+$' "$RUNNER_TEMP/heldout-preparation.log"
+          echo T3_MOBILE_HELDOUT_PROMPTS_ONLY_NOT_MODEL_QUALITY
+          if ! node t3-prepare-domain-quality.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" "$RUNNER_TEMP/hybrid-prompts.json" --hybrid > "$RUNNER_TEMP/hybrid-preparation.log" 2>&1; then
+            echo T3_HYBRID_PROMPT_PREPARATION_FAIL
+            exit 1
+          fi
+          grep '^T3_HYBRID_PROMPTS_PREPARED ' "$RUNNER_TEMP/hybrid-preparation.log"
+          # Exercise the exact score path with rejected and empty responses,
+          # not a claim about the quality of actual model inference.
+          node --input-type=module - "$RUNNER_TEMP/hybrid-prompts.json" "$RUNNER_TEMP/hybrid-selftest.json" <<'NODE'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          const p=JSON.parse(readFileSync(process.argv[2],'utf8'));
+          const responses=p.cases.map((c,i)=>({id:c.id,raw:i===0?JSON.stringify({fields:{field_999:"not offered"}}):JSON.stringify({fields:{}}),code:null}));
+          writeFileSync(process.argv[3],JSON.stringify({schema:"iwxa.club.assistant-comparison/1",modelId:"synthetic-scorer-selftest",runs:[{mode:"structured",responses}]}),{mode:0o600});
+          NODE
+          if ! node t3-prepare-domain-quality.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" "$RUNNER_TEMP/hybrid-selftest.json" --hybrid --score > "$RUNNER_TEMP/hybrid-score-selftest.log" 2>&1; then
+            echo T3_HYBRID_SCORE_SELFTEST_FAIL
+            exit 1
+          fi
+          grep -E '^T3_CLUB_HYBRID_(QUALITY|CASE) ' "$RUNNER_TEMP/hybrid-score-selftest.log"
+          if ! node t3-explicit-facts-regression.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" > "$RUNNER_TEMP/private-explicit-facts.log" 2>&1; then
+            echo T3_CLUB_EXPLICIT_FACTS_REGRESSION_FAIL
+            grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-facts.log" || true
+            exit 1
+          fi
+          grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-facts.log"
+          # The frozen baseline was measured at run 45385650273. The exact
+          # same challenge now qualifies the corrected source.
+          set +e
+          node t3-explicit-facts-regression.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" --challenge --enforce > "$RUNNER_TEMP/private-explicit-challenge.log" 2>&1
+          result=$?
+          set -e
+          grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-challenge.log" || true
+          if test "$result" != 0; then echo T3_CLUB_EXPLICIT_CHALLENGE_FAIL; exit 1; fi
+          set +e
+          node t3-explicit-facts-regression.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" --expanded --enforce > "$RUNNER_TEMP/private-expanded.log" 2>&1
+          result=$?
+          set -e
+          grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-expanded.log" || true
+          if test "$result" != 0; then echo T3_CLUB_EXPANDED_FACTS_FAIL; exit 1; fi
+      - name: Remove private staged data and logs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/assistant-candidate" "$RUNNER_TEMP/private-mobile-source.log" "$RUNNER_TEMP/private-mobile-dom.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-preparation.log" "$RUNNER_TEMP/hybrid-prompts.json" "$RUNNER_TEMP/hybrid-preparation.log" "$RUNNER_TEMP/hybrid-selftest.json" "$RUNNER_TEMP/hybrid-score-selftest.log"
+          rm -rf private-bli private-club private-club-owner private-club-previous-skills "$RUNNER_TEMP/private-skill-upgrade.log" "$RUNNER_TEMP/private-owner-skills.log" "$RUNNER_TEMP/private-skill-import.log" "$RUNNER_TEMP/private-explicit-facts.log" "$RUNNER_TEMP/private-explicit-challenge.log" "$RUNNER_TEMP/private-expanded.log"
+
+  shared-host:
+    needs: request
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.before }}
+          persist-credentials: false
+      - name: Exact original private assistant
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 3b8c2fb25bf5205e53331f5db3e035210b7aac9f
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-bli
+      - name: Exact original Club module
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: 0a9e8e335cc9e2d6d4f4ca7a9aaf56b9fb9626e1
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-club
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Compile actual Club module and original assistant into one candidate T3 Host
+        shell: bash
+        run: |
+          set -euo pipefail
+          core="$GITHUB_WORKSPACE/packages/t3-core"
+          log="$RUNNER_TEMP/private-mobile-host.log"
+          if ! (node "$core/scripts/stage-t2-external-module.mjs" "$core" "$GITHUB_WORKSPACE/private-club/runtime/club-module" iwxa.domain.club club && node "$core/scripts/qualify-bli-inherited-host.mjs" --assistant-source "$GITHUB_WORKSPACE/private-bli/browser-local-inference/domain-assistant" --quality-witness) > "$log" 2>&1; then
+            echo T3_MOBILE_CANDIDATE_CLUB_HOST_FAIL
+            grep -oE 'T3_D5_[A-Z0-9_]+' "$log" | sort -u | tail -20 || true
+            exit 1
+          fi
+          grep '^T3_MOBILE_CANDIDATE_ORIGINAL_ASSISTANT_SHARED_ENGINE_PASS$' "$log"
+          grep '^T3_D5_FULL_ORIGINAL_BLI_HOST_BUILD_PASS ' "$log" | cut -d' ' -f1
+          echo T3_MOBILE_CANDIDATE_CLUB_HOST_PASS
+      - name: Real browser compact layout and native form workflow
+        working-directory: packages/t3-core
+        shell: bash
+        run: |
+          set -eu
+          npx --no-install playwright install --with-deps chromium
+          log="$RUNNER_TEMP/private-club-browser.log"
+          if ! node tests/t3-club-assistant-browser-candidate.mjs "$GITHUB_WORKSPACE/private-club" dist > "$log" 2>&1; then
+            grep -E '^T3_CLUB_(BROWSER_CASE_(PASS|FAIL)|ALL_FORM_SHORTCUTS_(PASS|FAIL)|ALL_RESULT_HINTS_(PASS|FAIL)) ' "$log" || true
+            echo T3_CLUB_BROWSER_CANDIDATE_FAIL
+            exit 1
+          fi
+          grep -E '^T3_CLUB_(BROWSER_(CASE_PASS|CANDIDATE_PASS)|ALL_FORM_SHORTCUTS_PASS|ALL_RESULT_HINTS_PASS) ' "$log"
+      - name: Remove private temporary source and build data
+        if: always()
+        shell: bash
+        run: |
+          rm -rf private-bli private-club "$RUNNER_TEMP/private-mobile-host.log" "$RUNNER_TEMP/private-club-browser.log"
+          rm -rf packages/t3-core/candidate-domain-assistant packages/t3-core/dist packages/t3-core/src/modules/club
+
+  canonical-source:
+    needs: request
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BEFORE: ${{ github.event.before }}
+    defaults:
+      run:
+        working-directory: packages/t3-core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.before }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact clean source qualification using the original C3 owner
+        shell: bash
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "$BEFORE"
+          node scripts/run-c3-project-process-qualification.mjs --exact-git-head "$BEFORE" "$RUNNER_TEMP/workspace-c3-source.json"
+          node --test tests/single-canonical-store-source-gate.test.mjs tests/c3-workspace-project-method.test.mjs
+          cat "$RUNNER_TEMP/workspace-c3-source.json"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: workspace-c3-source-${{ github.event.before }}
+          path: ${{ runner.temp }}/workspace-c3-source.json
+          if-no-files-found: error
+
+  exact-k036-mapping-probe:
+    needs: request
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: packages/t3-core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.before }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Install original Kernel test dependencies (locked)
+        run: npm ci --prefix qualified-runtime-source/k036-atomic-graph --ignore-scripts --no-audit --no-fund
+      - name: Exact released runtime mapping feasibility (not D4)
+        run: node scripts/probe-k036-c3-mapping.mjs "$RUNNER_TEMP/k036-c3-mapping.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k036-c3-mapping-${{ github.event.before }}
+          path: ${{ runner.temp }}/k036-c3-mapping.json
+          if-no-files-found: warn

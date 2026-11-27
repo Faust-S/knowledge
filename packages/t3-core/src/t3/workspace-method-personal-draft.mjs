@@ -99,6 +99,48 @@ const sha=text=>createHash('sha256').update(text,'utf8').digest('hex');
 // One original accepted-run observation, used by the ordinary two-read
 // inspection and by the personal chain's two complete source passes.
 // The result text is for trusted Host composition, never a UI receipt.
+// Shared readback of actual original Agent ContextSnapshot input documents.
+// Used by personal and signed corporate Workflow paths. It verifies the
+// declared attachment bytes, NOT a complete prompt or a permission to run.
+export async function verifyOriginalAgentDeclaredInputs({taskId,objective,attachments,task,snapshot,readDocument,
+  errorCode='T3_METHOD_PERSONAL_TASK_INPUT_CHANGED'}={}){
+  const valid=ok=>check(ok,errorCode);
+  valid(typeof taskId==='string'&&/^TASK-[A-Za-z0-9_-]{1,120}$/.test(taskId)
+    &&typeof objective==='string'&&task?.task_id===taskId&&task.objective===objective
+    &&snapshot?.task_id===taskId&&typeof readDocument==='function'
+    &&Array.isArray(attachments)&&attachments.length<=8
+    &&attachments.every(a=>a&&typeof a.name==='string'&&typeof a.text==='string')
+    &&Array.isArray(snapshot.source_items)&&Array.isArray(snapshot.retrieval_refs)&&snapshot.retrieval_refs.length===0
+    &&snapshot.source_items.length>=attachments.length&&snapshot.source_items.length<=attachments.length+2);
+  const expected=new Map(attachments.map((a,i)=>[
+    'attachments/'+String(i+1).padStart(2,'0')+'-'+a.name,{sha256:sha(a.text),bytes:Buffer.byteLength(a.text,'utf8'),text:a.text}]));
+  // Original Agent-generated sources retain separate evidence. Initial
+  // guidance must not be substituted by a later human revision instruction.
+  const systemPaths=new Set(),systemSources=[];
+  const initialGuidance='# Revision guidance\nInitial run: no human revision guidance.\n';
+  for(const item of snapshot.source_items){
+    valid(item&&typeof item.path==='string');
+    if(item.path==='iwxa/revision-guidance.md'||item.path==='iwxa/operational-skill.md'){
+      const guidance=item.path==='iwxa/revision-guidance.md';
+      valid(!systemPaths.has(item.path)&&item.origin===(guidance?'iwxa_revision_control':'iwxa_operational_skill')
+        &&item.classification==='personal'&&item.trust_level==='system_generated'
+        &&HEX.test(item.sha256??'')&&Number.isSafeInteger(item.bytes)&&item.bytes>0
+        &&(!guidance||(item.sha256===sha(initialGuidance)&&item.bytes===Buffer.byteLength(initialGuidance,'utf8'))));
+      systemPaths.add(item.path);systemSources.push({path:item.path,sha256:item.sha256,bytes:item.bytes});
+      continue;
+    }
+    const match=expected.get(item.path);
+    valid(match&&item.origin==='interaction_attachment'&&item.sha256===match.sha256&&item.bytes===match.bytes);
+    const actual=await readDocument(item.path,item.sha256);
+    valid(actual?.task_id===taskId&&actual.snapshot_id===snapshot.snapshot_id&&actual.path===item.path
+      &&actual.sha256===match.sha256&&actual.text===match.text);
+    expected.delete(item.path);
+  }
+  valid(expected.size===0);
+  systemSources.sort((a,b)=>a.path.localeCompare(b.path));
+  return Object.freeze({nativeSystemSourceCount:systemSources.length,nativeSystemSourcesDigest:sha(canonicalStringify(systemSources))});
+}
+
 export async function createOriginalPersonalWorkflowTaskObserver({workspaceId,composer,taskOwner,guarded}){
   check(typeof composer?.currentBinding==='function'&&typeof taskOwner?.readAcceptedRun==='function'
     &&typeof taskOwner?.taskDocumentSource==='function'&&typeof guarded==='function',
@@ -134,50 +176,15 @@ export async function createOriginalPersonalWorkflowTaskObserver({workspaceId,co
     check(plan?.workspaceId===workspaceId,'T3_METHOD_PERSONAL_TASK_ORIGINAL_OWNER_REQUIRED');
     if(plan.nativeBinding)check(equal(plan.nativeBinding,binding),'T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED');
     const {task,result,snapshot,acceptedSource}=await readRun(taskId);
-    // Only the exact selected inputs from the prepared draft are checked.
-    // Additional retrievals or changed/extra attachments cannot masquerade
-    // as the same executed input basis. No claim about system/model prompts.
-    check(task.objective===plan.draft.text.trim()&&Array.isArray(snapshot.source_items)
-      &&Array.isArray(snapshot.retrieval_refs)&&snapshot.retrieval_refs.length===0
-      &&snapshot.source_items.length>=plan.draft.attachments.length
-      &&snapshot.source_items.length<=plan.draft.attachments.length+2,
-      'T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
-    const expected=new Map(plan.draft.attachments.map((a,i)=>[
-      'attachments/'+String(i+1).padStart(2,'0')+'-'+a.name,{sha256:sha(a.text),bytes:Buffer.byteLength(a.text,'utf8'),text:a.text}]));
-    // These two sources are emitted by the ORIGINAL Agent when it
-    // compiles the Task. Accept only their exact native path, origin,
-    // trust level and bounded digest metadata. A changed Human revision
-    // guidance is additional input and is NOT the prepared root Work.
-    const systemPaths=new Set(),systemSources=[];
-    const initialGuidance='# Revision guidance\nInitial run: no human revision guidance.\n';
-    for(const item of snapshot.source_items){
-      if(item.path==='iwxa/revision-guidance.md'||item.path==='iwxa/operational-skill.md'){
-        const guidance=item.path==='iwxa/revision-guidance.md';
-        check(!systemPaths.has(item.path)&&item.origin===(guidance?'iwxa_revision_control':'iwxa_operational_skill')
-          &&item.classification==='personal'&&item.trust_level==='system_generated'
-          &&HEX.test(item.sha256??'')&&Number.isSafeInteger(item.bytes)&&item.bytes>0
-          &&(!guidance||(item.sha256===sha(initialGuidance)&&item.bytes===Buffer.byteLength(initialGuidance,'utf8'))),
-          'T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
-        systemPaths.add(item.path);systemSources.push({path:item.path,sha256:item.sha256,bytes:item.bytes});
-        continue;
-      }
-      const match=expected.get(item.path);
-      check(match&&item.origin==='interaction_attachment'&&item.sha256===match.sha256&&item.bytes===match.bytes,
-        'T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
-      const actual=await guarded(()=>taskOwner.taskDocumentSource(taskId,snapshot.snapshot_id,item.path,item.sha256,binding));
-      check(actual?.task_id===taskId&&actual.snapshot_id===snapshot.snapshot_id&&actual.path===item.path
-        &&actual.sha256===match.sha256&&actual.text===match.text,'T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
-      expected.delete(item.path);
-    }
-    check(expected.size===0,'T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
-    systemSources.sort((a,b)=>a.path.localeCompare(b.path));
-    const nativeSystemSourcesDigest=sha(canonicalStringify(systemSources));
+    const {nativeSystemSourceCount,nativeSystemSourcesDigest}=await verifyOriginalAgentDeclaredInputs({
+      taskId,objective:plan.draft.text.trim(),attachments:plan.draft.attachments,task,snapshot,
+      readDocument:(path,sha256)=>guarded(()=>taskOwner.taskDocumentSource(taskId,snapshot.snapshot_id,path,sha256,binding))});
     await current();
     const evidence=Object.freeze({agentWorkspaceId:binding.agentWorkspaceId,taskId,resultId:result.result_id,taskDigest:result.task_digest,
       reviewId:acceptedSource.review_id,acceptedDigest:acceptedSource.accepted_artifact_digest,
       acceptedSummarySha256:sha(result.summary),snapshotId:snapshot.snapshot_id,snapshotDigest:snapshot.snapshot_digest,
       projectionDigest:snapshot.projection_digest,bundleDigest:snapshot.bundle_digest,
-      nativeSystemSourceCount:systemSources.length,nativeSystemSourcesDigest});
+      nativeSystemSourceCount,nativeSystemSourcesDigest});
     return Object.freeze({evidence,summary:result.summary});
   };
   // W05.17: discover exact persisted selection from the original accepted

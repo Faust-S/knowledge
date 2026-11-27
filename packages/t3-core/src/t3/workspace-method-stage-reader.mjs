@@ -6,16 +6,22 @@ import { canonicalClone,canonicalStringify } from '../persistence/canonical-code
 import { createSubjectKernelBinding } from './subject-access-binding.mjs';
 import { inspectWorkspaceMethodAgentPredecessorResults,readWorkspaceMethodInputOverview,
   previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation,inspectWorkspaceMethodMaterialEvidence,
-  buildWorkspaceMethodPersonalTaskDraft,prepareWorkspaceMethodPersonalChain,buildWorkspaceMethodCorporateTaskReference } from '../modules/base/owners/project-process-method-stage-input.mjs';
+  buildWorkspaceMethodPersonalTaskDraft,prepareWorkspaceMethodPersonalChain,buildWorkspaceMethodCorporateTaskReference,buildWorkspaceMethodCorporateTaskInputs } from '../modules/base/owners/project-process-method-stage-input.mjs';
 
 import {saveOriginalPersonalWorkflowDraft,inspectOriginalPersonalWorkflowTask,createOriginalPersonalWorkflowTaskObserver,
   recoverOriginalPersonalWorkflowTaskSelection,recoverOriginalPersonalWorkflowTaskSelections,personalWorkflowTaskInspection} from './workspace-method-personal-draft.mjs';
 
 function deny(code){throw Object.assign(new Error(code),{code,outcome:'DENIED'});}
 function check(ok,code){if(!ok)deny(code);}
-export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,currentWorkspace,
+export function createTrustedWorkspaceMethodStageReader(options={}){return createReader(options,false);}
+// Native-only entry point. The ordinary UI reader does not expose actual
+// material contents or an input transport callback.
+export function createTrustedWorkspaceMethodCorporateInputReader(options={}){
+  return createReader(options,true);
+}
+function createReader({kernel,accessForRead,currentWorkspace,
   sourceOwner,originalAgentResultOwner=null,nativeContinuation=null,nativeRecipientId=null,
-  personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null,corporateTaskOwner=null,isHostActive}={}){
+  personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null,corporateTaskOwner=null,isHostActive}={},nativeCorporateOnly=false){
   check(kernel?.sessionInfo?.contract_version==='1.3.0'&&typeof kernel.hasOperation==='function'
     &&kernel.hasOperation('t1.getObject')===true&&typeof accessForRead==='function'
     &&typeof currentWorkspace?.get==='function'&&typeof currentWorkspace?.subscribe==='function'
@@ -28,7 +34,7 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
     &&(personalTaskOwner===null||(personalComposer!==null&&typeof personalTaskOwner.readAcceptedRun==='function'
       &&typeof personalTaskOwner.taskDocumentSource==='function'))
     &&(corporateTaskOwner===null||typeof corporateTaskOwner.readSignedTask==='function')
-    &&typeof isHostActive==='function','T3_METHOD_STAGE_TRUSTED_HOST_REQUIRED');
+    &&typeof isHostActive==='function'&&(!nativeCorporateOnly||corporateTaskOwner!==null),'T3_METHOD_STAGE_TRUSTED_HOST_REQUIRED');
   let personalDraftInFlight=false;
   async function personalDraft(input,mode){
     check(!personalDraftInFlight,'T3_METHOD_PERSONAL_DRAFT_IN_PROGRESS');
@@ -45,9 +51,10 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       &&(!['native-preview','native-recover'].includes(mode)||typeof input.predecessorStepId==='string')
       &&(mode!=='handoff'||input.includeMaterialEvidence===undefined||typeof input.includeMaterialEvidence==='boolean')
       &&(!['personal-draft','personal-draft-recover','personal-task-inspect','corporate-reference','corporate-reference-inspect'].includes(mode)||/^[a-f0-9]{64}$/.test(input.expectedCandidateDigest??''))
-      &&(!['personal-task-inspect','personal-task-recover','corporate-reference-inspect','corporate-reference-recover'].includes(mode)||typeof input.taskId==='string')
-      &&(!['corporate-reference-inspect','corporate-reference-recover'].includes(mode)||/^task:[A-Za-z0-9:-]{1,100}$/.test(input.taskId))
-      &&(mode!=='corporate-reference-recover'||input.expectedCandidateDigest===undefined)
+      &&(!['personal-task-inspect','personal-task-recover','corporate-reference-inspect','corporate-reference-recover','corporate-inputs'].includes(mode)||typeof input.taskId==='string')
+      &&(!['corporate-reference-inspect','corporate-reference-recover','corporate-inputs'].includes(mode)||/^task:[A-Za-z0-9:-]{1,100}$/.test(input.taskId))
+      &&(!['corporate-reference-recover','corporate-inputs'].includes(mode)||input.expectedCandidateDigest===undefined)
+      &&(mode!=='corporate-inputs'||(nativeCorporateOnly&&(input.resultSelections??[]).length===0))
       &&(mode!=='personal-task-recover'||(input.personalResultSelections===undefined&&(input.resultSelections??[]).length===0))
       &&(input.personalResultSelections===undefined||(['handoff','personal-draft','personal-draft-recover','personal-task-inspect'].includes(mode)
         &&Array.isArray(input.personalResultSelections)&&input.personalResultSelections.length<=63
@@ -63,7 +70,7 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       ...(['native-preview','native-recover'].includes(mode)?{predecessorStepId:input.predecessorStepId}:{}),
       ...(mode==='handoff'&&input.includeMaterialEvidence===true?{includeMaterialEvidence:true}:{}),
       ...(['personal-draft','personal-draft-recover','personal-task-inspect','corporate-reference','corporate-reference-inspect'].includes(mode)?{expectedCandidateDigest:input.expectedCandidateDigest}:{}),
-      ...(['personal-task-inspect','personal-task-recover','corporate-reference-inspect','corporate-reference-recover'].includes(mode)?{taskId:input.taskId}:{}),
+      ...(['personal-task-inspect','personal-task-recover','corporate-reference-inspect','corporate-reference-recover','corporate-inputs'].includes(mode)?{taskId:input.taskId}:{}),
       ...(input.personalResultSelections===undefined?{}:{personalResultSelections:input.personalResultSelections.map(row=>({
         stepId:row?.stepId,taskId:row?.taskId}))})});
     check(isHostActive()===true,'T3_HOST_DISPOSED');
@@ -81,7 +88,7 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       live();
       check(context?.workspace_id===request.workspaceId&&context.resource===request.workspaceId,
         'T3_METHOD_STAGE_SIGNED_SCOPE_MISMATCH');
-      const corporateMode=['corporate-reference','corporate-reference-inspect','corporate-reference-recover'].includes(mode);
+      const corporateMode=['corporate-reference','corporate-reference-inspect','corporate-reference-recover','corporate-inputs'].includes(mode);
       if(corporateMode)check(context.kind==='CORP','T3_METHOD_CORPORATE_TASK_SCOPE_REQUIRED');
       const personalChain=request.personalResultSelections!==undefined;
       const recoverTask=mode==='personal-task-recover';
@@ -151,14 +158,20 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
                 &&reference.taskRevisionId===value.taskRevisionId&&reference.exactInputBindingProven===false
                 &&reference.workCompleted===false&&reference.resultReuseProven===false&&reference.executionAuthorized===false,
                 'T3_METHOD_CORPORATE_TASK_SIGNED_REFERENCE_REQUIRED');
+              if(mode==='corporate-inputs')check(value.status==='SIGNED_TASK_CURRENT_SELECTED'&&
+                value.organizationId===context.organization_id&&value.workspaceId===context.workspace_id
+                &&value.recipientId===context.actor_id&&Number.isSafeInteger(value.originalContextEpoch)&&value.originalContextEpoch>0,
+                'T3_METHOD_CORPORATE_TASK_EXECUTOR_MISMATCH');
               return {taskId:value.taskId,taskRevisionId:value.taskRevisionId,packageSha256:value.packageSha256,
-                recipientId:value.recipientId,workflowInput:reference.workflowInput};
+                recipientId:value.recipientId,workflowInput:reference.workflowInput,
+                ...(mode==='corporate-inputs'?{organizationId:value.organizationId,workspaceId:value.workspaceId,
+                  originalContextEpoch:value.originalContextEpoch}:{})};
             };
             const first=await readReference();
             // A signed original Task may supply its own expected reference after restart.
             // Caller still selects the current Work and actual direct predecessor Results.
             // Never derive authority or complete material content from carrier metadata.
-            const recovering=mode==='corporate-reference-recover';
+            const recovering=mode==='corporate-reference-recover'||mode==='corporate-inputs';
             const w=first.workflowInput;
             if(recovering)check(w?.schema==='IWXA_T3_WORKFLOW_INPUT_REFERENCE/1'&&w.workspaceId===request.workspaceId
               &&w.projectId===request.projectId&&w.stepId===request.stepId
@@ -166,11 +179,11 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
               &&request.expected.workRefs.some(ref=>canonicalStringify(ref)===canonicalStringify(w.workRef))
               &&/^[a-f0-9]{64}$/.test(w.candidateDigest??''),
               'T3_METHOD_CORPORATE_TASK_REFERENCE_SCOPE_MISMATCH');
-            const prepared=await buildWorkspaceMethodCorporateTaskReference(recovering?
-              {...evidenceArgs,expectedCandidateDigest:w.candidateDigest}:evidenceArgs),last=await readReference();
+            const prepare=mode==='corporate-inputs'?buildWorkspaceMethodCorporateTaskInputs:buildWorkspaceMethodCorporateTaskReference;
+            const prepared=await prepare(recovering?{...evidenceArgs,expectedCandidateDigest:w.candidateDigest}:evidenceArgs),last=await readReference();
             check(canonicalStringify(first)===canonicalStringify(last),'T3_METHOD_CORPORATE_TASK_REVISION_CHANGED');
             check(canonicalStringify(last.workflowInput)===canonicalStringify(prepared.workflowInput),'T3_METHOD_CORPORATE_TASK_REFERENCE_MISMATCH');
-            report=Object.freeze({state:'SIGNED_CORPORATE_TASK_CURRENT_REFERENCE_MATCHED',...last,
+            report=mode==='corporate-inputs'?Object.freeze({...prepared,...last,declaredReferenceMatched:true}):Object.freeze({state:'SIGNED_CORPORATE_TASK_CURRENT_REFERENCE_MATCHED',...last,
               ...(recovering?{recoveredFromOriginalTask:true}:{}),declaredReferenceMatched:true,exactInputBindingProven:false,allAssetsProven:false,workCompleted:false,
               executionAuthority:false,writeAuthorized:false,resultReuseProven:false});
           }
@@ -230,6 +243,7 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       return report;
     }finally{unsubscribe();}
   }
+  if(nativeCorporateOnly)return Object.freeze({readInputs:input=>read(input,'corporate-inputs')});
   return Object.freeze({
     inspect:input=>read(input,'inspect'),
     overview:input=>read(input,'overview'),

@@ -4,7 +4,7 @@
   "base": "3056eef0665fb3503294d49b89d937af2ea060e2",
   "rc2": "4b3314079600f5d95b3dd9e0defe3be8e845378e",
   "corporate": "8db847058cab231d2d39c34df46024b60564d2ad",
-  "workflow": "43c155a45ed4159ad75c05c85aa8d0f715ab30d6",
+  "workflow": "e0f7274d882da64332efd0942dc0bb848e6fc5ab",
   "originalAssistant": {
     "repository": "Faust-S/T3",
     "commit": "3b8c2fb25bf5205e53331f5db3e035210b7aac9f",
@@ -12,7 +12,7 @@
   },
   "originalCorporateWorkflow": {
     "repository": "Faust-S/T3",
-    "commit": "f0cdc0ae7e521a4d3282ef11d2f934a0049de775",
+    "commit": "3a30878acca2d2f62f5573e9d03c3ffcecc441ae",
     "sourceDisposition": "private owner; separate signed native integration"
   },
   "android": {
@@ -192,5 +192,6 @@
     "packages/t3-core/tests/workspace-view-profile-sections.dom.test.tsx"
   ],
   "qualification": "required; prior individual branch results are not combined evidence",
-  "version": "0.3.1-rc.3"
+  "version": "0.3.1-rc.3",
+  "snapshot": "Exact owner inputs frozen for cumulative qualification; later development requires a subsequent explicit update."
 }
