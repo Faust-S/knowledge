@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {X509Certificate,createHash,randomBytes} from 'node:crypto';
+import {X509Certificate,createHash,randomBytes,generateKeyPairSync,sign,randomUUID} from 'node:crypto';
 import {createT4NetworkTopology,openT4NativeTopologyTransport} from '../../src/network/network-topology.mjs';
 import {createT4OriginalSelfHostedPilotRoute} from '../../src/network/original-self-hosted-pilot-route.mjs';
 import {packageSha256} from '../../src/network/webdav-package-transfer.mjs';
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame} from '../../src/network/standard-network-wire-candidate.mjs';
 import {createTemporaryOriginalPersonalAuthority} from '../../../t3-core/tests/support/t3-original-personal-authority.mjs';
 const url=process.env.T4_TEST_URL,auth=process.env.T4_TEST_AUTH,peerAuth=process.env.T4_TEST_PEER_AUTH;
 if(!url||!auth||!peerAuth||!process.env.NODE_EXTRA_CA_CERTS)throw Error('REAL_APACHE_PILOT_REQUIRED');
@@ -39,9 +40,22 @@ function fixture({node='node:pilot:source',authorization=auth,certificateSha256=
     change(p){selection={...selection,...p};},stop(){live=false;},get credentials(){return credentials;},
     close(){connection.close();original.closeOriginalVault();}};
 }
-const payload=()=>{const bytes=randomBytes(96),expectedSha256=packageSha256(bytes);return {bytes,expectedSha256,key:expectedSha256+'.t4n'};};
+const keyPair=generateKeyPairSync('ed25519');
+async function payload(){
+  // Legacy discovery in the same Apache fixture parses every .t4n. Use
+  // a real canonical signed frame in an unrelated pilot scope, not junk
+  // transport bytes that would contaminate the shared collection.
+  const bytes=Buffer.from(await signT4CandidateFrame({unsignedFrame:createT4CandidateUnsignedFrame({
+    messageType:'HEADS',messageId:'message:'+randomUUID(),sourceNodeRef:'node:pilot:source',
+    recipientNodeRef:'node:pilot:recipient',scopeRef:'scope:pilot:route',sessionRef:'session:'+randomUUID(),
+    ownerEpoch:1,sequence:1,permissionRef:'permission:pilot',signerRef:'key:pilot',
+    cryptoSuite:'X25519_AES256GCM_ED25519',
+    body:{familyRef:'family:pilot',ownerEpoch:1,heads:['sha256:'+randomBytes(32).toString('hex')]}}),
+    signOriginalNodeBytes:async({bytes})=>sign(null,Buffer.from(bytes),keyPair.privateKey)}));
+  const expectedSha256=packageSha256(bytes);return {bytes,expectedSha256,key:expectedSha256+'.t4n'};
+}
 test('real Apache original signed route, two independent credentials and native immutable index',async()=>{
-  const a=fixture(),b=fixture({node:'node:pilot:recipient',authorization:peerAuth}),p=payload(),idx={key:randomBytes(32).toString('hex')+'.t4i',frameSha256:p.expectedSha256};
+  const a=fixture(),b=fixture({node:'node:pilot:recipient',authorization:peerAuth}),p=await payload(),idx={key:randomBytes(32).toString('hex')+'.t4i',frameSha256:p.expectedSha256};
   try{
     assert.equal(a.connection.originalSignedAccessBound,true);
     assert.equal((await a.transport.putSnapshot({...p,createOnly:true})).state,'PUBLISHED_AND_READ_BACK');
@@ -56,7 +70,7 @@ test('real Apache original signed route, two independent credentials and native 
   }finally{a.close();b.close();}
 });
 test('wrong certificate and unrelated transport account cannot write',async()=>{
-  const p=payload(),wrongPin=fixture({certificateSha256:'0'.repeat(64)}),wrongAuth=fixture({authorization:process.env.T4_TEST_OTHER_AUTH}),a=fixture();
+  const p=await payload(),wrongPin=fixture({certificateSha256:'0'.repeat(64)}),wrongAuth=fixture({authorization:process.env.T4_TEST_OTHER_AUTH}),a=fixture();
   try{
     await assert.rejects(wrongPin.transport.getSnapshot(p),{code:'NETWORK_UNAVAILABLE'});
     await assert.rejects(wrongPin.transport.putSnapshot({...p,createOnly:true}),{code:'OUTCOME_UNKNOWN'});
@@ -66,7 +80,7 @@ test('wrong certificate and unrelated transport account cannot write',async()=>{
   }finally{wrongPin.close();wrongAuth.close();a.close();}
 });
 test('changed route and revoked original signed grant block dispatch',async()=>{
-  const a=fixture(),p=payload();
+  const a=fixture(),p=await payload();
   try{
     a.change({certificateSha256:'0'.repeat(64)});
     await assert.rejects(a.transport.getSnapshot(p),{code:'T4_PILOT_NATIVE_ROUTE_CHANGED'});
@@ -81,7 +95,7 @@ test('changed route and revoked original signed grant block dispatch',async()=>{
   }finally{f.close();}
 });
 test('HTTPS adapter cannot follow redirects or send credentials to another collection',async()=>{
-  const a=fixture(),p=payload(),signal=new AbortController().signal;
+  const a=fixture(),p=await payload(),signal=new AbortController().signal;
   const options={method:'GET',redirect:'manual',signal,headers:{authorization:auth}};
   try{
     for(const target of [new URL('../'+p.key,url),new URL(p.key+'?query=1',url),new URL('https://other.invalid/'+p.key)])
