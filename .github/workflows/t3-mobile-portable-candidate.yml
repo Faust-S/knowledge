@@ -1,7 +1,7 @@
-name: T3 mobile portable platform candidate
+name: T3 original Host route snapshot portable candidate
 on:
   push:
-    branches: [work/2026-11-24-t3-mobile-model-catalog]
+    branches: [work/2026-11-24-t3-mobile-model-catalog, qualification/2026-11-27-t3-original-route-portable]
     paths:
       - packages/t3-core/scripts/package-t3-portable-platform.mjs
       - .github/workflows/t3-mobile-portable-candidate.yml
