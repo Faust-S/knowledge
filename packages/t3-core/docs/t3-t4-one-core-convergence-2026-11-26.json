@@ -807,6 +807,79 @@
       "actualTwoNode": "NOT_RUN",
       "T4_READY": false,
       "FEATURE_FREEZE": true
+    },
+    "latestFirstUsePreparation": {
+      "date": "2026-11-27",
+      "state": "STAGED_NOT_ACCEPTED",
+      "core": {
+        "commit": "be8d05866f336b599b8fe6cd1ba5a961f994ced8",
+        "tree": "1dbfa4119ef612db0343ca726bddb119079161af"
+      },
+      "nativeOwner": {
+        "commit": "30df3f6fd53e668e2886fb643f13526a89738647",
+        "tree": "f446fccd97f0f232e70e06b961f8653477a0785f",
+        "build": "NOT_RUN",
+        "syntax": "PASS_V8_WITH_STATIC_IMPORT_EXPORT_STRIPPED",
+        "preparationSwitch": "PrepareT4Pilot",
+        "nativeWindows": "NOT_RUN"
+      },
+      "agent": {
+        "commit": "0b5936025da5c832ea9fa9cf9337afc21c467757",
+        "tree": "70da06618b2fb64516c0cfe20c52adeb642b19a8",
+        "exactNodeTests": 9,
+        "fail": 0,
+        "scope": "Exact published layout and optional custody module-loader blobs checked by Git SHA and run in Node 22.16.0; test module fixture, not DPAPI or full installed Agent.",
+        "keyPreparation": "After signed enrollment, before T4 activation",
+        "build": "NOT_RUN"
+      },
+      "center": {
+        "commit": "3c0ec6b7bb29c7b0b2e49942c401286f86d35d5f",
+        "tree": "d2fd2abcb28bd6be5667e7fff0f383e0c4f97ccc",
+        "fullLocalQualification": "NOT_RUN"
+      },
+      "qualification": {
+        "diagnostic": {
+          "run": 46033893499,
+          "pass": 112,
+          "fail": 1,
+          "issue": "Fixture did not start the existing original invalidation subscription; corrected test, not runtime."
+        },
+        "localAdminExport": {
+          "commit": "20c242e03071cea82a39e2763781f65239b90c4f",
+          "run": 46034181018,
+          "job": 140625302217,
+          "pass": 113,
+          "fail": 0,
+          "typecheck": "PASS"
+        },
+        "technicalPreparation": {
+          "run": 46034581916,
+          "job": 140626644741,
+          "pass": 124,
+          "fail": 0,
+          "typecheck": "PASS",
+          "scope": "Cumulative original signed Registry/HTTP Relay and installed profile tests; actual local HTTP, modeled original Kernel ports; three additional technical Workspace preparation cases, no actual IndexedDB."
+        }
+      },
+      "decisions": [
+        "First-use preparation uses existing local T3 passport; no TLS peer required for Admin's signed Registry export.",
+        "Explicit PrepareT4Pilot on private Admin owner compile; ordinary builds unchanged.",
+        "Business Workspace must already be created through original signed business route. Native activation checks existing business and technical Workspace; only exact local technical Workspace can be created after explicit confirmation. No business creation from T4.",
+        "Ordinary Agent may load original key custody after enrollment without starting network mode."
+      ],
+      "remaining": [
+        "Implement and configure actual native provider with original proof/evidence callbacks, endpoint and peer credentials; Agent SOURCE startup still rejects pilot passport unless real provider connected; compiled Admin network launch not wired.",
+        "End-to-end original signed invitation/Registry import and technical Workspace creation in actual qualified K036 IndexedDB.",
+        "Windows builds and actual user route, physical server and two-device product run, final independent acceptance."
+      ],
+      "newPublicActions": 3,
+      "newPrivateActions": 0,
+      "codexUsed": false,
+      "originalKernelChanges": 0,
+      "networkWireChanges": 0,
+      "actualTwoNode": "NOT_RUN",
+      "T4_READY": false,
+      "FEATURE_FREEZE": true
     }
   }
 }
