@@ -1,0 +1,17 @@
+{
+  "prepared": "c458ac581b229e062f7fd5b1e48d60d228cf9b43",
+  "schema": "IWXA_K036_FINAL_QUALIFICATION_REQUEST/1",
+  "workflow": "k036-native-original-witness-20261127",
+  "candidate": "c4ae63d36d0ee64013b333368d930d477be0213c",
+  "candidateTree": "1d8921be065eb35226bab2f164245c9a17d0a01d",
+  "host": "39a0b3205ea45a55c3db45b99f5bcf4f0283aef1",
+  "hostTree": "999bd3bf655ecf77e62b40f999ae9faf20a33fda",
+  "core": "99c61207a024cda6eac6aa5e39b2544540ec505d",
+  "coreTree": "713107ed7f2e3a9564d52124eb867444e5a46ea2",
+  "owner": "0fb94b0273e429abcd5452484e8a81d269183f65",
+  "ownerTree": "0297787871b92b62497f3b0a7ca88fa2a995f223",
+  "archive": "5320dcb6c42d5fca410880677c8a8b595d4c9a2a6cedf51089b5f60f4ceeb52a",
+  "runtime": "559e8dd74988144733394114b020ea89a78d49ae5bbc8d49faafb86f9325c1e7",
+  "profile": "NATIVE_ORIGINAL_API_AND_UNMODIFIED_ACCEPTED_UI_REGRESSION",
+  "reason": "46007703096 failed at independent-store admission after fixture passport change. Restore original materializeIntegrationHost passport, add per-operation diagnostics, run original native API and accepted Issue3 UI witness. No T3 rerun."
+}
