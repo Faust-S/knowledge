@@ -5,7 +5,7 @@ import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from
 import { applyWorkspaceMethodRevision,inspectWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
 import { openK036C3QualificationOwner,captureK036C3CopyFixture,verifyK036C3CopyFixture } from './k036-c3-owner-qualification-adapter.mjs';
 import { projectProcessSourceObjectId } from '../src/modules/base/owners/project-process-source-owner.mjs';
-import { readWorkspaceMethodStageInputBasis } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
+import { readWorkspaceMethodStageInputBasis,readWorkspaceMethodInputOverview,previewWorkspaceMethodStageHandoff } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
 import { compareWorkspaceMethodAlternatives } from '../src/modules/base/owners/project-process-method-comparison.mjs';
 import { previewWorkspaceMethodAlternative,createWorkspaceMethodAlternativeThroughSourceOwner,readWorkspaceMethodAlternativeOrigin } from '../src/modules/base/owners/project-process-method-alternative.mjs';
 
@@ -120,6 +120,15 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   count=restored.metrics.addressedReads;
   const selectedCompute=await readStage(restored.owner,restoredClient,ws,resumed.method,'compute');
   const beforeStageReads=restored.metrics.addressedReads-count;
+  count=restored.metrics.addressedReads;
+  const overviewBefore=await readWorkspaceMethodInputOverview({owner:restored.owner,workspaceId:ws,projectId,expected:resumed.method,
+    readObject:(...args)=>restoredClient.t1.getObject(...args)});
+  const beforeOverviewReads=restored.metrics.addressedReads-count;
+  same('original K036 complete method overview shares exact selected stage digest',
+    overviewBefore.stages.find(s=>s.stepId==='compute').inputBasisDigest,selectedCompute.inputBasisDigest);
+  same('original K036 complete method overview observes all four stages without execution',
+    overviewBefore.counts,{total:4,inputReferencesVerified:4,materialReviewRequired:0,predecessorResultsRequired:3,rootInputsVerified:1});
+  same('original K036 complete method overview bounded addressed read count',beforeOverviewReads,45);
   check('original K036 stage input reads only selected prerequisite closure',beforeStageReads<=27);
   check('current-method read does not repeat already observed physical revision lookup',beforeReads<=30);
   const catalogBefore=(await restoredClient.t1.listObjects({workspace_id:ws})).length;
@@ -137,6 +146,17 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   const afterStageReads=restored.metrics.addressedReads-count;
   same('selected Work addressed read count remains independent of 64 unrelated revisions',afterStageReads,beforeStageReads);
   same('unrelated historical records do not change selected Work exact inputs',selectedComputeAfter.inputBasisDigest,selectedCompute.inputBasisDigest);
+  count=restored.metrics.addressedReads;
+  const overviewAfter=await readWorkspaceMethodInputOverview({owner:restored.owner,workspaceId:ws,projectId,expected:resumed.method,
+    readObject:(...args)=>restoredClient.t1.getObject(...args)});
+  const afterOverviewReads=restored.metrics.addressedReads-count;
+  same('original K036 complete method overview read count independent of 64 unrelated revisions',afterOverviewReads,beforeOverviewReads);
+  same('original K036 complete method overview stable after unrelated history',exact(overviewAfter),exact(overviewBefore));
+  const rootProposal=await previewWorkspaceMethodStageHandoff({owner:restored.owner,workspaceId:ws,projectId,expected:resumed.method,
+    stepId:'prepare',readObject:(...args)=>restoredClient.t1.getObject(...args)});
+  same('original K036 root Work handoff proposal is read-only',rootProposal.state,'INPUTS_PREPARED_OWNER_SELECTION_REQUIRED');
+  check('original K036 root handoff has candidate digest without Task or dispatch authority',
+    /^[a-f0-9]{64}$/.test(rootProposal.candidateDigest)&&!rootProposal.taskCreated&&!rootProposal.dispatchAuthorized);
   same('addressed current method read is independent of unrelated 64 revision history',afterReads,beforeReads);
   const catalogAfter=(await restoredClient.t1.listObjects({workspace_id:ws})).length;
   same('unfiltered owner catalog grows by anchor plus all 64 unrelated revisions',catalogAfter-catalogBefore,65);
@@ -234,5 +254,6 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
     currentMethodAddressedReads:{before:beforeReads,after:afterReads},unfilteredCatalog:{before:catalogBefore,after:catalogAfter},
     additionalHistoryRevisions:64,alternativeLineageRestored:true,
     copiedMethodLocalProjection:true,copyOfCopyLocalProjection:true,durableCopyProvenance:false,
-    stageInputBasisVerified:true,selectedStageAddressedReads:{before:beforeStageReads,after:afterStageReads},physicalBrowser:false,productionAdapterApproved:false};
+    stageInputBasisVerified:true,selectedStageAddressedReads:{before:beforeStageReads,after:afterStageReads},
+    completeOverviewAddressedReads:{before:beforeOverviewReads,after:afterOverviewReads},rootHandoffPreview:true,physicalBrowser:false,productionAdapterApproved:false};
 }

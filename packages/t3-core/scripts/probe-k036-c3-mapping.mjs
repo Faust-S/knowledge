@@ -328,6 +328,7 @@ try {
   same("duplicate new-Workspace import cannot add or remove target records/events",await snapshot(fresh,liveTarget),beforeDuplicate);
   same("expanded probe still uses only original iwxa-local DB",(await indexedDB.databases()).map(d=>d.name),["iwxa-local"]);
   const currentObjectHistory=await probeCurrentObjectHistoryCandidate({writer:fresh,reader:await connect(readerId),
+    limitedExporter:await connect(limitedExporterId),
     openEmpty:async()=>{runtime.__resetKernelStoreForTests();globalThis.indexedDB=new IDBFactory();return {writer:await connect(),reader:await connect(readerId)};},
     schemaId:revisionSchema,schemaVersion:version,serviceId:writerId,check,same,expectReject});
   report.observations.currentObjectHistoryCandidate=currentObjectHistory.observations;

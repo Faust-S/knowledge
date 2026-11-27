@@ -87,8 +87,8 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
         // Only the original installed D6 port supplied by trusted Host
         // composition can be used. No recipient/dispatch from UI.
         const port=Object.freeze({
-          preview:reference=>guarded(()=>nativeContinuation.preview(reference)),
-          recover:reference=>guarded(()=>nativeContinuation.recover(reference)),
+          preview:reference=>guarded(()=>nativeContinuation.preview(reference,context)),
+          recover:reference=>guarded(()=>nativeContinuation.recover(reference,context)),
         });
         report=await inspectWorkspaceMethodNativeContinuation({...args,nativeContinuation:port,
           recipientId:nativeRecipientId,recover:mode==='native-recover'});

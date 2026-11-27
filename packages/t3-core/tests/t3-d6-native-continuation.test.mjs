@@ -406,3 +406,11 @@ test("D6 preview revalidates original source after an asynchronous empty receipt
   await assert.rejects(f.port.preview(f.ref),{code:"T3_D6_STALE_OR_MISSING_REFERENCE"});
   assert.equal(f.receives(),0);assert.equal(f.confirmations(),0);
 });
+
+test("D6 nested preview and recovery reject a different expected original signed context",async()=>{
+  const f=fixture();
+  for(const method of ["preview","recover"]){
+    await assert.rejects(f.port[method](f.ref,{workspace_id:"ws:other"}),{code:"T3_D6_SIGNED_CONTEXT_MISMATCH"});
+  }
+  assert.equal(f.receives(),0);assert.equal(f.confirmations(),0);
+});

@@ -119,7 +119,8 @@ export function createTrustedNativeContinuation({
   const recipientUnchanged=()=>check(nativeOwner.recipientId===recipientId,
     "T3_D6_NATIVE_RECIPIENT_CHANGED");
   const active=()=>isHostActive()===true;
-  async function withSelectedSource(input,run){
+  async function withSelectedSource(input,run,expectedContext){
+    const expectedIdentity=expectedContext===undefined?null:identity(expectedContext);
     const reference=referenceFrom(input);
     check(active(),"T3_HOST_DISPOSED");
     const selected=currentWorkspace.get();
@@ -145,6 +146,7 @@ export function createTrustedNativeContinuation({
         context.resource===reference.workspace_id,
         "T3_D6_SIGNED_WORKSPACE_MISMATCH");
       const initialIdentity=identity(context);
+      check(expectedIdentity===null||initialIdentity===expectedIdentity,"T3_D6_SIGNED_CONTEXT_MISMATCH");
       const unchanged=async()=>{
         live();
         check(identity(await access.currentContext())===initialIdentity,
@@ -221,7 +223,7 @@ export function createTrustedNativeContinuation({
     // An invalid receipt/readback is not permission to dispatch again.
     return observe(state.reference,operationId,state.readSource);
   }
-  async function preview(input){
+  async function preview(input,expectedContext){
     return withSelectedSource(input,async state=>{
       const plan=await inspect(state);
       const prior=await probePrior(state,plan.operationId);
@@ -234,7 +236,7 @@ export function createTrustedNativeContinuation({
       return Object.freeze({status,
         operationId:plan.operationId,recipientId:recipientId,
         reference:state.reference});
-    });
+    },expectedContext);
   }
   async function continueSelected(input){
     return withSelectedSource(input,async state=>{
@@ -299,11 +301,11 @@ export function createTrustedNativeContinuation({
       }
     });
   }
-  async function recover(input){
+  async function recover(input,expectedContext){
     return withSelectedSource(input,async state=>{
       const plan=await inspect(state);
       return observe(state.reference,plan.operationId,state.readSource);
-    });
+    },expectedContext);
   }
   return Object.freeze({preview,continueSelected,recover});
 }
