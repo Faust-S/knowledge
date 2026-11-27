@@ -1,0 +1,80 @@
+name: T3 rc.5 delivered user Exchange and cold offline completion
+on:
+  push:
+    branches: ['ci/once/t3-rc5-final-user-routes/**']
+    paths: ['.github/ci-requests/t3-rc5-final-user-routes.json']
+permissions:
+  contents: read
+concurrency:
+  group: t3-rc5-final-user-routes
+  cancel-in-progress: false
+jobs:
+  delivered-user-routes:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: windows-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: packages/t3-core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+          architecture: x64
+      - name: Verify exact request and immutable executable tree
+        shell: bash
+        working-directory: .
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Faust-S/knowledge
+          test "$GITHUB_REF_NAME" = "ci/once/t3-rc5-final-user-routes/$BEFORE"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $BEFORE"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = "$(printf 'A\t.github/ci-requests/t3-rc5-final-user-routes.json')"
+          git merge-base --is-ancestor a50d40dafc2e029fcc7668dece925f7fc38cc510 "$BEFORE"
+          test "$(git rev-parse HEAD:packages/t3-core/src)" = 3a391777a51012e51356b61b9d61bc94c511de67
+          test "$(git rev-parse HEAD:packages/t3-core/qualified-runtime)" = 1594274dbf5e38214b8422ba11e8c7114bd5425c
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('.github/ci-requests/t3-rc5-final-user-routes.json','utf8'));
+          assert.equal(r.preparedSha,process.env.BEFORE);
+          delete r.preparedSha;
+          assert.deepEqual(r,{"schema":"iwxa.ci.once/1","workflow":"t3-rc5-final-user-routes","source":"a50d40dafc2e029fcc7668dece925f7fc38cc510","releaseTag":"t3-platform-v0.3.1-rc.5","archiveSha256":"42144034304a756d77219501e73458486bc0fd72fafa883590392215b9d93618","reason":"OWNER_REQUESTED_ENGINEERING_COMPLETION_OF_CODEX_BLOCKED_FILE_CHOOSER_AND_COLD_OFFLINE_ROUTES"});
+          NODE
+      - name: Download and verify published loopback delivery, no rebuild
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $zip=Join-Path $env:RUNNER_TEMP 'acceptance-host-loopback-windows-x64.zip'
+          gh release download t3-platform-v0.3.1-rc.5 --pattern acceptance-host-loopback-windows-x64.zip --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw 'DOWNLOAD_FAILED' }
+          if ((Get-FileHash $zip).Hash.ToLowerInvariant() -ne '42144034304a756d77219501e73458486bc0fd72fafa883590392215b9d93618') { throw 'PUBLISHED_ZIP_CHANGED' }
+          Expand-Archive -Path $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'rc5-delivered')
+          npm ci --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'LOCKED_TEST_DEPS_FAILED' }
+          npx --no-install playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'BROWSER_INSTALL_FAILED' }
+          node --check acceptance/rc5/loopback/final-user-routes.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'WITNESS_SYNTAX_FAILED' }
+      - name: Finish exact published file chooser, restore, repeat, export and cold offline
+        run: |
+          node acceptance/rc5/loopback/final-user-routes.mjs (Join-Path $env:RUNNER_TEMP 'rc5-delivered') (Join-Path $env:RUNNER_TEMP 'rc5-user-route-results')
+          if ($LASTEXITCODE -ne 0) { throw 'DELIVERED_USER_ROUTES_FAILED' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t3-rc5-final-user-routes-evidence
+          path: |
+            ${{ runner.temp }}/rc5-user-route-results/result.json
+            ${{ runner.temp }}/rc5-user-route-results/failure.png
+            ${{ runner.temp }}/rc5-user-route-results/workspace-exported.iwxa
+          if-no-files-found: ignore
+          retention-days: 30
