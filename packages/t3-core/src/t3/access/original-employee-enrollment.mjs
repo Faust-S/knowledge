@@ -13,6 +13,9 @@ import {signOrganizationEnrollment,verifyOrganizationEnrollment}
   from './organizational-operation.mjs';
 import {PRODUCT_CONTRACT_IDS,validateProductContract} from './product-contracts.mjs';
 import {createOriginalCorporateSeatOwner} from './original-corporate-seat-owner.mjs';
+import {ORIGINAL_NETWORK_KEY_TRANSITION,ORIGINAL_NETWORK_KEY_MANAGE,originalNetworkKeyPossessionBytes,
+  originalNetworkKeyOperationDigest,originalNetworkKeyStatusId,validateOriginalNetworkKeyTransition,
+  createOriginalNetworkAgreementChallenge} from './original-network-key-lifecycle.mjs';
 
 const refuse=code=>{const e=new Error(code);e.name='T3OriginalEmployeeEnrollmentError';e.code=code;throw e;};
 const check=(ok,code)=>{if(!ok)refuse(code);};
@@ -1029,13 +1032,132 @@ export function createOriginalEmployeeEnrollmentOwner({
     return Object.freeze({...recovered,kernelReceipt});
   }
 
+
+  // First-device enrollment, composed over the already issued pilot grants.
+  // Only public key material enters the issuer; the private key stays on
+  // its device. Original Registry owns both commit and ambiguous ACK recovery.
+  let pendingNetworkKey=null,networkKeyCommitUnknown=false;
+  async function beginNetworkKeyEnrollment({organizationId,employeePersonId,enrollmentId,managerPersonId,
+    role,keyUse,route,keyId,publicKey,confirmed=false}={}){
+    check(confirmed===true,'T3_EMPLOYEE_T4_KEY_EXPLICIT_APPROVAL_REQUIRED');
+    check(!networkKeyCommitUnknown,'T3_EMPLOYEE_T4_KEY_OUTCOME_UNKNOWN_READBACK');
+    const at=now();
+    check(!pendingNetworkKey||at>=timestamp(pendingNetworkKey.claims.issuedAt)+60000,
+      'T3_EMPLOYEE_T4_KEY_CHALLENGE_PENDING');
+    check(['SOURCE','RECIPIENT'].includes(role)&&['NETWORK_FRAME','NETWORK_AGREEMENT'].includes(keyUse)&&
+      (role==='RECIPIENT'||keyUse==='NETWORK_FRAME')&&route&&
+      Object.keys(route).sort().join()===['sourceNodeRef','recipientNodeRef','originalWriteOwnerRef','scopeRef','ownerEpoch'].sort().join()&&
+      Number.isSafeInteger(route.ownerEpoch)&&route.ownerEpoch>=1&&route.sourceNodeRef!==route.recipientNodeRef&&
+      typeof publicKey==='string'&&publicKey.length<=4096,'T3_EMPLOYEE_T4_KEY_ROUTE_INVALID');
+    [organizationId,employeePersonId,enrollmentId,managerPersonId,keyId,route.sourceNodeRef,
+      route.recipientNodeRef,route.originalWriteOwnerRef,route.scopeRef].forEach(id);
+    const delivery=await registry.readRegistryDelivery(),saved=delivery.record.data,org=pinnedOrganization;
+    const rights=networkGrantReadback({organizationId,employeePersonId,enrollmentId,saved,at});
+    check(rights.state==='ORIGINAL_EMPLOYEE_T4_RIGHTS_ACTIVE','T3_EMPLOYEE_T4_KEY_NETWORK_RIGHTS_REQUIRED');
+    const authorityId=org.issuerAuthorityId,authority=saved.policy.authorities[authorityId],
+      manager=saved.grants['grant:t4-key-manage']?.payload,issuerKey=saved.policy.keys[issuerSigner.keyId],
+      recipient=saved.grants['grant:t4-recipient-network']?.payload;
+    check(manager&&recipient&&manager.holderId===managerPersonId&&recipient.holderId===managerPersonId&&
+      managerPersonId!==employeePersonId&&manager.principalId===organizationId&&manager.authorityId===authorityId&&
+      manager.rightClass==='ADMINISTRATION'&&sameSet(manager.resources,[trustedWorkspaceId])&&
+      sameSet(manager.actions,[ORIGINAL_NETWORK_KEY_MANAGE])&&sameSet(manager.purposes,['access-administration'])&&
+      manager.evidenceRefs.includes(pilot.marker)&&issuerKey?.status==='ACTIVE'&&
+      authority.statusKeys.includes(issuerSigner.keyId),'T3_EMPLOYEE_T4_KEY_MANAGER_REQUIRED');
+    verifiedChain(manager.id,saved,at);
+    const status=validateStatusSnapshot(authorityId,saved,at);
+    check(status.entries.some(e=>e.grantId===manager.id&&e.state==='ACTIVE')&&!hasRecordedTombstone(saved,manager.id),
+      'T3_EMPLOYEE_T4_KEY_MANAGER_INACTIVE');
+    const sourceGrant=saved.grants[rights.attachments.networkAccess.grantId].payload,
+      selected=role==='SOURCE'?sourceGrant:recipient;
+    const binding={subjectId:selected.holderId,permissionRef:selected.id,keyId,
+      nodeRef:role==='SOURCE'?route.sourceNodeRef:route.recipientNodeRef,
+      recipientNodeRef:role==='SOURCE'?route.recipientNodeRef:route.sourceNodeRef,
+      workspaceId:trustedWorkspaceId,originalWriteOwnerRef:route.originalWriteOwnerRef,
+      scopeRef:route.scopeRef,ownerEpoch:route.ownerEpoch,generation:1,keyUse};
+    binding.bindingRef='binding:t4-pilot:'+digest({subjectId:binding.subjectId,permissionRef:binding.permissionRef,
+      nodeRef:binding.nodeRef,recipientNodeRef:binding.recipientNodeRef,workspaceId:binding.workspaceId,
+      originalWriteOwnerRef:binding.originalWriteOwnerRef,scopeRef:binding.scopeRef,ownerEpoch:binding.ownerEpoch,keyUse});
+    // A first pilot has one route, one frame key per role and one recipient
+    // agreement key. Never create a new route or re-enroll a retired slot.
+    for(const event of delivery.events){
+      const c=event.payload?.network_key_transition?.transition?.claims;
+      if(!c||c.authorityId!==authorityId||c.binding.workspaceId!==trustedWorkspaceId)continue;
+      const b=c.binding,source=b.subjectId===employeePersonId&&b.permissionRef===sourceGrant.id,
+        target=b.subjectId===managerPersonId&&b.permissionRef===recipient.id;
+      check((source||target)&&b.nodeRef===(source?route.sourceNodeRef:route.recipientNodeRef)&&
+        b.recipientNodeRef===(source?route.recipientNodeRef:route.sourceNodeRef)&&
+        b.originalWriteOwnerRef===route.originalWriteOwnerRef&&b.scopeRef===route.scopeRef&&b.ownerEpoch===route.ownerEpoch,
+        'T3_EMPLOYEE_T4_KEY_ROUTE_ALREADY_BOUND');
+      check(b.bindingRef!==binding.bindingRef,'T3_EMPLOYEE_T4_KEY_EXISTS_USE_READBACK');
+    }
+    check(!Object.hasOwn(saved.policy.keys,keyId),'T3_EMPLOYEE_T4_KEY_ID_EXISTS');
+    const until=Math.min(at+authority.maxTtlSeconds*1000,
+      ...[sourceGrant,recipient,manager,issuerKey].map(k=>timestamp(k.expiresAt)));
+    check(until>at,'T3_EMPLOYEE_T4_KEY_EXPIRY');
+    const claims={schema:ORIGINAL_NETWORK_KEY_TRANSITION,kind:'ENROLL',transitionRef:'transition:t4-pilot:'+randomUUID(),
+      authorityId,principalId:organizationId,previousPolicyDigest:digest(saved.policy),
+      registryWorkspaceId:delivery.record.workspace_id,registryObjectId:delivery.record.object_id,
+      rootPolicyDigest:digest(delivery.rootPolicy),expectedStatusSequence:saved.statusFloor[authorityId],
+      previousBindingDigest:null,issuedAt:iso(at),binding,keyRecord:{subjectId:binding.subjectId,
+        environment:saved.policy.environment,publicKey,status:'ACTIVE',uses:[keyUse],notBefore:iso(at),expiresAt:iso(until)}};
+    const agreement=keyUse==='NETWORK_AGREEMENT'?createOriginalNetworkAgreementChallenge(claims,{clock}):null;
+    if(!agreement)originalNetworkKeyPossessionBytes(claims); // canonical shape and public key validation
+    check(!pendingNetworkKey||now()>=timestamp(pendingNetworkKey.claims.issuedAt)+60000,
+      'T3_EMPLOYEE_T4_KEY_CHALLENGE_PENDING');
+    pendingNetworkKey={claims:copy(claims),agreement,managerPersonId,organizationId,
+      employeePersonId,enrollmentId};
+    return Object.freeze({claims:copy(claims),agreementChallenge:agreement?.challenge??null,privateKeyRequiredOnDevice:true});
+  }
+  async function completeNetworkKeyEnrollment({transitionRef,possessionSignature=null,agreementResponse=null,confirmed=false}={}){
+    check(confirmed===true,'T3_EMPLOYEE_T4_KEY_EXPLICIT_APPROVAL_REQUIRED');
+    const pending=pendingNetworkKey;
+    check(pending&&pending.claims.transitionRef===transitionRef,'T3_EMPLOYEE_T4_KEY_CHALLENGE_NOT_FOUND');
+    const at=now(),c=pending.claims;
+    check(at>=timestamp(c.issuedAt)&&at-timestamp(c.issuedAt)<60000,'T3_EMPLOYEE_T4_KEY_CHALLENGE_EXPIRED');
+    pendingNetworkKey=null;
+    networkKeyCommitUnknown=true;
+    let dispatched=false;
+    try{
+      let transition,evidence=null;
+      if(pending.agreement){
+        check(possessionSignature===null&&typeof agreementResponse==='string','T3_EMPLOYEE_T4_KEY_POSSESSION_REQUIRED');
+        ({transition,evidence}=pending.agreement.verifyResponse(agreementResponse));
+      }else{
+        check(agreementResponse===null,'T3_EMPLOYEE_T4_KEY_POSSESSION_REQUIRED');
+        transition=validateOriginalNetworkKeyTransition({claims:c,possessionSignature,agreementPossession:null});
+      }
+      const saved=await state(),org=pinnedOrganization;
+      check(digest(saved.policy)===c.previousPolicyDigest&&saved.statusFloor[c.authorityId]===c.expectedStatusSequence,
+        'T3_EMPLOYEE_T4_KEY_CHALLENGE_STALE');
+      check(networkGrantReadback({...pending,saved,at}).state==='ORIGINAL_EMPLOYEE_T4_RIGHTS_ACTIVE',
+        'T3_EMPLOYEE_T4_KEY_NETWORK_RIGHTS_REQUIRED');
+      const manager=saved.grants['grant:t4-key-manage'].payload;
+      const request={id:'request:'+transitionRef,actorId:pending.managerPersonId,principalId:pending.organizationId,
+        roleId:manager.roleId,grantId:manager.id,audience:manager.audience,resource:trustedWorkspaceId,
+        action:ORIGINAL_NETWORK_KEY_MANAGE,purpose:'access-administration',realmId:org.realmId,
+        operationDigest:originalNetworkKeyOperationDigest(transition)};
+      const challenge=randomUUID()+randomUUID(),proof=await proveManager({request:copy(request),challenge,
+        asOf:iso(at),managerPersonId:pending.managerPersonId,organizationId:pending.organizationId});
+      const decision=evaluate(request,saved,{now:iso(at),challenge,proof,timeAssurance:'LOCAL_BEST_EFFORT'});
+      check(decision.allowed===true&&decision.outcome==='PERMITTED','T3_EMPLOYEE_T4_KEY_MANAGER_NOT_AUTHORIZED');
+      const prior=saved.statuses[c.authorityId].payload;
+      const signedStatus=signRecord({...prior,id:originalNetworkKeyStatusId(transition),
+        sequence:c.expectedStatusSequence+1,issuedAt:c.issuedAt},issuerSigner);
+      dispatched=true;
+      const result=await registry.applyNetworkKeyTransition({transition,signedStatus,managerRequest:request,
+        managerChallenge:challenge,managerProof:proof},evidence);
+      networkKeyCommitUnknown=false;
+      return result;
+    }finally{if(!dispatched)networkKeyCommitUnknown=false;}
+  }
+
   const corporateSeats=corporateSeatSource===null?null:createOriginalCorporateSeatOwner({
     registry,issuerSigner,proveManager,trustedOrganization:pinnedOrganization,clock,
     resolveEnrollment:reconstruct,readLicenseState:corporateSeatSource.read,
     installedTrust:corporateSeatSource.installedTrust});
   return Object.freeze({begin,complete,readEnrollment,cancelPending,
     issueTaskGrant,readTaskGrant,issueWorkspaceGrantSet,readWorkspaceGrantSet,
-    ...(pilot?{issueNetworkGrantSet,readNetworkGrantSet}:{}),...(corporateSeats?{
+    ...(pilot?{issueNetworkGrantSet,readNetworkGrantSet,beginNetworkKeyEnrollment,completeNetworkKeyEnrollment}:{}),...(corporateSeats?{
       viewCorporateSeats:corporateSeats.view,changeCorporateSeat:corporateSeats.change,
       enableCorporateSeatPolicy:corporateSeats.enablePolicy,
       readCorporateSeatCommand:corporateSeats.readCommand}: {})});

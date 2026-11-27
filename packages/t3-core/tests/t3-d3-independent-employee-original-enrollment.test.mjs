@@ -3,7 +3,8 @@
 // employee credential ceremony or full Admin -> Agent -> Admin D3 acceptance.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generateKeyPairSync} from 'node:crypto';
+import {generateKeyPairSync,sign} from 'node:crypto';
+import {originalNetworkKeyPossessionBytes,answerOriginalNetworkAgreementChallenge} from '../src/t3/access/original-network-key-lifecycle.mjs';
 import {keyObjectSigner,makeProof,signRecord,iso,digest,evaluate}
   from '../src/t3/access/core.mjs';
 import {createOriginalEmployeeEnrollmentOwner}
@@ -72,6 +73,7 @@ function setup({wrongManager=false,lostAck=false,pretrustEmployees=true,
   const required=role=>requiredT4ProductNetworkActions({role,enableSourceEventWindowRead:true,enableRecipientResultRead:true});
   auth.resources.push(scope.sourceTechnicalWorkspaceId,scope.recipientTechnicalWorkspaceId);
   auth.purposes.push('network.synchronization');
+  auth.actions.push('t4.network.key.manage');fixture.policy.actionCatalog['t4.network.key.manage']='ADMINISTRATION';
   for(const action of new Set([...required('SOURCE'),...required('RECIPIENT')])){
    auth.actions.push(action);fixture.policy.actionCatalog[action]='ACTION';
   }
@@ -79,7 +81,8 @@ function setup({wrongManager=false,lostAck=false,pretrustEmployees=true,
   for(const [id,resource,rightClass,actions,purpose] of [
    ['grant:t4-recipient-network','ws:north','ACTION',required('RECIPIENT'),'network.synchronization'],
    ['grant:t4-recipient-technical-read',scope.recipientTechnicalWorkspaceId,'DATA',['workspace.read'],'workspace.read'],
-   ['grant:t4-recipient-technical-write',scope.recipientTechnicalWorkspaceId,'ACTION',['object.write'],'workspace.work']
+   ['grant:t4-recipient-technical-write',scope.recipientTechnicalWorkspaceId,'ACTION',['object.write'],'workspace.work'],
+   ['grant:t4-key-manage','ws:north','ADMINISTRATION',['t4.network.key.manage'],'access-administration']
   ]){
    auth.roles.includes('reviewer')||auth.roles.push('reviewer');
    const payload={...admin,id,lineageId:id,roleId:'reviewer',rightClass,resources:[resource],actions,purposes:[purpose],
@@ -910,4 +913,48 @@ test('T4 grant lost ACK is reconstructed by existing issuer without reissuing',a
   trustedOrganization:s.north.descriptors.organizations[0],trustedWorkspaceId:'ws:north',
   networkPilot:{...s.pilot,sourceTechnicalWorkspaceId:'ws:other-tech'},clock:time,proveManager:async()=>null});
  await assert.rejects(wrong.readNetworkGrantSet(args),{code:'T3_EMPLOYEE_T4_PILOT_BOOTSTRAP_MISMATCH'});
+});
+
+test('first pilot enrolls three dedicated device keys in original signed Registry, including lost reply recovery',async()=>{
+ const s=setup({graphKernel:true,networkPilot:true});await s.init();const args=await pilotEmployee(s);
+ const rights=await s.owner.issueNetworkGrantSet({...args,confirmed:true});
+ const route={sourceNodeRef:'node:source',recipientNodeRef:'node:recipient',originalWriteOwnerRef:'owner:one',
+  scopeRef:'scope:one',ownerEpoch:1};
+ const before=await s.registry.readState(),count=s.graphCalls.length;
+ for(const [role,keyUse,alg] of [['SOURCE','NETWORK_FRAME','ed25519'],['RECIPIENT','NETWORK_FRAME','ed25519'],
+  ['RECIPIENT','NETWORK_AGREEMENT','x25519']]){
+  const {publicKey,privateKey}=generateKeyPairSync(alg),keyId='key:t4:'+role+':'+keyUse;
+  const request={...args,role,keyUse,route,keyId,publicKey:publicKey.export({type:'spki',format:'pem'}).toString()};
+  const started=await s.owner.beginNetworkKeyEnrollment({...request,confirmed:true});
+  assert.equal(started.claims.binding.permissionRef,role==='SOURCE'?rights.attachments.networkAccess.grantId:'grant:t4-recipient-network');
+  const proof=alg==='ed25519'?{possessionSignature:sign(null,originalNetworkKeyPossessionBytes(started.claims),privateKey).toString('base64url')}:
+   {agreementResponse:answerOriginalNetworkAgreementChallenge({claims:started.claims,challenge:started.agreementChallenge,privateKey})};
+  if(role==='SOURCE')s.loseNext();
+  const done=await s.owner.completeNetworkKeyEnrollment({transitionRef:started.claims.transitionRef,...proof,confirmed:true});
+  assert.equal(done.state,role==='SOURCE'?'ORIGINAL_NETWORK_KEY_COMMIT_RECOVERED':'ORIGINAL_NETWORK_KEY_COMMITTED');
+  assert.equal(done.keyCurrentlyActive,true);assert.equal(done.createsGrant,false);
+  await assert.rejects(s.owner.beginNetworkKeyEnrollment({...request,confirmed:true}),{code:'T3_EMPLOYEE_T4_KEY_EXISTS_USE_READBACK'});
+ }
+ const state=await s.registry.readState();
+ assert.equal(s.graphCalls.length,count+3);assert.deepEqual(state.grants,before.grants);
+ assert.equal(state.statusFloor['issuer:north'],before.statusFloor['issuer:north']+3);
+ const {publicKey}=generateKeyPairSync('ed25519');
+ await assert.rejects(s.owner.beginNetworkKeyEnrollment({...args,confirmed:true,role:'SOURCE',keyUse:'NETWORK_FRAME',
+  route:{...route,recipientNodeRef:'node:foreign'},keyId:'key:foreign',publicKey:publicKey.export({type:'spki',format:'pem'}).toString()}),
+  {code:'T3_EMPLOYEE_T4_KEY_ROUTE_ALREADY_BOUND'});
+ assert.equal(s.graphCalls.length,count+3);
+});
+test('pilot device key enrollment requires explicit confirmation and actual private key possession',async()=>{
+ const s=setup({graphKernel:true,networkPilot:true});await s.init();const args=await pilotEmployee(s);
+ await s.owner.issueNetworkGrantSet({...args,confirmed:true});
+ const {publicKey}=generateKeyPairSync('ed25519'),route={sourceNodeRef:'node:source',recipientNodeRef:'node:recipient',
+  originalWriteOwnerRef:'owner:one',scopeRef:'scope:one',ownerEpoch:1};
+ const request={...args,role:'SOURCE',keyUse:'NETWORK_FRAME',route,keyId:'key:one',publicKey:publicKey.export({type:'spki',format:'pem'}).toString()};
+ const count=s.graphCalls.length;
+ await assert.rejects(s.owner.beginNetworkKeyEnrollment({...request,confirmed:false}),{code:'T3_EMPLOYEE_T4_KEY_EXPLICIT_APPROVAL_REQUIRED'});
+ const started=await s.owner.beginNetworkKeyEnrollment({...request,confirmed:true});
+ await assert.rejects(s.owner.completeNetworkKeyEnrollment({confirmed:true,transitionRef:started.claims.transitionRef,possessionSignature:'A'.repeat(86)}),
+  {code:'NETWORK_KEY_POSSESSION_INVALID'});
+ assert.equal(s.graphCalls.length,count);
+ assert.equal((await s.registry.readState()).policy.keys['key:one'],undefined);
 });
