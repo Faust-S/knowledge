@@ -1,0 +1,12 @@
+{
+  "preparedSha": "85ac78b4df64955cd99557c4d69b66cbc20b3b51",
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-rc6-owner-delivery",
+  "source": "3e8c40fc5a80866f32f4547f1780ebef525c964c",
+  "deliveryRevision": "4da9c4fe43694b3884123f316dce5f166106eee1",
+  "platformRun": 46048628242,
+  "platformArtifact": 15222879527,
+  "archiveSha256": "bc52020b421acd334b7c5a8db8672e153933c767159609db06239f784e6ee13e",
+  "manifestSha256": "9a39448eefb9ceffd8e898a6faa395fc993df7481e01fe9228ff5e10c7e4f290",
+  "reason": "COMPLETE_RC6_USER_ROUTES_WITH_ORIGINAL_UNIVERSAL_WORKSPACE_PASSPORT"
+}
