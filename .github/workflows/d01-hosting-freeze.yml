@@ -28,7 +28,7 @@ jobs:
           ref: 244ad469a71ae65910144c6918488a2d061eecce
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
-          fetch-depth: 2
+          fetch-depth: 3
           path: private/assistant
       - uses: actions/setup-node@v4
         with:
