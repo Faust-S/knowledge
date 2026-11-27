@@ -1,0 +1,13 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d01-hosting-freeze",
+  "prepared_sha": "b28946a866ab81892ac0264dc3269ba068f27ded",
+  "profile": "learn-original-assistant-environment",
+  "revisions": {
+    "site": "1ed3c3f44239caf564eeee0a5d15f5d7c46d0e80",
+    "subject": "adf9e4342242cbc1dfad4edbd4b2bf128fd8b8df",
+    "t2": "39a0b3205ea45a55c3db45b99f5bcf4f0283aef1",
+    "core": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+    "assistant": "5e3083788aa541921559de29d3457d4a52bbba00"
+  }
+}
