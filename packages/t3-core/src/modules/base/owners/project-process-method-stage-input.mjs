@@ -88,6 +88,7 @@ export async function readWorkspaceMethodStageInputBasis(input){
 // acceptance and archive, but not the canonical Project/Work recordId or
 // W05 input-basis digest. Never turn that distinction into reuse authority.
 const AGENT_RESULT_SCHEMA='iwxa.agent.accepted-result';
+const AGENT_RESULT_SCHEMA_VERSION='1.0.0';
 const HEX=/^[a-f0-9]{64}$/;
 function resultRef(value,workspaceId){
   if(!value||value.workspace_id!==workspaceId||!text(value.object_id)
@@ -132,7 +133,7 @@ async function observeAgentResult({readObject,readAccepted,workspaceId,projectId
     reference,state:'RESULT_UNAVAILABLE',accepted:null,exactInputBindingProven:false});
   const o=row?.object;
   if(!o||o.workspace_id!==workspaceId||o.object_id!==reference.object_id||o.schema_id!==reference.schema_id
-      ||!Number.isSafeInteger(o.revision)||o.revision<1){
+      ||o.schema_version!==AGENT_RESULT_SCHEMA_VERSION||!Number.isSafeInteger(o.revision)||o.revision<1){
     fail('METHOD_STAGE_RESULT_IDENTITY_MISMATCH','Original Kernel returned a different Result identity');
   }
   if(o.deleted===true||o.deleted_at!=null||o.revision!==reference.revision){
@@ -144,7 +145,21 @@ async function observeAgentResult({readObject,readAccepted,workspaceId,projectId
   // call. Neither the published metadata nor a caller assertion is an
   // acceptance decision. No private Result summary is returned.
   const accepted=acceptedMetadata(await readAccepted(reference),reference);
-  const published=o.data;
+  // Fence the addressed publication across the asynchronous native read.
+  // The installed original owner remains the acceptance authority.
+  const confirmed=await readObject(workspaceId,reference.object_id);
+  const latest=confirmed?.object;
+  if(!latest||latest.workspace_id!==workspaceId||latest.object_id!==reference.object_id
+      ||latest.schema_id!==reference.schema_id||latest.schema_version!==AGENT_RESULT_SCHEMA_VERSION
+      ||latest.revision!==reference.revision||latest.deleted===true||latest.deleted_at!=null){
+    fail('METHOD_STAGE_RESULT_CHANGED','Original publication changed during accepted Result readback');
+  }
+  const published=latest.data;
+  if(!o.data||!published||!equal(workNumber(o.data.workRef),workNumber(published.workRef))
+      ||['taskId','resultId','acceptedDigest','signedTaskId','signedTaskRevisionId','signedTaskPackageSha256','contextDigest']
+        .some(key=>o.data[key]!==published[key])){
+    fail('METHOD_STAGE_RESULT_CHANGED','Original publication binding changed during accepted Result readback');
+  }
   if(!published||!equal(workNumber(published.workRef),accepted.workRef)
       ||['taskId','resultId','acceptedDigest'].some(k=>published[k]!==accepted[k])){
     fail('METHOD_STAGE_RESULT_OWNER_READBACK_INVALID','Published original Object and accepted owner disagree');

@@ -54,6 +54,9 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   same('original owner creates five exact records through K036',created.createdCount,5);
   same('original owner material references restored from K036',exact(created.method.draft),exact(draft));
   const base=created.method;
+  const readStage=(owner,c,workspaceId,expected,stepId)=>readWorkspaceMethodStageInputBasis({owner,workspaceId,projectId,expected,stepId,
+    readObject:(...args)=>c.t1.getObject(...args)});
+  const initialCompute=await readStage(source.owner,client,ws,base,'compute');
   const firstEdit=edit(draft,'analyse','Revised original analysis');
   const request=(owner,basis,target,operationId,knowledgeAt,objects)=>({owner,workspaceId:ws,projectId,
     expected:basis,draft:target,objects,operationId,knowledgeAt});
@@ -61,6 +64,10 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   same('original owner observes actual lost graph acknowledgement',second.recoveredAckCount,1);
   same('original owner writes only dependent second revision',second.revisedCount,1);
   same('original owner keeps three independent heads',second.keptCount,3);
+  const independentCompute=await readStage(source.owner,client,ws,base,'compute');
+  same('original K036 selected independent stage retains input basis after unrelated Work edit',independentCompute.inputBasisDigest,initialCompute.inputBasisDigest);
+  same('original K036 selected stage does not assert entire method current',independentCompute.completeMethodCurrentVerified,false);
+  await expectReject('original K036 changed dependent Work cannot use older selected basis',()=>readStage(source.owner,client,ws,base,'review'),['METHOD_STAGE_SOURCE_CHANGED']);
   same('exact historical method read through released K036',exact((await readHistoricalWorkspaceMethod({
     owner:source.owner,workspaceId:ws,projectId,expected:base})).draft),exact(draft));
   same('ordinary original owner operations do not enumerate catalog',source.metrics.catalogReads,0);
@@ -110,6 +117,10 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   let count=restored.metrics.addressedReads;
   await liveRead();
   const beforeReads=restored.metrics.addressedReads-count;
+  count=restored.metrics.addressedReads;
+  const selectedCompute=await readStage(restored.owner,restoredClient,ws,resumed.method,'compute');
+  const beforeStageReads=restored.metrics.addressedReads-count;
+  check('original K036 stage input reads only selected prerequisite closure',beforeStageReads<=27);
   check('current-method read does not repeat already observed physical revision lookup',beforeReads<=30);
   const catalogBefore=(await restoredClient.t1.listObjects({workspace_id:ws})).length;
   const unrelated={workspaceId:ws,projectId:'unrelated-project',name:'Unrelated project',domainApplicability:['generic']};
@@ -121,6 +132,11 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   count=restored.metrics.addressedReads;
   await liveRead();
   const afterReads=restored.metrics.addressedReads-count;
+  count=restored.metrics.addressedReads;
+  const selectedComputeAfter=await readStage(restored.owner,restoredClient,ws,resumed.method,'compute');
+  const afterStageReads=restored.metrics.addressedReads-count;
+  same('selected Work addressed read count remains independent of 64 unrelated revisions',afterStageReads,beforeStageReads);
+  same('unrelated historical records do not change selected Work exact inputs',selectedComputeAfter.inputBasisDigest,selectedCompute.inputBasisDigest);
   same('addressed current method read is independent of unrelated 64 revision history',afterReads,beforeReads);
   const catalogAfter=(await restoredClient.t1.listObjects({workspace_id:ws})).length;
   same('unfiltered owner catalog grows by anchor plus all 64 unrelated revisions',catalogAfter-catalogBefore,65);
@@ -167,6 +183,10 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   same('copied Project retains exact original record identity',copyMethod.projectRef.recordId,resumed.method.projectRef.recordId);
   same('copied Work refs use target scope and original record IDs',
     copyMethod.workRefs.map(r=>r.recordId),resumed.method.workRefs.map(r=>r.recordId));
+  const copyCompute=await readStage(local.owner,restoredClient,copyWs,copyMethod,'compute');
+  same('copied selected stage reads original local material',copyCompute.state,'INPUT_REFERENCES_VERIFIED');
+  same('copied stage input basis uses target-local Workspace',copyCompute.basis.workspaceId,copyWs);
+  check('independent Workspace cannot inherit source input basis digest',copyCompute.inputBasisDigest!==selectedCompute.inputBasisDigest);
   const copyOrigin=await readWorkspaceMethodAlternativeOrigin({owner:local.owner,workspaceId:copyWs,projectId:alternativeId});
   same('copied alternative uses exact target-local origin scope',copyOrigin.origin.workspaceId,copyWs);
   same('copied alternative resolves exact original historical content',exact(copyOrigin.source.draft),exact(draft));
@@ -214,5 +234,5 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
     currentMethodAddressedReads:{before:beforeReads,after:afterReads},unfilteredCatalog:{before:catalogBefore,after:catalogAfter},
     additionalHistoryRevisions:64,alternativeLineageRestored:true,
     copiedMethodLocalProjection:true,copyOfCopyLocalProjection:true,durableCopyProvenance:false,
-    stageInputBasisVerified:true,physicalBrowser:false,productionAdapterApproved:false};
+    stageInputBasisVerified:true,selectedStageAddressedReads:{before:beforeStageReads,after:afterStageReads},physicalBrowser:false,productionAdapterApproved:false};
 }

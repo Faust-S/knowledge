@@ -22,8 +22,8 @@ function draft(){return {templateId:'method',templateRevision:'1',projectId,name
     {id:'review',name:'Review',actor:'human',instruction:'Review accepted result',dependsOn:['analyse'],materialIds:[]},
   ]};}
 const clone=structuredClone;
-async function setup(){
-  const {owner}=await createProjectProcessSourceOwnerQualificationHarness(),value=draft();
+async function setup(value=draft()){
+  const {owner}=await createProjectProcessSourceOwnerQualificationHarness();
   const result=await createWorkspaceMethodThroughSourceOwner({owner,workspaceId:ws,objects:[material],draft:value,
     recordIds:{project:'method-source',works:{[projectId+'.analyse']:'analyse-source',[projectId+'.review']:'review-source'}},knowledgeAt:time});
   const calls=[],nativeCalls=[];let selectedResult=clone(resultObject),native=clone(accepted);
@@ -146,4 +146,26 @@ test('original D1 permission revocation during accepted owner read prevents repo
   const f=await setup(),h=trusted(f);
   h.hook(()=>{h.deny();});
   await assert.rejects(h.reader.inspect(hostInput(f)),code('T3_ACCESS_NOT_PERMITTED'));
+});
+
+test('published original Result revision changing during the final native owner call is rejected',async()=>{
+  const f=await setup();let calls=0;
+  await assert.rejects(inspectWorkspaceMethodAgentPredecessorResults(args(f,{
+    readAccepted:async()=>{if(++calls===2)f.changeResult({...resultObject,revision:2});return accepted;}
+  })),code('METHOD_STAGE_RESULT_CHANGED'));
+  assert.equal(calls,2);
+});
+test('original publication schema version must match the existing accepted Result schema',async()=>{
+  const f=await setup();
+  f.changeResult({...resultObject,schema_version:'2.0.0'});
+  await assert.rejects(inspectWorkspaceMethodAgentPredecessorResults(args(f)),code('METHOD_STAGE_RESULT_IDENTITY_MISMATCH'));
+  assert.equal(f.nativeCalls.length,0);
+});
+test('material-free root Work still requires current D1 at final trusted readback',async()=>{
+  const value=draft();value.materials=[];value.steps[0].materialIds=[];
+  const f=await setup(value);let h;
+  const owner={load:async(...a)=>{const row=await f.owner.load(...a);h.deny();return row;}};
+  h=trusted({...f,owner});
+  await assert.rejects(h.reader.inspect({...hostInput(f),stepId:'analyse',resultSelections:[]}),code('T3_ACCESS_NOT_PERMITTED'));
+  assert.equal(f.calls.length,0);assert.equal(f.nativeCalls.length,0);
 });
