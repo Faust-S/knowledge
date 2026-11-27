@@ -1,4 +1,4 @@
-name: D01 bounded link and original TLS diagnostic
+name: D01 confirmed link fixes and real local generation
 on:
   workflow_dispatch:
   push:
@@ -7,7 +7,7 @@ on:
     paths:
       - '.github/ci-requests/d01-hosting-freeze.json'
 concurrency:
-  group: d01-learn-known-link-diagnostic
+  group: d01-learn-confirmed-fixes
   # Finish the running candidate. GitHub keeps at most one pending run in
   # this group, replacing an older pending candidate when a new one is queued.
   cancel-in-progress: false
@@ -18,11 +18,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
     name: Exact Learn T3 ${{ matrix.lane }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 80
     strategy:
       fail-fast: false
       matrix:
-        lane: [audit]
+        lane: [audit, model]
     permissions:
       contents: read
       actions: read
@@ -41,8 +41,8 @@ jobs:
         run: |
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-hosting-freeze \
-            --profile learn-known-link-diagnostic-1-2-8 \
-            --revision site=cc71520a3dd924081b8c93e32c448ea4ab1e36c5 \
+            --profile learn-final-confirmed-fixes-and-local-generation \
+            --revision site=acec77a6887f57a90af8dba47ad989b3019a60b7 \
             --revision subject=77336a8a481005dda0c10c0df9a9f56655fb3fc6 \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1 \
             --revision core=8f55367b3c8f310aad4e3217fe0b53b6950ce220 \
@@ -50,7 +50,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: cc71520a3dd924081b8c93e32c448ea4ab1e36c5
+          ref: acec77a6887f57a90af8dba47ad989b3019a60b7
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -88,7 +88,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = cc71520a3dd924081b8c93e32c448ea4ab1e36c5
+          test "$(git -C private/site rev-parse HEAD)" = acec77a6887f57a90af8dba47ad989b3019a60b7
           test "$(git -C private/domain rev-parse HEAD)" = 77336a8a481005dda0c10c0df9a9f56655fb3fc6
           test "$(git -C original/core rev-parse HEAD)" = 8f55367b3c8f310aad4e3217fe0b53b6950ce220
           test "$(git -C private/assistant rev-parse HEAD)" = 5419dacf855d81ec089acc23bae0c7aa11713a54
@@ -216,7 +216,7 @@ jobs:
         working-directory: private/site
         env:
           D01_SITE_TOKEN: ${{ secrets.DOMEN }}
-          D01_SITE_REVISION: 'cc71520a3dd924081b8c93e32c448ea4ab1e36c5'
+          D01_SITE_REVISION: 'acec77a6887f57a90af8dba47ad989b3019a60b7'
         shell: bash
         run: python3 "$GITHUB_WORKSPACE/ci-harness/tools/ci/retain-d01-private-inputs.py"
       - name: Browser prerequisites for exact Learn runtime
@@ -288,13 +288,14 @@ jobs:
             grep -Eo 'D01_BROWSER_[A-Z0-9_]+|D01_PRODUCT_MOUNT_FAILED|Operation not permitted|TimeoutError' "$RUNNER_TEMP/d01-navigation.log" | sort -u | head -30 || true
           fi
           exit "$code"
-      - name: Actual original local model installation and online plus cold-offline consultation
+      - name: Actual model installation, answer and cold-offline answer
         if: matrix.lane == 'model'
         timeout-minutes: 65
         working-directory: private/site
         env:
           D01_T3_ALLOW_REAL_MODEL: '1'
           D01_T3_MODEL_PROFILE: 'light'
+          D01_T3_REVIEW_CONSULTATIONS: '0'
         shell: bash
         run: |
           set +e
