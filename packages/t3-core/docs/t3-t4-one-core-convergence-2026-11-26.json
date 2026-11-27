@@ -1138,14 +1138,22 @@
         "Original corrected unaccepted K036 exact private reconstruction/full local qualification and actual Registry ZIP import",
         "Windows build and DPAPI, physical server and two installed products, independent final acceptance"
       ],
-      "publicActions": 7,
+      "publicActions": 6,
       "privateActions": 0,
       "codexUsed": false,
       "kernelChanged": false,
       "wireChanged": false,
       "releasePinsChanged": false,
       "T4_READY": false,
-      "FEATURE_FREEZE": true
+      "FEATURE_FREEZE": true,
+      "publicActionRuns": [
+        46052168573,
+        46052526871,
+        46052653517,
+        46052903534,
+        46053009571,
+        46053120268
+      ]
     }
   }
 }
