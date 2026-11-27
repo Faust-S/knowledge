@@ -1,0 +1,396 @@
+name: T3 0.3.2 final qualification and stable platform release
+on:
+  push:
+    branches: ['ci/once/t3-032-final/0b5c4063573bba491f8b574484862463469b90bf']
+    paths: ['.github/ci-requests/t3-032-final.json']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-assistant:
+    outputs:
+      passed: ${{ steps.regression.outputs.passed }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: '2c247482306f218a7d5be668de11e98f168862d4'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-assistant
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Existing original assistant source regressions
+        id: regression
+        working-directory: private-assistant/browser-local-inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "2c247482306f218a7d5be668de11e98f168862d4"
+          node --check domain-assistant/main.mjs > "$RUNNER_TEMP/assistant-syntax.log" 2>&1 || { echo ASSISTANT_SYNTAX_FAIL; exit 1; }
+          if node --test tests/domain-assistant-*.test.mjs > "$RUNNER_TEMP/assistant-regression.log" 2>&1; then
+            grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/assistant-regression.log"
+            echo "passed=$(sed -n 's/^# pass //p' "$RUNNER_TEMP/assistant-regression.log")" >> "$GITHUB_OUTPUT"
+            echo ASSISTANT_EXISTING_SOURCE_REGRESSION_PASS
+          else
+            grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/assistant-regression.log" || true
+            echo ASSISTANT_EXISTING_SOURCE_REGRESSION_FAIL
+            exit 1
+          fi
+
+  grounded-profile:
+    needs: [original-assistant]
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [light, balanced, extended]
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      SOURCE: '0a2cd84af5d56e148e003326bada030da8fb62e2'
+      ASSISTANT: '2c247482306f218a7d5be668de11e98f168862d4'
+      SITE: '0b5c4063573bba491f8b574484862463469b90bf'
+      PLATFORM_ARTIFACT: '15229796119'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '0a2cd84af5d56e148e003326bada030da8fb62e2'
+          persist-credentials: false
+          path: original-core
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: '2c247482306f218a7d5be668de11e98f168862d4'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-assistant
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod.ru
+          ref: '0b5c4063573bba491f8b574484862463469b90bf'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod
+          ref: '6852d55ae8e7100b480b2d5c0a10b92de1c7d467'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-subject
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: iwxa-t3-platform-inputs-0.3.2-rc.2-0a2cd84af5d56e148e003326bada030da8fb62e2
+          path: ${{ runner.temp }}/platform
+          github-token: ${{ github.token }}
+          run-id: 46062741580
+      - name: Explicit candidate input import, exact owner bytes
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SITE"
+          test "$(git -C ../original-core rev-parse HEAD)" = "$SOURCE"
+          test "$(git -C ../private-assistant rev-parse HEAD)" = "$ASSISTANT"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          import {createHash} from 'node:crypto';
+          const root='runtime/t3-platform',active=JSON.parse(readFileSync(join(root,'active.json'),'utf8'));
+          assert.equal(active.version,'0.3.2-rc.2');
+          const pin=JSON.parse(readFileSync(join(root,active.version,'release.json'),'utf8'));
+          const ap=JSON.parse(readFileSync(join(root,active.version,'domain-assistant.json'),'utf8'));
+          const sp=JSON.parse(readFileSync(join(root,active.version,'domain-skills.json'),'utf8'));
+          const r=JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,'platform','candidate-receipt.json'),'utf8'));
+          assert.equal(r.sourceCommit,process.env.SOURCE);assert.equal(pin.sourceCommit,r.sourceCommit);
+          assert.equal(pin.archiveSha256,r.archiveSha256);assert.equal(pin.manifestSha256,r.manifestSha256);
+          assert.equal(pin.portableArtifactId,Number(process.env.PLATFORM_ARTIFACT));
+          assert.equal(ap.sourceCommit,process.env.ASSISTANT);assert.equal(ap.sharedEngineSource,r.sourceCommit);
+          assert.equal(sp.sourceCommit,'6852d55ae8e7100b480b2d5c0a10b92de1c7d467');assert.equal(sp.sourceBlob,'15c4e99fbbf2a5c842bcbc810da03effff725230');
+          assert.equal(createHash('sha256').update(readFileSync(join(process.env.RUNNER_TEMP,'platform','platform-inputs.zip'))).digest('hex'),r.archiveSha256);
+          NODE
+          echo CEHOVOD_EXPLICIT_CANDIDATE_INPUT_PIN_READY
+          if [ -x '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' ]; then
+            echo 'PUPPETEER_EXECUTABLE_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' >> "$GITHUB_ENV"
+          fi
+      - name: Existing site build and original shared Host
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_private() {
+            local label="$1"; shift
+            local log="$RUNNER_TEMP/cehovod-$label.log"
+            if "$@" > "$log" 2>&1; then
+              echo "CEHOVOD_${label}_PASS"
+            else
+              grep -Eo 'CEHOVOD_[A-Z0-9_]{5,100}|T3_PORTABLE_PLATFORM_[A-Z0-9_]+|error TS[0-9]+' "$log" | sort -u | tail -40 || true
+              echo "CEHOVOD_${label}_FAIL"
+              exit 1
+            fi
+          }
+          run_private DEPENDENCIES npm ci --ignore-scripts --no-audit --no-fund
+          run_private SOURCE_TYPES npm run typecheck
+          run_private SKILLS npm run verify:t3-skills
+          run_private PLATFORM_IMPORT npm run import:t3-platform -- "$RUNNER_TEMP/platform/platform-inputs.zip"
+          run_private HOST npm run prepare:t3-host -- "$GITHUB_WORKSPACE/original-core/packages/t3-core" "$RUNNER_TEMP/domain-host" "$RUNNER_TEMP/platform/platform-inputs.zip" "$GITHUB_WORKSPACE/private-assistant" https://127.0.0.1:18443
+          run_private RETAIN npm run retain:t3-inputs -- "$RUNNER_TEMP/domain-host" "$RUNNER_TEMP/platform/platform-inputs.zip"
+          run_private ONE_DIST npm run build:product:t3
+          run_private PRODUCT_STRUCTURE npm run verify:product:t3
+      - name: Prepare existing genuine WebGPU model witness
+        working-directory: original-core/packages/t3-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund > "$RUNNER_TEMP/model-browser-deps.log" 2>&1 || { echo MODEL_BROWSER_DEPENDENCIES_FAIL; exit 1; }
+          npx --no-install playwright install chromium
+          if ! brew list --versions openssl@3 >/dev/null 2>&1; then brew install openssl@3; fi
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+      - name: Existing real Qwen profile, exact native result and cold offline advice
+        working-directory: private-site
+        shell: bash
+        env:
+          D05_T2_WITNESS_COPY: ${{ github.workspace }}/original-core/packages/t3-core
+          D05_T3_MODEL_EVALUATION_SOURCE: ${{ github.workspace }}/private-subject/tests/assistant-answer-diagnostic.mjs
+          D05_T3_MODEL_PROFILE: ${{ matrix.profile }}
+          D05_T3_REQUIRE_HARDWARE_GPU: '1'
+          D05_T3_MODEL_GROUNDED_ADVICE: '1'
+          D05_T3_MODEL_CROSS_SERVICE: '1'
+        run: |
+          set -euo pipefail
+          test "$(git -C ../private-subject rev-parse HEAD)" = "6852d55ae8e7100b480b2d5c0a10b92de1c7d467"
+          node --check scripts/d05-t3-real-model-witness.mjs
+          # Only the existing finite evidence records, never private code,
+          # raw prompts, user data or raw generated text, leave the runner.
+          set +e
+          node scripts/d05-t3-real-model-witness.mjs 2>&1 | grep -E '^D05_T3_(MODEL_[A-Z_]+|REAL_MODEL_[A-Z_]+)( |$)' | tee "$RUNNER_TEMP/profile-evidence.log"
+          outcome=${PIPESTATUS[0]}
+          set -e
+          export WITNESS_EXIT="$outcome"
+          node --input-type=module <<'NODE'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const profile=process.env.D05_T3_MODEL_PROFILE;
+          const lines=readFileSync(join(process.env.RUNNER_TEMP,'profile-evidence.log'),'utf8').split('\n');
+          const records=marker=>lines.filter(s=>s.startsWith(marker+' {')).map(s=>JSON.parse(s.slice(marker.length+1)));
+          const advice=records('D05_T3_MODEL_ADVICE_EVIDENCE'),cross=records('D05_T3_MODEL_CROSS_SERVICE_EVIDENCE'),final=records('D05_T3_REAL_MODEL_PASS');
+          const rows=[...advice,...cross];
+          const pass=Number(process.env.WITNESS_EXIT)===0&&advice.length===4&&cross.length===3&&
+            rows.every(r=>r.exactSource===true&&r.expectedChoice===true&&r.busyObserved===true)&&
+            cross.every(r=>r.sameWorker===true&&r.sourceUnchanged===true&&r.controlsUnchanged===true&&r.workspaceUnchanged===true&&r.offline===true)&&
+            final.length===1&&final[0].profile===profile&&final[0].adapter==='nonfallback-reported'&&
+            final[0].groundedAdvice===true&&final[0].actualInference===true&&final[0].serverStopped===true&&final[0].browserRestarted===true;
+          const evidence={profile,assistant:process.env.ASSISTANT,site:process.env.SITE,qualificationRun:Number(process.env.GITHUB_RUN_ID),
+            completed:rows.length,exactSource:rows.filter(r=>r.exactSource===true).length,expectedChoices:rows.filter(r=>r.expectedChoice===true).length,
+            passed:pass,advice,cross,final:final[0]??null,witnessExit:Number(process.env.WITNESS_EXIT)};
+          writeFileSync(join(process.env.RUNNER_TEMP,'profile-'+profile+'.json'),JSON.stringify(evidence,null,2)+'\n');
+          console.log('T3_FINAL_EXISTING_PROFILE_EVIDENCE '+JSON.stringify({profile,completed:evidence.completed,exactSource:evidence.exactSource,expectedChoices:evidence.expectedChoices,passed:pass}));
+          if(!pass)process.exitCode=1;
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t3-032-final-evidence-${{ matrix.profile }}
+          path: ${{ runner.temp }}/profile-${{ matrix.profile }}.json
+          if-no-files-found: warn
+          retention-days: 30
+
+
+  publish:
+    needs: [original-assistant, grounded-profile]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_BASE: 'f93094d3440f6d5d6b55736146f9d448e8a20dbc'
+      PRIOR: '0a2cd84af5d56e148e003326bada030da8fb62e2'
+      ASSISTANT: '2c247482306f218a7d5be668de11e98f168862d4'
+      SITE: '0b5c4063573bba491f8b574484862463469b90bf'
+      SUBJECT: '6852d55ae8e7100b480b2d5c0a10b92de1c7d467'
+      WORK_BRANCH: 'work/2026-11-27-t3-0-3-2-domain-assistant'
+      RELEASE_TAG: t3-platform-v0.3.2
+      SOURCE_PASSED: ${{ needs.original-assistant.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: t3-032-final-evidence-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/evidence
+      - uses: actions/download-artifact@v4
+        with:
+          name: iwxa-t3-platform-inputs-0.3.2-rc.2-0a2cd84af5d56e148e003326bada030da8fb62e2
+          path: ${{ runner.temp }}/prior
+          github-token: ${{ github.token }}
+          run-id: 46062741580
+      - name: Promote only the qualified source and retain original platform bytes
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Faust-S/knowledge
+          test "$(git rev-list --parents -n 1 "$GITHUB_SHA")" = "$GITHUB_SHA $SOURCE_BASE"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin "refs/heads/$WORK_BRANCH" | cut -f1)" = "$SOURCE_BASE"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo RELEASE_TAG_EXISTS; exit 1; fi
+          git diff --quiet "$PRIOR" HEAD -- packages/t3-core/src packages/t3-core/integration-sources packages/t3-core/qualified-runtime packages/t3-core/scripts packages/t3-core/tests packages/t3-core/vite.config.ts
+          echo '3e7c32a3a7de5c8ba664955cd4d83c41f2ffa5bc060b286a795f084aefa4e0cc  '"$RUNNER_TEMP/prior/platform-inputs.zip" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/prior-input"
+          unzip -q "$RUNNER_TEMP/prior/platform-inputs.zip" -d "$RUNNER_TEMP/prior-input"
+          (cd "$RUNNER_TEMP/prior-input"; echo '9cfbf65a5f8fa11054a8c56b4f34a736c0c4e0e563c8be25511e317871aae0ab  t3-platform-inputs.json' | sha256sum -c -; sha256sum -c t3-platform-inputs.sha256)
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const env=process.env,root='packages/t3-core',temp=env.RUNNER_TEMP;
+          const profiles=['light','balanced','extended'];
+          const evidence=profiles.map(profile=>JSON.parse(readFileSync(join(temp,'evidence','profile-'+profile+'.json'),'utf8')));
+          assert.ok(Number(env.SOURCE_PASSED)>=136);
+          assert.ok(evidence.every((e,i)=>e.profile===profiles[i]&&e.assistant===env.ASSISTANT&&e.site===env.SITE&&
+            e.qualificationRun===Number(env.GITHUB_RUN_ID)&&e.passed&&e.completed===7&&e.exactSource===7&&e.expectedChoices===7));
+          const receipt={schema:'IWXA_T3_032_FINAL_QUALIFICATION/1',version:'0.3.2',run:Number(env.GITHUB_RUN_ID),assistant:env.ASSISTANT,site:env.SITE,subject:env.SUBJECT,sourceTests:Number(env.SOURCE_PASSED),
+            priorPlatform:env.PRIOR,priorBrowserRun:46060488224,priorHardwareRun:46062741580,previousSelectionRun:46064672900,profiles:evidence,
+            scope:'ENGINEERING_QUALIFIED_PRODUCT_NEUTRAL_PLATFORM_AND_DOMAIN_ASSISTANT',independentCodex:'NOT_RUN_ON_0_3_2',physicalMobileAccepted:false,installedProductAccepted:false,domainMigrationAutoAuthorized:false};
+          const json=x=>JSON.stringify(x,null,2)+'\n';
+          const read=p=>JSON.parse(readFileSync(p,'utf8'));
+          writeFileSync(join(temp,'qualification-result.json'),json(receipt));
+          for(const name of ['package.json','package-lock.json']){
+            const p=join(root,name),old=readFileSync(p,'utf8'),expected=name==='package.json'?1:2;
+            assert.equal(old.split('"version": "0.3.2-rc.2"').length-1,expected);
+            writeFileSync(p,old.replaceAll('"version": "0.3.2-rc.2"','"version": "0.3.2"'));
+          }
+          const path=join(root,'docs/t3-consolidation-sources.json'),m=read(path);
+          assert.equal(m.version,'0.3.2-rc.2');
+          m.version='0.3.2';m.status='ENGINEERING_QUALIFIED_STABLE_INPUTS_PENDING_PUBLICATION';
+          m.originalAssistant={...m.originalAssistant,commit:env.ASSISTANT,sourceRoot:"browser-local-inference/domain-assistant",files:[{"path":"main.mjs","blob":"4b6c54064b67d06c3ac767eaafaec30df247aa9a"},{"path":"field-policy.mjs","blob":"475045a4b86d6a2ef0535fb05be8f6a853ec3166"},{"path":"skill-runtime.mjs","blob":"9a9704df6b2b41df119827dd357d7ac2058bdd34"},{"path":"device-policy.mjs","blob":"eee136413dc33a649be42b2d229125c69fd06cae"}]};
+          m.snapshot='0.3.2 stable promotion: original platform executable bytes unchanged from rc.2; exact qualified original domain assistant source pin and metadata.';
+          m.domainAssistantUi.inferenceEvidence.domainHardware={run:Number(env.GITHUB_RUN_ID),assistant:env.ASSISTANT,site:env.SITE,profiles:evidence.map(e=>({profile:e.profile,scenarios:e.completed,exactSource:e.exactSource,expectedChoices:e.expectedChoices,actualInference:true,coldOffline:true})),semanticAcceptance:'SEVEN_EXISTING_SCENARIOS_PER_PROFILE_ONLY',independentProductAcceptance:false};
+          m.domainAssistantUi.finalRelease={version:'0.3.2',prior:'0.3.2-rc.2',source:env.PRIOR,run:Number(env.GITHUB_RUN_ID),sourceTests:receipt.sourceTests,assistant:env.ASSISTANT,site:env.SITE,subject:env.SUBJECT,filesIdenticalToRc2:171,installedProductsSeparate:true,domainMigrationAutoAuthorized:false};
+          writeFileSync(path,json(m));
+          const lines=['# IWXA T3 0.3.2. Инженерный выпуск','',
+            'Единая технология D1–D7 и оригинальная платформа 0.3.1 сохранены. Общий помощник: '+env.ASSISTANT+'.',
+            'Исходная квалификация: '+receipt.sourceTests+' PASS. Полный аппаратный прогон: https://github.com/Faust-S/knowledge/actions/runs/'+env.GITHUB_RUN_ID+'.','',
+            '| Профиль | Исходные значения | Ожидаемое действие | Автономная генерация |','|---|---:|---:|---|',
+            ...evidence.map(e=>'| '+e.profile+' | '+e.exactSource+'/7 | '+e.expectedChoices+'/7 | PASS |'),'',
+            'Встроенный вертикальный помощник, индивидуальный дизайн домена, единый каталог, установка автономного сайта, еженедельное предложение обновления, исходные формы, пояснения полей и расчётов, продолжение задачи. Оригинальные Kernel 0.3.6, Runtime Contract 1.3.0, WebLLM 0.2.87. Предметный поиск сохраняет исходный результат и оставляет модели возможность отказаться. Не создавались второй движок, Kernel, Store, формат обмена или доменный каталог.',
+            'Предыдущая квалификация браузерных маршрутов: https://github.com/Faust-S/knowledge/actions/runs/46060488224. Отдельная независимая приёмка Codex данной версии, физические мобильные устройства и установленные корпоративные приложения не подтверждены. Не означает приёмку всех ответов нейросети, миграцию всех доменов или публикацию сайта. Стабильный 0.3.1 остаётся доступным.',''];
+          writeFileSync(join(root,'docs/T3_PLATFORM_0_3_2_RELEASE_RU.md'),lines.join('\n'));
+          const guide=join(root,'docs/T3_DOMAIN_LOCAL_ASSISTANT_INTEGRATION_RU.md');
+          const text=readFileSync(guide,'utf8'),pos=text.indexOf('\n## 5. Предметные навыки');
+          assert.ok(pos>=0);
+          writeFileSync(guide,text.slice(0,pos)+'\n### 4.8. Выпуск 0.3.2\n\nТочный источник помощника: T3@'+env.ASSISTANT+'. Полное подтверждение трёх профилей по семи существующим сценариям: [прогон '+env.GITHUB_RUN_ID+'](https://github.com/Faust-S/knowledge/actions/runs/'+env.GITHUB_RUN_ID+'). См. [выпускной документ](T3_PLATFORM_0_3_2_RELEASE_RU.md). Сохранять один общий помощник и три централизованных профиля. Интеграция каждого сайта остаётся явной и отдельной.\n'+text.slice(pos));
+          NODE
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/t3-core/package.json packages/t3-core/package-lock.json packages/t3-core/docs/t3-consolidation-sources.json packages/t3-core/docs/T3_PLATFORM_0_3_2_RELEASE_RU.md packages/t3-core/docs/T3_DOMAIN_LOCAL_ASSISTANT_INTEGRATION_RU.md
+          git commit -m 'Release qualified IWXA T3 0.3.2 exact original assistant and metadata [skip ci] [skip actions]'
+          SOURCE="$(git rev-parse HEAD)"
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+          cd packages/t3-core
+          test ! -e dist
+          cp -a "$RUNNER_TEMP/prior-input/dist" dist
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          for(const name of ['package.json','package-lock.json']){
+            const old=readFileSync(join(process.env.RUNNER_TEMP,'prior-input',name),'utf8');
+            assert.equal(old.split('"version": "0.3.2-rc.2"').length-1,name==='package.json'?1:2);
+            writeFileSync(name,old.replaceAll('"version": "0.3.2-rc.2"','"version": "0.3.2"'));
+          }
+          NODE
+          node scripts/package-t3-portable-platform.mjs "$RUNNER_TEMP/final" "$SOURCE" "$GITHUB_RUN_ID"
+          mkdir "$RUNNER_TEMP/final-input"
+          unzip -q "$RUNNER_TEMP/final/platform-inputs.zip" -d "$RUNNER_TEMP/final-input"
+          (cd "$RUNNER_TEMP/final-input"; sha256sum -c t3-platform-inputs.sha256)
+          python - <<'PY'
+          import json,os,hashlib
+          from pathlib import Path
+          t=Path(os.environ['RUNNER_TEMP']);a=t/'prior-input';b=t/'final-input'
+          m=json.loads((a/'t3-platform-inputs.json').read_text());n=json.loads((b/'t3-platform-inputs.json').read_text());r=json.loads((t/'final/candidate-receipt.json').read_text())
+          assert n['version']==r['version']=='0.3.2' and n['status']=='TECHNOLOGY_QUALIFIED_PORTABLE_INPUTS'
+          assert r['status']=='TECHNOLOGY_QUALIFIED_DOMAIN_NOT_ACCEPTED'
+          old={f['path']:f for f in m['files']};new={f['path']:f for f in n['files']}
+          assert set(old)==set(new) and len(new)==174
+          changed=sorted(k for k in new if old[k]!=new[k])
+          assert changed==sorted(['package.json','package-lock.json','docs/t3-consolidation-sources.json']),changed
+          assert n['nativeSignerIncluded']==n['modelWeightsIncluded']==n['installedProductAccepted']==n['domainMigrationAutoAuthorized']==False
+          assert hashlib.sha256((t/'final/platform-inputs.zip').read_bytes()).hexdigest()==r['archiveSha256']
+          assert hashlib.sha256((b/'t3-platform-inputs.json').read_bytes()).hexdigest()==r['manifestSha256']
+          print('T3_032_FINAL_EXACT_PLATFORM_PASS '+json.dumps({'files':len(new),'unchanged':len(new)-len(changed),'receipt':r}))
+          PY
+          cp "$RUNNER_TEMP/final-input/t3-platform-inputs.json" "$RUNNER_TEMP/final-input/t3-platform-inputs.sha256" "$RUNNER_TEMP/final/"
+          cp "$RUNNER_TEMP/qualification-result.json" "$RUNNER_TEMP/final/"
+          # Push the exact qualified source only. No force, no main, no private checkout.
+          git -C "$GITHUB_WORKSPACE" push origin "$SOURCE:refs/heads/$GITHUB_REF_NAME"
+      - uses: actions/upload-artifact@v4
+        id: retained
+        with:
+          name: iwxa-t3-platform-inputs-0.3.2-${{ steps.package.outputs.source }}
+          path: ${{ runner.temp }}/final/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish the verified stable platform
+        shell: bash
+        env:
+          RELEASE_SOURCE: ${{ steps.package.outputs.source }}
+          ARTIFACT_ID: ${{ steps.retained.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_SOURCE"
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP/final/"* --repo "$GITHUB_REPOSITORY" --target "$RELEASE_SOURCE" --title "IWXA T3 portable platform 0.3.2" --notes-file packages/t3-core/docs/T3_PLATFORM_0_3_2_RELEASE_RU.md --latest
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RUNNER_TEMP/published.json"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {createHash} from 'node:crypto';
+          import {readFileSync,readdirSync,writeFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const e=process.env,t=e.RUNNER_TEMP,dir=join(t,'final'),read=p=>JSON.parse(readFileSync(p,'utf8'));
+          const pub=read(join(t,'published.json')),r=read(join(dir,'candidate-receipt.json')),q=read(join(dir,'qualification-result.json'));
+          assert.equal(pub.tag_name,e.RELEASE_TAG);assert.equal(pub.target_commitish,e.RELEASE_SOURCE);assert.equal(pub.draft,false);assert.equal(pub.prerelease,false);
+          assert.equal(r.sourceCommit,e.RELEASE_SOURCE);
+          const assets={};
+          for(const name of readdirSync(dir)){
+            const digest=createHash('sha256').update(readFileSync(join(dir,name))).digest('hex');
+            const asset=pub.assets.find(a=>a.name===name);
+            assert.ok(asset&&asset.digest==='sha256:'+digest,'published asset '+name);
+            assets[name]=digest;
+          }
+          const path='packages/t3-core/handoff/G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json',ledger=read(path),current=ledger.current_release,prior=current.core_release;
+          assert.equal(prior.version,'0.3.1');
+          const promotion={release_id:pub.id,release_tag:pub.tag_name,release_url:pub.html_url,source_sha:r.sourceCommit,source_tree_sha:r.sourceTree,source_package_tree_sha:r.sourcePackageGitTree,publication_run:Number(e.GITHUB_RUN_ID),conclusion:'SUCCESS',qualified_rc2_sha:e.PRIOR,prior_browser_run:46060488224,prior_hardware_run:46062741580,assistant_source:q.assistant,assistant_source_tests:q.sourceTests,profiles:q.profiles.map(x=>({profile:x.profile,exactSource:x.exactSource,expectedChoices:x.expectedChoices,coldOffline:true})),metadata_only_delta:{files:174,identical:171,changed:['docs/t3-consolidation-sources.json','package-lock.json','package.json'],compiled_assets_unchanged:true,kernel_unchanged:true,bli_unchanged:true},assets,independent_codex:'NOT_RUN_ON_0_3_2',acceptance:'OWNER_DIRECTED_ENGINEERING_COMPLETION',no_auto_domain_or_installed_product_migration:true};
+          current.previous_core_release_0_3_1=prior;
+          current.core_release={...prior,status:'RELEASED_T3_TECHNOLOGY_0_3_2',version:'0.3.2',source_sha:r.sourceCommit,executable_tree_sha:r.sourceTree,
+            verified_actions:{...prior.verified_actions,domain_assistant_032_browser:46060488224,domain_assistant_032_hardware:46062741580,stable_0_3_2_qualification_publication:Number(e.GITHUB_RUN_ID)},
+            portable_inputs:{...prior.portable_inputs,version:r.version,artifact_name:'iwxa-t3-platform-inputs-0.3.2-'+r.sourceCommit,artifact_id:Number(e.ARTIFACT_ID),archive_sha256:r.archiveSha256,manifest_sha256:r.manifestSha256,file_count:r.manifestFiles,release_tag:pub.tag_name,release_url:pub.html_url,archive_bytes:pub.assets.find(a=>a.name==='platform-inputs.zip').size},promotion};
+          const fin=current.final_t3_release,old=fin.release_evidence;
+          fin.previous_release_evidence_0_3_1=old;
+          fin.version='0.3.2';
+          fin.release_evidence={...old,source_sha:r.sourceCommit,source_tree_sha:r.sourceTree,exact_platform_ci_run:Number(e.GITHUB_RUN_ID),conclusion:'SUCCESS',jobs:{original_assistant:'SUCCESS',light:'SUCCESS',balanced:'SUCCESS',extended:'SUCCESS',publish:'SUCCESS'},features:{...old.features,D5:'THREE_CENTRAL_MODELS_ACTUAL_HARDWARE_NATIVE_ADVICE_AND_COLD_OFFLINE_PASS_7_SCENARIOS_EACH'},portable_platform_input_artifact_id:Number(e.ARTIFACT_ID),portable_platform_input_archive_sha256:r.archiveSha256,portable_platform_manifest_sha256:r.manifestSha256,portable_platform_file_count:r.manifestFiles,release_branch:e.GITHUB_REF_NAME,release_tag:pub.tag_name,promotion,qualification_basis:'PUBLISHED_0_3_1_BASELINE_AND_0_3_2_INLINE_ASSISTANT_UI_NATIVE_FORM_AND_RESULT_ROUTES_REAL_HARDWARE_PROFILES'};
+          writeFileSync(path,JSON.stringify(ledger,null,2)+'\n');
+          console.log('T3_032_STABLE_RELEASE_PUBLISHED '+JSON.stringify(promotion));
+          NODE
+          git restore packages/t3-core/package.json packages/t3-core/package-lock.json
+          git add packages/t3-core/handoff/G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json
+          git commit -m 'Record published T3 0.3.2 exact release evidence [skip ci] [skip actions]'
+          git push origin "HEAD:refs/heads/$GITHUB_REF_NAME"
+          if [ "$(git ls-remote origin "refs/heads/$WORK_BRANCH" | cut -f1)" = "$SOURCE_BASE" ]; then
+            git push origin "HEAD:refs/heads/$WORK_BRANCH"
+          else
+            echo T3_032_WORK_BRANCH_MOVED_RELEASE_EVIDENCE_RETAINED_ON_RELEASE_BRANCH
+          fi

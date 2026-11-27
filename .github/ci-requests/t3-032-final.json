@@ -1,0 +1,18 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-032-final",
+  "preparedSha": "f93094d3440f6d5d6b55736146f9d448e8a20dbc",
+  "originalAssistant": "2c247482306f218a7d5be668de11e98f168862d4",
+  "cehovodSite": "0b5c4063573bba491f8b574484862463469b90bf",
+  "canonicalSubject": "6852d55ae8e7100b480b2d5c0a10b92de1c7d467",
+  "priorPlatform": "0a2cd84af5d56e148e003326bada030da8fb62e2",
+  "priorArtifact": 15229796119,
+  "priorBrowserRun": 46060488224,
+  "priorHardwareRun": 46062741580,
+  "priorSelectionRun": 46064672900,
+  "extendedPriorRun": 46064994778,
+  "scope": "EXISTING_FULL_THREE_PROFILE_WITNESS_AND_CONDITIONAL_STABLE_PUBLICATION",
+  "publishOnlyOnExistingScenarioSuccess": true,
+  "releaseTag": "t3-platform-v0.3.2",
+  "independentProductAcceptance": false
+}
