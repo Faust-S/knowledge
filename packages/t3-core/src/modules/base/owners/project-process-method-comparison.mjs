@@ -69,6 +69,13 @@ export function compareWorkspaceMethodRevisions({before,after}={}){
   if(a.workspaceId!==b.workspaceId||a.projectId!==b.projectId){
     fail('METHOD_COMPARISON_SCOPE_MISMATCH','Both revisions must belong to the same Workspace and Project');
   }
+  return compareReadbacks(a,b,false);
+}
+
+// This private projection is used across independent identities only after
+// original historical reads have verified a direct or shared exact origin.
+// Match stages by their declared stage ID, not by rewritten canonical refs.
+function compareReadbacks(a,b,independent){
   const ap=a.structure.projectInput,bp=b.structure.projectInput;
   const projectChanges=[];
   const addProject=(field,left,right)=>{if(!Object.is(left,right))projectChanges.push(Object.freeze({field,before:left,after:right}));};
@@ -79,9 +86,10 @@ export function compareWorkspaceMethodRevisions({before,after}={}){
   if(!sameSet(ap.domainApplicability,bp.domainApplicability))projectChanges.push(Object.freeze({
     field:'DOMAIN_APPLICABILITY',before:Object.freeze([...ap.domainApplicability]),after:Object.freeze([...bp.domainApplicability])}));
   const beforeWorkIds=ap.methodology.workIds,afterWorkIds=bp.methodology.workIds;
-  const beforeWorkSet=new Set(beforeWorkIds);
-  const projectCompositionChanged=beforeWorkSet.size!==afterWorkIds.length||afterWorkIds.some(id=>!beforeWorkSet.has(id));
-  const displayOrderChanged=!sameArray(beforeWorkIds,afterWorkIds);
+  const beforeStepIds=beforeWorkIds.map(id=>id.slice(a.projectId.length+1));
+  const afterStepIds=afterWorkIds.map(id=>id.slice(b.projectId.length+1));
+  const projectCompositionChanged=!sameSet(beforeStepIds,afterStepIds);
+  const displayOrderChanged=!sameArray(beforeStepIds,afterStepIds);
   if(projectCompositionChanged)projectChanges.push(Object.freeze({
     field:'WORK_COMPOSITION',before:Object.freeze([...beforeWorkIds]),after:Object.freeze([...afterWorkIds])}));
   else if(displayOrderChanged)projectChanges.push(Object.freeze({
@@ -135,22 +143,27 @@ export function compareWorkspaceMethodRevisions({before,after}={}){
   const affected=new Set([...beforeAffected,...afterAffected]);
   if(projectIntentChanged)for(const id of [...oldSteps.keys(),...newSteps.keys()])affected.add(id);
   const affectedStepIds=orderedIds.filter(id=>affected.has(id));
-  const sourceWorkIds=[...new Set([...beforeWorkIds,...afterWorkIds])];
+  const sourceStepIds=[...new Set([...beforeStepIds,...afterStepIds])];
   const sourceRevisionChanges=Object.freeze({
     project:Object.freeze({before:a.projectRef,after:b.projectRef,changed:!sameRef(a.projectRef,b.projectRef)}),
-    works:Object.freeze(sourceWorkIds.map(id=>{
-      const beforeRef=a.workRefs.get(id.slice(a.projectId.length+1))??null;
-      const afterRef=b.workRefs.get(id.slice(b.projectId.length+1))??null;
-      return Object.freeze({workId:id,before:beforeRef,after:afterRef,changed:!sameRef(beforeRef,afterRef)});
+    works:Object.freeze(sourceStepIds.map(stepId=>{
+      const beforeRef=a.workRefs.get(stepId)??null;
+      const afterRef=b.workRefs.get(stepId)??null;
+      return Object.freeze({...independent?{stepId,beforeWorkId:beforeRef?a.projectId+'.'+stepId:null,
+        afterWorkId:afterRef?b.projectId+'.'+stepId:null}:{workId:a.projectId+'.'+stepId},
+        before:beforeRef,after:afterRef,changed:!sameRef(beforeRef,afterRef)});
     })),
   });
   const semanticChanges=projectIntentChanged||stepChanges.some(item=>item.operation!=='UNCHANGED')
     ||assignedMaterialChanges.length>0;
   const sourceRevisionSetChanged=sourceRevisionChanges.project.changed||sourceRevisionChanges.works.some(item=>item.changed);
-  const state=semanticChanges?'CHANGES_PROPOSED':sourceRevisionSetChanged?'SOURCE_REBIND_ONLY'
+  const state=semanticChanges?'CHANGES_PROPOSED':independent?(projectChanges.length?'CHANGES_PROPOSED':'INDEPENDENT_IDENTITIES')
+    :sourceRevisionSetChanged?'SOURCE_REBIND_ONLY'
     :projectChanges.length||stepChanges.some(item=>item.operation!=='UNCHANGED')?'CHANGES_PROPOSED':'UNCHANGED';
   return Object.freeze({
-    schema:'IWXA_T2_WORKSPACE_METHOD_REVISION_COMPARISON_V1',state,workspaceId:a.workspaceId,projectId:a.projectId,
+    schema:independent?'IWXA_T2_WORKSPACE_METHOD_ALTERNATIVE_COMPARISON_V1':'IWXA_T2_WORKSPACE_METHOD_REVISION_COMPARISON_V1',
+    state,workspaceId:a.workspaceId,...(independent?{beforeProjectId:a.projectId,afterProjectId:b.projectId,
+      independentIdentities:true}:{projectId:a.projectId}),
     projectChanges:Object.freeze(projectChanges),projectCompositionChanged,displayOrderChanged,projectIntentChanged,
     materialChanges:Object.freeze(materialChanges),unassignedMaterialChanges:Object.freeze(unassignedMaterialChanges),
     stepChanges:Object.freeze(stepChanges),changedStepIds:Object.freeze(changedStepIds),
@@ -188,4 +201,49 @@ export async function compareWorkspaceMethodSelections({owner,workspaceId,projec
   const selectionOf=read=>Object.freeze({projectRef:read.projectRef,workRefs:read.workRefs});
   return Object.freeze({...comparison,comparisonBasis:'EXACT_HISTORICAL_REVISIONS',
     beforeSelection:selectionOf(a),afterSelection:selectionOf(b),currentHeadVerified:false});
+}
+
+
+function sameSelection(a,b){
+  if(!a||!b||!sameRef(a.projectRef,b.projectRef)||a.workRefs.length!==b.workRefs.length)return false;
+  const byId=new Map(a.workRefs.map(r=>[r.objectId,r]));
+  return byId.size===a.workRefs.length&&b.workRefs.every(r=>sameRef(r,byId.get(r.objectId)));
+}
+function selectionOf(read){return Object.freeze({projectRef:read.projectRef,workRefs:read.workRefs});}
+function alternativeOrigin(a,b){
+  const ao=a.originalCreation?.origin,bo=b.originalCreation?.origin;
+  if(bo?.workspaceId===a.workspaceId&&bo.projectId===a.projectId)return bo;
+  if(ao?.workspaceId===b.workspaceId&&ao.projectId===b.projectId)return ao;
+  if(ao&&bo&&ao.workspaceId===a.workspaceId&&bo.workspaceId===a.workspaceId
+      &&ao.projectId===bo.projectId&&sameSelection(ao,bo))return ao;
+  fail('METHOD_ALTERNATIVE_COMPARISON_ORIGIN_REQUIRED',
+    'Independent Projects must have a direct origin or the same exact historical origin');
+}
+
+/** W06.4: compare two related, independently stored Projects. Both
+ * selections and the common historical origin are read through the original
+ * owner. Unrelated lookalike methods are not declared branches; no merge,
+ * copy of Results, execution, source writes or implicit rebinding. */
+export async function compareWorkspaceMethodAlternatives({owner,workspaceId,before,after}={}){
+  if(!text(workspaceId)||workspaceId.trim()!==workspaceId
+      ||!text(before?.projectId)||!text(after?.projectId)
+      ||before.projectId.trim()!==before.projectId||after.projectId.trim()!==after.projectId
+      ||before.projectId===after.projectId){
+    fail('METHOD_ALTERNATIVE_COMPARISON_SCOPE_INVALID','Two independent Projects in one exact Workspace required');
+  }
+  const left={projectId:before.projectId,expected:captureSelection(before,'before')};
+  const right={projectId:after.projectId,expected:captureSelection(after,'after')};
+  const a=await readHistoricalWorkspaceMethod({owner,workspaceId,...left});
+  const b=await readHistoricalWorkspaceMethod({owner,workspaceId,...right});
+  const origin=alternativeOrigin(a,b);
+  const source=await readHistoricalWorkspaceMethod({owner,workspaceId,projectId:origin.projectId,
+    expected:captureSelection(origin,'origin')});
+  const ar=readback(a,'before'),br=readback(b,'after'),sr=readback(source,'origin');
+  const comparison=compareReadbacks(ar,br,true);
+  return Object.freeze({...comparison,comparisonBasis:'EXACT_RELATED_ALTERNATIVE_REVISIONS',
+    beforeSelection:selectionOf(a),afterSelection:selectionOf(b),
+    origin:Object.freeze({workspaceId,projectId:source.projectId,...selectionOf(source)}),
+    beforeFromOrigin:compareReadbacks(sr,ar,sr.projectId!==ar.projectId),
+    afterFromOrigin:compareReadbacks(sr,br,sr.projectId!==br.projectId),
+    currentHeadVerified:false,mergeAuthorized:false});
 }

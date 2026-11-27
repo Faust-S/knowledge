@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compareWorkspaceMethodRevisions,compareWorkspaceMethodSelections } from '../src/modules/base/owners/project-process-method-comparison.mjs';
+import { compareWorkspaceMethodRevisions,compareWorkspaceMethodSelections,compareWorkspaceMethodAlternatives } from '../src/modules/base/owners/project-process-method-comparison.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { readWorkspaceMethodFromSourceOwner } from '../src/modules/base/owners/project-process-method-readback.mjs';
 import { applyWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
+import { previewWorkspaceMethodAlternative,createWorkspaceMethodAlternativeThroughSourceOwner } from '../src/modules/base/owners/project-process-method-alternative.mjs';
 
 const workspaceId='ws-method-comparison',knowledgeAt='2026-11-26T18:00:00Z';
 const objects=['source','model','unused'].map((object_id,i)=>({workspace_id:workspaceId,object_id,revision:i+1,schema_id:'note'}));
@@ -114,4 +115,83 @@ test('historical comparison only calls the original addressed history port',asyn
   const result=await compareSelected(port,readback,readback);
   assert.equal(result.state,'UNCHANGED');assert.equal(reads,10);
   assert.equal((await owner.audit()).length,5);
+});
+
+
+async function forkFrom(owner,selected,targetProjectId){
+  const args={owner,workspaceId,projectId:'project-a',targetProjectId,selected,objects,
+    operationId:'comparison-fork-'+targetProjectId,knowledgeAt:'2026-11-27T13:00:00Z'};
+  const p=await previewWorkspaceMethodAlternative(args);
+  assert.equal(p.state,'ALTERNATIVE_READY');
+  return (await createWorkspaceMethodAlternativeThroughSourceOwner({...args,confirmationDigest:p.confirmationDigest})).method;
+}
+const compareForks=(owner,before,after)=>compareWorkspaceMethodAlternatives({owner,workspaceId,
+  before:{...before,projectId:before.draft.projectId},after:{...after,projectId:after.draft.projectId}});
+async function editFork(owner,basis,stepId,instruction){
+  return (await applyWorkspaceMethodRevision({owner,workspaceId,projectId:basis.draft.projectId,expected:basis,
+    draft:{...basis.draft,steps:basis.draft.steps.map(s=>s.id===stepId?{...s,instruction}:s)},objects,
+    operationId:'comparison-independent-edit',knowledgeAt:'2026-11-27T13:01:00Z'})).method;
+}
+test('exact fork comparison retains independent identities without false composition changes',async()=>{
+  const {owner,readback}=await base();
+  const fork=await forkFrom(owner,readback,'option-b');
+  const r=await compareForks(owner,readback,fork);
+  assert.equal(r.state,'INDEPENDENT_IDENTITIES');assert.equal(r.projectCompositionChanged,false);
+  assert.equal(r.displayOrderChanged,false);assert.deepEqual(r.affectedStepIds,[]);
+  assert.equal(r.sourceRevisionChanges.works.length,4);
+  const work=r.sourceRevisionChanges.works.find(w=>w.stepId==='analyse');
+  assert.equal(work.beforeWorkId,'project-a.analyse');assert.equal(work.afterWorkId,'option-b.analyse');
+  assert.notEqual(work.before.objectId,work.after.objectId);assert.equal(work.changed,true);
+  assert.equal(r.origin.projectId,'project-a');assert.deepEqual(r.origin.projectRef,readback.projectRef);
+  assert.equal(r.mergeAuthorized,false);assert.equal(r.resultReuseProven,false);
+  assert.equal((await owner.audit()).length,10);
+});
+test('alternative comparison shows divergence from exact shared origin independently',async()=>{
+  const {owner,readback}=await base();
+  const left=await editFork(owner,await forkFrom(owner,readback,'option-left'),'analyse','Left analysis');
+  const right=await editFork(owner,await forkFrom(owner,readback,'option-right'),'compute','Right calculation');
+  const r=await compareForks(owner,left,right);
+  assert.equal(r.state,'CHANGES_PROPOSED');
+  assert.deepEqual(r.changedStepIds,['analyse','compute']);assert.deepEqual(r.affectedStepIds,['analyse','compute','review']);
+  assert.deepEqual(r.beforeFromOrigin.changedStepIds,['analyse']);
+  assert.deepEqual(r.afterFromOrigin.changedStepIds,['compute']);
+  assert.equal(r.projectCompositionChanged,false);
+  assert.deepEqual(r.origin.projectRef,readback.projectRef);
+  assert.equal((await owner.audit()).length,19);
+});
+test('comparison of source advanced after fork still uses recorded exact origin',async()=>{
+  const {owner,readback,draft:d}=await base();
+  const fork=await forkFrom(owner,readback,'option-b');
+  const latest=await reviseReal(owner,readback,{...d,steps:d.steps.map(s=>s.id==='analyse'?{...s,instruction:'Source progressed'}:s)});
+  const r=await compareForks(owner,latest,fork);
+  assert.deepEqual(r.origin.projectRef,readback.projectRef);
+  assert.deepEqual(r.beforeFromOrigin.changedStepIds,['analyse']);
+  assert.equal(r.afterFromOrigin.state,'INDEPENDENT_IDENTITIES');
+  const reversed=await compareForks(owner,fork,latest);
+  assert.deepEqual(reversed.origin.workRefs,r.origin.workRefs);
+  assert.equal((await owner.audit()).length,12);
+});
+test('identical unrelated Projects and forks of different exact origins are not siblings',async()=>{
+  const {owner,readback,draft:d}=await base();
+  const another={...d,projectId:'unrelated'};
+  const recordIds={project:'unrelated-project',works:Object.fromEntries(another.steps.map(s=>['unrelated.'+s.id,'unrelated-'+s.id]))};
+  const unrelated=(await createWorkspaceMethodThroughSourceOwner({owner,workspaceId,objects,draft:another,recordIds,knowledgeAt})).method;
+  await assert.rejects(compareForks(owner,readback,unrelated),e=>e.code==='METHOD_ALTERNATIVE_COMPARISON_ORIGIN_REQUIRED');
+  const left=await forkFrom(owner,readback,'option-left');
+  const revised=await reviseReal(owner,readback,{...d,steps:d.steps.map(s=>s.id==='analyse'?{...s,instruction:'Changed'}:s)});
+  const right=await forkFrom(owner,revised,'option-right');
+  await assert.rejects(compareForks(owner,left,right),e=>e.code==='METHOD_ALTERNATIVE_COMPARISON_ORIGIN_REQUIRED');
+  assert.equal((await owner.audit()).length,22);
+});
+test('alternative comparison captures exact selections before async original history reads',async()=>{
+  const {owner,readback}=await base();const fork=await forkFrom(owner,readback,'option-b');
+  let release;const wait=new Promise(resolve=>{release=resolve;});let calls=0;
+  const port={historyThrough:async(...args)=>{if(calls++===0)await wait;return owner.historyThrough(...args);}};
+  const before={projectId:'project-a',projectRef:{...readback.projectRef},workRefs:readback.workRefs.map(r=>({...r}))};
+  const after={projectId:'option-b',projectRef:{...fork.projectRef},workRefs:fork.workRefs.map(r=>({...r}))};
+  const pending=compareWorkspaceMethodAlternatives({owner:port,workspaceId,before,after});
+  after.projectId='unrelated';after.workRefs[0].recordId='forged';release();
+  const r=await pending;
+  assert.equal(r.afterProjectId,'option-b');assert.equal(r.state,'INDEPENDENT_IDENTITIES');
+  assert.equal(calls,15);assert.equal((await owner.audit()).length,10);
 });

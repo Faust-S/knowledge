@@ -56,3 +56,25 @@ export function compareWorkspaceMethodSelections(input:{
   owner:WorkspaceMethodHistoryPort;workspaceId:string;projectId:string;
   before:WorkspaceMethodRevisionSelection;after:WorkspaceMethodRevisionSelection;
 }):Promise<WorkspaceMethodSelectionComparison>;
+
+
+export type WorkspaceMethodAlternativeComparison = Omit<WorkspaceMethodRevisionComparison,'schema'|'state'|'projectId'> & Readonly<{
+  schema:'IWXA_T2_WORKSPACE_METHOD_ALTERNATIVE_COMPARISON_V1';
+  state:'INDEPENDENT_IDENTITIES'|'CHANGES_PROPOSED';
+  beforeProjectId:string;
+  afterProjectId:string;
+  independentIdentities:true;
+  comparisonBasis:'EXACT_RELATED_ALTERNATIVE_REVISIONS';
+  beforeSelection:WorkspaceMethodRevisionSelection;
+  afterSelection:WorkspaceMethodRevisionSelection;
+  origin:WorkspaceMethodRevisionSelection & Readonly<{workspaceId:string;projectId:string}>;
+  beforeFromOrigin:unknown;
+  afterFromOrigin:unknown;
+  currentHeadVerified:false;
+  mergeAuthorized:false;
+}>;
+export function compareWorkspaceMethodAlternatives(input:{
+  owner:WorkspaceMethodHistoryPort;workspaceId:string;
+  before:WorkspaceMethodRevisionSelection & Readonly<{projectId:string}>;
+  after:WorkspaceMethodRevisionSelection & Readonly<{projectId:string}>;
+}):Promise<WorkspaceMethodAlternativeComparison>;

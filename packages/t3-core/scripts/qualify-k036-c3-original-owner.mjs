@@ -3,7 +3,10 @@ import { canonicalStringify } from '../src/persistence/canonical-codec.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from '../src/modules/base/owners/project-process-method-readback.mjs';
 import { applyWorkspaceMethodRevision,inspectWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
-import { openK036C3QualificationOwner } from './k036-c3-owner-qualification-adapter.mjs';
+import { openK036C3QualificationOwner,captureK036C3CopyFixture,verifyK036C3CopyFixture } from './k036-c3-owner-qualification-adapter.mjs';
+import { projectProcessSourceObjectId } from '../src/modules/base/owners/project-process-source-owner.mjs';
+import { readWorkspaceMethodStageInputBasis } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
+import { compareWorkspaceMethodAlternatives } from '../src/modules/base/owners/project-process-method-comparison.mjs';
 import { previewWorkspaceMethodAlternative,createWorkspaceMethodAlternativeThroughSourceOwner,readWorkspaceMethodAlternativeOrigin } from '../src/modules/base/owners/project-process-method-alternative.mjs';
 
 const ws='qualification-c3-owner-source',copyWs='qualification-c3-owner-copy',projectId='research-project';
@@ -30,7 +33,8 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
     include_relations:true,include_assets:true,include_schemas:true});
   const importAll=async(c,bytes,plan)=>{
     const p=await c.t2.importPreview(bytes);
-    return c.t2.importCommit({preview_token:p.preview_token,package_digest:p.package_digest,plan});
+    const receipt=await c.t2.importCommit({preview_token:p.preview_token,package_digest:p.package_digest,plan});
+    return {receipt,packageDigest:p.package_digest};
   };
   await client.t1.createWorkspace({workspace_id:ws,profile:'personal'});
   await client.t1.commitObjectGraph({workspace_id:ws,idempotency_key:'original-material',
@@ -133,14 +137,72 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   same('creating alternative leaves source method unchanged',exact((await liveRead()).draft),exact(thirdDraft));
   // Independent copy cannot be represented as an unchanged original owner
   // record. Refuse, rather than read from the source or report unused IDs.
+  const compare=await compareWorkspaceMethodAlternatives({owner:restored.owner,workspaceId:ws,
+    before:{...resumed.method,projectId},after:{...fork.method,projectId:alternativeId}});
+  same('original K036 alternative comparison preserves exact source origin',compare.origin.projectRef,base.projectRef);
+  same('original K036 alternative comparison detects independent branch changes',compare.changedStepIds,['analyse','compute']);
+  const basis=await readWorkspaceMethodStageInputBasis({owner:restored.owner,workspaceId:ws,projectId,expected:resumed.method,
+    stepId:'review',readObject:(...args)=>restoredClient.t1.getObject(...args)});
+  same('original K036 Work input basis reads exact declared original material',basis.state,'INPUT_REFERENCES_VERIFIED');
+  same('original K036 Work input basis requires actual predecessor Result owner',basis.predecessors.map(r=>r.state),
+    ['ORIGINAL_RESULT_OWNER_REQUIRED','ORIGINAL_RESULT_OWNER_REQUIRED']);
+  const capture=async(c,workspaceId)=>captureK036C3CopyFixture({client:c,workspaceId,...options});
+  const bind=async(c,workspaceId,source,packageDigest)=>verifyK036C3CopyFixture({client:c,workspaceId,source,packageDigest,...options});
+  const sourceEvidence=await capture(restoredClient,ws);
   const completeArtifact=await exportAll(restoredClient,ws);
-  await importAll(restoredClient,completeArtifact.bytes,{mode:'new-workspace',target_workspace:copyWs,workspace_id_map:{[ws]:copyWs}});
+  const copied=await importAll(restoredClient,completeArtifact.bytes,{mode:'new-workspace',target_workspace:copyWs,workspace_id_map:{[ws]:copyWs}});
   const target=await open(restoredClient,copyWs);
   await expectReject('same-ID adapter refuses copied origin in independent target',
     ()=>readWorkspaceMethodFromSourceOwner({owner:target.owner,workspaceId:copyWs,projectId}),['C3_FIXTURE_SCOPE_MISMATCH']);
   await expectReject('copied identity is not silently reported as unused',
     ()=>target.owner.sourceIdentityExists('project',copyWs,projectId),['C3_FIXTURE_SCOPE_MISMATCH']);
   same('source owner remains unchanged after independent copy',exact((await liveRead()).draft),exact(thirdDraft));
+  const copyBinding=await bind(restoredClient,copyWs,sourceEvidence,copied.packageDigest);
+  const local=await open(restoredClient,copyWs,{copyBinding});
+  const localRead=()=>readWorkspaceMethodFromSourceOwner({owner:local.owner,workspaceId:copyWs,projectId});
+  const copyMethod=await localRead();
+  same('verified copy fixture opens complete method through original owner',exact(copyMethod.draft),exact(thirdDraft));
+  same('copied Project has target-local logical identity',copyMethod.projectRef.objectId,
+    projectProcessSourceObjectId('project',copyWs,projectId));
+  same('copied Project retains exact original record identity',copyMethod.projectRef.recordId,resumed.method.projectRef.recordId);
+  same('copied Work refs use target scope and original record IDs',
+    copyMethod.workRefs.map(r=>r.recordId),resumed.method.workRefs.map(r=>r.recordId));
+  const copyOrigin=await readWorkspaceMethodAlternativeOrigin({owner:local.owner,workspaceId:copyWs,projectId:alternativeId});
+  same('copied alternative uses exact target-local origin scope',copyOrigin.origin.workspaceId,copyWs);
+  same('copied alternative resolves exact original historical content',exact(copyOrigin.source.draft),exact(draft));
+  same('copied alternative preserves exact historical origin record IDs',copyOrigin.source.projectRef.recordId,base.projectRef.recordId);
+  await expectReject('bound copy cannot read original Workspace via target owner',
+    ()=>local.owner.load('project',ws,projectId),['C3_FIXTURE_SCOPE_MISMATCH']);
+  const localObjects=await material(restoredClient,copyWs);
+  const targetDraft=edit(thirdDraft,'analyse','Independent target analysis');
+  const targetEdit=await applyWorkspaceMethodRevision({owner:local.owner,workspaceId:copyWs,projectId,expected:copyMethod,
+    draft:targetDraft,objects:localObjects,operationId:'target-independent-edit',knowledgeAt:'2026-11-27T12:03:00Z'});
+  same('bound copy evolves independently through original selective owner',targetEdit.revisedCount,2);
+  same('target-local copy current method matches independent edit',exact((await localRead()).draft),exact(targetDraft));
+  same('source original method remains unchanged after target edit',exact((await liveRead()).draft),exact(thirdDraft));
+  const inherited=await local.owner.history('work',copyWs,projectId+'.analyse');
+  same('target history preserves inherited canonical record IDs and adds local revision',
+    inherited.map(r=>r.recordId),[...(await restored.owner.history('work',ws,projectId+'.analyse')).map(r=>r.recordId),
+      targetEdit.method.workRefs.find(r=>r.objectId.endsWith('.analyse')).recordId]);
+  const localAudit=await local.owner.audit();
+  check('target-local audit verifies original inherited source events and local changes',
+    localAudit.every(r=>r.objectId.includes(':'+copyWs+':')));
+  const secondEvidence=await capture(restoredClient,copyWs);
+  check('original raw copied record fingerprints remain unchanged after local revisions',
+    sourceEvidence.ids().every(id=>secondEvidence.fingerprint(id)===sourceEvidence.fingerprint(id)));
+  const nextCopyWs='qualification-c3-owner-copy-of-copy';
+  const targetArtifact=await exportAll(restoredClient,copyWs);
+  const recopy=await importAll(restoredClient,targetArtifact.bytes,{mode:'new-workspace',target_workspace:nextCopyWs,
+    workspace_id_map:{[copyWs]:nextCopyWs}});
+  const nextBinding=await bind(restoredClient,nextCopyWs,secondEvidence,recopy.packageDigest);
+  const next=await open(restoredClient,nextCopyWs,{copyBinding:nextBinding});
+  const nextMethod=await readWorkspaceMethodFromSourceOwner({owner:next.owner,workspaceId:nextCopyWs,projectId});
+  same('copy of edited copy opens mixed-origin history through original owner',exact(nextMethod.draft),exact(targetDraft));
+  same('copy of copy preserves exact selected Work record IDs',nextMethod.workRefs.map(r=>r.recordId),targetEdit.method.workRefs.map(r=>r.recordId));
+  const nextLineage=await readWorkspaceMethodAlternativeOrigin({owner:next.owner,workspaceId:nextCopyWs,projectId:alternativeId});
+  same('copy of copy resolves local historical alternative origin',exact(nextLineage.source.draft),exact(draft));
+  same('copy of copy leaves original source unchanged',exact((await liveRead()).draft),exact(thirdDraft));
+  same('copy of copy leaves edited first target unchanged',exact((await localRead()).draft),exact(targetDraft));
   const reopenedClient=await openEmpty();
   await importAll(reopenedClient,completeArtifact.bytes,{mode:'full'});
   const reopened=await open(reopenedClient,ws);
@@ -148,7 +210,9 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   same('same-ID Exchange preserves explicit original alternative lineage',lineage.state,'ORIGIN_VERIFIED');
   same('restored alternative resolves exact original historical source',exact(lineage.source.draft),exact(draft));
   same('fixture owner and Exchange use only original database',(await indexedDB.databases()).map(d=>d.name),['iwxa-local']);
-  return {status:'PASS_ORIGINAL_OWNER_FIXTURE_ONLY',recordCount:9,restoredPartial:true,copyBinding:'BLOCKED_AS_DESIGNED',
+  return {status:'PASS_ORIGINAL_OWNER_FIXTURE_ONLY',recordCount:9,restoredPartial:true,copyBinding:'EXPLICIT_EPHEMERAL_FIXTURE_PASS_PRODUCTION_BLOCKED',
     currentMethodAddressedReads:{before:beforeReads,after:afterReads},unfilteredCatalog:{before:catalogBefore,after:catalogAfter},
-    additionalHistoryRevisions:64,alternativeLineageRestored:true,physicalBrowser:false,productionAdapterApproved:false};
+    additionalHistoryRevisions:64,alternativeLineageRestored:true,
+    copiedMethodLocalProjection:true,copyOfCopyLocalProjection:true,durableCopyProvenance:false,
+    stageInputBasisVerified:true,physicalBrowser:false,productionAdapterApproved:false};
 }

@@ -3,8 +3,9 @@
 // original OwnerWriteGateway. Fixture schemas/passports, same-ID scope only.
 import { createHash } from 'node:crypto';
 import { CANONICAL_STORAGE_SCHEMA,OwnerWriteGateway } from '../src/persistence/canonical-persistence.mjs';
-import { canonicalStringify,decodeCanonicalValue } from '../src/persistence/canonical-codec.mjs';
+import { canonicalStringify,decodeCanonicalValue,encodeCanonicalValue } from '../src/persistence/canonical-codec.mjs';
 import { CanonicalInstant } from '../src/foundation/time.mjs';
+import { normalizeProject,normalizeWork } from '../src/modules/base/features/project-process/project-process.mjs';
 import { projectProcessSourceBinding,assertProjectProcessSourceRecord } from '../src/modules/base/owners/project-process-source-contract.mjs';
 import { projectProcessSourceObjectId,createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 
@@ -24,7 +25,7 @@ function identity(family,objectId,workspaceId){
   invariant(projectProcessSourceBinding(kind).family===family
     && projectProcessSourceObjectId(kind,scope,localId)===objectId,'canonical logical identity mismatch');
   if(scope!==workspaceId)fail('C3_FIXTURE_SCOPE_MISMATCH','copied origin is not a target-local owner identity');
-  return {kind,localId,family,objectId,anchorId:'c3-a-'+hash([family,localId])};
+  return {kind,localId,family,objectId,workspaceId:scope,anchorId:'c3-a-'+hash([family,localId])};
 }
 function parseKey(key,workspaceId){
   const parts=JSON.parse(key);
@@ -61,7 +62,94 @@ function validateRecord(wire,workspaceId){
   }
   return id;
 }
-export async function openK036C3QualificationOwner({client,workspaceId,anchorSchema,revisionSchema,schemaVersion,serviceId,afterCommit}){
+
+
+/** W04.25 fixture only. Capture fingerprints of actual original source
+ * objects before exporting. The caller verifies the actual target after
+ * original Exchange import. This is NOT durable provenance or a production
+ * grant: only the test harness may supply this ephemeral evidence. */
+async function copyFingerprints({client,workspaceId,anchorSchema,revisionSchema,schemaVersion}){
+  const result=new Map();
+  for(const [schema,prefix] of [[anchorSchema,'c3-a-'],[revisionSchema,'c3-r-']]){
+    const rows=await client.t1.listObjects({workspace_id:workspaceId,schema_id:schema});
+    for(const row of rows){
+      if(!row.object_id?.startsWith(prefix))continue;
+      invariant(row.workspace_id===workspaceId&&row.schema_id===schema&&row.schema_version===schemaVersion
+        &&row.revision===1&&!row.deleted&&!result.has(row.object_id),'invalid copied physical source object');
+      result.set(row.object_id,copyFingerprint(row));
+    }
+  }
+  return result;
+}
+function copyFingerprint(object){
+  return createHash('sha256').update(canonicalStringify({
+    objectId:object.object_id,schema:object.schema_id,schemaVersion:object.schema_version,
+    revision:object.revision,data:decodeCanonicalValue(object.data),
+  })).digest('hex');
+}
+export async function captureK036C3CopyFixture(input){
+  invariant(exactText(input.workspaceId),'source scope required');
+  const fingerprints=await copyFingerprints(input);
+  invariant(fingerprints.size>0,'empty source copy evidence');
+  return Object.freeze({workspaceId:input.workspaceId,count:fingerprints.size,
+    fingerprint:id=>fingerprints.get(id)??null,
+    ids:()=>Object.freeze([...fingerprints.keys()].sort())});
+}
+export async function verifyK036C3CopyFixture({source,packageDigest,client,workspaceId,anchorSchema,revisionSchema,schemaVersion}){
+  invariant(source&&source.workspaceId!==workspaceId&&exactText(packageDigest)&&typeof source.fingerprint==='function'
+    &&typeof source.ids==='function','exact separate source and import preview digest required');
+  const target=await copyFingerprints({client,workspaceId,anchorSchema,revisionSchema,schemaVersion});
+  invariant(target.size===source.count&&source.ids().every(id=>target.get(id)===source.fingerprint(id)),
+    'imported physical source bytes do not match the captured source');
+  // This closure contains only original fixture fingerprints. It is not
+  // persisted, never queries the source during target reads, and cannot
+  // authorize a production copy or replace original Exchange validation.
+  return Object.freeze({workspaceId,sourceWorkspaceId:source.workspaceId,packageDigest,
+    qualifiedFixtureOnly:true,assertImported(object){
+      invariant(object.workspace_id===workspaceId&&target.get(object.object_id)===copyFingerprint(object),
+        'copied source object differs from exact verified import fixture');
+    }});
+}
+function projectLocalRef(ref,rawScope,workspaceId){
+  const id=identity(ref.family,ref.objectId,rawScope);
+  return {...ref,objectId:projectProcessSourceObjectId(id.kind,workspaceId,id.localId)};
+}
+function projectLocalRecord(raw,rawScope,workspaceId){
+  const record=decodeCanonicalValue(raw),id=identity(record.family,record.objectId,rawScope);
+  if(!['project','work'].includes(id.kind)){
+    fail('C3_FIXTURE_SCOPE_MISMATCH','copy fixture projection is limited to Project and Work');
+  }
+  const localObjectId=projectProcessSourceObjectId(id.kind,workspaceId,id.localId);
+  const canonicalHeads=Object.fromEntries(Object.entries(record.refs.canonicalHeads??{}).map(([key,ref])=>
+    [key,projectLocalRef(ref,rawScope,workspaceId)]));
+  const refs={...record.refs,workspaceId,canonicalHeads};
+  let payload=null;
+  if(record.payload!==null){
+    payload={...record.payload,workspaceId};
+    const origin=payload.methodology?.creation?.origin;
+    if(origin){
+      invariant(id.kind==='project'&&origin.workspaceId===rawScope,'copied origin scope mismatch');
+      payload={...payload,methodology:{...payload.methodology,creation:{...payload.methodology.creation,origin:{
+        ...origin,workspaceId,projectRef:projectLocalRef(origin.projectRef,rawScope,workspaceId),
+        workRefs:origin.workRefs.map(ref=>projectLocalRef(ref,rawScope,workspaceId)),
+      }}}};
+    }
+    const normalized=id.kind==='project'?normalizeProject(payload):normalizeWork(payload);
+    invariant(canonicalStringify(normalized)===canonicalStringify(payload),'local payload must retain exact typed shape');
+  }
+  const wire=encodeCanonicalValue({...record,objectId:localObjectId,refs,payload});
+  validateRecord(wire,workspaceId);
+  return wire;
+}
+
+export async function openK036C3QualificationOwner({client,workspaceId,anchorSchema,revisionSchema,schemaVersion,serviceId,afterCommit,copyBinding}){
+  if(copyBinding&&(copyBinding.workspaceId!==workspaceId||copyBinding.qualifiedFixtureOnly!==true||typeof copyBinding.assertImported!=='function')){
+    fail('C3_FIXTURE_SCOPE_MISMATCH','Exact target copy fixture binding required');
+  }
+  function verifyImported(object){
+    if(!copyBinding)fail('C3_FIXTURE_SCOPE_MISMATCH','independent copy needs approved local binding');
+    copyBinding.assertImported(object);
+  }
   const metrics={addressedReads:0,catalogReads:0,journalReads:0,graphWrites:0};
   const getObject=async id=>{metrics.addressedReads++;return client.t1.getObject(workspaceId,id);};
   const commit=async input=>{metrics.graphWrites++;const receipt=await client.t1.commitObjectGraph(input);
@@ -74,25 +162,35 @@ export async function openK036C3QualificationOwner({client,workspaceId,anchorSch
       &&row.object.schema_id===schema&&row.object.schema_version===schemaVersion
       &&row.object.revision===1&&!row.object.deleted,'physical immutable object mismatch');
   }
-  async function readRecord(recordId,observedRow){
+  async function readRecordEntry(recordId,observedRow){
     const physical=physicalRecordId(recordId),row=observedRow??await getObject(physical);
     if(!row)return null;
     validateObject(row,physical,revisionSchema);
-    const wire=row.object.data?.record;
-    validateRecord(wire,workspaceId);
-    invariant(wire.recordId===recordId,'physical record key collision');
+    const raw=row.object.data?.record,rawScope=raw?.refs?.workspaceId;
+    invariant(exactText(rawScope),'original record scope required');
+    validateRecord(raw,rawScope);
+    invariant(raw.recordId===recordId,'physical record key collision');
     const prev=row.relations.outgoing.filter(r=>r.kind==='c3-previous');
-    invariant(prev.length===(wire.previousRevisionId===null?0:1),'physical predecessor count mismatch');
-    if(prev.length)invariant(prev[0].from_object_id===physical&&prev[0].to_object_id===physicalRecordId(wire.previousRevisionId),
+    invariant(prev.length===(raw.previousRevisionId===null?0:1),'physical predecessor count mismatch');
+    if(prev.length)invariant(prev[0].from_object_id===physical&&prev[0].to_object_id===physicalRecordId(raw.previousRevisionId),
       'physical predecessor target mismatch');
-    return wire;
+    if(rawScope===workspaceId)return {raw,wire:raw};
+    verifyImported(row.object);
+    return {raw,wire:projectLocalRecord(raw,rawScope,workspaceId)};
   }
+  async function readRecord(recordId,observedRow){return (await readRecordEntry(recordId,observedRow))?.wire??null;}
   async function readAnchor(id){
     const row=await getObject(id.anchorId);
     if(!row)return null;
     validateObject(row,id.anchorId,anchorSchema);
-    if(row.object.data?.workspaceId!==workspaceId)fail('C3_FIXTURE_SCOPE_MISMATCH','independent copy needs approved local binding');
-    invariant(sameWire(row.object.data,envelope(id)),'physical anchor identity mismatch');
+    const raw=row.object.data,rawScope=raw?.workspaceId;
+    invariant(exactText(rawScope),'physical anchor scope required');
+    if(rawScope!==workspaceId){
+      verifyImported(row.object);
+      const rawId=identity(raw.family,raw.objectId,rawScope);
+      invariant(rawId.anchorId===id.anchorId&&rawId.family===id.family&&rawId.localId===id.localId
+        &&sameWire(raw,{workspaceId:rawScope,family:id.family,objectId:rawId.objectId}),'copied anchor identity mismatch');
+    }else invariant(sameWire(raw,envelope(id)),'physical anchor identity mismatch');
     const heads=row.relations.outgoing.filter(r=>r.kind==='c3-current');
     const origins=row.relations.outgoing.filter(r=>r.kind==='c3-first');
     invariant(heads.length<=1&&origins.length===heads.length,'invalid physical head/origin multiplicity');
@@ -173,9 +271,11 @@ export async function openK036C3QualificationOwner({client,workspaceId,anchorSch
         const audit=e.payload?.audit;
         invariant(e.workspace_id===workspaceId&&e.service_id===serviceId&&audit
           &&e.object_id===physicalRecordId(audit.recordId),'invalid original event identity');
-        const wire=await readRecord(audit.recordId);
-        invariant(wire&&sameWire(audit,derivedAudit(wire)),'audit does not match exact revision');
-        audits.push(audit);
+        const entry=await readRecordEntry(audit.recordId);
+        invariant(entry&&sameWire(audit,derivedAudit(entry.raw)),'audit does not match exact original revision');
+        // Verify source event bytes before projecting its local identity;
+        // recordId, auditId and all historical evidence remain unchanged.
+        audits.push(derivedAudit(entry.wire));
       }
       return audits;
     },
