@@ -1,4 +1,4 @@
-name: D09 HOP T3 0.3.2 root restoration and complete authoring readiness
+name: D09 HOP T3 0.3.2 artwork performance and genuine model command
 on:
   push:
     branches: ['ci/once/d09-hop-t3-integration/**']
@@ -11,21 +11,27 @@ permissions:
 jobs:
   product:
     if: github.event.created == false && github.event.deleted == false && github.event.forced == false
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
           - lane: browser
+            runner: ubuntu-24.04
             origin: https://hop.iwxa.ru:9443
             preview: '1'
           - lane: production
+            runner: ubuntu-24.04
             origin: https://hop.iwxa.ru
             preview: '0'
+          - lane: hardware
+            runner: macos-latest
+            origin: https://hop.iwxa.ru:9443
+            preview: '1'
     env:
-      SITE_PIN: d96e5cae7c771aae8d5cb792e1c73eb526557a64
-      SUBJECT_PIN: 6f5fd6592a7678a77767635635758fe1d74e1e73
+      SITE_PIN: acafd120ef1144a6cc17ec6e9085aa6abd46dbb0
+      SUBJECT_PIN: fc1c9ab095a6eaed05e6b42d63ce1c3388103507
       T3_PIN: 8e26076ce66f0c26693a647e061fcd568e055b77
       ASSISTANT_PIN: 2c247482306f218a7d5be668de11e98f168862d4
       D09_ORIGIN: ${{ matrix.origin }}
@@ -41,7 +47,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable domain request
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=d96e5cae7c771aae8d5cb792e1c73eb526557a64 --revision subject=6f5fd6592a7678a77767635635758fe1d74e1e73 --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=acafd120ef1144a6cc17ec6e9085aa6abd46dbb0 --revision subject=fc1c9ab095a6eaed05e6b42d63ce1c3388103507 --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
       - name: Checkout HOP site
         uses: actions/checkout@v4
         with:
@@ -75,7 +81,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for spec in "private-site $SITE_PIN 80373c916a3aca6fa69d1aefce59651352671f4f" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
+          for spec in "private-site $SITE_PIN 74e4b5c112385557a519c2966a02587e06069660" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
             read -r dir sha tree <<< "$spec"
             test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
             test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
@@ -84,7 +90,7 @@ jobs:
           test "$(git -C private-site rev-parse HEAD:public/assets/hop-assistant-skills.json)" = 47cf03f25daac9e458c84dcac13607946a4c7f80
           mkdir -p "$RUNNER_TEMP/d09-t3"
           curl --fail --silent --show-error --location --retry 2 'https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.2/platform-inputs.zip' -o "$RUNNER_TEMP/d09-t3/platform-inputs.zip"
-          printf '%s  %s\n' '5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b' "$RUNNER_TEMP/d09-t3/platform-inputs.zip" | sha256sum -c - >/dev/null
+          printf '%s  %s\n' '5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b' "$RUNNER_TEMP/d09-t3/platform-inputs.zip" | (if command -v sha256sum >/dev/null 2>&1; then sha256sum -c -; else shasum -a 256 -c -; fi) >/dev/null
           openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=hop.iwxa.ru' -keyout "$RUNNER_TEMP/d09-t3/key.pem" -out "$RUNNER_TEMP/d09-t3/cert.pem" >/dev/null 2>&1
           {
             echo "D09_T3_CORE_SOURCE=$GITHUB_WORKSPACE/original-platform/packages/t3-core"
@@ -105,7 +111,9 @@ jobs:
         shell: bash
         run: |
           npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-t3/npm.log" 2>&1 || { echo D09_T3_NPM=FAIL; exit 1; }
-          if command -v google-chrome >/dev/null 2>&1; then
+          if [ -x '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' ]; then
+            echo 'PUPPETEER_EXECUTABLE_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' >> "$GITHUB_ENV"
+          elif command -v google-chrome >/dev/null 2>&1; then
             echo "PUPPETEER_EXECUTABLE_PATH=$(command -v google-chrome)" >> "$GITHUB_ENV"
           else
             npx --no-install puppeteer browsers install chrome > "$RUNNER_TEMP/d09-t3/browser-install.log" 2>&1 || { echo D09_T3_CHROME=FAIL; exit 1; }
@@ -219,10 +227,31 @@ jobs:
             grep -oE '(D09_[A-Z0-9_]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-t3/HOSTING.log" | sort -u | head -25 || true
             exit 1
           fi
+      - name: Real local model and explicit HOP canvas command on macOS
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.lane == 'hardware' }}
+        working-directory: private-site
+        shell: bash
+        env:
+          D09_T3_ALLOW_REAL_MODEL: '1'
+          D09_T3_REQUIRE_HARDWARE_GPU: '1'
+        run: |
+          set -eu
+          log="$RUNNER_TEMP/d09-t3/HARDWARE.log"
+          failed=0
+          node tests/d09-t3-user.browser.mjs > "$log" 2>&1 || failed=1
+          # Finite evidence only: never print generated text or private source.
+          grep -E '^D09_T3_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN_AFTER_FIRST_FAILURE|[0-9]+)$|^D09_T3_MODEL_(DEVICE|ANSWER|PAGE_REQUESTS)=' "$log" | cut -c1-300 | tail -40 || true
+          if [ "$failed" = 0 ]; then
+            echo D09_T3_REAL_MODEL_FUNCTIONAL=PASS
+          else
+            echo D09_T3_REAL_MODEL_FUNCTIONAL=FAIL
+            grep -oE 'D09_T3_[A-Z0-9_]{5,100}' "$log" | sort -u | tail -30 || true
+          fi
+          exit "$failed"
       - name: Separate model functional qualification
         if: ${{ !cancelled() && matrix.lane == 'browser' }}
         run: |
-          echo D09_T3_REAL_MODEL_FUNCTIONAL=NOT_RUN_DEVICE_QUALIFICATION_REQUIRED
+          echo D09_T3_REAL_MODEL_FUNCTIONAL=SEPARATE_HARDWARE_LANE
           echo D09_RELEASE_ACCEPTANCE=NOT_EVALUATED
       - name: Remove private inputs, site and evidence
         if: always()
