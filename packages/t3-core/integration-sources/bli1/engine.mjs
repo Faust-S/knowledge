@@ -146,7 +146,6 @@ export class BrowserLocalRuntimeAdapter {
     this.#running = true;
     this.#cancelRequested = false;
     let output = '';
-    let timer = null;
     let rejectStopped;
     const stopped = new Promise((_, reject) => { rejectStopped = reject; });
 
@@ -165,14 +164,10 @@ export class BrowserLocalRuntimeAdapter {
     activeWorker?.addEventListener('error', workerFailed);
     activeWorker?.addEventListener('messageerror', workerFailed);
     this.#abortGeneration = hardStop;
-    const armTimeout = (ms, kind) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => hardStop('GENERATION_TIMEOUT',
-        (kind === 'first' ? 'Модель не выдала первый токен за 120 секунд. ' :
-          'Модель перестала отвечать более чем на 60 секунд. ') +
-        'Worker остановлен, локальные веса сохранены. Можно запустить модель заново.'), ms);
-    };
-    armTimeout(120000, 'first');
+    // A slow local adapter or its first shader compilation can exceed any
+    // fixed wall-clock budget without failing. Do not destroy a running Worker
+    // solely because no token has arrived yet. Explicit Stop, closing the panel
+    // and genuine Worker errors still terminate the operation immediately.
     const infer = async () => {
       const stream = await activeEngine.chat.completions.create({
         messages: [{ role: 'user', content }],
@@ -186,7 +181,6 @@ export class BrowserLocalRuntimeAdapter {
         const delta = chunk.choices?.[0]?.delta?.content ?? '';
         if (delta) {
           output += delta;
-          armTimeout(60000, 'next');
         }
         onChunk(output);
       }
@@ -212,7 +206,6 @@ export class BrowserLocalRuntimeAdapter {
       }
       throw failure;
     } finally {
-      clearTimeout(timer);
       activeWorker?.removeEventListener('error', workerFailed);
       activeWorker?.removeEventListener('messageerror', workerFailed);
       this.#abortGeneration = null;

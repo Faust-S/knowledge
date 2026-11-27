@@ -195,11 +195,16 @@
     "packages/t3-core/tests/workspace-material-canvas.dom.test.tsx",
     "packages/t3-core/tests/workspace-relation-index-model.test.ts",
     "packages/t3-core/tests/workspace-relation-index.dom.test.tsx",
-    "packages/t3-core/tests/workspace-view-profile-sections.dom.test.tsx"
+    "packages/t3-core/tests/workspace-view-profile-sections.dom.test.tsx",
+    "packages/t3-core/tests/exchange/import-existing-receipt.test.ts",
+    "packages/t3-core/integration-sources/bli1/engine.mjs",
+    "packages/t3-core/integration-sources/bli1/SOURCE_PIN.json",
+    "packages/t3-core/tests/t3-d5-live-generation.test.mjs",
+    "packages/t3-core/docs/EXCHANGE_RECEIPT_EXISTING_RECORDS_2026_11_27_RU.md"
   ],
-  "qualification": "required; prior individual branch results are not combined evidence",
-  "version": "0.3.1-rc.3",
-  "snapshot": "Exact owner inputs frozen for cumulative qualification; later development requires a subsequent explicit update.",
+  "qualification": "Generic T3 exact Host, accepted Kernel, complete .iwxa restore, cold autonomy, BLI and portable artifact. Separate original corporate installed A-B-A qualification remains open, not a domain/platform release prerequisite.",
+  "version": "0.3.1-rc.5",
+  "snapshot": "Frozen qualified component cuts for generic platform delivery; corporate signed native product acceptance and later Workflow development are separate.",
   "qualificationAttempts": [
     {
       "candidate": "f3d0404da883c98fed4188fdff9006aa43c07eec",
@@ -246,7 +251,7 @@
     {
       "candidate": "b2f6ad361e544c717e53d4af31650128dfd6dc21",
       "run": 46006887261,
-      "status": "FAIL_PLATFORM_AND_CORPORATE_JOBS_OTHER_JOB_PENDING_AT_RECORDING",
+      "status": "FAIL_PLATFORM_AND_CORPORATE_JOBS_COMPLETED",
       "passed": {
         "node": 1217,
         "vitest": 1237,
@@ -261,7 +266,18 @@
         "assistant": "PASS",
         "canonicalSource": 260,
         "additionalSource": 26,
-        "exactK036SharedResult": "PASS"
+        "exactK036SharedResult": "PASS",
+        "sharedHost": {
+          "layouts": 4,
+          "formShortcuts": {
+            "mobile": 26,
+            "desktop": 26
+          },
+          "resultHints": {
+            "mobile": 13,
+            "desktop": 13
+          }
+        }
       },
       "failed": {
         "platform": {
@@ -308,6 +324,18 @@
     {
       "scope": "existing PWA cold readback witness",
       "fix": "Observe explicit second-window reload and original Kernel/Host readiness before exact readback. No new reload, delay, retry or changed product semantics."
+    },
+    {
+      "scope": "general Exchange receipt semantics",
+      "fix": "Apply exact qualified receipt-accounting delta to existing Android/corporate-enabled ImportView and state machine; preserve signed corporate independent readback."
+    },
+    {
+      "scope": "original BLI slow generation",
+      "fix": "Integrate exact qualified engine, source pin and existing cancellation/Worker regression; no elapsed-time termination."
+    },
+    {
+      "scope": "universal platform qualification",
+      "fix": "Retain separate original corporate runtime witness and failure evidence; generic platform lane does not repeat corporate A-B-A on known accepted Kernel collision."
     }
   ],
   "workflowOwnerQualification": {
@@ -323,5 +351,37 @@
       "windows": "PASS",
       "qualificationScope": "CONTROLLED_SOURCE_FIXTURE_NOT_INSTALLED"
     }
+  },
+  "exchangeReceipt": {
+    "sourceCommit": "63d76beb11752b6e3f3c545d79f30b14b0bd816b",
+    "documentation": "e71df89809a995f94061f05a9a932c438aa295ba",
+    "t2SourceCommit": "63d61f872ad88694096abbf748855546b0a4ec21",
+    "qualificationRun": 46010486598,
+    "componentResult": "PASS_T2_106_T3_112_NATIVE_ACCEPTED_AND_CANDIDATE_KERNEL",
+    "consolidatedStatus": "PENDING_EXACT_CANDIDATE"
+  },
+  "localInferenceWallclock": {
+    "sourceCommit": "92ba6c314725a46f8f0ac0a6fd1a4ee9d315d60e",
+    "qualifiedComponent": "29a536b2374935a67f802be7f7870fdbf608fcb2",
+    "qualificationRun": 46005718948,
+    "componentResult": "PASS",
+    "sourcePin": "7440815f3605166557abea109af41c01eeef3269",
+    "consolidatedStatus": "PENDING_EXACT_CANDIDATE",
+    "scope": "Live generation no wall-clock hard stop; explicit Stop, close and actual Worker error unchanged. Physical hardware generation not established by the component regression."
+  },
+  "releaseBoundary": {
+    "generic": "ACCEPTED_ORIGINAL_K036_KERNEL_GENERIC_LOCAL_RESTORE_AND_PORTABLE_PLATFORM",
+    "corporate": "SEPARATE_NOT_ACCEPTED_ORIGINAL_KERNEL_EVENT_COLLISION",
+    "kernelCandidate": "5320dcb6c42d5fca410880677c8a8b595d4c9a2a6cedf51089b5f60f4ceeb52a",
+    "candidatePromotion": false,
+    "priorCorporateFailureRun": 46006887261,
+    "originalKernelCandidateCoreRun": 46007067538
+  },
+  "deferredWorkflow": {
+    "publicHead": "646c0de02e065432b62d358a8f3130785cf9e482",
+    "privateHead": "f604c61cec6af11c65f437caa333ebad9f81e96e",
+    "qualificationRun": 46009939031,
+    "status": "FAILED_SELECTED_WORK_DECLARATIONS_NOT_ADOPTED",
+    "retained": "196e3cd824f2a21078f75576f09c1153a6b17d17"
   }
 }

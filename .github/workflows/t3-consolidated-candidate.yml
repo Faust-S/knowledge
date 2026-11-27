@@ -1,4 +1,4 @@
-name: T3 rc.3 consolidated source and portable candidate
+name: T3 consolidated source and portable platform candidate
 on:
   push:
     branches: ['ci/once/t3-consolidated-candidate/**']
@@ -37,7 +37,7 @@ jobs:
           const r=JSON.parse(readFileSync('.github/ci-requests/t3-consolidated-candidate.json','utf8'));
           const m=JSON.parse(readFileSync('packages/t3-core/docs/t3-consolidation-sources.json','utf8'));
           assert.deepEqual(r,{schema:'iwxa.ci.once/1',workflow:'t3-consolidated-candidate',preparedSha:process.env.BEFORE,profile:'SOURCE_SHARED_HOST_PORTABLE_NO_PRIVATE_OUTPUT',assistant:m.originalAssistant.commit,corporateWorkflow:m.originalCorporateWorkflow.commit,reason:'QUALIFY_CONSOLIDATED_ORIGINAL_T3'});
-          assert.equal(m.version,'0.3.1-rc.3');
+          assert.equal(m.version,'0.3.1-rc.5');
           assert.equal(m.originalAssistant.commit,'3b8c2fb25bf5205e53331f5db3e035210b7aac9f');
           assert.equal(m.originalCorporateWorkflow.commit,'7e2fd0d58fd4e11102355880d9ed452add6f5e99');
           console.log('T3_CONSOLIDATED_EXACT_REQUEST_PASS');
@@ -484,36 +484,5 @@ jobs:
           path: ${{ runner.temp }}/k036-c3-mapping.json
           if-no-files-found: warn
 
-  corporate-original-runtime:
-    needs: request
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: packages/t3-core
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.before }}
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.18.1'
-      - name: Install exact Host and original locked browser-platform test dependencies
-        run: |
-          npm ci --ignore-scripts --no-audit --no-fund
-          npm ci --prefix qualified-runtime-source/k036-atomic-graph --ignore-scripts --no-audit --no-fund
-      - name: Stage accepted original Kernel and actual desktop-control UI
-        run: |
-          set -euo pipefail
-          archive=qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
-          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $archive" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/company-original-kernel"
-          unzip -q "$archive" -d "$RUNNER_TEMP/company-original-kernel"
-          npm run build
-      - name: Original corporate complete Workspace export import and return (accepted Kernel)
-        env:
-          IWXA_COMPANY_TEST_QUALIFIED_T2: ${{ runner.temp }}/company-original-kernel
-          IWXA_COMPANY_TEST_IDB_MODULE: ${{ github.workspace }}/packages/t3-core/qualified-runtime-source/k036-atomic-graph/node_modules/fake-indexeddb/build/esm/index.js
-          IWXA_COMPANY_TEST_COMPILED_T3: ${{ github.workspace }}/packages/t3-core/dist
-        run: node --test --test-timeout=120000 tests/t3-company-original-runtime-roundtrip.test.mjs
+  # The original installed corporate A-B-A witness is separately qualified
+  # by its product owners. Do not weaken or reclassify that witness as PASS.

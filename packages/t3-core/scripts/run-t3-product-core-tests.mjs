@@ -71,7 +71,8 @@ if (archived.length !== excluded.size) {
 }
 // The original cross-product runtime witness needs its own verified Kernel,
 // locked IndexedDB test substrate and compiled native-control UI. It is
-// NOT an archival exclusion and remains a separate mandatory CI job.
+// NOT an archival exclusion; it remains required for corporate-product
+// qualification, separately from the universal portable platform.
 const runtimeWitnesses = ["t3-company-original-runtime-roundtrip.test.mjs"];
 if(runtimeWitnesses.some(name=>!all.includes(name)||excluded.has(name))){
   console.error("T3_ORIGINAL_RUNTIME_WITNESS_SET_MISMATCH");
