@@ -8,7 +8,7 @@ import {normalizeOriginalInstalledNetworkScope} from '../../../t3-core/src/t3/or
 import {createT4OriginalProductNetworkAccess} from './original-product-network-access.mjs';
 import {createT4OriginalNativeHostNetworkProfile} from './original-native-host-network-profile.mjs';
 import {createT4OriginalInstalledControlFactories} from './original-installed-control-factories.mjs';
-import {openT4OriginalNativePeerStartup} from './original-native-peer-startup.mjs';
+import {openT4OriginalNativePeerStartup,releaseT4OriginalNativePeerStartup} from './original-native-peer-startup.mjs';
 import {createT4OriginalPeerHistoryTlsConnection,isT4OriginalPeerHistoryTlsConnection,T4_ORIGINAL_PEER_HISTORY_TLS_ALPN}
   from './original-peer-history-tls-connection.mjs';
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
@@ -52,11 +52,13 @@ export function createT4OriginalProductProfileFactory({scope,registryObjectId='t
   return async lifetime=>{
     if(!obj(lifetime)||!lifetime.registryKernel||typeof lifetime.isHostActive!=='function'||
       !/^[A-Za-z0-9_-]{43}$/.test(lifetime.sessionId??'')||
-      !Number.isSafeInteger(lifetime.contextEpoch)||lifetime.contextEpoch<0)
+      !Number.isSafeInteger(lifetime.contextEpoch)||lifetime.contextEpoch<0||
+      (lifetime.activationSignal!==undefined&&!(lifetime.activationSignal instanceof AbortSignal)))
       fail('T4_INSTALLED_PRODUCT_ORIGINAL_HOST_REQUIRED');
     let closed=false,authority=null,profile=null,peerConnection=null;
     const peerStartupAbort=new AbortController();
-    const active=()=>!closed&&lifetime.isHostActive()===true;
+    const signal=lifetime.activationSignal===undefined?peerStartupAbort.signal:AbortSignal.any([peerStartupAbort.signal,lifetime.activationSignal]);
+    const active=()=>!closed&&!signal.aborted&&lifetime.isHostActive()===true;
     const requireActive=()=>{if(!active())fail('T4_INSTALLED_PRODUCT_HOST_DISPOSED');};
     const close=()=>{
       if(closed)return;
@@ -105,7 +107,7 @@ export function createT4OriginalProductProfileFactory({scope,registryObjectId='t
             peerNodeRef:source?options.recipientNodeRef:options.sourceNodeRef,
             contextEpoch:lifetime.contextEpoch,localCertificateSha256:originalPeerTls.localCertificateSha256,
             peerCertificateSha256:originalPeerTls.peerCertificateSha256},
-          getMode,isOriginalHostActive:active,signal:peerStartupAbort.signal,
+          getMode,isOriginalHostActive:active,signal,deferIncomingUntilReceiver:true,
           timeoutMs:originalPeerTls.timeoutMs,alpn:T4_ORIGINAL_PEER_HISTORY_TLS_ALPN,
           createOriginalConnection:createT4OriginalPeerHistoryTlsConnection});
         requireActive();
@@ -115,7 +117,12 @@ export function createT4OriginalProductProfileFactory({scope,registryObjectId='t
       profile=createT4OriginalNativeHostNetworkProfile({...nativeOptions,getMode,originalAccess:authority.originalAccess,
         originalPorts:{...options.originalPorts,resolveOriginalAccess:resolver}});
       requireActive();
-      return Object.freeze({...profile,close});
+      return Object.freeze({...profile,close,bindOriginalPeerHistoryReceiver(relay){
+        requireActive();
+        const receiver=profile.bindOriginalPeerHistoryReceiver(relay);
+        if(peerConnection!==null)releaseT4OriginalNativePeerStartup(peerConnection);
+        return receiver;
+      }});
     }catch(error){close();throw error;}
   };
 }

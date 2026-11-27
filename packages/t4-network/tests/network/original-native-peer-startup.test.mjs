@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import {createHash,X509Certificate} from 'node:crypto';
 import {createServer} from 'node:net';
 import {setTimeout as delay} from 'node:timers/promises';
-import {openT4OriginalNativePeerStartup as open} from '../../src/network/original-native-peer-startup.mjs';
+import {openT4OriginalNativePeerStartup as open,releaseT4OriginalNativePeerStartup as release} from '../../src/network/original-native-peer-startup.mjs';
 
 let dir,A,B;
 const alpn='iwxa-t4-owner-history/1';
@@ -109,4 +109,47 @@ test('occupied endpoint is not silently replaced',async()=>{
   const blocker=createServer();await new Promise(res=>blocker.listen(0,'127.0.0.1',res));
   try{await assert.rejects(open(options('LISTEN',blocker.address().port)),{code:'ORIGINAL_PEER_STARTUP_LISTEN_FAILED'});}
   finally{await new Promise(res=>blocker.close(res));}
+});
+
+
+test('early peer bytes wait for the original receiver instead of reaching an unbound carrier',async()=>{
+  const port=await freePort();let received='';
+  const [a,b]=await pair(port,{deferIncomingUntilReceiver:true,createOriginalConnection:({socket})=>{
+    socket.on('data',bytes=>{received+=bytes.toString();});
+    return {socket,close:()=>socket.destroy()};
+  }});
+  try{
+    b.socket.write('early');await delay(50);assert.equal(received,'');
+    release(a);for(let n=0;n<20&&!received;n++)await delay(10);
+    assert.equal(received,'early');
+    assert.throws(()=>release(a),{code:'ORIGINAL_PEER_STARTUP_RECEIVER_NOT_PENDING'});
+  }finally{a.close();b.close();}
+});
+test('host cancellation immediately closes a held or released established connection',async()=>{
+  for(const released of [false,true]){
+    const ac=new AbortController(),port=await freePort();
+    const [a,b]=await pair(port,{signal:ac.signal,deferIncomingUntilReceiver:true});
+    try{
+      if(released)release(a);
+      const closed=new Promise(res=>a.socket.once('close',res));
+      ac.abort();assert.equal(a.socket.destroyed,true);await closed;
+      assert.throws(()=>release(a),{code:'ORIGINAL_PEER_STARTUP_RECEIVER_NOT_PENDING'});
+    }finally{a.close();b.close();}
+  }
+});
+test('a carrier that is never bound has a bounded hold and releases the connection',async()=>{
+  const port=await freePort();const [a,b]=await pair(port,{deferIncomingUntilReceiver:true});
+  try{
+    await new Promise(res=>a.socket.once('close',res));
+    assert.equal(a.socket.destroyed,true);
+    assert.throws(()=>release(a),{code:'ORIGINAL_PEER_STARTUP_RECEIVER_NOT_PENDING'});
+  }finally{a.close();b.close();}
+});
+test('cancellation from the synchronous original factory disposes its returned carrier',async()=>{
+  const port=await freePort(),ac=new AbortController();let closed=0;
+  const waiting=open(options('LISTEN',port,{signal:ac.signal,createOriginalConnection:({socket})=>{
+    ac.abort();return {close(){closed++;socket.destroy();}};
+  }}));waiting.catch(()=>{});
+  await delay(50);const b=await open(options('CONNECT',port));
+  try{await assert.rejects(waiting,{code:'ORIGINAL_PEER_STARTUP_HOST_DISPOSED'});assert.equal(closed,1);}finally{b.close();}
 });

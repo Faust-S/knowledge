@@ -132,6 +132,7 @@ export function createOriginalKernelNativeRelay({
   const networkActive=state=>!closed&&live===state&&state.networkReady===true;
   const networkCleanup=state=>{
     if(!state)return;
+    if(activationTask?.state===state)activationTask.abort.abort();
     state.networkReady=false;state.localSourceReady=false;
     if(state.networkStarted){
       state.networkStarted=false;
@@ -458,8 +459,8 @@ export function createOriginalKernelNativeRelay({
   const startNetworkActivation=state=>{
     if(!activation||!state.activationRequest||!liveState(state)||activationTask||pending||reservation||wakeTask||localSourceTask||historyTask||registryBusy())return;
     const request=state.activationRequest;state.activationRequest=null;
-    const task={state};activationTask=task;
-    const active=()=>liveState(state)&&activationTask===task;
+    const task={state,abort:new AbortController()};activationTask=task;
+    const active=()=>liveState(state)&&activationTask===task&&!task.abort.signal.aborted;
     const requireCurrent=async()=>check(await currentEpoch()===state.epoch&&active(),"T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
     void Promise.resolve().then(async()=>{
       let profile=null,admitted=false;
@@ -467,7 +468,7 @@ export function createOriginalKernelNativeRelay({
         await withRegistryReads(state,active,async()=>{
           await requireCurrent();
           profile=await activation.createProfile(Object.freeze({registryKernel:state.registryKernel,
-            sessionId:state.sessionId,contextEpoch:state.epoch,isHostActive:()=>liveState(state)}));
+            sessionId:state.sessionId,contextEpoch:state.epoch,isHostActive:()=>liveState(state),activationSignal:task.abort.signal}));
           await requireCurrent();
           check(profile?.schema==='IWXA_T4_ORIGINAL_NATIVE_HOST_NETWORK_PROFILE_V1'&&profile.role===activation.role&&
             typeof profile.close==='function'&&typeof profile.bindOriginalPeerHistoryReceiver==='function'&&

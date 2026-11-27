@@ -157,6 +157,19 @@ test('detaching during late profile creation disposes it and never activates the
     assert.equal(f.counts.close,1);assert.equal(f.counts.attach,0);assert.equal(f.relay.attached,false);assert.equal(f.relay.nativeRegistryKernel,null);
   }finally{release();f.relay.close();}
 });
+test('invalidating the Host cancels an in-flight native connection startup before timeout',async()=>{
+  let entered,signal;const started=new Promise(r=>{entered=r;});
+  const f=fixture({createHook:p=>new Promise((resolve,reject)=>{
+    signal=p.activationSignal;entered();
+    signal.addEventListener('abort',()=>reject(Error('cancelled')),{once:true});
+  })});
+  try{const s=await f.attach(),p=f.next(s);p.catch(()=>{});await started;
+    assert.equal(signal.aborted,false);f.invalidate();assert.equal(signal.aborted,true);
+    await assert.rejects(p,{code:'T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED'});await tick();
+    assert.equal(f.counts.attach,0);assert.equal(f.relay.attached,false);
+    const next=await f.attach();assert.notEqual(next.sessionId,s.sessionId);
+  }finally{f.relay.close();}
+});
 test('detached asynchronous native continuation cannot reuse a completed Registry lease',async()=>{
   let late,release;const gate=new Promise(r=>{release=r;});
   const f=fixture({history:async({registry})=>{late=gate.then(()=>registry.getObject(REG,OBJ));late.catch(()=>{});return {done:true};}});

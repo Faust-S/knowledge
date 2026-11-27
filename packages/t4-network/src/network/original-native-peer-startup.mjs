@@ -12,12 +12,21 @@ const digest=cert=>Buffer.isBuffer(cert?.raw)?createHash('sha256').update(cert.r
 const material=x=>(typeof x==='string'||Buffer.isBuffer(x))&&Buffer.byteLength(x)>0&&Buffer.byteLength(x)<=256*1024;
 const fields=['workspaceId','originalWriteOwnerRef','scopeRef','ownerEpoch','localNodeRef','peerNodeRef','contextEpoch','localCertificateSha256','peerCertificateSha256'];
 
+// Only a socket handed to this exact carrier can be released. No wire-level
+// readiness message: the original owner installs its receiver first.
+const pendingReceivers=new WeakMap();
+export function releaseT4OriginalNativePeerStartup(connection){
+  const release=pendingReceivers.get(connection);
+  require(typeof release==='function','ORIGINAL_PEER_STARTUP_RECEIVER_NOT_PENDING');
+  release();
+}
+
 // The endpoint and credential reader are selected by the native owner, not
 // the WebView or an incoming peer. The reader uses existing local custody.
 // CONNECT or LISTEN is explicit and independent of the subject's role.
 export async function openT4OriginalNativePeerStartup({endpoint,readOriginalCredentials,identity,
   getMode,isOriginalHostActive,authorizeOriginalPeerConnection,createOriginalConnection,
-  alpn,timeoutMs=20000,signal}={}){
+  alpn,timeoutMs=20000,signal,deferIncomingUntilReceiver=false}={}){
   require(endpoint&&typeof endpoint==='object'&&['CONNECT','LISTEN'].includes(endpoint.mode)&&
     typeof endpoint.address==='string'&&isIP(endpoint.address)!==0&&endpoint.address!=='0.0.0.0'&&!/^[0:]+$/.test(endpoint.address)&&
     Object.keys(endpoint).every(k=>['mode','address','port','serverName'].includes(k))&&
@@ -33,7 +42,7 @@ export async function openT4OriginalNativePeerStartup({endpoint,readOriginalCred
     'ORIGINAL_PEER_STARTUP_IDENTITY_INVALID');
   require([readOriginalCredentials,getMode,isOriginalHostActive,authorizeOriginalPeerConnection,createOriginalConnection].every(f=>typeof f==='function')&&
     alpn==='iwxa-t4-owner-history/1'&&Number.isSafeInteger(timeoutMs)&&timeoutMs>=1000&&timeoutMs<=60000&&
-    (signal===undefined||signal instanceof AbortSignal),'ORIGINAL_PEER_STARTUP_PORTS_REQUIRED');
+    typeof deferIncomingUntilReceiver==='boolean'&&(signal===undefined||signal instanceof AbortSignal),'ORIGINAL_PEER_STARTUP_PORTS_REQUIRED');
   const route=Object.freeze(Object.fromEntries(fields.map(k=>[k,identity[k]])));
   const {mode,address,port,serverName}=endpoint;
   const active=()=>{try{return getMode()==='T4_NETWORK'&&isOriginalHostActive()===true&&signal?.aborted!==true;}catch{return false;}};
@@ -62,12 +71,32 @@ export async function openT4OriginalNativePeerStartup({endpoint,readOriginalCred
       }
       selected=socket;
       try{
+        if(deferIncomingUntilReceiver)socket.pause();
         // The original carrier performs the second, authoritative admission,
         // including the TLS exporter and the owner's live per-call guard.
         connection=createOriginalConnection({...route,socket,getMode,isOriginalHostActive:()=>active(),
           authorizeOriginalPeerConnection,timeoutMs});
         require(connection&&typeof connection.close==='function','ORIGINAL_PEER_STARTUP_CONNECTION_INVALID');
+        // Cancellation can occur synchronously during the owner's factory.
+        if(settled){try{connection.close();}finally{socket.destroy();}return;}
         require(active(),'ORIGINAL_PEER_STARTUP_HOST_DISPOSED');
+        let receiverTimer=null;
+        const stopAdmitted=()=>{try{connection.close();}catch{}finally{socket.destroy();}};
+        const cleanupAdmitted=()=>{
+          clearTimeout(receiverTimer);pendingReceivers.delete(connection);
+          signal?.removeEventListener('abort',stopAdmitted);
+        };
+        socket.once('close',cleanupAdmitted);
+        if(deferIncomingUntilReceiver){
+          pendingReceivers.set(connection,()=>{
+            if(!active()||socket.destroyed){stopAdmitted();throw error('ORIGINAL_PEER_STARTUP_HOST_DISPOSED');}
+            pendingReceivers.delete(connection);clearTimeout(receiverTimer);socket.resume();
+          });
+          receiverTimer=setTimeout(stopAdmitted,timeoutMs);receiverTimer.unref?.();
+        }
+        // The same lifetime controls the established socket, not just TLS.
+        signal?.addEventListener('abort',stopAdmitted,{once:true});
+        if(!active()){stopAdmitted();deny('ORIGINAL_PEER_STARTUP_HOST_DISPOSED');return;}
         stopListening();settled=true;clear();resolve(connection);
       }catch(e){deny(e?.code==='ORIGINAL_PEER_STARTUP_HOST_DISPOSED'?e.code:'ORIGINAL_PEER_STARTUP_ADMISSION_DENIED');}
     }
