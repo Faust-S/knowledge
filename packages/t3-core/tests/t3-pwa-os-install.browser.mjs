@@ -148,9 +148,9 @@ test("browser PWA.install + PWA.launch: actual installed app, same origin data, 
     assert.deepEqual(await getRecord(app),{status:"written-in-ordinary-browser",revision:1},
       "PWA and ordinary browser must share the same origin database");
     // T3 autonomy remains an explicit separate opt-in inside the installed app.
-    assert.equal(await app.locator("#iwxa-t3-domain-switch").isChecked(),false);
+    assert.equal(await app.evaluate(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),false);
     app.once("dialog",dialog=>dialog.accept());
-    await app.locator("#iwxa-t3-domain-switch").check();
+    await app.locator("#iwxa-t3-install-offline").click();
     await app.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous"),
       null,{timeout:30000});
     assert.deepEqual(await getRecord(page),{status:"written-in-ordinary-browser",revision:1},

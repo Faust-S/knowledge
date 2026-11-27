@@ -316,7 +316,7 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
     assert.ok(originalRead.eventIds.includes(saved.event));
     // Explicitly install the offline snapshot, unrelated to PWA app install.
     site.once("dialog",dialog=>dialog.accept());
-    await site.locator("#iwxa-t3-domain-switch").check();
+    await site.locator("#iwxa-t3-install-offline").click();
     await site.waitForFunction(()=>document.documentElement
       .hasAttribute("data-iwxa-t3-autonomous"),null,{timeout:60000});
     assert.equal(await site.evaluate(()=>navigator.serviceWorker.getRegistrations()
@@ -353,7 +353,7 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
     assert.equal(cold.text,title);
     assert.equal(cold.revision,1);
     assert.ok(cold.eventIds.includes(saved.event));
-    assert.equal(await site.locator("#iwxa-t3-domain-switch").isChecked(),true);
+    assert.equal(await site.evaluate(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),true);
     assert.equal(sha(join(dist,"_iwxa/runtime/0.3.6/runtime.js")),pinned);
     // D4: actual independent original T2 recipient with its OWN Store.
     // Unlike an archive restored into its original source ID, this verifies
