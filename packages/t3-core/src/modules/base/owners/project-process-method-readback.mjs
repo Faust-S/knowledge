@@ -201,7 +201,8 @@ export async function openWorkspaceMethodStageClosure(input){
 export async function openWorkspaceMethodCompleteClosure(input){
   return openMethodInputClosure({...input,wholeMethod:true});
 }
-async function openMethodInputClosure({owner,workspaceId,projectId,expected,stepId,wholeMethod}){
+async function openMethodInputClosure({owner,workspaceId,projectId,expected,stepId,wholeMethod,selectedClosureOnly=false}){
+  if(wholeMethod&&selectedClosureOnly)fail('METHOD_STAGE_SELECTION_INVALID','Complete method observation requires all Work references');
   if(!owner||typeof owner.load!=='function')fail('METHOD_SOURCE_INCOMPATIBLE','Original source owner read port required');
   const projectRef=historyRef('project',workspaceId,projectId,expected?.projectRef);
   const requested=Array.from(expected?.workRefs??[],row=>Object.freeze({
@@ -225,10 +226,11 @@ async function openMethodInputClosure({owner,workspaceId,projectId,expected,step
   }
   const normalized=normalizeProject(project.value),ids=methodWorkIds(project,projectId);
   const byObject=new Map(requested.map(row=>[row.objectId,row]));
-  if(ids.length!==requested.length||ids.some(id=>!byObject.has(projectProcessSourceObjectId('work',workspaceId,id)))){
+  const selectedIds=ids.filter(id=>byObject.has(projectProcessSourceObjectId('work',workspaceId,id)));
+  if(selectedIds.length!==requested.length||(!selectedClosureOnly&&selectedIds.length!==ids.length)){
     fail('METHOD_STAGE_SOURCE_CHANGED','Work selection does not match Project declarations');
   }
-  const refs=new Map(ids.map(id=>[id,historyRef('work',workspaceId,id,byObject.get(projectProcessSourceObjectId('work',workspaceId,id)))]));
+  const refs=new Map(selectedIds.map(id=>[id,historyRef('work',workspaceId,id,byObject.get(projectProcessSourceObjectId('work',workspaceId,id)))]));
   const selectedId=projectId+'.'+stepId;
   if(!wholeMethod&&!refs.has(selectedId))fail('METHOD_STAGE_UNKNOWN','Selected stage is not declared in the original Project');
   const loaded=new Map(),depth=new Map(),visiting=new Set();
@@ -284,6 +286,8 @@ async function openMethodInputClosure({owner,workspaceId,projectId,expected,step
   // Preserve the original structural preview's wave/declaration ordering;
   // ancestors of a selected node are closed under prerequisites.
   const ordered=ids.filter(id=>loaded.has(id)).sort((a,b)=>depth.get(a)-depth.get(b));
+  if(selectedClosureOnly&&ordered.length!==requested.length)
+    fail('METHOD_STAGE_SELECTION_INVALID','Signed selection includes Work outside the exact prerequisite closure');
   if(wholeMethod){
     verifyMethodSet({workspaceId,project,projectRef,ids,loaded:ids.map(id=>loaded.get(id).row)});
   }else{

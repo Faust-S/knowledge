@@ -45,10 +45,15 @@ function createReader({kernel,accessForRead,currentWorkspace,
     personalDraftInFlight=true;
     try{return await read(input,mode);}finally{personalDraftInFlight=false;}
   }
-  async function read(input,mode){
+  async function read(input,mode,selectedOnly=false){
+    // Native-only selection from an existing signed Task, never from UI metadata.
+    const selected=selectedOnly?currentWorkspace.get():null;
+    if(selectedOnly)check(nativeCorporateOnly&&mode==='corporate-inputs'&&input&&
+      Object.keys(input).length===1&&/^task:[A-Za-z0-9:-]{1,100}$/.test(input.taskId??'')&&
+      typeof selected?.workspace_id==='string'&&selected.deleted_at==null,'T3_METHOD_STAGE_SELECTION_REQUIRED');
     // Snapshot selections before any original owner await. No caller port,
     // context, Result content, digest, permission or dispatch callback.
-    check(input&&typeof input.workspaceId==='string'&&typeof input.projectId==='string'
+    check(selectedOnly||(input&&typeof input.workspaceId==='string'&&typeof input.projectId==='string'
       &&(mode==='overview'||typeof input.stepId==='string')&&Array.isArray(input.expected?.workRefs)
       &&input.expected.workRefs.length>0&&input.expected.workRefs.length<=64
       &&(mode==='overview'||input.resultSelections==null||(Array.isArray(input.resultSelections)&&input.resultSelections.length<=64))
@@ -66,10 +71,10 @@ function createReader({kernel,accessForRead,currentWorkspace,
       &&(mode!=='personal-task-recover'||(input.personalResultSelections===undefined&&(input.resultSelections??[]).length===0))
       &&(input.personalResultSelections===undefined||(['handoff','personal-draft','personal-draft-recover','personal-task-inspect'].includes(mode)
         &&Array.isArray(input.personalResultSelections)&&input.personalResultSelections.length<=63
-        &&(input.resultSelections??[]).length===0)),
+        &&(input.resultSelections??[]).length===0))),
       'T3_METHOD_STAGE_SELECTION_REQUIRED');
     const ref=value=>({family:value?.family,objectId:value?.objectId,recordId:value?.recordId,revision:value?.revision});
-    const request=canonicalClone({workspaceId:input.workspaceId,projectId:input.projectId,
+    const request=selectedOnly?{workspaceId:selected.workspace_id,taskId:input.taskId,resultSelections:[]}:canonicalClone({workspaceId:input.workspaceId,projectId:input.projectId,
       expected:{projectRef:ref(input.expected.projectRef),workRefs:input.expected.workRefs.map(ref)},
       ...(mode==='overview'?{}:{stepId:input.stepId,
         resultSelections:(input.resultSelections??[]).map(row=>({stepId:row.stepId,reference:{
@@ -84,11 +89,11 @@ function createReader({kernel,accessForRead,currentWorkspace,
       ...(input.corporateResultSelections===undefined?{}:{corporateResultSelections:input.corporateResultSelections.map(row=>({
         stepId:row?.stepId,acceptanceId:row?.acceptanceId,resultRevisionId:row?.resultRevisionId}))})});
     check(isHostActive()===true,'T3_HOST_DISPOSED');
-    const selected=currentWorkspace.get();
-    check(selected?.workspace_id===request.workspaceId&&selected.deleted_at==null,'T3_METHOD_STAGE_WORKSPACE_REQUIRED');
+    const workspaceSelection=selectedOnly?selected:currentWorkspace.get();
+    check(workspaceSelection?.workspace_id===request.workspaceId&&workspaceSelection.deleted_at==null,'T3_METHOD_STAGE_WORKSPACE_REQUIRED');
     let changed=false;
     const unsubscribe=currentWorkspace.subscribe(()=>{changed=true;});
-    const active=()=>isHostActive()===true&&!changed&&currentWorkspace.get()===selected;
+    const active=()=>isHostActive()===true&&!changed&&currentWorkspace.get()===workspaceSelection;
     const live=()=>check(active(),'T3_METHOD_STAGE_WORKSPACE_CHANGED');
     try{
       live();
@@ -190,18 +195,24 @@ function createReader({kernel,accessForRead,currentWorkspace,
             };
             const first=await readReference();
             // A signed original Task may supply its own expected reference after restart.
-            // Caller still selects the current Work and actual direct predecessor Results.
+            // Native selected-only reads reconstruct precisely its declared closure;
+            // historical explicit selections continue to use the full method set.
             // Never derive authority or complete material content from carrier metadata.
             const recovering=mode==='corporate-reference-recover'||mode==='corporate-inputs';
             const w=first.workflowInput;
+            const signedSelection=selectedOnly?{
+              projectId:w?.projectId,stepId:w?.stepId,expected:{projectRef:w?.projectRef,
+                workRefs:[w?.workRef,...(Array.isArray(w?.acceptedPredecessors)?w.acceptedPredecessors.map(row=>row?.acceptedResult?.workflowInput?.workRef):[])]},
+              selectedClosureOnly:true}:null;
+            const effectiveRequest=signedSelection?{...request,...signedSelection}:request;
             if(recovering)check(w?.schema==='IWXA_T3_WORKFLOW_INPUT_REFERENCE/1'&&w.workspaceId===request.workspaceId
-              &&w.projectId===request.projectId&&w.stepId===request.stepId
-              &&canonicalStringify(w.projectRef)===canonicalStringify(request.expected.projectRef)
-              &&request.expected.workRefs.some(ref=>canonicalStringify(ref)===canonicalStringify(w.workRef))
+              &&w.projectId===effectiveRequest.projectId&&w.stepId===effectiveRequest.stepId
+              &&canonicalStringify(w.projectRef)===canonicalStringify(effectiveRequest.expected.projectRef)
+              &&effectiveRequest.expected.workRefs.some(ref=>canonicalStringify(ref)===canonicalStringify(w.workRef))
               &&/^[a-f0-9]{64}$/.test(w.candidateDigest??''),
               'T3_METHOD_CORPORATE_TASK_REFERENCE_SCOPE_MISMATCH');
             const prepare=mode==='corporate-inputs'?buildWorkspaceMethodCorporateTaskInputs:buildWorkspaceMethodCorporateTaskReference;
-            const preparedArgs=recovering?{...evidenceArgs,expectedCandidateDigest:w.candidateDigest}:evidenceArgs;
+            const preparedArgs=recovering?{...evidenceArgs,...(signedSelection??{}),expectedCandidateDigest:w.candidateDigest}:evidenceArgs;
             // New independent assignments carry only a flat, signed list
             // of the selected accepted Result references. Recover the
             // complete prerequisite closure without UI/manager lookup.
@@ -358,7 +369,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
       return report;
     }finally{unsubscribe();}
   }
-  if(nativeCorporateOnly)return Object.freeze({readInputs:input=>read(input,'corporate-inputs')});
+  if(nativeCorporateOnly)return Object.freeze({readInputs:input=>read(input,'corporate-inputs'),
+    readSelectedInputs:input=>read(input,'corporate-inputs',true)});
   return Object.freeze({
     inspect:input=>read(input,'inspect'),
     overview:input=>read(input,'overview'),

@@ -80,12 +80,12 @@ function stageReport({workspaceId,projectId,stepId,closure,observedById}){
     unrelatedHeadsNotRead:closure.completeMethodCurrentVerified!==true,
     atomicSnapshot:false,writeAuthorized:false,executionAuthority:false,resultReuseProven:false});
 }
-async function openInputObservation({owner,readObject,workspaceId,projectId,expected,stepId},wholeMethod){
+async function openInputObservation({owner,readObject,workspaceId,projectId,expected,stepId,selectedClosureOnly=false},wholeMethod){
   if(!text(workspaceId)||!text(projectId)||(!wholeMethod&&(typeof stepId!=='string'||!/^[A-Za-z0-9_-]{1,63}$/u.test(stepId)))
       ||typeof readObject!=='function'){
     fail('METHOD_STAGE_INPUT_INVALID','Original method owner, addressed material port and exact scope required');
   }
-  const selected=selection(expected),args={owner,workspaceId,projectId,expected:selected,stepId};
+  const selected=selection(expected),args={owner,workspaceId,projectId,expected:selected,stepId,selectedClosureOnly};
   const closure=await (wholeMethod?openWorkspaceMethodCompleteClosure(args):openWorkspaceMethodStageClosure(args));
   const pins=new Set(closure.works.flatMap(row=>row.work.methodology.materialRefs.map(pin=>pin.object_id)));
   const chosen=closure.project.methodology.materialRefs.filter(pin=>pins.has(pin.object_id))

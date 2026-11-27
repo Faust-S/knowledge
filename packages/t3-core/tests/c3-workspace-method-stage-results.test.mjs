@@ -1146,3 +1146,22 @@ test('native corporate preparation cannot return payload without original exact-
   assert.equal((await h.reader.recoverCorporateTaskReference({...input,taskId:'task:workflow'})).recoveredFromOriginalTask,true);
   assert.equal(verifiedCalls,1);
 });
+
+
+test('selected native signed Task recovers only its Work closure without unrelated Work readback',async()=>{
+  const d=draft();d.steps.push({id:'independent',name:'Independent',actor:'agent',instruction:'Unrelated source work',dependsOn:[],materialIds:[]});
+  const f=await setup(d);let stored=null;const loaded=[];
+  const h=trusted(f,{subjectKind:'CORP',withAssets:true,corporateTaskOwner:{readSignedTask:async()=>clone(stored)}});
+  const input=corporateRoot(f),preview=await h.reader.previewHandoff({...input,includeMaterialEvidence:true});
+  stored=signedRoot(await h.reader.prepareCorporateTaskReference({...input,expectedCandidateDigest:preview.candidateDigest}));
+  const explicit=await h.nativeInputs.readInputs({...input,taskId:'task:workflow'});
+  const original=f.owner.load.bind(f.owner);
+  f.owner.load=async(kind,workspaceId,id)=>{loaded.push([kind,id]);assert.notEqual(id,projectId+'.independent');assert.notEqual(id,projectId+'.review');return original(kind,workspaceId,id);};
+  const selected=await h.nativeInputs.readSelectedInputs({taskId:'task:workflow'});
+  assert.equal(selected.attachmentDigest,explicit.attachmentDigest);
+  assert.deepEqual(selected.attachments,explicit.attachments);
+  assert.equal(selected.executionAuthority,false);assert.equal(selected.workCompleted,false);
+  assert.ok(loaded.some(([,id])=>id===projectId+'.analyse'));
+  assert.equal('readSelectedInputs' in h.reader,false);
+  await assert.rejects(h.nativeInputs.readSelectedInputs({taskId:'task:workflow',workspaceId:ws}),code('T3_METHOD_STAGE_SELECTION_REQUIRED'));
+});
