@@ -1,0 +1,13 @@
+{
+  "prepared": "a05529b63c4b4513c4545c0c5ded4764d7d0b40b",
+  "schema": "IWXA_EXCHANGE_RECEIPT_QUALIFICATION/1",
+  "workflow": "exchange-receipt-semantics-20261127",
+  "t2": "63d61f872ad88694096abbf748855546b0a4ec21",
+  "t2Tree": "09d73e23569cec2e21de9b7c23c37cfea9e589ce",
+  "t3": "63d76beb11752b6e3f3c545d79f30b14b0bd816b",
+  "t3Tree": "9511e9d38a7cdee1f0a95c7641f3e08cdc90f6df",
+  "kernel": "c4ae63d36d0ee64013b333368d930d477be0213c",
+  "kernelTree": "1d8921be065eb35226bab2f164245c9a17d0a01d",
+  "profile": "T2_T3_RECEIPT_REGRESSION_AND_NATIVE_REPEAT_WITH_EXISTING_PERMISSIONS",
+  "reason": "Confirm actual user-visible idempotent repeat in ordinary narrow-scope Exchange; verify original T2 and inherited T3 host correction, preserving existing corporate qualification."
+}
