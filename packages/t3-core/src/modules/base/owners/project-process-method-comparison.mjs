@@ -1,5 +1,6 @@
 import { describeWorkspaceMethodSourceInputs } from '../features/workspace/workspace-project-method.mjs';
 import { projectProcessSourceObjectId } from './project-process-source-owner.mjs';
+import { readHistoricalWorkspaceMethod } from './project-process-method-readback.mjs';
 
 function fail(code,message){throw Object.assign(new Error(message),{code});}
 function text(value){return typeof value==='string'&&value.trim().length>0;}
@@ -157,4 +158,34 @@ export function compareWorkspaceMethodRevisions({before,after}={}){
     affectedStepIds:Object.freeze(affectedStepIds),sourceRevisionChanges,sourceRevisionSetChanged,
     reviewRequired:semanticChanges,atomicSnapshot:false,writeAuthorized:false,executionAuthority:false,resultReuseProven:false,
   });
+}
+
+
+// Capture both selections before the first asynchronous read. The caller
+// supplies exact identities only, never a purported verified draft.
+function captureSelection(value,label){
+  if(!value||!Array.isArray(value.workRefs)||!value.workRefs.length||value.workRefs.length>64){
+    fail('METHOD_COMPARISON_SELECTION_INVALID',label+' requires a complete explicit revision selection');
+  }
+  const copyRef=ref=>Object.freeze({family:ref?.family,objectId:ref?.objectId,
+    recordId:ref?.recordId,revision:ref?.revision});
+  const refs=Array.from(value.workRefs,copyRef);
+  return Object.freeze({projectRef:copyRef(value.projectRef),workRefs:Object.freeze(refs)});
+}
+
+/** W06: compare two exact persisted selections using the original owner.
+ * A changed or missing record is not replaced by the live head. This
+ * deliberately does not issue grants, restore history, or execute a method.
+ */
+export async function compareWorkspaceMethodSelections({owner,workspaceId,projectId,before,after}={}){
+  if(!text(workspaceId)||!text(projectId)||workspaceId.trim()!==workspaceId||projectId.trim()!==projectId){
+    fail('METHOD_COMPARISON_SELECTION_INVALID','Exact Workspace and Project identities are required');
+  }
+  const selectedBefore=captureSelection(before,'before'),selectedAfter=captureSelection(after,'after');
+  const a=await readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected:selectedBefore});
+  const b=await readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected:selectedAfter});
+  const comparison=compareWorkspaceMethodRevisions({before:a,after:b});
+  const selectionOf=read=>Object.freeze({projectRef:read.projectRef,workRefs:read.workRefs});
+  return Object.freeze({...comparison,comparisonBasis:'EXACT_HISTORICAL_REVISIONS',
+    beforeSelection:selectionOf(a),afterSelection:selectionOf(b),currentHeadVerified:false});
 }

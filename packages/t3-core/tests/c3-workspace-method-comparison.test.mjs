@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compareWorkspaceMethodRevisions } from '../src/modules/base/owners/project-process-method-comparison.mjs';
+import { compareWorkspaceMethodRevisions,compareWorkspaceMethodSelections } from '../src/modules/base/owners/project-process-method-comparison.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { readWorkspaceMethodFromSourceOwner } from '../src/modules/base/owners/project-process-method-readback.mjs';
+import { applyWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
 
 const workspaceId='ws-method-comparison',knowledgeAt='2026-11-26T18:00:00Z';
 const objects=['source','model','unused'].map((object_id,i)=>({workspace_id:workspaceId,object_id,revision:i+1,schema_id:'note'}));
@@ -51,3 +52,66 @@ test('unverified or cross-workspace comparison is rejected',async()=>{const {own
   workRefs:readback.workRefs.map(ref=>({...ref,objectId:ref.objectId.replace('work:ws-method-comparison:','work:foreign:')}))};
  assert.throws(()=>compareWorkspaceMethodRevisions({before:readback,after:foreign}),e=>e.code==='METHOD_COMPARISON_SCOPE_MISMATCH');
  assert.equal((await owner.audit()).length,5);});
+
+const compareSelected=(owner,before,after)=>compareWorkspaceMethodSelections({owner,workspaceId,projectId:'project-a',before,after});
+async function reviseReal(owner,before,d,nextTime='2026-11-26T18:01:00Z',operationId='comparison-real'){
+  return (await applyWorkspaceMethodRevision({owner,workspaceId,projectId:'project-a',expected:before,
+    draft:d,objects,operationId,knowledgeAt:nextTime})).method;
+}
+
+test('exact persisted comparison uses real revisions rather than a caller draft or latest head',async()=>{
+  const {owner,readback,draft:d}=await base();
+  const next={...d,steps:d.steps.map(s=>s.id==='analyse'?{...s,instruction:'Actual second revision'}:s)};
+  const second=await reviseReal(owner,readback,next);
+  const third=await reviseReal(owner,second,{...next,steps:next.steps.map(s=>s.id==='compute'?{...s,instruction:'Actual third revision'}:s)},
+    '2026-11-26T18:02:00Z','comparison-real-third');
+  const count=(await owner.audit()).length;
+  const result=await compareSelected(owner,{...readback,draft:third.draft},{...second,draft:readback.draft});
+  assert.equal(result.comparisonBasis,'EXACT_HISTORICAL_REVISIONS');
+  assert.deepEqual(result.changedStepIds,['analyse']);assert.deepEqual(result.affectedStepIds,['analyse','review']);
+  assert.deepEqual(result.beforeSelection.workRefs,readback.workRefs);
+  assert.deepEqual(result.afterSelection.workRefs,second.workRefs);
+  assert.equal(result.currentHeadVerified,false);assert.equal(result.resultReuseProven,false);
+  assert.equal(result.executionAuthority,false);assert.equal(result.writeAuthorized,false);
+  assert.equal((await owner.audit()).length,count);
+});
+
+test('exact comparison rejects incomplete or forged historical selection without latest fallback',async()=>{
+  const {owner,readback}=await base();
+  const bad={...readback,workRefs:readback.workRefs.map((r,i)=>i===0?{...r,recordId:'nonexistent-record'}:r)};
+  await assert.rejects(compareSelected(owner,readback,bad),e=>e.code==='METHOD_HISTORY_INCOMPLETE'||e.code==='METHOD_HISTORY_REF_INVALID');
+  await assert.rejects(compareSelected(owner,readback,{...readback,workRefs:[]}),e=>e.code==='METHOD_COMPARISON_SELECTION_INVALID');
+  await assert.rejects(compareSelected(owner,readback,{...readback,workRefs:readback.workRefs.slice(1)}),e=>e.code==='METHOD_HISTORY_REF_INVALID');
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('exact comparison rejects a mixed non-closed revision set',async()=>{
+  const {owner,readback,draft:d}=await base();
+  const next=await reviseReal(owner,readback,{...d,steps:d.steps.map(s=>s.id==='analyse'?{...s,instruction:'Changed'}:s)});
+  const mixed={...next,workRefs:next.workRefs.map(r=>r.objectId.endsWith('.review')?
+    readback.workRefs.find(old=>old.objectId===r.objectId):r)};
+  await assert.rejects(compareSelected(owner,readback,mixed),e=>e.code==='METHOD_SOURCE_REFERENCE_CHANGED');
+  assert.equal((await owner.audit()).length,7);
+});
+
+test('both exact selections are captured before first await',async()=>{
+  const {owner,readback}=await base();
+  const mutable={projectRef:{...readback.projectRef},workRefs:readback.workRefs.map(r=>({...r}))};
+  let release;const gate=new Promise(resolve=>{release=resolve;});let calls=0;
+  const port={historyThrough:async(...args)=>{if(calls++===0)await gate;return owner.historyThrough(...args);}};
+  const running=compareSelected(port,readback,mutable);
+  mutable.projectRef.recordId='substitution';mutable.workRefs[0].recordId='substitution';
+  release();const result=await running;
+  assert.equal(result.state,'UNCHANGED');assert.deepEqual(result.afterSelection.workRefs,readback.workRefs);
+  assert.equal((await owner.audit()).length,5);
+});
+
+test('historical comparison only calls the original addressed history port',async()=>{
+  const {owner,readback}=await base();let reads=0;
+  const port={historyThrough:async(...args)=>{reads++;return owner.historyThrough(...args);},
+    history:async()=>{throw new Error('full history enumeration not permitted');},
+    load:async()=>{throw new Error('live head fallback not permitted');}};
+  const result=await compareSelected(port,readback,readback);
+  assert.equal(result.state,'UNCHANGED');assert.equal(reads,10);
+  assert.equal((await owner.audit()).length,5);
+});

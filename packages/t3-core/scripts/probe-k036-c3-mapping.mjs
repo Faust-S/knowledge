@@ -62,27 +62,27 @@ const plane = {schema_version:"0.3.1",snapshot_id:"qualification-c3-mapping",res
   trusted_issuers:[],issuance_policies:[],services:passports.map(p=>({schema_version:"0.3.1",
     service_id:p.service_id,capability_control:"NONE",capability_ceiling:[],activation_any_of:[],operation_guards:[]}))};
 const relation = (relation_id,from_object_id,to_object_id,kind) => ({relation_id,from_object_id,to_object_id,kind});
-const prefix = hash(workspace).slice(0,16);
-const headId = id => prefix+"-head-"+id;
-const guardId = prefix+"-origin";
 const anchorInput = key => ({
   workspace_id:workspace,idempotency_key:key,
   object:{object_id:anchor,schema_id:anchorSchema,schema_version:version,base_revision:0,data:{kind:"anchor"}},
   event:{event_type:"qualification.anchor.created",payload:{anchor}}
 });
-function revisionInput(id,n,previous=null,tombstone=false) {
-  const puts=[relation(headId(id),anchor,id,"current-head")];
+function revisionInput(id,n,previous=null,tombstone=false,options={}) {
+  const ws=options.workspaceId??workspace;
+  const physicalPrefix=hash(ws).slice(0,16);
+  const localHeadId=recordId=>physicalPrefix+"-head-"+recordId;
+  const puts=[relation(localHeadId(id),anchor,id,"current-head")];
   // A permanent origin guard is essential. A deleted initial head ID can be
   // reused by a delayed first-create attempt and must NOT serve as the guard.
-  if(previous===null) puts.push(relation(guardId,anchor,id,"first-revision"));
-  else puts.push(relation(prefix+"-previous-"+id,id,previous,"previous-revision"));
+  if(previous===null) puts.push(relation(physicalPrefix+"-origin",anchor,id,"first-revision"));
+  else puts.push(relation(physicalPrefix+"-previous-"+id,id,previous,"previous-revision"));
   return {
-    workspace_id:workspace,idempotency_key:"commit-"+id,
+    workspace_id:ws,idempotency_key:"commit-"+id,
     object:{object_id:id,schema_id:revisionSchema,schema_version:version,base_revision:0,
       data:{recordId:id,revision:n,previousRevisionId:previous,operation:tombstone?"release":"revise",
-        refs:{workspaceId:workspace,canonicalHeads:previous?[previous]:[]},
+        refs:{workspaceId:ws,canonicalHeads:previous?[previous]:[]},
         payload:tombstone?null:{value:"fixture-private-"+id}}},
-    relation_puts:puts,relation_deletes:previous?[{relation_id:headId(previous)}]:[],
+    relation_puts:puts,relation_deletes:previous?[{relation_id:options.previousHeadRelationId??localHeadId(previous)}]:[],
     event:{event_type:"qualification.revision.committed",payload:{recordId:id,revision:n,operation:tombstone?"release":"revise"}}
   };
 }
@@ -220,8 +220,8 @@ try {
   runtime.__resetKernelStoreForTests();globalThis.indexedDB=new IDBFactory();
   const fresh=await connect();
   same("fresh test database has no workspaces",await fresh.t1.listWorkspaces(),[]);
-  const importPackage=async plan=>{
-    const p=await fresh.t2.importPreview(artifact.bytes);
+  const importPackage=async (plan,bytes=artifact.bytes)=>{
+    const p=await fresh.t2.importPreview(bytes);
     return fresh.t2.importCommit({preview_token:p.preview_token,package_digest:p.package_digest,plan});
   };
   await importPackage({mode:"full"});
@@ -229,17 +229,98 @@ try {
   const restored=await snapshot(fresh,workspace);
   check("same-ID import preserves audit identities",afterRelease.events.every(id=>restored.events.includes(id)));
   report.observations.semanticDigestEqual=(await fresh.t2.exportPackage(opts)).manifest.semantic_digest===artifact.manifest.semantic_digest;
-  // New-workspace import is an investigation, not a pre-approved mapping.
-  // Capture the actual result, including nested reference remap behavior.
+  check("same-ID import preserves original semantic digest",report.observations.semanticDigestEqual);
+  // A graph replay receipt is distinct from the original business history.
+  // Do not assume that restoring event IDs restores exact retry semantics.
+  const restoredBeforeReplay=await snapshot(fresh,workspace);
+  let replayOutcome;
   try {
-    await importPackage({mode:"new-workspace",target_workspace:importedWorkspace,workspace_id_map:{[workspace]:importedWorkspace}});
-    const copy=await readChain(fresh,importedWorkspace);
-    report.observations.newWorkspace={chain:copy.map(r=>r.recordId),nestedWorkspaceIds:copy.map(r=>r.refs.workspaceId),
-      nestedRefsRemapped:copy.every(r=>r.refs.workspaceId===importedWorkspace)};
-    check("original workspace chain unchanged after copy",JSON.stringify(await readChain(fresh,workspace))===JSON.stringify(chain));
+    const r=await fresh.t1.commitObjectGraph(winInput);
+    replayOutcome={status:"RETURNED",transactionId:r.transaction_id,deduplicated:r.deduplicated,
+      exact:r.transaction_id===win.transaction_id&&r.deduplicated===true};
   } catch(e) {
-    report.observations.newWorkspace={error:e.code??"ERROR",message:String(e.message)};
+    if(!["CONFLICT","RELATION_NOT_FOUND"].includes(e.code))throw e;
+    replayOutcome={status:"REJECTED",code:e.code,exact:false};
   }
+  report.observations.sameIdReplayAfterImport=replayOutcome;
+  same("same-ID replay after restore cannot change records or events",await snapshot(fresh,workspace),restoredBeforeReplay);
+  same("same-ID replay after restore cannot change history",await readChain(fresh,workspace),chain);
+
+  // Copy success and source isolation are mandatory for this witness. The
+  // nested-scope finding is an observation, NOT an adopted owner mapping.
+  // Do not catch failed assertions and turn them into a passing probe.
+  await importPackage({mode:"new-workspace",target_workspace:importedWorkspace,workspace_id_map:{[workspace]:importedWorkspace}});
+  const copy=await readChain(fresh,importedWorkspace);
+  same("new-Workspace import preserves physical revision identifiers",copy.map(r=>r.recordId),chain.map(r=>r.recordId));
+  report.observations.newWorkspace={chain:copy.map(r=>r.recordId),nestedWorkspaceIds:copy.map(r=>r.refs.workspaceId),
+    nestedRefsRemapped:copy.every(r=>r.refs.workspaceId===importedWorkspace)};
+  same("original workspace chain unchanged after copy",await readChain(fresh,workspace),chain);
+  same("original workspace snapshot unchanged after copy",await snapshot(fresh,workspace),restoredBeforeReplay);
+  const secondCopy="qualification-c3-import-2";
+  await importPackage({mode:"new-workspace",target_workspace:secondCopy,workspace_id_map:{[workspace]:secondCopy}});
+  same("two copies of one source retain the same physical revision identifiers",
+    (await readChain(fresh,secondCopy)).map(r=>r.recordId),copy.map(r=>r.recordId));
+  same("second copy leaves first copy unchanged",await readChain(fresh,importedWorkspace),copy);
+  const copyArtifact=await fresh.t2.exportPackage({...opts,workspaces:[importedWorkspace]});
+  const copyOfCopy="qualification-c3-import-3";
+  await importPackage({mode:"new-workspace",target_workspace:copyOfCopy,workspace_id_map:{[importedWorkspace]:copyOfCopy}},copyArtifact.bytes);
+  const recopy=await readChain(fresh,copyOfCopy);
+  same("copy-of-copy preserves physical predecessor chain",recopy.map(r=>r.recordId),copy.map(r=>r.recordId));
+  report.observations.copyOfCopy={nestedWorkspaceIds:recopy.map(r=>r.refs.workspaceId)};
+  same("recopy leaves original untouched",await readChain(fresh,workspace),chain);
+
+  // Separate LIVE fixture: never resurrect the released fixture above.
+  // Can a target use copied physical keys and advance independently? This
+  // exercises primitive behavior only; it does not rebind C3 owner records.
+  const liveSource="qualification-c3-live-source",liveTarget="qualification-c3-live-target";
+  await fresh.t1.createWorkspace({workspace_id:liveSource,profile:"personal"});
+  await fresh.t1.commitObjectGraph({...anchorInput("live-anchor"),workspace_id:liveSource});
+  await fresh.t1.commitObjectGraph(revisionInput("live-1",1,null,false,{workspaceId:liveSource}));
+  const liveChain=await readChain(fresh,liveSource);
+  const liveArtifact=await fresh.t2.exportPackage({...opts,workspaces:[liveSource]});
+  await importPackage({mode:"new-workspace",target_workspace:liveTarget,workspace_id_map:{[liveSource]:liveTarget}},liveArtifact.bytes);
+  const copiedLive=await readChain(fresh,liveTarget);
+  same("live copy preserves exact physical first revision",copiedLive.map(r=>r.recordId),["live-1"]);
+  const liveBefore=await snapshot(fresh,liveSource),targetBefore=await snapshot(fresh,liveTarget);
+  const copiedHead=(await fresh.t1.getObject(liveTarget,anchor)).relations.outgoing.find(r=>r.kind==="current-head");
+  assert.ok(copiedHead);
+  const targetDerived=hash(liveTarget).slice(0,16)+"-head-live-1";
+  report.observations.copiedHeadRelation={actual:copiedHead.relation_id,targetDerived,
+    targetDerivationMatches:copiedHead.relation_id===targetDerived};
+  if(copiedHead.relation_id!==targetDerived) {
+    await expectReject("guessing target-derived previous head cannot advance imported graph",
+      ()=>fresh.t1.commitObjectGraph(revisionInput("wrong-head",2,"live-1",false,{workspaceId:liveTarget})),
+      ["RELATION_NOT_FOUND","CONFLICT"]);
+    same("wrong previous head leaves target untouched",await snapshot(fresh,liveTarget),targetBefore);
+  }
+  const targetNext=revisionInput("live-2",2,"live-1",false,{workspaceId:liveTarget,previousHeadRelationId:copiedHead.relation_id});
+  await fresh.t1.commitObjectGraph(targetNext);
+  const advancedTarget=await readChain(fresh,liveTarget);
+  same("target can advance using actual imported head relation",advancedTarget.map(r=>r.recordId),["live-2","live-1"]);
+  same("target advance retains exact original imported revision",advancedTarget[1],copiedLive[0]);
+  same("target advance cannot modify source records or events",await snapshot(fresh,liveSource),liveBefore);
+  same("target advance cannot modify source history",await readChain(fresh,liveSource),liveChain);
+  // Same physical ID in two different Workspaces must not confuse a new
+  // idempotency key or head. The payloads contain different scope identities.
+  await fresh.t1.commitObjectGraph(revisionInput("live-2",2,"live-1",false,{workspaceId:liveSource}));
+  same("source can advance independently using the same local physical ID",
+    (await readChain(fresh,liveSource)).map(r=>r.recordId),["live-2","live-1"]);
+  same("independent source update leaves target history unchanged",await readChain(fresh,liveTarget),advancedTarget);
+  report.observations.independentLiveScopes={
+    source:(await readChain(fresh,liveSource)).map(r=>r.refs.workspaceId),
+    target:advancedTarget.map(r=>r.refs.workspaceId)};
+  // An old package must not silently overwrite a newer independent copy.
+  const beforeDuplicate=await snapshot(fresh,liveTarget);
+  let duplicateResult;
+  try{
+    const receipt=await importPackage({mode:"new-workspace",target_workspace:liveTarget,
+      workspace_id_map:{[liveSource]:liveTarget}},liveArtifact.bytes);
+    duplicateResult={status:"RETURNED",receiptStatus:receipt?.status??null};
+  }catch(e){duplicateResult={status:"REJECTED",code:e.code??null};}
+  report.observations.duplicateCopy=duplicateResult;
+  same("duplicate new-Workspace import cannot roll back target history",await readChain(fresh,liveTarget),advancedTarget);
+  same("duplicate new-Workspace import cannot add or remove target records/events",await snapshot(fresh,liveTarget),beforeDuplicate);
+  same("expanded probe still uses only original iwxa-local DB",(await indexedDB.databases()).map(d=>d.name),["iwxa-local"]);
   report.status="PASS_PRIMITIVES_ONLY";
 } catch (e) {
   report.status="FAIL";report.error={code:e.code??null,message:e.message,stack:e.stack};console.error(e);

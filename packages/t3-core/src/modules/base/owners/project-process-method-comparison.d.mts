@@ -37,3 +37,22 @@ export type WorkspaceMethodRevisionComparison = Readonly<{
   resultReuseProven:false;
 }>;
 export function compareWorkspaceMethodRevisions(input:{before:WorkspaceMethodRevisionReadback;after:WorkspaceMethodRevisionReadback}):WorkspaceMethodRevisionComparison;
+
+export type WorkspaceMethodRevisionSelection = Readonly<{
+  projectRef:WorkspaceMethodSourceRef;
+  workRefs:readonly WorkspaceMethodSourceRef[];
+}>;
+export type WorkspaceMethodHistoryPort = {
+  history?: (kind:string,workspaceId:string,id:string)=>Promise<unknown>;
+  historyThrough?: (kind:string,workspaceId:string,id:string,recordId:string,revision:number)=>Promise<unknown>;
+};
+export type WorkspaceMethodSelectionComparison = WorkspaceMethodRevisionComparison & Readonly<{
+  comparisonBasis:'EXACT_HISTORICAL_REVISIONS';
+  beforeSelection:WorkspaceMethodRevisionSelection;
+  afterSelection:WorkspaceMethodRevisionSelection;
+  currentHeadVerified:false;
+}>;
+export function compareWorkspaceMethodSelections(input:{
+  owner:WorkspaceMethodHistoryPort;workspaceId:string;projectId:string;
+  before:WorkspaceMethodRevisionSelection;after:WorkspaceMethodRevisionSelection;
+}):Promise<WorkspaceMethodSelectionComparison>;
