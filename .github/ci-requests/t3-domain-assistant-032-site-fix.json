@@ -1,0 +1,10 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-domain-assistant-032-site-fix",
+  "preparedSha": "51439e7f0a83e62cfb63d494a43429250b13986f",
+  "originalAssistant": "aebc7a80ec9cc8f243b1212bd0cedb4649117f17",
+  "cehovodSite": "4e31abf8a0af75d61e755cebb0fe99168995390c",
+  "retainedPlatformArtifact": 15227050568,
+  "priorPlatformRun": 46056058954,
+  "scope": "EXISTING_ASSISTANT_REGRESSION_AND_REAL_DOMAIN_BUILD_BROWSER_ROUTES_ONLY"
+}
