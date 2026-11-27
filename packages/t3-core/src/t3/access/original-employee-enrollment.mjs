@@ -1049,6 +1049,7 @@ export function createOriginalEmployeeEnrollmentOwner({
       Object.keys(route).sort().join()===['sourceNodeRef','recipientNodeRef','originalWriteOwnerRef','scopeRef','ownerEpoch'].sort().join()&&
       Number.isSafeInteger(route.ownerEpoch)&&route.ownerEpoch>=1&&route.sourceNodeRef!==route.recipientNodeRef&&
       typeof publicKey==='string'&&publicKey.length<=4096,'T3_EMPLOYEE_T4_KEY_ROUTE_INVALID');
+    route=copy(route);
     [organizationId,employeePersonId,enrollmentId,managerPersonId,keyId,route.sourceNodeRef,
       route.recipientNodeRef,route.originalWriteOwnerRef,route.scopeRef].forEach(id);
     const delivery=await registry.readRegistryDelivery(),saved=delivery.record.data,org=pinnedOrganization;
@@ -1102,6 +1103,7 @@ export function createOriginalEmployeeEnrollmentOwner({
         environment:saved.policy.environment,publicKey,status:'ACTIVE',uses:[keyUse],notBefore:iso(at),expiresAt:iso(until)}};
     const agreement=keyUse==='NETWORK_AGREEMENT'?createOriginalNetworkAgreementChallenge(claims,{clock}):null;
     if(!agreement)originalNetworkKeyPossessionBytes(claims); // canonical shape and public key validation
+    check(!networkKeyCommitUnknown,'T3_EMPLOYEE_T4_KEY_OUTCOME_UNKNOWN_READBACK');
     check(!pendingNetworkKey||now()>=timestamp(pendingNetworkKey.claims.issuedAt)+60000,
       'T3_EMPLOYEE_T4_KEY_CHALLENGE_PENDING');
     pendingNetworkKey={claims:copy(claims),agreement,managerPersonId,organizationId,
