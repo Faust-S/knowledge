@@ -1,0 +1,125 @@
+name: IWXA T3 0.3.1 stable metadata-only promotion
+on:
+  push:
+    branches: ['ci/once/t3-031-stable-promotion/**']
+    paths: ['.github/ci-requests/t3-031-stable-promotion.json']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: t3-031-stable-promotion
+  cancel-in-progress: false
+jobs:
+  promote:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BEFORE: ${{ github.event.before }}
+      SOURCE: 'd7f439fe974fab1709270e515721da72d887240f'
+      BASE: '3e8c40fc5a80866f32f4547f1780ebef525c964c'
+      TAG: 't3-platform-v0.3.1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Verify deliberate promotion and completed rc.6 evidence
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Faust-S/knowledge
+          test "$GITHUB_REF_NAME" = "ci/once/t3-031-stable-promotion/$BEFORE"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $BEFORE"
+          test "$(git rev-list --parents -n 1 "$BEFORE")" = "$BEFORE $SOURCE"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = "$(printf 'A\t.github/ci-requests/t3-031-stable-promotion.json')"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=json.loads(Path('.github/ci-requests/t3-031-stable-promotion.json').read_text())
+          assert r.pop('preparedSha')==os.environ['BEFORE']
+          assert r==json.loads('{"schema":"iwxa.ci.once/1","workflow":"t3-031-stable-promotion","source":"d7f439fe974fab1709270e515721da72d887240f","base":"3e8c40fc5a80866f32f4547f1780ebef525c964c","baseTag":"t3-platform-v0.3.1-rc.6","baseArchiveSha256":"bc52020b421acd334b7c5a8db8672e153933c767159609db06239f784e6ee13e","baseManifestSha256":"9a39448eefb9ceffd8e898a6faa395fc993df7481e01fe9228ff5e10c7e4f290","basePublicationRun":46053077770,"userRoutesRun":46050260479,"tag":"t3-platform-v0.3.1","reason":"PROMOTE_ENGINEERING_QUALIFIED_RC6_WITH_VERSION_METADATA_ONLY_NO_REBUILD"}')
+          PY
+          git checkout --detach "$SOURCE"
+          test "$(git rev-parse HEAD:packages/t3-core/src)" = ddfe22f54e622d89522146c40aa726577edaae95
+          git diff --quiet "$BASE" HEAD -- packages/t3-core/src packages/t3-core/integration-sources packages/t3-core/qualified-runtime packages/t3-core/vite.config.ts
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/46050260479" --jq .conclusion)" = success
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/46053077770" --jq .conclusion)" = success
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/t3-platform-v0.3.1-rc.6" --jq .object.sha)" = "$BASE"
+          node --check packages/t3-core/scripts/package-t3-portable-platform.mjs
+      - name: Reuse verified rc.6 platform and change only release metadata
+        working-directory: packages/t3-core
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/rc6"
+          gh release download t3-platform-v0.3.1-rc.6 --repo "$GITHUB_REPOSITORY" --pattern platform-inputs.zip --dir "$RUNNER_TEMP/rc6"
+          echo 'bc52020b421acd334b7c5a8db8672e153933c767159609db06239f784e6ee13e  '"$RUNNER_TEMP/rc6/platform-inputs.zip" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/rc6-input"
+          unzip -q "$RUNNER_TEMP/rc6/platform-inputs.zip" -d "$RUNNER_TEMP/rc6-input"
+          (cd "$RUNNER_TEMP/rc6-input"; echo '9a39448eefb9ceffd8e898a6faa395fc993df7481e01fe9228ff5e10c7e4f290  t3-platform-inputs.json' | sha256sum -c -; sha256sum -c t3-platform-inputs.sha256)
+          test ! -e dist
+          cp -a "$RUNNER_TEMP/rc6-input/dist" dist
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          for(const name of ['package.json','package-lock.json']){
+            const old=readFileSync(join(process.env.RUNNER_TEMP,'rc6-input',name),'utf8');
+            assert.equal(old.split('"version": "0.3.1-rc.6"').length-1,name==='package.json'?1:2);
+            writeFileSync(name,old.replaceAll('"version": "0.3.1-rc.6"','"version": "0.3.1"'));
+          }
+          NODE
+          node scripts/package-t3-portable-platform.mjs "$RUNNER_TEMP/stable" "$SOURCE" "$GITHUB_RUN_ID"
+          mkdir "$RUNNER_TEMP/stable-input"
+          unzip -q "$RUNNER_TEMP/stable/platform-inputs.zip" -d "$RUNNER_TEMP/stable-input"
+          (cd "$RUNNER_TEMP/stable-input"; sha256sum -c t3-platform-inputs.sha256)
+          python - <<'PY'
+          import json,os,hashlib
+          from pathlib import Path
+          t=Path(os.environ['RUNNER_TEMP']);a=t/'rc6-input';b=t/'stable-input'
+          m=json.loads((a/'t3-platform-inputs.json').read_text());n=json.loads((b/'t3-platform-inputs.json').read_text())
+          r=json.loads((t/'stable/candidate-receipt.json').read_text())
+          assert m['sourceCommit']==os.environ['BASE'] and n['sourceCommit']==r['sourceCommit']==os.environ['SOURCE']
+          assert n['version']==r['version']=='0.3.1' and n['sourceTree']==m['sourceTree']=='ddfe22f54e622d89522146c40aa726577edaae95'
+          assert n['status']=='TECHNOLOGY_QUALIFIED_PORTABLE_INPUTS'
+          assert n['files'] and len(n['files'])==len(m['files'])==174
+          old={f['path']:f for f in m['files']};new={f['path']:f for f in n['files']}
+          assert set(old)==set(new)
+          changed=sorted(k for k in new if old[k]!=new[k])
+          assert changed==sorted(['package.json','package-lock.json','docs/t3-consolidation-sources.json']),changed
+          for k in ['package.json','package-lock.json']:
+              assert (b/k).read_bytes()==(a/k).read_bytes().replace(b'"version": "0.3.1-rc.6"',b'"version": "0.3.1"')
+          assert n['originalKernel']=='0.3.6' and n['runtimeContract']=='1.3.0'
+          assert n['modelWeightsIncluded']==n['nativeSignerIncluded']==n['installedProductAccepted']==n['domainMigrationAutoAuthorized']==False
+          assert hashlib.sha256((t/'stable/platform-inputs.zip').read_bytes()).hexdigest()==r['archiveSha256']
+          assert hashlib.sha256((b/'t3-platform-inputs.json').read_bytes()).hexdigest()==r['manifestSha256']
+          print('T3_031_STABLE_EXACT_METADATA_DELTA_PASS '+json.dumps({'files':len(new),'unchanged':len(new)-len(changed),'changed':changed,'receipt':r}))
+          PY
+          cp "$RUNNER_TEMP/stable-input/t3-platform-inputs.json" "$RUNNER_TEMP/stable-input/t3-platform-inputs.sha256" "$RUNNER_TEMP/stable/"
+      - name: Publish stable T3 exact verified platform assets
+        run: |
+          set -euo pipefail
+          test -z "$(git ls-remote --tags origin "refs/tags/$TAG")"
+          gh release create "$TAG" "$RUNNER_TEMP/stable/"* --repo "$GITHUB_REPOSITORY" --target "$SOURCE" --title "IWXA T3 portable platform 0.3.1" --draft --latest=false --notes "Stable engineering-qualified product-neutral T3 technology. Metadata-only promotion of rc.6, original T2 Kernel 0.3.6 / Contract 1.3.0 and BLI WebLLM 0.2.87, all 171 non-metadata platform inputs identical to rc.6. Engineering evidence: https://github.com/Faust-S/knowledge/actions/runs/46012582910 (consolidated source), https://github.com/Faust-S/knowledge/actions/runs/46014698884 (rc.5 real GPU and offline inference, executable BLI unchanged), https://github.com/Faust-S/knowledge/actions/runs/46050260479 (rc.6 UI, complete .iwxa restore and cold offline), https://github.com/Faust-S/knowledge/releases/tag/t3-platform-v0.3.1-rc.6 (tested Windows localhost kit, still labelled rc.6). Owner-directed engineering acceptance completed; independent Codex was partial on rc.5, not a full independent acceptance of 0.3.1. No installed product, physical mobile device or corporate A-B-A acceptance implied. Explicit product-owned integration only, no automatic migration. Existing 0.3.0 consumers unchanged."
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name=="t3-platform-v0.3.1")' > "$RUNNER_TEMP/draft.json"
+          python - <<'PY'
+          import os,json,hashlib
+          from pathlib import Path
+          t=Path(os.environ['RUNNER_TEMP']);p=t/'stable'
+          r=json.loads((t/'draft.json').read_text())
+          assert r['draft'] and not r['prerelease'] and r['target_commitish']==os.environ['SOURCE']
+          assert {a['name']:a['digest'] for a in r['assets']}=={x.name:'sha256:'+hashlib.sha256(x.read_bytes()).hexdigest() for x in p.iterdir()}
+          PY
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha')" = "$SOURCE"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '{id,tag_name,target_commitish,draft,prerelease,html_url,assets:[.assets[]|{name,size,digest}]}'
+          echo T3_031_STABLE_RELEASE_PUBLISHED
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-t3-platform-inputs-0.3.1-d7f439fe974fab1709270e515721da72d887240f
+          path: ${{ runner.temp }}/stable/
+          if-no-files-found: error
+          retention-days: 90
