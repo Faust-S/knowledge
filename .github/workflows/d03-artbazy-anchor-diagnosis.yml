@@ -79,7 +79,8 @@ jobs:
           PY
           (cd private-site && npm run check:source-links && npm run test:source-links) >"$RUNNER_TEMP/d03-anchor-checks.log" 2>&1 || { echo SOURCE_LINK_CHECKS=FAIL; exit 1; }
           echo SOURCE_LINK_CHECKS=PASS
-          node ci-harness/tools/ci/artbazy-delivery/audit-public-anchors.cjs private-site >"$RUNNER_TEMP/d03-anchor-audit.log"
+          node ci-harness/tools/ci/artbazy-delivery/audit-public-anchors.cjs private-site >"$RUNNER_TEMP/d03-anchor-audit.log" || { grep -E '^SOURCE_(BREADCRUMB_NORMALIZED|NON_BREADCRUMB|REMAINING)=' "$RUNNER_TEMP/d03-anchor-audit.log" | head -60; exit 1; }
+          grep -E '^SOURCE_(BREADCRUMB_NORMALIZED|NON_BREADCRUMB)=' "$RUNNER_TEMP/d03-anchor-audit.log"
           grep -E '^SOURCE_ANCHOR_(ROUTES|KIND|TOTAL)=' "$RUNNER_TEMP/d03-anchor-audit.log"
           if grep -Eq '^SOURCE_ANCHOR_KIND=(DATA_URL|JSX_HREF|JSX_TO)_' "$RUNNER_TEMP/d03-anchor-audit.log"; then
             echo SOURCE_CALCULATOR_LINKS=FAIL

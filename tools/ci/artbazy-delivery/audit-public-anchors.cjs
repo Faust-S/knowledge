@@ -24,7 +24,16 @@ function audit(ts, root) {
     const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
     const rel = path.relative(root, file).split(path.sep).join('/');
     function emit(node, kind) {
-      findings.push({file:rel,line:source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,kind});
+      let breadcrumb=false;
+      for(let p=node.parent;p;p=p.parent) {
+        if(ts.isJsxAttribute(p)&&p.name.getText(source)==='items') {
+          const tag=p.parent.parent.tagName?.getText(source);
+          breadcrumb=tag==='Breadcrumbs';
+          break;
+        }
+        if(ts.isJsxAttribute(p)||ts.isSourceFile(p))break;
+      }
+      findings.push({file:rel,line:source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,kind,breadcrumb});
     }
     function value(node, kind) {
       if (!node) return;
@@ -81,5 +90,10 @@ if(require.main===module){
     console.log('SOURCE_ANCHOR_GROUP='+key+' COUNT='+lines.length+' LINES='+lines.slice(0,12).join(','));
   }
   for(const x of result.findings.filter(x=>x.kind.startsWith('JSX_'))) console.log('SOURCE_ANCHOR_DIRECT='+x.file+':'+x.line+' KIND='+x.kind);
+  const residual=result.findings.filter(x=>!x.breadcrumb);
+  console.log('SOURCE_BREADCRUMB_NORMALIZED='+result.findings.filter(x=>x.breadcrumb).length);
+  console.log('SOURCE_NON_BREADCRUMB='+residual.length);
+  for(const x of residual)console.log('SOURCE_REMAINING='+x.file+':'+x.line+' KIND='+x.kind);
+  if(residual.length)process.exitCode=1;
   console.log('SOURCE_ANCHOR_TOTAL='+result.findings.length+' GROUPS='+groups.size);
 }
