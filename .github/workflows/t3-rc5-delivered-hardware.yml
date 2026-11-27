@@ -18,11 +18,10 @@ jobs:
       SOURCE: 'a50d40dafc2e029fcc7668dece925f7fc38cc510'
       T3_D5_REQUIRE_HARDWARE_GPU: '1'
       T3_D5_MODEL_ID: 'Qwen2.5-0.5B-Instruct-q4f32_1-MLC'
-      IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/t3-rc5-kernel
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 3
+          fetch-depth: 4
           persist-credentials: false
       - name: Admit exactly one request for the already published candidate
         shell: bash
@@ -31,7 +30,8 @@ jobs:
           test "$GITHUB_REPOSITORY" = Faust-S/knowledge
           test "$GITHUB_REF_NAME" = "ci/once/t3-rc5-delivered-hardware/$BEFORE"
           test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $BEFORE"
-          test "$(git rev-list --parents -n 1 "$BEFORE")" = "$BEFORE $SOURCE"
+          git merge-base --is-ancestor "$SOURCE" "$BEFORE"
+          git diff --quiet "$SOURCE" "$BEFORE" -- packages/t3-core/src packages/t3-core/tests packages/t3-core/scripts packages/t3-core/integration-sources packages/t3-core/qualified-runtime
           test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = "$(printf 'A\t.github/ci-requests/t3-rc5-delivered-hardware.json')"
           python3 - <<'PY'
           import json,os
@@ -49,6 +49,8 @@ jobs:
           set -euo pipefail
           curl -fLsS "https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.1-rc.5/platform-inputs.zip" -o "$RUNNER_TEMP/t3-rc5.zip"
           echo "381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4  $RUNNER_TEMP/t3-rc5.zip" | shasum -a 256 -c -
+          export IWXA_T2_QUALIFIED_KERNEL_DIST="$RUNNER_TEMP/t3-rc5-kernel"
+          echo "IWXA_T2_QUALIFIED_KERNEL_DIST=$IWXA_T2_QUALIFIED_KERNEL_DIST" >> "$GITHUB_ENV"
           mkdir "$RUNNER_TEMP/t3-rc5-input" "$IWXA_T2_QUALIFIED_KERNEL_DIST"
           unzip -q "$RUNNER_TEMP/t3-rc5.zip" -d "$RUNNER_TEMP/t3-rc5-input"
           cd "$RUNNER_TEMP/t3-rc5-input"
