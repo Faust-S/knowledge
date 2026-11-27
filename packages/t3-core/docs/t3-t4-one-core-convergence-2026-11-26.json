@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_T3_T4_ONE_CORE_CONVERGENCE_STAGE/1",
-  "state": "FIXED_OWNER_DB8_INSTALLED_PROFILE_STAGED",
+  "state": "DB8_FIXED_PROFILE_TRANSPORT_DEPLOYABLE_BASE_GRANTS_STAGED",
   "mergeBase": "fd927a1efb083219442d9504285f75fa738dbdda",
   "corporateT3": "8db847058cab231d2d39c34df46024b60564d2ad",
   "networkT4": "896515f361611e311b0df22dbcfebfefa8e58fa0",
@@ -27,11 +27,11 @@
   "networkWireUnchanged": true,
   "accepted": false,
   "blocking": [
-    "Original DB8 canonical Event merge: separate T2 owner acceptance, using evidence 45596499435 (43/43 source and 2/2 cross-product per OS) and 45611967597. Exact integrated corrected DB8 candidate and installed product still NOT_RUN. Do not alter T2 in this T4 project.",
-    "Complete installed native provider in both products with existing real signed grants, Vault and authenticated topology. User explicitly selects T3 or T4; T4 has no automatic LOCAL_T3 fallback. No invented enrollment or authority. Agent still rejects unconfigured SOURCE.",
-    "Use one fixed writer, one peer route, one business Workspace plus existing technical/Registry scopes. Independent source window and recipient Result evidence required; new replacement attempts and DB9/multipart extensions are not admitted by installed 0.1.",
-    "Qualify the complete DB8 native route, explicit T3/T4 selection, real two-device exchange, lost response, disconnect/reconnect, restart, clock/history divergence and measured performance. Unknown outcome or diverged prefix stops the write; no replay based on missing Event. DB9 remains separate unaccepted advanced work, not a first-release gate.",
-    "Independent final acceptance of actual installed products."
+    "Separate T2 acceptance of the corrected original DB8 candidate; historical source and cross-product pass on exact prior revision, latest integrated product NOT_RUN.",
+    "Complete the existing T3 original enrollment/issuance lifecycle with actual T4 network and technical grants and durable key binding; present standard provision policy has no T4 actions. Additional subject mutation grants now optional, not inferred from ordinary grants.",
+    "Connect actual installed SOURCE/RECIPIENT profile provider and native credential/topology reader. Agent still rejects unconfigured SOURCE; no mode fallback.",
+    "Deploy dedicated server on authorized mini-PC, confirm TLS and real network access; actual server installation proven locally only. Complete original DB8 installed two-node exchange and restart/recovery qualification with actual product data.",
+    "Independent final acceptance."
   ],
   "notes": [
     "No automatic Registry migration, issuance or fallback.",
@@ -55,7 +55,8 @@
     "All 66 original frozen network source blobs unchanged; five integration additions. No new Actions or Codex.",
     "2026-11-27: all 66 original frozen T4 network source blobs still byte-identical; six integration modules. Existing release branches untouched. Source candidate 513a11bf has actual TLS startup helper tests, but new product factory glue and combined canonical carrier test require full checkout. No new Actions or Codex.",
     "2026-11-27: native startup lifetime, receiver-ready transition and shared signed grant selection staged at 4335694c/9800854e. Exact scoped helper tests PASS (TLS 14, native owner composition 44, Agent 24, launcher 15; reruns include previous tests), full integrated Relay/owner/Kernel and Windows qualification NOT_RUN. All 66 frozen source blobs compared unchanged. Existing accepted branches untouched; no Actions or Codex.",
-    "2026-11-27 engineering review: owner clarified T4 is network mode, T3 autonomy is user-selected, no offline imitation of T4 or automatic mode fallback. Fixed installed profile uses DB8, original independent source/result evidence and stops unknown outcomes. Six new replacement progression stages disabled only in installed path; historical terminal recovery and generic extended profile retained. 65/66 original frozen blobs unchanged, one native composition changed, six integration modules. Exact source selection 15 PASS, launcher 15 PASS, Agent Python 19 PASS. No T2 writes; full installed runtime, carrier and performance NOT_RUN."
+    "2026-11-27 engineering review: owner clarified T4 is network mode, T3 autonomy is user-selected, no offline imitation of T4 or automatic mode fallback. Fixed installed profile uses DB8, original independent source/result evidence and stops unknown outcomes. Six new replacement progression stages disabled only in installed path; historical terminal recovery and generic extended profile retained. 65/66 original frozen blobs unchanged, one native composition changed, six integration modules. Exact source selection 15 PASS, launcher 15 PASS, Agent Python 19 PASS. No T2 writes; full installed runtime, carrier and performance NOT_RUN.",
+    "2026-11-27: real Apache HTTPS/WebDAV deployment on local Linux 25/25 final runs twice, including restrictive umask fixed; transport only, opaque bytes. Exact T3 owner a8aba933 removes five mandatory additional subject mutation grants, guards actual local/recipient admission using selected original grants, 23/23 exact modeled selection tests. Agent c254bfa8 and Center d9dd2d46 pin it; full tests not rerun for those pins. No new Kernel or wire changes; no Actions or Codex."
   ],
   "additionalTests": {
     "packages/t4-network/tests/original-native-network-product-activation.test.mjs": "9f1fd80a9f76a2dd9f99d7367d804cc1acfe0f02",
@@ -585,6 +586,68 @@
       "actualTwoNode": "NOT_RUN",
       "performance": "NOT_MEASURED",
       "independentAcceptance": "NOT_RUN",
+      "T4_READY": false,
+      "FEATURE_FREEZE": true
+    },
+    "latestWorkingTransportAndBaseGrantAdmission": {
+      "date": "2026-11-27",
+      "state": "STAGED_NOT_ACCEPTED",
+      "sourceCandidate": {
+        "commit": "9fe841ff2a323ce397aefe640c844d9aa8885f7a",
+        "tree": "ee1bbf93f78ba563feb8794008696ba601506574",
+        "changedThisCycle": false
+      },
+      "server": {
+        "repository": "Faust-S/T4",
+        "commit": "d333f4339cb14e6638e7d49eee9d71c9e297a37e",
+        "installerBlob": "b9d5036f37fd7b89a2aaf4df8598914d751e087b",
+        "testBlob": "69cf802f3dbd258757f040608e70cbb600975da8",
+        "actualApache": "2.4.68",
+        "localPass": 25,
+        "finalRuns": 2,
+        "umask": [
+          "0077",
+          "default"
+        ],
+        "contendingPairsPerRun": 12,
+        "readbacksPerRun": 32,
+        "lastP50Ms": 3.59,
+        "lastP95Ms": 4.03,
+        "scope": "Real HTTPS/WebDAV deployment and two independent client connections on local loopback; opaque test bytes. Initial restrictive umask failure fixed. No original Kernel/T4 wire product run.",
+        "systemd": "NOT_RUN",
+        "physicalServer": "NOT_DEPLOYED"
+      },
+      "nativeOwner": {
+        "commit": "a8aba933217aa6c93edea1e2bfbe143075996233",
+        "tree": "7dbb23a2d2a0e76d2f5bbb41a8a43d1098c80bb6",
+        "localPass": 23,
+        "localFail": 0,
+        "newCases": 6,
+        "scope": "Exact published selection module, revised existing and new optional mutation grants tests with modeled owner/ports; not installed production authority.",
+        "extraMutationGrantsOptional": 5,
+        "sourceAdmissionGuard": "before Capture Intent",
+        "recipientAdmissionGuard": "before publication",
+        "existingOriginalJitRetained": true
+      },
+      "agent": {
+        "commit": "c254bfa8d7741d27db1164b70a1717fc7de4f37b",
+        "tree": "8811312fc53fbceee8ae08bcf88364eee444fbcd",
+        "pinOnly": true,
+        "installedProvider": "NOT_CONFIGURED",
+        "build": "NOT_RUN"
+      },
+      "center": {
+        "commit": "d9dd2d461404ed8a5d3277f6f3ddc3f0f4063731",
+        "tree": "a2350243550d56a5c8560c01f02ee76ede175989",
+        "pinAndExistingSuiteUpdated": true,
+        "launcher": "NOT_RUN_THIS_REVISION",
+        "fullQualification": "NOT_RUN"
+      },
+      "originalKernelChanges": 0,
+      "networkWireChanges": 0,
+      "newActionsStarted": 0,
+      "codexUsed": false,
+      "actualTwoNode": "NOT_RUN",
       "T4_READY": false,
       "FEATURE_FREEZE": true
     }
