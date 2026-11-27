@@ -396,3 +396,97 @@ export async function applyWorkspaceMethodRevision(input){
     alreadyPresentCount:count('ALREADY_PRESENT'),recoveredAckCount:count('ACK_RECOVERED'),
     atomicBatch:false,newAuthorityGranted:false,executionAuthority:false,resultReuseProven:false});
 }
+
+
+// W06: return to an exact historical methodology by creating a NEW forward
+// revision. Never replace a head with its predecessor or resurrect an old
+// Work identity. The existing original selective revision path remains the
+// sole write route; this confirmation is not a source/Task permission.
+function restoreSelection(value){
+  if(!value?.projectRef||!Array.isArray(value.workRefs)||!value.workRefs.length||value.workRefs.length>64){
+    fail('METHOD_RESTORE_SELECTION_INVALID','Complete exact revision selection required');
+  }
+  const ref=row=>({family:row?.family,objectId:row?.objectId,recordId:row?.recordId,revision:row?.revision});
+  const rows=Array.from(value.workRefs,ref);
+  const project=ref(value.projectRef);
+  if([project,...rows].some(row=>['family','objectId','recordId'].some(key=>typeof row[key]!=='string'||!row[key]||row[key].trim()!==row[key])
+      ||!Number.isSafeInteger(row.revision)||row.revision<1)||new Set(rows.map(row=>row.objectId)).size!==rows.length){
+    fail('METHOD_RESTORE_SELECTION_INVALID','Invalid or duplicate exact revision reference');
+  }
+  return Object.freeze({projectRef:Object.freeze(project),
+    workRefs:Object.freeze(rows.sort((a,b)=>a.objectId<b.objectId?-1:a.objectId>b.objectId?1:0).map(Object.freeze))});
+}
+function captureRestoreCatalog(objects){
+  if(!Array.isArray(objects))fail('METHOD_RESTORE_MATERIAL_CATALOG_INVALID','Original admitted catalog required');
+  // Snapshot only the fields used by the existing material admission.
+  // Do not clone material content; a deleted record is not current.
+  return objects.filter(row=>row?.deleted!==true).map(row=>row==null?null:Object.freeze({
+    workspace_id:row.workspace_id,object_id:row.object_id,revision:row.revision,
+    schema_id:row.schema_id,schemaId:row.schemaId,family:row.family}));
+}
+async function prepareRestoreRequest({owner,workspaceId,projectId,expected,selected,objects,operationId,knowledgeAt,excludeWorkIds}={}){
+  if(typeof workspaceId!=='string'||!workspaceId||workspaceId.trim()!==workspaceId
+      ||typeof projectId!=='string'||!projectId||projectId.trim()!==projectId
+      ||typeof operationId!=='string'||!operationId||operationId.length>128||operationId.trim()!==operationId
+      ||/[\u0000-\u001f]/u.test(operationId)){
+    fail('METHOD_RESTORE_IDENTITY_INVALID','Exact Workspace, Project and restore operation identity required');
+  }
+  const base=restoreSelection(expected),selection=restoreSelection(selected),catalog=captureRestoreCatalog(objects);
+  const instant=knowledgeAt instanceof CanonicalInstant?knowledgeAt:CanonicalInstant.parse(knowledgeAt);
+  const exclusions=excludeWorkIds===undefined?[]:excludeWorkIds;
+  if(!Array.isArray(exclusions)||exclusions.length>64||exclusions.some(id=>typeof id!=='string'||!id)
+      ||new Set(exclusions).size!==exclusions.length)fail('METHOD_REVISION_EXCLUSION_DECISION_INVALID','Exact exclusion selection required');
+  const exactExclusions=Object.freeze([...exclusions].sort());
+  // Both selections and the current admission input were captured before
+  // awaiting the original owner. No caller draft is used to restore content.
+  const historical=await readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected:selection});
+  const draft=canonicalClone(historical.draft);
+  const selectedRevisionSet=restoreSelection(historical);
+  const materials=inspectWorkspaceMethodMaterials({workspaceId,objects:catalog,materials:draft.materials});
+  const digest=createHash('sha256').update(canonicalStringify({
+    schema:'IWXA_T2_WORKSPACE_METHOD_FORWARD_RESTORE_INTENT_V1',workspaceId,projectId,operationId,
+    knowledgeAt:instant,base,selectedRevisionSet,draft,excludeWorkIds:exactExclusions,
+  })).digest('hex');
+  const request={owner,workspaceId,projectId,expected:base,draft,objects:catalog,
+    operationId:'method-restore:'+digest,knowledgeAt:instant,excludeWorkIds:exactExclusions};
+  return {request,digest,materials,selectedRevisionSet};
+}
+export async function previewWorkspaceMethodRestore(input){
+  const prepared=await prepareRestoreRequest(input);
+  const {request,digest,materials,selectedRevisionSet}=prepared;
+  const base={workspaceId:request.workspaceId,projectId:request.projectId,selectedRevisionSet,
+    materials,writeAuthorized:false,executionAuthority:false,resultReuseProven:false,
+    atomicSnapshot:false,oldHistoryPreserved:true};
+  if(materials.some(row=>row.state!=='CURRENT')){
+    return Object.freeze({...base,state:'MATERIAL_REVIEW_REQUIRED',confirmationDigest:null,plan:null,
+      requiredExcludedWorkIds:Object.freeze([])});
+  }
+  const plan=await previewWorkspaceMethodRevision(request);
+  const required=Object.freeze(plan.removed.map(item=>item.workId).sort());
+  const exact=request.excludeWorkIds.length===required.length&&required.every((id,i)=>id===request.excludeWorkIds[i]);
+  return Object.freeze({...base,state:exact?(plan.state==='UNCHANGED'?'UNCHANGED':'RESTORE_READY'):'EXCLUSION_REVIEW_REQUIRED',
+    confirmationDigest:exact?digest:null,requiredExcludedWorkIds:required,plan});
+}
+async function confirmedRestoreRequest(input){
+  const confirmation=input?.confirmationDigest;
+  const prepared=await prepareRestoreRequest(input);
+  if(typeof confirmation!=='string'||confirmation!==prepared.digest){
+    fail('METHOD_RESTORE_CONFIRMATION_MISMATCH','Confirm the exact historical selection, base and forward restore intent');
+  }
+  return prepared;
+}
+export async function inspectWorkspaceMethodRestore(input){
+  const prepared=await confirmedRestoreRequest(input);
+  const state=await inspectWorkspaceMethodRevision(prepared.request);
+  return Object.freeze({...state,restoreDigest:prepared.digest,selectedRevisionSet:prepared.selectedRevisionSet,
+    oldHistoryPreserved:true});
+}
+export async function applyWorkspaceMethodRestore(input){
+  const prepared=await confirmedRestoreRequest(input);
+  if(prepared.materials.some(row=>row.state!=='CURRENT')){
+    fail('METHOD_MATERIAL_REVIEW_REQUIRED','Historical material revisions are not currently admitted');
+  }
+  const outcome=await applyWorkspaceMethodRevision(prepared.request);
+  return Object.freeze({...outcome,restoreDigest:prepared.digest,selectedRevisionSet:prepared.selectedRevisionSet,
+    oldHistoryPreserved:true,forwardRevision:true});
+}

@@ -5,7 +5,8 @@ import { MemoryCanonicalAdapter,OwnerWriteGateway } from '../src/persistence/can
 import { canonicalStringify,decodeCanonicalValue,encodeCanonicalValue } from '../src/persistence/canonical-codec.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from '../src/modules/base/owners/project-process-method-readback.mjs';
-import { previewWorkspaceMethodRevision,applyWorkspaceMethodRevision,inspectWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
+import { previewWorkspaceMethodRevision,applyWorkspaceMethodRevision,inspectWorkspaceMethodRevision,
+  previewWorkspaceMethodRestore,applyWorkspaceMethodRestore,inspectWorkspaceMethodRestore } from '../src/modules/base/owners/project-process-method-revision.mjs';
 import { prepareWorkspaceMethodSourceInputs } from '../src/modules/base/features/workspace/workspace-project-method.mjs';
 
 const workspaceId='ws-revision',projectId='method-project';
@@ -462,4 +463,98 @@ test('initial creation supplies exact expected original owner refs for every rec
     assert.equal(row.refs.canonicalHeads.project.recordId,recordIds.project);
   }
   assert.equal(adapter.historyScans,0);
+});
+
+
+function restoreRequest(owner,expected,selected,extra={}){
+  return {owner,workspaceId,projectId,expected,selected,objects,operationId:'return-to-original',
+    knowledgeAt:'2026-11-27T12:05:00Z',...extra};
+}
+test('restore exact historical content as a new forward revision, preserving both old states and replay identity',async()=>{
+  const {owner,base}=await setup();
+  const second=(await applyWorkspaceMethodRevision(request(owner,base))).method;
+  const args=restoreRequest(owner,second,base);
+  const preview=await previewWorkspaceMethodRestore(args);
+  assert.equal(preview.state,'RESTORE_READY');assert.equal(preview.writeAuthorized,false);
+  assert.equal(preview.plan.counts.revise,2);
+  const result=await applyWorkspaceMethodRestore({...args,confirmationDigest:preview.confirmationDigest});
+  assert.equal(result.forwardRevision,true);assert.equal(result.revisedCount,2);
+  assert.deepEqual(result.method.draft,draft());
+  assert.equal(ref(result.method,'analyse').revision,3);assert.equal(ref(result.method,'review').revision,3);
+  assert.notEqual(ref(result.method,'analyse').recordId,ref(base,'analyse').recordId);
+  assert.deepEqual((await readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected:base})).draft,draft());
+  assert.deepEqual((await readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected:second})).draft,changed());
+  const replay=await applyWorkspaceMethodRestore({...args,confirmationDigest:preview.confirmationDigest});
+  assert.equal(replay.alreadyPresentCount,2);assert.equal(replay.revisedCount,0);
+  assert.equal((await owner.audit()).length,9);
+});
+test('restore confirmation binds exact origin, base, operation and knowledge time',async()=>{
+  const {owner,base}=await setup();
+  const second=(await applyWorkspaceMethodRevision(request(owner,base))).method;
+  const args=restoreRequest(owner,second,base),preview=await previewWorkspaceMethodRestore(args);
+  const confirmationDigest=preview.confirmationDigest;
+  for(const extra of [{selected:second},{expected:base},{operationId:'other-operation'},{knowledgeAt:'2026-11-27T12:06:00Z'}]){
+    await assert.rejects(applyWorkspaceMethodRestore({...args,...extra,confirmationDigest}),code('METHOD_RESTORE_CONFIRMATION_MISMATCH'));
+  }
+  await assert.rejects(applyWorkspaceMethodRestore({...args,confirmationDigest:'forged'}),code('METHOD_RESTORE_CONFIRMATION_MISMATCH'));
+  assert.equal((await owner.audit()).length,7);
+});
+test('restore never silently rebinds a changed, unavailable or deleted historical material',async()=>{
+  const {owner,base}=await setup();
+  const second=(await applyWorkspaceMethodRevision(request(owner,base))).method;
+  const args=restoreRequest(owner,second,base),ok=await previewWorkspaceMethodRestore(args);
+  for(const catalog of [objects.map(o=>o.object_id==='model'?{...o,revision:99}:o),
+      objects.filter(o=>o.object_id!=='model'),objects.map(o=>o.object_id==='model'?{...o,deleted:true}:o)]){
+    const bad={...args,objects:catalog},p=await previewWorkspaceMethodRestore(bad);
+    assert.equal(p.state,'MATERIAL_REVIEW_REQUIRED');assert.equal(p.confirmationDigest,null);
+    await assert.rejects(applyWorkspaceMethodRestore({...bad,confirmationDigest:ok.confirmationDigest}),code('METHOD_MATERIAL_REVIEW_REQUIRED'));
+  }
+  assert.equal((await owner.audit()).length,7);
+});
+test('restore can resume exact interrupted forward revision without replaying a saved record',async()=>{
+  const {owner,base}=await setup();
+  const second=(await applyWorkspaceMethodRevision(request(owner,base))).method;
+  const args=restoreRequest(owner,second,base),p=await previewWorkspaceMethodRestore(args);
+  const stopped=port(owner,{revise:async(kind,input)=>{
+    if(input.workId===projectId+'.review')throw Object.assign(new Error('restore interruption'),{code:'RESTORE_INTERRUPTED'});
+    return owner.revise(kind,input);
+  }});
+  await assert.rejects(applyWorkspaceMethodRestore({...args,owner:stopped,confirmationDigest:p.confirmationDigest}),code('RESTORE_INTERRUPTED'));
+  const status=await inspectWorkspaceMethodRestore({...args,confirmationDigest:p.confirmationDigest});
+  assert.equal(status.state,'PARTIAL');assert.equal(status.confirmedCount,1);assert.equal(status.resumeCandidate,true);
+  const restored=await applyWorkspaceMethodRestore({...args,confirmationDigest:p.confirmationDigest});
+  assert.equal(restored.revisedCount,1);assert.equal(restored.alreadyPresentCount,1);assert.deepEqual(restored.method.draft,draft());
+  assert.equal((await owner.audit()).length,9);
+});
+test('restore of earlier composition requires exact exclusion of later stages and preserves their history',async()=>{
+  const {owner,base}=await setup();const expanded=draft();
+  expanded.steps.push({id:'validate',name:'Validate',actor:'human',instruction:'Review',dependsOn:['prepare'],materialIds:[]});
+  const second=(await applyWorkspaceMethodRevision(request(owner,base,expanded))).method;
+  const args=restoreRequest(owner,second,base),p=await previewWorkspaceMethodRestore(args);
+  const removed=projectId+'.validate';
+  assert.equal(p.state,'EXCLUSION_REVIEW_REQUIRED');assert.equal(p.confirmationDigest,null);
+  assert.deepEqual(p.requiredExcludedWorkIds,[removed]);
+  const approved={...args,excludeWorkIds:[removed]},reviewed=await previewWorkspaceMethodRestore(approved);
+  assert.equal(reviewed.state,'RESTORE_READY');
+  const result=await applyWorkspaceMethodRestore({...approved,confirmationDigest:reviewed.confirmationDigest});
+  assert.equal(result.excludedCount,1);assert.deepEqual(result.method.draft,draft());
+  assert.equal((await owner.load('work',workspaceId,removed)).baseRevisionId,ref(second,'validate').recordId);
+  assert.equal((await owner.history('work',workspaceId,removed)).length,1);
+  await assert.rejects(previewWorkspaceMethodRestore(restoreRequest(owner,result.method,second,{operationId:'cannot-resurrect'})),
+    code('METHOD_REVISION_STAGE_ID_USED'));
+});
+test('historical return captures original refs and material catalog before async reads',async()=>{
+  const {owner,base}=await setup();
+  const second=(await applyWorkspaceMethodRevision(request(owner,base))).method;
+  const mutable={projectRef:{...base.projectRef},workRefs:base.workRefs.map(r=>({...r}))};
+  const catalog=objects.map(o=>({...o}));let unblock,first=true;
+  const gate=new Promise(resolve=>{unblock=resolve;});
+  const delayed=port(owner,{historyThrough:async(...args)=>{if(first){first=false;await gate;}return owner.historyThrough(...args);}});
+  const args=restoreRequest(delayed,second,mutable,{objects:catalog});
+  const running=previewWorkspaceMethodRestore(args);
+  mutable.workRefs[0].recordId='substituted';catalog[0].revision=99;unblock();
+  const result=await running;
+  assert.equal(result.state,'RESTORE_READY');
+  assert.deepEqual(result.selectedRevisionSet.projectRef,base.projectRef);
+  assert.equal((await owner.audit()).length,7);
 });

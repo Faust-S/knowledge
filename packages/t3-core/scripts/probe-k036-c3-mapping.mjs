@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { qualifyOriginalC3OwnerOnK036 } from "./qualify-k036-c3-original-owner.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const archive = join(root, "qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip");
@@ -321,7 +322,10 @@ try {
   same("duplicate new-Workspace import cannot roll back target history",await readChain(fresh,liveTarget),advancedTarget);
   same("duplicate new-Workspace import cannot add or remove target records/events",await snapshot(fresh,liveTarget),beforeDuplicate);
   same("expanded probe still uses only original iwxa-local DB",(await indexedDB.databases()).map(d=>d.name),["iwxa-local"]);
-  report.status="PASS_PRIMITIVES_ONLY";
+  report.observations.originalOwner=await qualifyOriginalC3OwnerOnK036({client:fresh,
+    openEmpty:async()=>{runtime.__resetKernelStoreForTests();globalThis.indexedDB=new IDBFactory();return connect();},
+    anchorSchema,revisionSchema,schemaVersion:version,serviceId:writerId,check,same,expectReject});
+  report.status="PASS_PRIMITIVES_AND_OWNER_FIXTURE_ONLY";
 } catch (e) {
   report.status="FAIL";report.error={code:e.code??null,message:e.message,stack:e.stack};console.error(e);
 } finally {
@@ -329,5 +333,5 @@ try {
   const output=process.argv[2];
   if(output)writeFileSync(output,JSON.stringify(report,null,2)+"\n");
   console.log(JSON.stringify(report,null,2));
-  process.exit(report.status==="PASS_PRIMITIVES_ONLY"?0:1);
+  process.exit(report.status==="PASS_PRIMITIVES_AND_OWNER_FIXTURE_ONLY"?0:1);
 }
