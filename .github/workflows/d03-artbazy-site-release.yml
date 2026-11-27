@@ -170,6 +170,15 @@ jobs:
           const s=readFileSync(process.argv[2],'utf8');
           const codes=[...new Set(s.match(/\b(?:ARTBAZY_[A-Z0-9_]{3,100}|T3_[A-Z0-9_]{3,100}|T2_[A-Z0-9_]{3,100}|TS[0-9]{4}|ERR_[A-Z0-9_]{3,80})\b/g)||[])].slice(0,30);
           for(const c of codes)console.log('ERROR_CODE='+c);
+          // Only bounded diagnostic categories, public-route paths, and
+          // source file/line identities. Never print raw private source.
+          for(const code of [...new Set(s.match(/\b(?:SyntaxError|TypeError|ReferenceError|AssertionError|AggregateError|MODULE_NOT_FOUND|ENOENT|EACCES|ENOSPC)\b/g)||[])])console.log('ERROR_CLASS='+code);
+          for(const m of [...s.matchAll(/(?:^|\n)\[source-link:fail\] (\/[a-z0-9/-]+): (\d+) occurrence\(s\)/g)].slice(0,50))console.log('SOURCE_LINK_TARGET='+m[1]+' COUNT='+m[2]);
+          for(const m of [...s.matchAll(/(?:^|\n)  (src\/[A-Za-z0-9_./$-]+\.(?:tsx?|mjs|js)):(\d+) \[(literal|glossary-bridge)\]/g)].slice(0,50))console.log('SOURCE_LINK_LOCATION='+m[1]+':'+m[2]+' KIND='+m[3]);
+          for(const m of [...s.matchAll(/(?:^|\n)(?:\[links:fail\] (?:no-slash|broken):) (\/[a-z0-9/._-]+)/g)].slice(0,50))console.log('BUILT_LINK_TARGET='+m[1]);
+          for(const m of [...s.matchAll(/(?:^|\n)([A-Za-z0-9_./$-]+\.(?:tsx?|mts|cts))\((\d+),(\d+)\): error (TS\d{4})/g)].slice(0,60))console.log('TYPESCRIPT_LOCATION='+m[1]+':'+m[2]+':'+m[3]+' '+m[4]);
+          for(const m of [...s.matchAll(/(?:Cannot find module|Cannot find package) ['"]([@A-Za-z0-9_./-]+)['"]/g)].slice(0,15))console.log('MISSING_MODULE='+m[1].split('/').slice(-3).join('/'));
+          for(const m of [...s.matchAll(/(?:^|\n)# (tests|pass|fail|skipped) (\d+)/g)].slice(-12))console.log('TEST_'+m[1].toUpperCase()+'='+m[2]);
           for(const m of s.matchAll(/^\[(prerender|readability|hydration)\] done\. (?:ok=(\d+) )?fail=(\d+)$/gm))
             console.log(m[1].toUpperCase()+'_OK='+(m[2]||'NA')+' FAIL='+m[3]);
           JS
@@ -177,20 +186,32 @@ jobs:
             fi
           }
           phase SITE_DEPENDENCIES bun install --frozen-lockfile --ignore-scripts
-          phase SUBJECT_PIN node --test scripts/verify-artbazy-subject-pin.test.mjs
-          phase PUBLIC_SOURCE_LINKS npm run check:source-links
-          phase SITE_PROJECTION npm run check:t3:calculation-projection
-          phase PACKAGING npm run test:t3:packaging
-          phase ASSISTANT_PROJECTION node --input-type=module -e 'import {readFileSync} from "node:fs";import {verifyAssistantSkills} from "./scripts/verify-artbazy-assistant-skills.mjs";const pin=JSON.parse(readFileSync("runtime/t3-platform/0.3.1-rc.2/domain-assistant.json","utf8"));verifyAssistantSkills(process.cwd(),pin);'
-          phase DIST_TRANSACTION npm run test:release:transaction
-          phase DELIVERY_TRANSPORT env ARTBAZY_PLATFORM_ARCHIVE="$stage/platform-inputs.zip" npm run test:release:delivery
+          failures=()
+          phase SUBJECT_PIN node --test scripts/verify-artbazy-subject-pin.test.mjs || failures+=(SUBJECT_PIN)
+          phase PUBLIC_SOURCE_LINKS npm run check:source-links || failures+=(PUBLIC_SOURCE_LINKS)
+          phase SITE_PROJECTION npm run check:t3:calculation-projection || failures+=(SITE_PROJECTION)
+          phase PACKAGING npm run test:t3:packaging || failures+=(PACKAGING)
+          phase ASSISTANT_PROJECTION node --input-type=module -e 'import {readFileSync} from "node:fs";import {verifyAssistantSkills} from "./scripts/verify-artbazy-assistant-skills.mjs";const pin=JSON.parse(readFileSync("runtime/t3-platform/0.3.1-rc.2/domain-assistant.json","utf8"));verifyAssistantSkills(process.cwd(),pin);' || failures+=(ASSISTANT_PROJECTION)
+          phase DIST_TRANSACTION npm run test:release:transaction || failures+=(DIST_TRANSACTION)
+          phase DELIVERY_TRANSPORT env ARTBAZY_PLATFORM_ARCHIVE="$stage/platform-inputs.zip" npm run test:release:delivery || failures+=(DELIVERY_TRANSPORT)
+          host_ok=yes
+          kernel_ok=yes
           phase ORIGINAL_HOST npm run prepare:t3:host -- \
-            "$GITHUB_WORKSPACE/original-t3/packages/t3-core" "$stage/host" "$stage/platform-inputs.zip" "$GITHUB_WORKSPACE/original-assistant"
+            "$GITHUB_WORKSPACE/original-t3/packages/t3-core" "$stage/host" "$stage/platform-inputs.zip" "$GITHUB_WORKSPACE/original-assistant" || { failures+=(ORIGINAL_HOST); host_ok=no; }
           phase ORIGINAL_KERNEL_SUPPORT npm run prepare:t3:kernel-support -- \
-            "$GITHUB_WORKSPACE/original-t2" "$stage/kernel" "$stage/platform-inputs.zip"
+            "$GITHUB_WORKSPACE/original-t2" "$stage/kernel" "$stage/platform-inputs.zip" || { failures+=(ORIGINAL_KERNEL_SUPPORT); kernel_ok=no; }
           export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome || command -v chromium)"
           test -x "$PUPPETEER_EXECUTABLE_PATH"
-          phase ARTBAZY_ONE_DIST npm run build:release -- "$stage/host" "$stage/kernel" "$stage/platform-inputs.zip"
+          if [[ "$host_ok" == yes && "$kernel_ok" == yes ]]; then
+          phase ARTBAZY_ONE_DIST npm run build:release -- "$stage/host" "$stage/kernel" "$stage/platform-inputs.zip" || failures+=(ARTBAZY_ONE_DIST)
+          else
+            echo ARTBAZY_ONE_DIST=BLOCKED_PREPARED_INPUTS
+            failures+=(ARTBAZY_ONE_DIST)
+          fi
+          if ((${#failures[@]})); then
+            printf 'D03_FAILED_PHASE=%s\n' "${failures[@]}"
+            exit 1
+          fi
           # build:release checks the existing links before replacing dist.
           phase ARTBAZY_PACKAGE npm run package:release -- "$stage/ArtBazy-site.zip"
           node --input-type=module <<'JS'
