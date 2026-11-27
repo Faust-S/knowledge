@@ -38,6 +38,39 @@ const equalFields=(a,b)=>a&&typeof a==='object'&&!Array.isArray(a)&&
   Object.keys(a).length===Object.keys(b).length&&
   Object.keys(b).every(key=>a[key]===b[key]);
 
+// Shared immutable record verification for whole Workspace and selected Task
+// reads. Both paths use exactly the same Object, digest and Event rules.
+async function verifyCompanyWorkRecord(row,{workspaceId,organizationId,eventIndex}){
+  const d=row?.data;
+  requireThat(row?.workspace_id===workspaceId&&row.schema_id===COMPANY_WORK_SCHEMA&&
+    row.schema_version==='1.0.0'&&row.revision===1&&
+    row.deleted!==true&&row.deleted_at==null&&d?.schema===RECORD_SCHEMA&&
+    d.workspaceId===workspaceId&&
+    ['organizationId','executorId','taskId','artifactId','operationId'].every(k=>id(d[k]))&&
+    (organizationId===null||d.organizationId===organizationId)&&
+    KINDS.has(d.kind)&&hex(d.taskRevisionId)&&hex(d.taskPackageSha256)&&
+    hex(d.sha256)&&typeof d.text==='string'&&d.text.length>0&&d.text.length<=2000000&&
+    ['text/plain','text/markdown','application/json'].includes(d.mimeType)&&
+    (d.kind==='RESULT'?d.sourceKind==='ORIGINAL_AGENT_HUMAN_ACCEPTED':
+      d.sourceKind==='ORIGINAL_COMPANY_WORKAREA'||
+      d.kind==='TASK'&&d.sourceKind==='ORIGINAL_SIGNED_TASK'),
+    'T3_COMPANY_READBACK_RECORD_INVALID');
+  const token=await sha256Text(JSON.stringify(companyWorkRecordKeyParts(d)));
+  requireThat(row.object_id==='company:work:'+token&&
+    await sha256Text(d.text)===d.sha256,
+    'T3_COMPANY_READBACK_CONTENT_MISMATCH');
+  const matches=eventIndex.get(row.object_id)??[];
+  requireThat(matches.length===1&&id(matches[0].event_id)&&
+    matches[0].revision===row.revision&&matches[0].idempotency_key===token&&
+    equalFields(matches[0].payload,companyWorkEventPayload(d,row.object_id)),
+    'T3_COMPANY_READBACK_EVENT_MISMATCH');
+  return Object.freeze({objectId:row.object_id,eventId:matches[0].event_id,
+    organizationId:d.organizationId,workspaceId,executorId:d.executorId,
+    taskId:d.taskId,taskRevisionId:d.taskRevisionId,
+    taskPackageSha256:d.taskPackageSha256,artifactId:d.artifactId,
+    kind:d.kind,mimeType:d.mimeType,sha256:d.sha256,text:d.text});
+}
+
 // Complete expectedRows come only from the ORIGINAL Kernel import preview.
 // A cold read uses null expectedRows; it does not assert receipt of a
 // particular archive. It returns current readback, not a delivery ACK.
@@ -90,33 +123,7 @@ export async function readOriginalCompanyWorkspace({
   const result=[];
   for(let i=0;i<records.length;i+=16){
     const batch=await Promise.all(records.slice(i,i+16).map(async row=>{
-      const d=row.data;
-      requireThat(row.schema_version==='1.0.0'&&row.revision===1&&
-        row.deleted!==true&&row.deleted_at==null&&d?.schema===RECORD_SCHEMA&&
-        d.workspaceId===workspaceId&&
-        ['organizationId','executorId','taskId','artifactId','operationId'].every(k=>id(d[k]))&&
-        (organizationId===null||d.organizationId===organizationId)&&
-        KINDS.has(d.kind)&&hex(d.taskRevisionId)&&hex(d.taskPackageSha256)&&
-        hex(d.sha256)&&typeof d.text==='string'&&d.text.length>0&&d.text.length<=2000000&&
-        ['text/plain','text/markdown','application/json'].includes(d.mimeType)&&
-        (d.kind==='RESULT'?d.sourceKind==='ORIGINAL_AGENT_HUMAN_ACCEPTED':
-          d.sourceKind==='ORIGINAL_COMPANY_WORKAREA'||
-          d.kind==='TASK'&&d.sourceKind==='ORIGINAL_SIGNED_TASK'),
-        'T3_COMPANY_READBACK_RECORD_INVALID');
-      const token=await sha256Text(JSON.stringify(companyWorkRecordKeyParts(d)));
-      requireThat(row.object_id==='company:work:'+token&&
-        await sha256Text(d.text)===d.sha256,
-        'T3_COMPANY_READBACK_CONTENT_MISMATCH');
-      const matches=eventIndex.get(row.object_id)??[];
-      requireThat(matches.length===1&&id(matches[0].event_id)&&
-        matches[0].revision===row.revision&&matches[0].idempotency_key===token&&
-        equalFields(matches[0].payload,companyWorkEventPayload(d,row.object_id)),
-        'T3_COMPANY_READBACK_EVENT_MISMATCH');
-      return Object.freeze({objectId:row.object_id,eventId:matches[0].event_id,
-        organizationId:d.organizationId,workspaceId,executorId:d.executorId,
-        taskId:d.taskId,taskRevisionId:d.taskRevisionId,
-        taskPackageSha256:d.taskPackageSha256,artifactId:d.artifactId,
-        kind:d.kind,mimeType:d.mimeType,sha256:d.sha256,text:d.text});
+      return verifyCompanyWorkRecord(row,{workspaceId,organizationId,eventIndex});
     }));
     for(const row of batch){orgs.add(row.organizationId);result.push(row);}
   }
@@ -133,6 +140,68 @@ export async function readOriginalCompanyWorkspace({
   return Object.freeze({workspaceId,originalKernelReadback:true,
     checkedImportedObjects:expectedRows===null?null:expectedRows.length,
     records:Object.freeze(result),signedReceiptVerified:false});
+}
+
+// The native Admin owner already has an exact signed Task. Read only its
+// Task and Result records using the existing Kernel event inventory and
+// exact Object lookup, rather than copying the entire Workspace across IPC.
+// This proves local readback, not an employee signature or D3 acceptance.
+export async function readOriginalCompanyTaskRecords({kernel,organizationId,
+  workspaceId,executorId,taskId,taskRevisionId,taskPackageSha256}={}){
+  requireThat([organizationId,workspaceId,executorId,taskId].every(id)&&
+    !workspaceId.startsWith('workspace:registry:')&&
+    hex(taskRevisionId)&&hex(taskPackageSha256)&&
+    kernel?.sessionInfo?.contract_version==='1.3.0'&&
+    typeof kernel.hasOperation==='function'&&
+    ['getWorkspace','getObject','listEventsSince'].every(method=>
+      typeof kernel[method]==='function'&&kernel.hasOperation('t1.'+method)),
+    'T3_COMPANY_READBACK_ORIGINAL_KERNEL_REQUIRED');
+  const before=await kernel.getWorkspace(workspaceId);
+  requireThat(before?.workspace_id===workspaceId&&before.deleted_at==null,
+    'T3_COMPANY_READBACK_WORKSPACE_MISSING');
+  const events=await kernel.listEventsSince(workspaceId);
+  requireThat(Array.isArray(events)&&events.every(event=>event?.workspace_id===workspaceId),
+    'T3_COMPANY_READBACK_SCOPE_CHANGED');
+  const eventIndex=new Map(),selected=new Set();
+  for(const event of events){
+    if(event.event_type!=='iwxa.company.work-record.committed')continue;
+    const matches=eventIndex.get(event.object_id)??[];
+    matches.push(event);eventIndex.set(event.object_id,matches);
+    const data=event.payload;
+    if(data?.taskId!==taskId||data.taskRevisionId!==taskRevisionId||
+      !['TASK','RESULT'].includes(data.kind))continue;
+    requireThat(data.organizationId===organizationId&&data.workspaceId===workspaceId&&
+      data.executorId===executorId&&data.taskPackageSha256===taskPackageSha256&&
+      id(event.object_id)&&!selected.has(event.object_id),
+      'T3_COMPANY_READBACK_SIGNED_TASK_MISMATCH');
+    selected.add(event.object_id);
+  }
+  const records=[];
+  // The original native relay has a single pending operation. Fetch only
+  // selected immutable records, sequentially; never poll or retry writes.
+  for(const objectId of selected){
+    const response=await kernel.getObject(workspaceId,objectId);
+    const row=response?.object;
+    requireThat(row?.object_id===objectId&&row.data?.taskId===taskId&&
+      row.data.taskRevisionId===taskRevisionId&&row.data.executorId===executorId&&
+      row.data.taskPackageSha256===taskPackageSha256&&
+      (row.data.kind==='RESULT'||row.data.kind==='TASK'&&
+        row.data.artifactId===taskId&&row.data.sourceKind==='ORIGINAL_SIGNED_TASK'),
+      'T3_COMPANY_READBACK_SIGNED_TASK_MISMATCH');
+    records.push(await verifyCompanyWorkRecord(row,{workspaceId,organizationId,eventIndex}));
+  }
+  const tasks=records.filter(row=>row.kind==='TASK');
+  const results=records.filter(row=>row.kind==='RESULT');
+  requireThat(tasks.length<=1&&(results.length===0||tasks.length===1),
+    'T3_COMPANY_READBACK_SIGNED_TASK_MISMATCH');
+  const after=await kernel.getWorkspace(workspaceId);
+  requireThat(after?.workspace_id===workspaceId&&after.deleted_at==null&&
+    typeof before.updated_at==='string'&&after.updated_at===before.updated_at,
+    'T3_COMPANY_READBACK_WORKSPACE_CHANGED');
+  results.sort((a,b)=>a.artifactId.localeCompare(b.artifactId));
+  return Object.freeze({workspaceId,organizationId,executorId,taskId,
+    taskRevisionId,taskPackageSha256,originalKernelReadback:true,
+    signedReceiptVerified:false,task:tasks[0]??null,results:Object.freeze(results)});
 }
 
 // Original T2's atomic importer skips byte-equivalent existing objects and
