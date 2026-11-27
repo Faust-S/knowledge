@@ -131,7 +131,13 @@ async function exportUi(side,dest){
   assert.ok(readFileSync(dest).length>100,'EMPTY_ARCHIVE');
   const digest=(await page.getByTestId('export-artifact-digest').innerText()).trim();assert.match(digest,/^[a-f0-9]{64}$/);
   await page.getByTestId('export-confirm').click();await page.getByTestId('export-receipt').waitFor();
-  assert.equal((await page.getByTestId('export-receipt-digest').innerText()).trim(),digest);
+  // Read the real T2 receipt's visible definition list; this exact Host
+  // has no export-receipt-digest test id. Keep the digest comparison.
+  const confirmed=await page.getByTestId('export-receipt').evaluate(el=>{
+    const term=[...el.querySelectorAll('dt')].find(dt=>dt.textContent.trim()==='package_digest');
+    return term?.nextElementSibling?.textContent?.trim();
+  });
+  assert.equal(confirmed,digest,'EXPORT_RECEIPT_DIGEST_MISMATCH');
   return digest;
 }
 async function prepareImport(side,file){

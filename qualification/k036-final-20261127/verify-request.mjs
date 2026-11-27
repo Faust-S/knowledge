@@ -16,7 +16,13 @@ assert.match(prepared,/^[0-9a-f]{40}$/);
 const head=git('rev-parse','HEAD');
 assert.equal(head,process.env.GITHUB_SHA);
 assert.equal(git('rev-list','--parents','-n','1','HEAD'),head+' '+prepared);
-assert.equal(git('diff-tree','--no-commit-id','--name-status','-r','HEAD'),'A\t'+file);
+assert.equal(git('diff-tree','--no-commit-id','--name-status','-r','HEAD'),'M\t'+file);
+// The earlier core matrix job passed; only the existing native UI job is
+// requested again, with the same immutable candidate and owner pins.
+const previous=JSON.parse(git('show',prepared+':'+file));
+assert.equal(previous.prepared,'636d5dd5be2ee36d170094f4b073d4231bff1f6b');
+const {prepared:previousPrepared,...previousBody}=previous;
+assert.deepEqual(previousBody,pins);
 const event=JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH,'utf8'));
 if(process.env.GITHUB_EVENT_NAME==='push'){
   assert.equal(event.created,false);assert.equal(event.deleted,false);assert.equal(event.forced,false);
