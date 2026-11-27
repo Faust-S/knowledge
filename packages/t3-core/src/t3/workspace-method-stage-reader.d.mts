@@ -30,6 +30,7 @@ export type WorkspaceMethodHandoffPreview = Readonly<{
   schema:'IWXA_T2_WORKSPACE_METHOD_STAGE_HANDOFF_PREVIEW_V1';state:string;inspection:WorkspaceMethodStageInspection;
   candidateDigest:string|null;requiredOriginalOwnerChecks:readonly string[];
   subjectKind?:'PERSONAL'|'CORP';
+  personalResultSelections?:readonly WorkspaceMethodPersonalResultSelection[];
   personalResults?:readonly Readonly<{stepId:string;canonicalWorkRef:WorkspaceMethodSourceRef;
     acceptedTask:Readonly<{taskId:string;resultId:string;reviewId:string;acceptedDigest:string;acceptedSummarySha256:string;candidateDigest:string;agentWorkspaceId:string}>}>[];
   materialEvidenceRequested?:true;materialEvidence?:WorkspaceMethodMaterialEvidence|null;

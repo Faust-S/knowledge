@@ -162,10 +162,10 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     &&prerequisites?.length&&prerequisites.every(row=>row.actor==="agent"));
   const prerequisiteIds=new Set(prerequisites?.map(row=>row.stepId)??[]);
   const personalResultSelections=personalChain?(binding.personalResultSelections??[]).filter(row=>prerequisiteIds.has(row.stepId)):[];
-  const personalReady=personalChain&&!!reader.inspectPersonalTask&&!!reader.inspectMaterialEvidence
-    &&personalResultSelections.length===prerequisiteIds.size
-    &&new Set(personalResultSelections.map(row=>row.stepId)).size===prerequisiteIds.size
-    &&new Set(personalResultSelections.map(row=>row.taskId)).size===prerequisiteIds.size
+  const personalReady=personalChain&&!!reader.inspectPersonalTask&&!!reader.inspectMaterialEvidence&&!!stage
+    &&stage.directPredecessorStepIds.every(id=>personalResultSelections.some(row=>row.stepId===id))
+    &&new Set(personalResultSelections.map(row=>row.stepId)).size===personalResultSelections.length
+    &&new Set(personalResultSelections.map(row=>row.taskId)).size===personalResultSelections.length
     &&personalResultSelections.every(row=>/^TASK-[A-Za-z0-9_-]{1,120}$/.test(row.taskId));
   const personalArgs=personalChain?{personalResultSelections}:{};
   const resultSelections=(personalChain?[]:stage?.directPredecessorStepIds??[]).flatMap(stepId=>{
@@ -248,11 +248,16 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
           throw Object.assign(Error("invalid"),{code:"METHOD_MATERIAL_EVIDENCE_MISMATCH"});
       }
       if(report.kind==="handoff"&&personalChain){
-        const result=report.value,prior=result.personalResults;
+        const result=report.value,prior=result.personalResults,resolved=result.personalResultSelections;
         const direct=new Set(stage.directPredecessorStepIds);
         if(!personalReady||result.subjectKind!=="PERSONAL"||result.state!=="PERSONAL_PRIOR_RESULTS_OBSERVED_DECLARED_INPUTS_MATCHED"
             ||!/^[a-f0-9]{64}$/.test(result.candidateDigest??"")||!prior||prior.length!==direct.size
             ||new Set(prior.map(row=>row.stepId)).size!==direct.size
+            ||!resolved||resolved.length!==prerequisiteIds.size
+            ||new Set(resolved.map(row=>row.stepId)).size!==prerequisiteIds.size
+            ||new Set(resolved.map(row=>row.taskId)).size!==prerequisiteIds.size
+            ||resolved.some(row=>!prerequisiteIds.has(row.stepId)||!/^TASK-[A-Za-z0-9_-]{1,120}$/.test(row.taskId))
+            ||personalResultSelections.some(row=>!resolved.some(p=>p.stepId===row.stepId&&p.taskId===row.taskId))
             ||new Set(prior.map(row=>row.acceptedTask.agentWorkspaceId)).size!==1
             ||prior.some(row=>{
               const expected=prerequisites?.find(p=>p.stepId===row.stepId);
@@ -364,9 +369,9 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
           <p className="text-xs text-slate-400">Предшествующих работ: {stage.prerequisiteCount}. {states[stage.state]}.</p>
           {stage.materialIssues.length>0&&<p className="text-xs text-amber-200 break-words">Материалы: {stage.materialIssues.join(", ")}</p>}
           {personalChain&&<div className="space-y-1" data-testid="workflow-personal-prerequisites">
-            <p className="text-xs text-slate-400">Принятые задачи, выбранные в Agent для всех предшествующих работ:</p>
-            {prerequisites?.map(row=><p key={row.stepId} className="text-xs text-slate-300 break-words">{row.name}: {personalResultSelections.find(task=>task.stepId===row.stepId)?.taskId??"Не выбрана"}</p>)}
-            {!personalReady&&<p className="text-xs text-amber-200">Выберите отдельную принятую задачу Agent для каждой работы. Затем подготовьте передачу.</p>}
+            <p className="text-xs text-slate-400">Выберите принятые задачи непосредственных предшественников в Agent. Более ранние задачи будут прочитаны из сохранённой цепочки.</p>
+            {prerequisites?.map(row=><p key={row.stepId} className="text-xs text-slate-300 break-words">{row.name}: {personalResultSelections.find(task=>task.stepId===row.stepId)?.taskId??(stage.directPredecessorStepIds.includes(row.stepId)?"Не выбрана":"Из сохранённой цепочки")}</p>)}
+            {!personalReady&&<p className="text-xs text-amber-200">Выберите отдельную принятую задачу для каждого непосредственного предшественника. Затем подготовьте передачу.</p>}
           </div>}
           {!personalChain&&stage.directPredecessorStepIds.length>0&&<div className="space-y-2">
             <p className="text-xs text-slate-400">Для каждого предшественника явно выберите принятый результат из материалов полотна.</p>
@@ -426,6 +431,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
           Проверено доступное содержимое: материалов {visibleDetail.value.materialEvidence.observation.counts.materials}, вложений {visibleDetail.value.materialEvidence.observation.counts.assets}.
         </p>}
         {visibleDetail.value.personalResults&&<p className="text-slate-300">Передаётся точное принятое текстовое содержимое результатов: {visibleDetail.value.personalResults.length}.</p>}
+        {visibleDetail.value.personalResultSelections&&<p className="text-slate-300">Проверено предшествующих задач: {visibleDetail.value.personalResultSelections.length}.</p>}
         {visibleDetail.value.materialEvidenceRequested&&!visibleDetail.value.materialEvidence&&
           <p className="text-slate-400">Проверка содержимого ожидает подтверждения входных ссылок и результатов предшественников.</p>}
         <p className="text-slate-300">До запуска необходимо:</p>

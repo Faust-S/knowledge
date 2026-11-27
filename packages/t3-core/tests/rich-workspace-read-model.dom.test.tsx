@@ -612,6 +612,7 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
       schema:"IWXA_T2_WORKSPACE_METHOD_STAGE_HANDOFF_PREVIEW_V1",
       state:"PERSONAL_PRIOR_RESULTS_OBSERVED_DECLARED_INPUTS_MATCHED",subjectKind:"PERSONAL",
       inspection:makeInspection("review"),candidateDigest:digest,materialEvidenceRequested:true,materialEvidence,
+      personalResultSelections:[{stepId:"analyse",taskId}],
       personalResults:[{stepId:"analyse",canonicalWorkRef:a,acceptedTask:{
         taskId,resultId:"RES-root",reviewId:"REV-root",acceptedDigest:digest,acceptedSummarySha256:digest,
         candidateDigest:digest,agentWorkspaceId:"personal"}}],
@@ -737,6 +738,41 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     fireEvent.click(screen.getByRole("button",{name:"Восстановить связь с работой"}));
     await screen.findByRole("alert");
     expect(screen.queryByTestId("workflow-personal-task-recovered")).toBeNull();
+    expect(f.createPersonalDraft).not.toHaveBeenCalled();
+  });
+
+
+  it("lets the user select only direct accepted Tasks and displays the fully verified recovered chain",async()=>{
+    const f=dependentPersonalFixture(),c={family:"iwxa.work",objectId:"research.finish",recordId:"finish-1",revision:1};
+    const overview:WorkspaceMethodInputOverview={...report,stages:[
+      ...report.stages.map(row=>({...row,actor:"agent" as const})),
+      {stepId:"finish",name:"Заключение",actor:"agent",workRef:c,state:"PREDECESSOR_RESULTS_REQUIRED",
+        inputBasisDigest:"c".repeat(64),directPredecessorStepIds:["review"],prerequisiteCount:2,materialIssues:[]}],
+      counts:{total:3,inputReferencesVerified:3,materialReviewRequired:0,predecessorResultsRequired:2,rootInputsVerified:1}};
+    f.overview.mockResolvedValue(overview);
+    const inspection:WorkspaceMethodStageInspection={...makeInspection("review"),stageInput:{
+      state:"INPUT_REFERENCES_VERIFIED",basis:{workspaceId:"w",projectId:"research",stepId:"finish",stageRef:c},
+      inputBasisDigest:"c".repeat(64)}};
+    const direct=[{stepId:"review",taskId:"TASK-review"}];
+    const preview:WorkspaceMethodHandoffPreview={...f.preview,inspection,
+      materialEvidence:{...f.preview.materialEvidence!,stageInput:inspection.stageInput},
+      personalResultSelections:[{stepId:"analyse",taskId:"TASK-root"},...direct],
+      personalResults:[{...f.preview.personalResults![0],stepId:"review",canonicalWorkRef:b,
+        acceptedTask:{...f.preview.personalResults![0].acceptedTask,taskId:"TASK-review"}}]};
+    f.previewHandoff.mockResolvedValue(preview);
+    const binding={...f.binding,expected:{projectRef,workRefs:[a,b,c]},personalResultSelections:direct};
+    render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));await screen.findByText(/Работ: 3/);
+    fireEvent.click(screen.getByRole("button",{name:/Заключение/}));
+    const choices=screen.getByTestId("workflow-personal-prerequisites");
+    expect(choices.textContent).toContain("Анализ материалов: Из сохранённой цепочки");
+    expect(choices.textContent).toContain("Проверка результатов: TASK-review");
+    const button=screen.getByRole("button",{name:"Подготовить передачу"});
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(button);
+    await screen.findByText("Проверено предшествующих задач: 2.");
+    expect(f.previewHandoff).toHaveBeenCalledExactlyOnceWith({workspaceId:"w",projectId:"research",expected:binding.expected,
+      stepId:"finish",resultSelections:[],personalResultSelections:direct,includeMaterialEvidence:true});
     expect(f.createPersonalDraft).not.toHaveBeenCalled();
   });
 

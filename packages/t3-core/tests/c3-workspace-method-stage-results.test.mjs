@@ -578,9 +578,10 @@ test('original initial revision guidance and native operational skill are distin
 
 // W05.15: original C3 owner + original signed Host binding + controlled
 // original Task/Context/Result owner ports; not an installed Agent claim.
-async function personalChainFixture(){
+async function personalChainFixture({diamond=false}={}){
   const d=draft();d.steps[1].actor='agent';
-  d.steps.push({id:'finish',name:'Finish',actor:'agent',instruction:'Prepare final conclusions',dependsOn:['review'],materialIds:[]});
+  if(diamond)d.steps.push({id:'compute',name:'Compute',actor:'agent',instruction:'Compute independent evidence',dependsOn:['analyse'],materialIds:[]});
+  d.steps.push({id:'finish',name:'Finish',actor:'agent',instruction:'Prepare final conclusions',dependsOn:diamond?['review','compute']:['review'],materialIds:[]});
   const f=await setup(d),c=composerFixture(),runs=new Map(),reads=[],documents=[];
   const hash=text=>createHash('sha256').update(text,'utf8').digest('hex');
   const addRun=(taskId,summary)=>{
@@ -762,4 +763,58 @@ test('manifest recovery does not bypass exact original accepted Task and full ma
   x.hook(()=>x.c.binding({contextEpoch:'changed'}));
   await assert.rejects(x.h.reader.recoverPersonalTask(req),code('T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED'));
   assert.equal(x.c.writes(),1);
+});
+
+
+test('direct-only selection recovers exact indirect accepted Task identities and avoids rediscovery after consent',async()=>{
+  const x=await personalChainFixture();
+  await x.prepare('review',rootSelection);x.addRun('TASK-review','Accepted review conclusion');
+  const direct=[{stepId:'review',taskId:'TASK-review'}],all=[...rootSelection,...direct];
+  const request=x.input('finish',direct),before=x.reads.length,assets=x.assetReads();
+  const preview=await x.h.reader.previewHandoff(request);
+  assert.deepEqual(preview.personalResultSelections,all);
+  assert.deepEqual(x.reads.slice(before),['TASK-review','TASK-root','TASK-root','TASK-review','TASK-root','TASK-review']);
+  assert.equal(x.assetReads()-assets,2);
+  const complete=await x.h.reader.previewHandoff(x.input('finish',all));
+  assert.equal(complete.candidateDigest,preview.candidateDigest);
+  const saveReads=x.reads.length,saveAssets=x.assetReads();
+  const saved=await x.h.reader.createPersonalDraft({...request,expectedCandidateDigest:preview.candidateDigest});
+  assert.equal(saved.state,'DRAFT_CONFIRMED');
+  assert.equal(x.reads.length-saveReads,10);assert.equal(x.assetReads()-saveAssets,4);
+  assert.equal(x.c.view().attachments.find(a=>a.name==='result-001.txt').text,'Accepted review conclusion');
+});
+test('diamond Workflow observes a shared accepted ancestor once per pass and transfers only two direct original Results',async()=>{
+  const x=await personalChainFixture({diamond:true});
+  await x.prepare('review',rootSelection);x.addRun('TASK-review','Accepted review conclusion');
+  await x.prepare('compute',rootSelection);x.addRun('TASK-compute','Accepted computation');
+  const direct=[{stepId:'review',taskId:'TASK-review'},{stepId:'compute',taskId:'TASK-compute'}];
+  const before=x.reads.length,assets=x.assetReads();
+  const request=x.input('finish',direct),preview=await x.h.reader.previewHandoff(request);
+  assert.deepEqual(preview.personalResultSelections,[...rootSelection,...direct]);
+  const observed=x.reads.slice(before);
+  for(const task of ['TASK-root','TASK-review','TASK-compute'])
+    assert.equal(observed.filter(id=>id===task).length,3);
+  assert.equal(x.assetReads()-assets,2);
+  const saved=await x.h.reader.createPersonalDraft({...request,expectedCandidateDigest:preview.candidateDigest});
+  assert.equal(saved.state,'DRAFT_CONFIRMED');
+  assert.deepEqual(x.c.view().attachments.filter(a=>a.name.startsWith('result-')).map(a=>a.text),
+    preview.personalResults.map(row=>row.acceptedTask.taskId==='TASK-review'?'Accepted review conclusion':'Accepted computation'));
+  assert.equal(x.c.view().attachments.some(a=>a.name.startsWith('result-')&&a.text===x.rootRun.result.summary),false);
+  x.addRun('TASK-finish','Accepted final result');
+  const offset=x.reads.length,oldAssets=x.assetReads();
+  const recovered=await x.h.reader.recoverPersonalTask(recoverInput(x,'finish','TASK-finish'));
+  assert.equal(recovered.recoveredFromOriginalTask,true);
+  assert.equal(recovered.personalResultSelections.length,3);
+  for(const task of ['TASK-root','TASK-review','TASK-compute','TASK-finish'])
+    assert.equal(x.reads.slice(offset).filter(id=>id===task).length,3);
+  assert.equal(x.assetReads()-oldAssets,2);
+});
+test('diamond Workflow rejects conflicting accepted versions of a shared ancestor before material bytes or a new draft are read',async()=>{
+  const x=await personalChainFixture({diamond:true});
+  await x.prepare('review',rootSelection);x.addRun('TASK-review','Accepted review conclusion');
+  await x.prepare('analyse');x.addRun('TASK-root-second','Another accepted analysis');
+  await x.prepare('compute',[{stepId:'analyse',taskId:'TASK-root-second'}]);x.addRun('TASK-compute','Accepted computation');
+  const direct=[{stepId:'review',taskId:'TASK-review'},{stepId:'compute',taskId:'TASK-compute'}],assets=x.assetReads(),writes=x.c.writes();
+  await assert.rejects(x.h.reader.previewHandoff(x.input('finish',direct)),code('T3_METHOD_PERSONAL_TASK_MANIFEST_SCOPE_MISMATCH'));
+  assert.equal(x.assetReads(),assets);assert.equal(x.c.writes(),writes);
 });

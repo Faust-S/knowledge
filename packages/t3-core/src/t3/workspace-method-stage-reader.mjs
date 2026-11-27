@@ -9,7 +9,7 @@ import { inspectWorkspaceMethodAgentPredecessorResults,readWorkspaceMethodInputO
   buildWorkspaceMethodPersonalTaskDraft,prepareWorkspaceMethodPersonalChain } from '../modules/base/owners/project-process-method-stage-input.mjs';
 
 import {saveOriginalPersonalWorkflowDraft,inspectOriginalPersonalWorkflowTask,createOriginalPersonalWorkflowTaskObserver,
-  recoverOriginalPersonalWorkflowTaskSelection,personalWorkflowTaskInspection} from './workspace-method-personal-draft.mjs';
+  recoverOriginalPersonalWorkflowTaskSelection,recoverOriginalPersonalWorkflowTaskSelections,personalWorkflowTaskInspection} from './workspace-method-personal-draft.mjs';
 
 function deny(code){throw Object.assign(new Error(code),{code,outcome:'DENIED'});}
 function check(ok,code){if(!ok)deny(code);}
@@ -140,10 +140,18 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
           const selectedArgs=recovered?{...evidenceArgs,personalResultSelections:recovered.personalResultSelections,
             expectedCandidateDigest:recovered.candidateDigest}:evidenceArgs;
           const chain=personalChain||!!recovered?.personalResultSelections.length;
+          let resolvedSelections=null;
           const prepare=async()=>{
             const prepared=chain?await prepareWorkspaceMethodPersonalChain({...selectedArgs,
+              ...(resolvedSelections?{personalResultSelections:resolvedSelections}:{}),
+              resolvePersonalResultSelections:selections=>recoverOriginalPersonalWorkflowTaskSelections({
+                workspaceId:request.workspaceId,projectId:request.projectId,expected:request.expected,observer,selections}),
               readVerifiedPersonalResult:observer.read,...(inspectTask?{targetTaskId:request.taskId}:{})}):
               {plan:await buildWorkspaceMethodPersonalTaskDraft(selectedArgs)};
+            // Scope-local exact resolved choices only. On consent recheck
+            // every actual Task and byte again; no repeated discovery and
+            // no durable cache or implicit selection of a later result.
+            if(chain)resolvedSelections=prepared.resolvedSelections;
             const current=await guarded(()=>signed.getWorkspace(request.workspaceId));
             check(current?.workspace_id===request.workspaceId&&current.deleted_at==null,'T3_METHOD_STAGE_WORKSPACE_REQUIRED');
             if(observer)await observer.verifyCurrent();

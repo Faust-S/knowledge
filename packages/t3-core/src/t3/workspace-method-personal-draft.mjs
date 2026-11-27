@@ -221,13 +221,18 @@ export async function createOriginalPersonalWorkflowTaskObserver({workspaceId,co
 // Address only the original Task IDs actually recorded in the accepted
 // source. Shared ancestors are visited once; conflicting choices, cycles
 // and changed canonical Work/Project identities fail rather than guessing.
-export async function recoverOriginalPersonalWorkflowTaskSelection({workspaceId,projectId,stepId,expected,taskId,observer}){
+export async function recoverOriginalPersonalWorkflowTaskSelections({workspaceId,projectId,expected,selections,observer}){
   const validStep=id=>typeof id==='string'&&/^[A-Za-z0-9_-]{1,63}$/.test(id);
   const validTask=id=>typeof id==='string'&&/^TASK-[A-Za-z0-9_-]{1,120}$/.test(id);
   const code='T3_METHOD_PERSONAL_TASK_MANIFEST_SCOPE_MISMATCH';
   check(typeof observer?.readManifest==='function'&&typeof observer?.verifyCurrent==='function'
-    &&observer.binding?.sourceWorkspaceId===workspaceId&&validStep(stepId)&&validTask(taskId)
+    &&observer.binding?.sourceWorkspaceId===workspaceId
+    &&Array.isArray(selections)&&selections.length>0&&selections.length<=64
+    &&selections.every(row=>validStep(row?.stepId)&&validTask(row?.taskId))
+    &&new Set(selections.map(row=>row.stepId)).size===selections.length
+    &&new Set(selections.map(row=>row.taskId)).size===selections.length
     &&Array.isArray(expected?.workRefs)&&expected.workRefs.length>0&&expected.workRefs.length<=64,code);
+  const seeds=selections.map(row=>Object.freeze({stepId:row.stepId,taskId:row.taskId}));
   const refs=new Map(expected.workRefs.map(ref=>[ref.objectId,ref]));
   check(refs.size===expected.workRefs.length,code);
   const workRef=id=>refs.get(projectProcessSourceObjectId('work',workspaceId,projectId+'.'+id));
@@ -237,7 +242,7 @@ export async function recoverOriginalPersonalWorkflowTaskSelection({workspaceId,
     check(validStep(id)&&validTask(tid)&&canonicalWorkRef&&!active.has(tid),code);
     if(selected.has(id)){
       const old=selected.get(id);
-      check(old.taskId===tid&&old.candidateDigest===expectedDigest,code);
+      check(old.taskId===tid&&(expectedDigest===null||old.candidateDigest===expectedDigest),code);
       return old;
     }
     check(!byTask.has(tid)&&selected.size<64,code);
@@ -246,7 +251,7 @@ export async function recoverOriginalPersonalWorkflowTaskSelection({workspaceId,
     check(manifest.taskId===tid&&handoff.workspaceId===workspaceId&&handoff.projectId===projectId&&handoff.stepId===id
       &&equal(handoff.projectRef,expected.projectRef)&&equal(handoff.workRef,canonicalWorkRef)
       &&(expectedDigest===null||manifest.candidateDigest===expectedDigest),code);
-    const row=Object.freeze({stepId:id,taskId:tid,candidateDigest:manifest.candidateDigest});
+    const row=Object.freeze({stepId:id,taskId:tid,candidateDigest:manifest.candidateDigest,canonicalWorkRef});
     selected.set(id,row);byTask.set(tid,id);
     const direct=new Set();
     for(const predecessor of handoff.predecessorResults){
@@ -259,11 +264,16 @@ export async function recoverOriginalPersonalWorkflowTaskSelection({workspaceId,
     }
     active.delete(tid);return row;
   };
-  const target=await visit(stepId,taskId);
+  for(const seed of seeds)await visit(seed.stepId,seed.taskId);
   await observer.verifyCurrent();
-  return Object.freeze({candidateDigest:target.candidateDigest,canonicalWorkRef:workRef(stepId),
-    personalResultSelections:Object.freeze([...selected.values()].filter(row=>row.stepId!==stepId)
-      .sort((a,b)=>a.stepId<b.stepId?-1:a.stepId>b.stepId?1:0)
+  return Object.freeze([...selected.values()].sort((a,b)=>a.stepId<b.stepId?-1:a.stepId>b.stepId?1:0));
+}
+export async function recoverOriginalPersonalWorkflowTaskSelection({workspaceId,projectId,stepId,expected,taskId,observer}){
+  const rows=await recoverOriginalPersonalWorkflowTaskSelections({workspaceId,projectId,expected,observer,
+    selections:[{stepId,taskId}]});
+  const target=rows.find(row=>row.stepId===stepId);
+  return Object.freeze({candidateDigest:target.candidateDigest,canonicalWorkRef:target.canonicalWorkRef,
+    personalResultSelections:Object.freeze(rows.filter(row=>row.stepId!==stepId)
       .map(row=>Object.freeze({stepId:row.stepId,taskId:row.taskId})))});
 }
 export async function inspectOriginalPersonalWorkflowTask({plan,taskId,composer,taskOwner,guarded,refreshPlan}){

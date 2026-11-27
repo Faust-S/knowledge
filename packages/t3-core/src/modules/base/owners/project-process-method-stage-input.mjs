@@ -560,7 +560,7 @@ function personalChainReport(stage,materialEvidence,prior){
 }
 export async function prepareWorkspaceMethodPersonalChain(input={}){
   const {stepId,workspaceId,projectId,subjectKind,personalResultSelections,listAssets,getAsset,readObject,
-    readVerifiedPersonalResult,expectedCandidateDigest,targetTaskId}=input;
+    readVerifiedPersonalResult,resolvePersonalResultSelections,expectedCandidateDigest,targetTaskId}=input;
   if(subjectKind!=='PERSONAL'||typeof readVerifiedPersonalResult!=='function'
       ||typeof listAssets!=='function'||typeof getAsset!=='function')
     fail('METHOD_PERSONAL_CHAIN_ORIGINAL_OWNER_REQUIRED','Original personal Task and material owners required');
@@ -573,7 +573,7 @@ export async function prepareWorkspaceMethodPersonalChain(input={}){
       fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','Exact prerequisite and original Task identities required');
     return Object.freeze({stepId:row.stepId,taskId:row.taskId});
   });
-  const byStep=new Map(selections.map(row=>[row.stepId,row.taskId]));
+  let byStep=new Map(selections.map(row=>[row.stepId,row.taskId]));
   if(targetTaskId!==undefined&&(typeof targetTaskId!=='string'||!/^TASK-[A-Za-z0-9_-]{1,120}$/.test(targetTaskId)
       ||selections.some(row=>row.taskId===targetTaskId)))
     fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','Exact distinct accepted target Task required');
@@ -582,13 +582,36 @@ export async function prepareWorkspaceMethodPersonalChain(input={}){
   const observation=await openInputObservation({...input,stepId},false);
   const stages=observation.closure.works.map(row=>observation.reportFor(row.work.methodology.stepId));
   const target=stages.at(-1);
+  const ancestors=new Set(stages.slice(0,-1).map(stage=>stage.basis.stepId));
   if(!target||target.basis.stepId!==stepId||!target.predecessors.length
-      ||byStep.size!==stages.length-1||stages.slice(0,-1).some(stage=>!byStep.has(stage.basis.stepId)))
-    fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','Every exact prerequisite Work requires its own selected accepted Task');
+      ||selections.some(row=>!ancestors.has(row.stepId))||target.predecessors.some(row=>!byStep.has(row.stepId)))
+    fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','Select an accepted Task for every direct prerequisite Work');
   if(stages.some(stage=>stage.basis.intendedActor!=='agent'))
     fail('METHOD_PERSONAL_CHAIN_ACTOR_UNSUPPORTED','Human and program Results require their original owner route');
   if(stages.some(stage=>stage.inputBasisDigest===null))
     fail('METHOD_PERSONAL_CHAIN_MATERIAL_CHANGED','A prerequisite material requires review');
+  if(byStep.size!==ancestors.size){
+    // W05.18: derive missing indirect choices only from the original
+    // accepted direct Tasks' exact stored manifest lineage. A trusted Host
+    // supplies the existing owner resolver; no latest-task discovery.
+    if(typeof resolvePersonalResultSelections!=='function')
+      fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','Original prerequisite lineage readback required');
+    const seeds=target.predecessors.map(row=>Object.freeze({stepId:row.stepId,taskId:byStep.get(row.stepId)}));
+    const resolved=await resolvePersonalResultSelections(Object.freeze(seeds));
+    if(!Array.isArray(resolved)||resolved.length!==ancestors.size
+        ||resolved.some(row=>!row||!ancestors.has(row.stepId)||typeof row.taskId!=='string'
+          ||!/^TASK-[A-Za-z0-9_-]{1,120}$/.test(row.taskId))
+        ||new Set(resolved.map(row=>row.stepId)).size!==ancestors.size
+        ||new Set(resolved.map(row=>row.taskId)).size!==ancestors.size
+        ||selections.some(row=>!resolved.some(item=>item.stepId===row.stepId&&item.taskId===row.taskId)))
+      fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','Stored lineage conflicts with explicit selected Tasks or the current Work closure');
+    byStep=new Map(resolved.map(row=>[row.stepId,row.taskId]));
+    if(targetTaskId!==undefined&&[...byStep.values()].includes(targetTaskId))
+      fail('METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','The selected target Task cannot be its own prerequisite');
+    await observation.revalidate('METHOD_PERSONAL_CHAIN_MATERIAL_CHANGED');
+  }
+  const resolvedSelections=Object.freeze(stages.slice(0,-1).map(stage=>Object.freeze({
+    stepId:stage.basis.stepId,taskId:byStep.get(stage.basis.stepId)})));
   const readVerified=async(plan,taskId)=>{
     const actual=await readVerifiedPersonalResult(plan,taskId);
     const evidence=actual?.evidence,summary=actual?.summary;
@@ -635,7 +658,8 @@ export async function prepareWorkspaceMethodPersonalChain(input={}){
     fail('METHOD_PERSONAL_CHAIN_EVIDENCE_CHANGED','Original accepted chain or actual material content changed');
   if(expectedCandidateDigest!==undefined&&last.plan.candidateDigest!==expectedCandidateDigest)
     fail('METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED','The exact selected handoff content changed; review it again');
-  return Object.freeze(last);
+  return Object.freeze({...last,resolvedSelections,
+    report:Object.freeze({...last.report,personalResultSelections:resolvedSelections})});
 }
 
 // W07.1. Reuse the existing trusted D6 recipient preview/recovery port.
