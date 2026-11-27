@@ -79,15 +79,15 @@ export function WorkspaceRelationIndex(props: {
     [controller.model, activeKind, preset],
   );
 
-  // Include inspected sources and endpoints of observed relations. For a
-  // partial source window, do not label uninspected objects as isolated.
+  // Include requested sources and endpoints of observed relations. For a
+  // partial source window, do not label unrelated out-of-window objects as isolated.
   const graphObjects = useMemo(() => {
     const ids = new Set(sourceSelection.objects.map(object => object.object_id));
     for (const entry of projected) {
       ids.add(entry.relation.from_object_id);
       ids.add(entry.relation.to_object_id);
     }
-    return objects.filter(object => object.workspace_id === workspaceId && ids.has(object.object_id));
+    return objects.filter(object => object.workspace_id === workspaceId && !object.deleted && ids.has(object.object_id));
   }, [objects, projected, sourceSelection, workspaceId]);
 
   const focusOptions = useMemo(

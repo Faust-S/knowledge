@@ -339,3 +339,24 @@ describe("explicit relation source windows", () => {
     expect(model.isTruncated).toBe(true);
   });
 });
+
+describe("relation source window admission", () => {
+  it("excludes foreign, deleted and malformed sources and endpoints", () => {
+    const current = object("current");
+    const foreign = object("foreign","task","other");
+    const deleted = {...object("deleted"),deleted:true};
+    const malformed = object("bad id!");
+    const objects = [current,foreign,deleted,malformed];
+    const selection = selectRelationIndexSources(objects,{workspaceId:"w"});
+    expect(selection.objects.map(row=>row.object_id)).toEqual(["current"]);
+    expect(selection.totalCount).toBe(1);
+    const sources = [{
+      sourceObjectId:"current",state:"ready" as const,
+      detail:detail(current,[relation("foreign-edge","current","foreign"),
+        relation("deleted-edge","current","deleted"),relation("malformed-edge","current","bad id!")]),
+    }];
+    const model = buildWorkspaceRelationIndex({workspaceId:"w",objects,sources});
+    expect(model.entries).toEqual([]);
+    expect(model.diagnostics.rejectedRelations).toBe(3);
+  });
+});

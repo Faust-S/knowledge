@@ -194,7 +194,9 @@ export function buildWorkspaceRelationIndex(input: {
 }): WorkspaceRelationIndexModel {
   const { workspaceId, objects, sources, isTruncated = false } = input;
   const diagnostics = emptyDiagnostics();
-  const knownObjects = new Map(objects.map((o) => [o.object_id, o]));
+  const knownObjects = new Map(objects
+    .filter(o => o.workspace_id === workspaceId && isSafeOpaqueId(o.object_id) && !o.deleted)
+    .map(o => [o.object_id, o]));
   const byRelationId = new Map<string, Map<string, RelationRecord>>();
   const seenSignaturesByRelationId = new Map<string, Set<string>>();
   let loadedSources = 0;
