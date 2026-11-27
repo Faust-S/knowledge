@@ -21,11 +21,11 @@ jobs:
           fetch-depth: 2
       - name: Verify deliberate immutable request before private checkout
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d01-hosting-freeze --profile assistant-domain-context-source --revision assistant=a3b24bec69f0ce02b616b036d70d44352b220ff2
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d01-hosting-freeze --profile assistant-domain-context-source --revision assistant=244ad469a71ae65910144c6918488a2d061eecce
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: a3b24bec69f0ce02b616b036d70d44352b220ff2
+          ref: 244ad469a71ae65910144c6918488a2d061eecce
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           fetch-depth: 2
@@ -38,7 +38,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git rev-parse HEAD)" = a3b24bec69f0ce02b616b036d70d44352b220ff2
+          test "$(git rev-parse HEAD)" = 244ad469a71ae65910144c6918488a2d061eecce
           node --check browser-local-inference/domain-assistant/main.mjs
           node --test --test-reporter=tap browser-local-inference/tests/domain-assistant-*.test.mjs >"$RUNNER_TEMP/assistant.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/assistant.log" | cut -c1-160 || true; exit 1; }
           grep -E '^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/assistant.log"
