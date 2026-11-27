@@ -1,0 +1,91 @@
+# Qualify the hosting-only delta without repeating the static build.
+name: D03 ArtBazy hosting and archive qualification
+on:
+  push:
+    branches:
+      - 'ci/once/d03-artbazy-hosting-delivery/**'
+    paths:
+      - '.github/ci-requests/d03-artbazy-hosting-delivery.json'
+permissions:
+  contents: read
+jobs:
+  qualify:
+    if: github.event.created == false && github.event.deleted == false && github.event.forced == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      SITE_PIN: 91ce9dc83a0836eb4e40a2c2746e647588413713
+      SITE_TREE: 71a3b574712bd4c4598b16c3b3e2b6e0cf0aa05e
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ci-harness
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify explicit exact request
+        working-directory: ci-harness
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-hosting-delivery --profile hosting-delivery-qualification --revision site=91ce9dc83a0836eb4e40a2c2746e647588413713
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/artbazy.ru
+          ref: 91ce9dc83a0836eb4e40a2c2746e647588413713
+          token: ${{ secrets.DOMEN }}
+          path: private-site
+          fetch-depth: 2
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.10'
+      - name: Verify only hosting and package changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          stage="$RUNNER_TEMP/artbazy-hosting-delta"
+          mkdir -p "$stage"
+          test "$(git -C private-site rev-parse HEAD)" = "$SITE_PIN"
+          test "$(git -C private-site rev-parse 'HEAD^{tree}')" = "$SITE_TREE"
+          python3 - <<'PY'
+          import subprocess, pathlib, re, xml.etree.ElementTree as ET
+          def git(*args):
+              return subprocess.check_output(['git','-C','private-site',*args])
+          parent='a6ad6a7a90d97e04a931c8f33598373a5336c1a2'
+          paths=set(git('diff','--name-only',parent,'HEAD').decode().splitlines())
+          assert paths=={'public/.htaccess','scripts/release-artbazy-local.mjs','scripts/release-artbazy-local.test.mjs','scripts/check-links.ts','runtime/t3-platform/site-preservation.json'}
+          root=pathlib.Path('private-site')
+          sitemap=ET.parse(root/'public/sitemap.xml')
+          routes={e.text.removeprefix('https://artbazy.ru') for e in sitemap.iter('{http://www.sitemaps.org/schemas/sitemap/0.9}loc')}
+          before=git('show',parent+':public/.htaccess').decode().splitlines(keepends=True)
+          slugs={'contribution-margin','working-capital','payback-period','rule-of-40','time-to-hire','bus-factor'}
+          assert all('/slovar/'+x+'/' in routes for x in slugs)
+          pattern=re.compile(r'^RewriteRule \^slovar/([a-z0-9-]+)/\?\$')
+          after=[line for line in before if not ((m:=pattern.match(line)) and m[1] in slugs)]
+          assert len(before)-len(after)==6
+          assert ''.join(after).encode()==(root/'public/.htaccess').read_bytes()
+          for m in re.finditer(r'^\s*RewriteRule\s+\^([a-z0-9-]+(?:/[a-z0-9-]+)*)(?:/\?)?\$\s+\S+\s+\[[^\]]+\]', ''.join(after), re.M|re.I):
+              assert '/'+m[1]+'/' not in routes
+          print('HOSTING_SOURCE_DELTA=PASS; PUBLISHED_ALIAS_CONFLICTS=0')
+          PY
+          curl -fsSL --retry 2 -o "$stage/platform-inputs.zip" https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.1-rc.2/platform-inputs.zip
+          printf '%s  %s\n' c142597c759d6689c0298d0ec6abc7ee66b2eefbb1d5abb086efff6f0dea891e "$stage/platform-inputs.zip" | sha256sum --check --status
+          cd private-site
+          ARTBAZY_PLATFORM_ARCHIVE="$stage/platform-inputs.zip" node --test scripts/release-artbazy-local.test.mjs >"$stage/package.log" 2>&1 || { echo PACKAGE_DEPLOYMENT_TEST=FAIL; grep -E '^# (tests|pass|fail|skipped) [0-9]+' "$stage/package.log" || true; grep -Eo 'ARTBAZY_[A-Z0-9_]+' "$stage/package.log" | sort -u | head -20 || true; exit 1; }
+          echo PACKAGE_DEPLOYMENT_TEST=PASS
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+' "$stage/package.log"
+          bun install --frozen-lockfile --ignore-scripts >"$stage/deps.log" 2>&1 || { echo LINK_GATE_DEPENDENCIES=FAIL; exit 1; }
+          mkdir -p "$stage/fixture/slovar/example"
+          printf '<html><body>Fixture</body></html>' >"$stage/fixture/slovar/example/index.html"
+          printf 'RewriteRule ^slovar/example/?$ /slovar/example/ [L]\n' >"$stage/fixture/.htaccess"
+          if npx tsx scripts/check-links.ts "$stage/fixture" >"$stage/link-failure.log" 2>&1; then echo HOSTING_LINK_GATE=FAIL; exit 1; fi
+          grep -Fq 'literal rewrite shadows published route: /slovar/example/' "$stage/link-failure.log"
+          printf 'RewriteRule ^slovar/old/?$ /slovar/example/ [R=301,L]\n' >"$stage/fixture/.htaccess"
+          npx tsx scripts/check-links.ts "$stage/fixture" >"$stage/link-success.log" 2>&1 || { echo HOSTING_LINK_GATE=FAIL; exit 1; }
+          echo HOSTING_LINK_GATE=PASS
+      - name: Remove private sources and temporary archives
+        if: always()
+        run: rm -rf -- "$GITHUB_WORKSPACE/private-site" "$RUNNER_TEMP/artbazy-hosting-delta"
