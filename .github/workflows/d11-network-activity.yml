@@ -71,12 +71,17 @@ jobs:
              methods.sourceCommit!=='c4406c29abd639862fc21edf417c5d049184e926'||methods.files.length!==3||
              areas.sourceCommit!=='c2abca447f84b19623740fe428b0dba95aafbc89') throw Error('D11_SOURCE_MANIFEST_INVALID');
           const files=[...operations.files,...methods.files,{sourcePath:areas.sourcePath,localPath:areas.localPath,blob:areas.sourceBlob}];
-          if(files.length!==56||new Set(files.map(f=>f.sourcePath)).size!==56||new Set(files.map(f=>f.localPath)).size!==56) throw Error('D11_SOURCE_MANIFEST_INVALID');
+          if(files.length!==56||new Set(files.map(f=>f.sourcePath)).size!==55||new Set(files.map(f=>f.localPath)).size!==56) throw Error('D11_SOURCE_MANIFEST_INVALID');
+          // The same canonical cash study intentionally serves the two product surfaces.
+          const shared=files.filter(f=>f.sourcePath==='model/logistics/cooperation-cash-study.mjs');
+          if(shared.length!==2||new Set(shared.map(f=>f.blob)).size!==1||
+             !shared.some(f=>f.localPath==='runtime/d11-module/operations/cooperation-cash-study.mjs')||
+             !shared.some(f=>f.localPath==='src/lib/logistics/cooperation-cash-study.mjs')) throw Error('D11_SOURCE_MANIFEST_INVALID');
           const blob=(repo,path)=>execFileSync('git',['-C',repo,'rev-parse','HEAD:'+path],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();
           for(const f of files){
             if(!/^[0-9a-f]{40}$/.test(f.blob)||blob('domain',f.sourcePath)!==f.blob||blob('site',f.localPath)!==f.blob) throw Error('D11_SOURCE_MIRROR_DIFF');
           }
-          console.log('D11_SOURCE_MIRRORS=56/56 PASS');
+          console.log('D11_SOURCE_MIRRORS=56/56 PASS (55 unique originals)');
           NODE
       - name: Original canonical regression
         id: domain_regression
