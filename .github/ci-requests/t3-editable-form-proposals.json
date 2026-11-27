@@ -1,0 +1,11 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-editable-form-proposals",
+  "preparedSha": "37f91a5f871fb05b5d0eb9a82785efa82008c358",
+  "originalAssistant": "4c4594b7071bdb1fef56e5d33c90353f06a42c0e",
+  "cehovodSite": "df5c65547908b23dcfacb9528e71f47075e2c278",
+  "retainedPlatformArtifact": 15227050568,
+  "scope": "EXISTING_SOURCE_AND_NATIVE_DOMAIN_ROUTE_WITH_REAL_EDIT_OF_PROPOSALS",
+  "priorNativeResultRun": 46059176345,
+  "modelWitnessUnchangedRun": 46058573231
+}
