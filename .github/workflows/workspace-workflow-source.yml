@@ -68,3 +68,32 @@ jobs:
           npm run test:product:workspace -- tests/workspace-content.dom.test.tsx tests/workspace-view-profile-sections.dom.test.tsx tests/workspace-relation-index-model.test.ts tests/workspace-relation-index.dom.test.tsx tests/project-process-traversal.dom.test.tsx tests/rich-workspace-read-model.test.ts tests/rich-workspace-read-model.dom.test.tsx
       - name: Vite production build
         run: npm run build
+
+      - name: Original full portable T3 Node regression
+        run: npm run test:product:core
+      - name: Original full portable T3 Workspace regression
+        if: success() || failure()
+        run: npm run test:product:workspace
+  exact-k036-mapping-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: packages/t3-core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install original Kernel test dependencies (locked)
+        run: npm ci --prefix qualified-runtime-source/k036-atomic-graph --ignore-scripts --no-audit --no-fund
+      - name: Exact released runtime mapping feasibility (not D4)
+        run: node scripts/probe-k036-c3-mapping.mjs "$RUNNER_TEMP/k036-c3-mapping.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k036-c3-mapping-${{ github.sha }}
+          path: ${{ runner.temp }}/k036-c3-mapping.json
+          if-no-files-found: warn
