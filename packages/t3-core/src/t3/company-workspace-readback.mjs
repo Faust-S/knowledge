@@ -172,8 +172,16 @@ export async function readOriginalCompanyTaskRecords({kernel,organizationId,
       !['TASK','RESULT'].includes(data.kind))continue;
     requireThat(data.organizationId===organizationId&&data.workspaceId===workspaceId&&
       data.executorId===executorId&&data.taskPackageSha256===taskPackageSha256&&
-      id(event.object_id)&&!selected.has(event.object_id),
+      data.schema===RECORD_SCHEMA&&id(data.artifactId)&&id(data.operationId)&&
+      hex(data.artifactSha256)&&id(event.event_id)&&event.revision===1&&
+      (data.kind==='RESULT'?data.sourceKind==='ORIGINAL_AGENT_HUMAN_ACCEPTED':
+        data.artifactId===taskId&&data.sourceKind==='ORIGINAL_SIGNED_TASK')&&
+      !selected.has(event.object_id),
       'T3_COMPANY_READBACK_SIGNED_TASK_MISMATCH');
+    // An event cannot direct the signed reader to an unrelated Object.
+    const token=await sha256Text(JSON.stringify(companyWorkRecordKeyParts(data)));
+    requireThat(event.object_id==='company:work:'+token&&data.objectId===event.object_id&&
+      event.idempotency_key===token,'T3_COMPANY_READBACK_EVENT_MISMATCH');
     selected.add(event.object_id);
   }
   const records=[];
