@@ -911,7 +911,7 @@
         "fullNativeRuntime": "NOT_RUN"
       },
       "agent": {
-        "commit": "1dc05024df7c20d8d2135ca68d9f9ef2b3a66267",
+        "commit": "f44a7afc0eb7f584bea8a59667546f13856c4819",
         "configuration": "PRIVATE_EMPLOYEE_IPC",
         "build": "NOT_RUN"
       },
