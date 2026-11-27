@@ -305,9 +305,9 @@ export function validateImportScope(
 }
 
 /**
- * A committed receipt proves a transaction, not necessarily that the
- * requested backup was recovered. In particular, skipped conflicts and
- * zero writes must never be reported as a complete restore.
+ * A committed receipt proves a transaction, not an independent readback.
+ * Fresh restoration requires all writes; existing identical records need
+ * not be inserted again. Conflicting skips remain incomplete.
  */
 export function validateRestorationReceipt(
   preview: ImportPreview,
@@ -350,30 +350,73 @@ export function validateRestorationReceipt(
       }
     }
   }
-  const writtenObjects = receipt.applied.objects_inserted + receipt.applied.objects_updated;
+  const applied = receipt.applied;
   const allowed = preview.included;
-  if (allowed?.objects && writtenObjects === 0) {
-    issues.push("Квитанция не подтверждает запись ни одного объекта из пакета.");
-  }
   const selectedAllWorkspaces =
     plan.include_workspaces.length === preview.workspaces.length &&
     preview.workspaces.every((w) => plan.include_workspaces.includes(w.workspace_id));
   const completeRestore =
     plan.mode === "new-workspace" || plan.mode === "full" || plan.mode === "merge" ||
     (plan.mode === "selective" && selectedAllWorkspaces && !(plan.include_objects?.length));
+
+  // In an existing destination, the original atomic importer counts an
+  // identical object as skipped and an identical Event as no new insertion.
+  // Conflicting skips are a separate explicit receipt field. A fresh
+  // destination still requires the complete archive counts.
+  const mayReuse = plan.mode === "merge" ||
+    (plan.mode !== "new-workspace" && preview.workspaces.some(w =>
+      w.exists_locally && (plan.mode === "full" ||
+        plan.include_workspaces.includes(w.workspace_id))));
+  const conflictsReported = Array.isArray(receipt.skipped_conflicts);
+  const noConflictingSkips = conflictsReported && receipt.skipped_conflicts.length === 0;
+  if (conflictsReported && receipt.skipped_conflicts.length > 0) {
+    issues.push("Часть объектов пропущена из-за конфликтов.");
+  }
+  if (allowed && mayReuse && !conflictsReported) {
+    issues.push("Квитанция не подтверждает отсутствие пропущенных конфликтов.");
+  }
+  if (allowed && mayReuse &&
+      (!Number.isSafeInteger(applied.objects_skipped) || applied.objects_skipped < 0)) {
+    issues.push("Квитанция содержит некорректный счётчик существующих объектов.");
+    return Object.freeze(issues);
+  }
+  const reused = mayReuse && noConflictingSkips;
+  const coveredObjects = applied.objects_inserted + applied.objects_updated +
+    (reused ? applied.objects_skipped : 0);
   if (allowed && completeRestore) {
-    if (writtenObjects < allowed.objects) {
-      issues.push(`Объекты восстановлены не полностью: ${writtenObjects} из ${allowed.objects}.`);
+    if (coveredObjects !== allowed.objects) {
+      issues.push(`Объекты восстановлены не полностью: подтверждено ${coveredObjects} из ${allowed.objects}.`);
     }
-    if (plan.include_history && receipt.applied.events < allowed.events) {
-      issues.push(`История восстановлена не полностью: ${receipt.applied.events} из ${allowed.events} событий.`);
+    // A successful atomic transaction refuses a different Event with the same
+    // ID. Its INSERT counter alone cannot measure previously retained history.
+    // This is receipt accounting, not an independent destination readback.
+    if (plan.include_history &&
+        (applied.events > allowed.events || (!reused && applied.events < allowed.events))) {
+      issues.push(`История восстановлена не полностью: ${applied.events} из ${allowed.events} событий.`);
     }
-    if (plan.include_relations && receipt.applied.relations < allowed.relations) {
-      issues.push(`Связи восстановлены не полностью: ${receipt.applied.relations} из ${allowed.relations}.`);
+    if (plan.include_relations && applied.relations < allowed.relations) {
+      issues.push(`Связи восстановлены не полностью: ${applied.relations} из ${allowed.relations}.`);
     }
-    if (plan.include_assets && receipt.applied.assets < allowed.assets) {
-      issues.push(`Вложения восстановлены не полностью: ${receipt.applied.assets} из ${allowed.assets}.`);
+    if (plan.include_assets && applied.assets < allowed.assets) {
+      issues.push(`Вложения восстановлены не полностью: ${applied.assets} из ${allowed.assets}.`);
     }
+  } else if (allowed?.objects && plan.mode === "selective") {
+    // The canonical preview contains one row per allowed object when the
+    // scope gate has admitted all records. Count the requested selection,
+    // not the entire archive (a selected Workspace can be empty).
+    const keys = new Set(plan.include_objects ?? []);
+    const expected = preview.objects.length === allowed.objects
+      ? preview.objects.filter(row => plan.include_workspaces.includes(row.workspace_id) &&
+          (keys.size === 0 || keys.has(`${row.workspace_id}/${row.object_id}`))).length
+      : null;
+    if (expected !== null && coveredObjects !== expected) {
+      issues.push(`Объекты восстановлены не полностью: подтверждено ${coveredObjects} из ${expected}.`);
+    } else if (expected === null && coveredObjects === 0) {
+      issues.push("Квитанция не подтверждает ни одного выбранного объекта.");
+    }
+  }
+  if (applied.schemas_rejected > 0) {
+    issues.push("Часть схем отклонена при импорте.");
   }
   return Object.freeze(issues);
 }

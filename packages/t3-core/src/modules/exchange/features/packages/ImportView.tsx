@@ -1396,6 +1396,13 @@ function renderImport(p: RenderProps) {
               эта операция не отменена и не будет автоматически повторена.
             </p>
           )}
+          {state.status === "committed" && state.receipt.applied.objects_skipped > 0 &&
+            Array.isArray(state.receipt.skipped_conflicts) && state.receipt.skipped_conflicts.length === 0 && (
+            <p role="status" className="text-xs text-slate-400" data-testid="import-existing-records-notice">
+              Совпадающие записи уже находятся в рабочей области. Повторно создавать их не нужно.
+              В отчёте указано число записей, добавленных или изменённых при этой операции.
+            </p>
+          )}
           <dl className="text-xs text-slate-400 grid grid-cols-2 gap-x-3 gap-y-0.5">
             <dt>Импорт</dt><dd className="text-slate-200 truncate">{state.receipt.import_id}</dd>
             <dt>Режим</dt><dd className="text-slate-200">{state.receipt.mode}</dd>
