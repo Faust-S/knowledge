@@ -1,0 +1,95 @@
+# Exact original Kernel validation, without repeating the public build.
+name: D03 ArtBazy original Kernel passport qualification
+on:
+  push:
+    branches:
+      - 'ci/once/d03-artbazy-kernel-connect/**'
+    paths:
+      - '.github/ci-requests/d03-artbazy-kernel-connect.json'
+permissions:
+  contents: read
+jobs:
+  qualify:
+    if: github.event.created == false && github.event.deleted == false && github.event.forced == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      SITE_PIN: 3af58d0efa74fb91e22afbddf913f76c6484a3ed
+      SITE_TREE: d3a99c1684014ef37a3d826232cf5345111796e7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ci-harness
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify exact request
+        working-directory: ci-harness
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-kernel-connect --profile original-kernel-connect --revision site=3af58d0efa74fb91e22afbddf913f76c6484a3ed
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/artbazy.ru
+          ref: 3af58d0efa74fb91e22afbddf913f76c6484a3ed
+          token: ${{ secrets.DOMEN }}
+          path: private-site
+          persist-credentials: false
+          show-progress: false
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Qualify original Kernel and exact domain metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          stage="$RUNNER_TEMP/d03-kernel"
+          mkdir -p "$stage/platform" "$stage/candidate/workspace" "$stage/candidate/_iwxa/services"
+          export D03_STAGE="$stage"
+          test "$(git -C private-site rev-parse HEAD)" = "$SITE_PIN"
+          test "$(git -C private-site rev-parse 'HEAD^{tree}')" = "$SITE_TREE"
+          curl -fsSL --retry 2 -o "$stage/platform-inputs.zip" https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.1-rc.2/platform-inputs.zip
+          cd private-site
+          node --input-type=module -e 'import {verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs"; verifyPlatformArchive(process.argv[1])' "$stage/platform-inputs.zip"
+          unzip -q "$stage/platform-inputs.zip" -d "$stage/platform"
+          unzip -q "$stage/platform/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip" -d "$stage/candidate"
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          import {join} from 'node:path';
+          import {pathToFileURL} from 'node:url';
+          import {createHash} from 'node:crypto';
+          const stage=process.env.D03_STAGE,root=join(stage,'candidate');
+          const read=p=>JSON.parse(readFileSync(p,'utf8'));
+          const ids=['calculation-result','research-draft','payment-plan-fact'].map(x=>'ru.iwxa.artbazy.'+x);
+          const path='runtime/t3-config/calculation-passport.json';
+          const prev=JSON.parse(execFileSync('git',['show','91ce9dc83a0836eb4e40a2c2746e647588413713:'+path],{encoding:'utf8'}));
+          const passport=read(path);
+          for(const id of ids){
+            assert.equal(prev.schemas[id].preserve_unknown,true);
+            assert.equal(prev.schemas[id].json_schema.additionalProperties,false);
+            prev.schemas[id].preserve_unknown=false;
+          }
+          assert.deepEqual(passport,prev);
+          console.log('PASSPORT_METADATA_ONLY=3/3 PASS');
+          const domain=read('runtime/t3-config/domain.json'),workspaceConfig=read('runtime/t3-config/workspace.config.json');
+          const {registerT3LocalInferenceService}=await import(pathToFileURL(join(stage,'platform/scripts/register-t3-local-inference.mjs')).href);
+          registerT3LocalInferenceService({domain,workspaceConfig,passport});
+          const put=(p,x)=>writeFileSync(join(root,p),JSON.stringify(x));
+          const file='_iwxa/services/'+passport.service_id+'.json';
+          put('_iwxa/domain.json',domain);put('workspace/workspace.config.json',workspaceConfig);
+          put(file,passport);
+          const catalog={count:1,entries:[{service_id:passport.service_id,file,sha256:createHash('sha256').update(readFileSync(join(root,file))).digest('hex')}]};
+          put('_iwxa/service-catalog.json',catalog);
+          const {checkArtbazyKernelConnect}=await import('./scripts/check-artbazy-kernel-connect.mjs');
+          await checkArtbazyKernelConnect(root);
+          // Negative test: identical original runtime and registered schema,
+          // restore the former contradictory metadata and ensure it is refused.
+          for(const id of ids)passport.schemas[id].preserve_unknown=true;
+          put(file,passport);catalog.entries[0].sha256=createHash('sha256').update(readFileSync(join(root,file))).digest('hex');put('_iwxa/service-catalog.json',catalog);
+          await assert.rejects(checkArtbazyKernelConnect(root),e=>e.code==='PASSPORT_INVALID');
+          console.log('PREVIOUS_CONTRADICTION_REJECTED=PASS');
+          JS
+      - name: Remove private inputs
+        if: always()
+        run: rm -rf -- "$GITHUB_WORKSPACE/private-site" "$RUNNER_TEMP/d03-kernel"
