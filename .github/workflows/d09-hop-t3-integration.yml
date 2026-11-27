@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      SITE_PIN: 09d4a3a0702b9c84512baaa28e206dbd4d1adbd9
-      SUBJECT_PIN: 94fd40413525b099a141ea4b077c6eb117ed7722
+      SITE_PIN: ee097659757631b17a158d955971c16d46724712
+      SUBJECT_PIN: b5e3d2eb9271ca58ba39161952441e8536f5cf6d
       T3_PIN: a50d40dafc2e029fcc7668dece925f7fc38cc510
       ASSISTANT_PIN: 5419dacf855d81ec089acc23bae0c7aa11713a54
       D09_ORIGIN: https://hop.iwxa.ru:9443
@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable domain request
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-rc5 --revision site=09d4a3a0702b9c84512baaa28e206dbd4d1adbd9 --revision subject=94fd40413525b099a141ea4b077c6eb117ed7722 --revision platform=a50d40dafc2e029fcc7668dece925f7fc38cc510 --revision assistant=5419dacf855d81ec089acc23bae0c7aa11713a54
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-rc5 --revision site=ee097659757631b17a158d955971c16d46724712 --revision subject=b5e3d2eb9271ca58ba39161952441e8536f5cf6d --revision platform=a50d40dafc2e029fcc7668dece925f7fc38cc510 --revision assistant=5419dacf855d81ec089acc23bae0c7aa11713a54
       - name: Checkout HOP site
         uses: actions/checkout@v4
         with:
@@ -65,13 +65,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for spec in "private-site $SITE_PIN 50694e407193e5b1424234b9a6ed01c721515fdb" "original-platform $T3_PIN d375181e1fd79953cdb9ef4e414936e76b584100" "private-assistant $ASSISTANT_PIN 4b4a84cec91aa268048184a477b91efe94ebdea3"; do
+          for spec in "private-site $SITE_PIN 498fc9ce839596be9c59878bfdffefeb3a72676c" "original-platform $T3_PIN d375181e1fd79953cdb9ef4e414936e76b584100" "private-assistant $ASSISTANT_PIN 4b4a84cec91aa268048184a477b91efe94ebdea3"; do
             read -r dir sha tree <<< "$spec"
             test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
             test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
             echo "D09_T3_INPUT $dir PASS"
           done
-          test "$(git -C private-site rev-parse HEAD:public/assets/hop-assistant-skills.json)" = 3603ce0dddddb107b5773b08dbe3c06273456a29
+          test "$(git -C private-site rev-parse HEAD:public/assets/hop-assistant-skills.json)" = 47cf03f25daac9e458c84dcac13607946a4c7f80
           mkdir -p "$RUNNER_TEMP/d09-t3"
           curl --fail --silent --show-error --location --retry 2 'https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.1-rc.5/platform-inputs.zip' -o "$RUNNER_TEMP/d09-t3/platform-inputs.zip"
           printf '%s  %s\n' '381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4' "$RUNNER_TEMP/d09-t3/platform-inputs.zip" | sha256sum -c - >/dev/null
@@ -136,7 +136,7 @@ jobs:
             grep -E '^([[:alnum:]_./-]+\.(tsx?|mjs)\([0-9]+,[0-9]+\): error TS[0-9]+:|error during build:)' "$RUNNER_TEMP/d09-t3/build.log" | cut -c1-200 | head -20 || true
             exit 1
           fi
-      - name: Real T3 assistant, offline cold restart and original HOP journeys
+      - name: T3 assistant, actual canvas context, offline restart and Workspace
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         working-directory: private-site
         shell: bash
@@ -157,8 +157,46 @@ jobs:
           check USER node tests/d09-t3-user.browser.mjs
           check FIRST_WORKSPACE node tests/d09-original-t2-production-first-run.browser.mjs
           check PROJECT_RESULT_EXCHANGE node tests/d09-original-t2-project-save.browser.mjs
-          check USER_ROUTES npm run test:d09:user-routes
-          check CONTRACTS npm run test:d09
+          grep -E '^D09_PROJECT_[A-Z0-9_]+=FAIL ' "$RUNNER_TEMP/d09-t3/PROJECT_RESULT_EXCHANGE.log" | cut -c1-200 | head -5 || true
+          exit "$failed"
+      - name: Real local model installation and cold offline generation
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: private-site
+        shell: bash
+        env:
+          D09_T3_ALLOW_REAL_MODEL: '1'
+        run: |
+          set -eu
+          if node tests/d09-t3-user.browser.mjs > "$RUNNER_TEMP/d09-t3/real-model.log" 2>&1; then
+            echo D09_T3_REAL_MODEL_FUNCTIONAL=PASS
+            grep -E '^D09_T3_(REAL_MODEL_[A-Z0-9_]+|MODEL_DEVICE|MODEL_FIRST_TOKEN_MS|MODEL_ANSWER|MODEL_LOAD_STATE|MODEL_PAGE_REQUESTS)=' "$RUNNER_TEMP/d09-t3/real-model.log" | cut -c1-300 | tail -20
+          else
+            echo D09_T3_REAL_MODEL_FUNCTIONAL=FAIL
+            grep -E '^D09_T3_(PHASE_[A-Z0-9_]+|REAL_MODEL_[A-Z0-9_]+|MODEL_DEVICE|MODEL_FIRST_TOKEN_MS|MODEL_ANSWER|MODEL_LOAD_STATE|MODEL_PAGE_REQUESTS)=' "$RUNNER_TEMP/d09-t3/real-model.log" | cut -c1-300 | tail -20 || true
+            grep -oE '(D09_T3_[A-Z0-9_]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-t3/real-model.log" | sort -u | head -25 || true
+            exit 1
+          fi
+      - name: Existing product routes and contracts on T3
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -eu
+          failed=0
+          if npm run test:d09:user-routes > "$RUNNER_TEMP/d09-t3/USER_ROUTES.log" 2>&1; then
+            echo D09_T3_USER_ROUTES=PASS
+          else
+            echo D09_T3_USER_ROUTES=FAIL
+            failed=1
+          fi
+          grep -E '^D09_PRODUCT_ROUTE_FAIL |^D09_PRODUCT_ROUTE_MATRIX=' "$RUNNER_TEMP/d09-t3/USER_ROUTES.log" | cut -c1-240 | tail -30 || true
+          if npm run test:d09 > "$RUNNER_TEMP/d09-t3/CONTRACTS.log" 2>&1; then
+            echo D09_T3_CONTRACTS=PASS
+          else
+            echo D09_T3_CONTRACTS=FAIL
+            grep -E '^not ok [0-9]+ - ' "$RUNNER_TEMP/d09-t3/CONTRACTS.log" | cut -c1-160 | head -30 || true
+            failed=1
+          fi
           exit "$failed"
       - name: Remove private inputs, site and evidence
         if: always()
