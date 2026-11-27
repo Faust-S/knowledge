@@ -2729,7 +2729,41 @@
         },
         "evidence": "EXACT_ORIGINAL_HOST_HTTPS_BLI_OFFLINE_AND_REAL_IWXA_PASS_WITHOUT_MODEL_DOWNLOAD"
       },
-      "independent_end_user_acceptance": "BLOCKED_LOCAL_TLS_LAUNCHER_CERT_PROVIDER_AND_CURRENTUSER_ROOT_TRUST",
+      "independent_end_user_acceptance": "PARTIAL_REAL_WINDOWS_CODEX_OWNER_DIRECTED_ENGINEERING_COMPLETION",
+      "independent_acceptance_second_attempt": {
+        "reported_by": "OWNER_PROVIDED_PARTIAL_CODEX_REPORT",
+        "delivery": "PUBLISHED_RC5_LOOPBACK_EXACT_SHA256",
+        "status": "PARTIAL_REAL_WINDOWS_IAB",
+        "observed": {
+          "archive_identity": "PASS",
+          "host_launch": "PASS",
+          "workspace_creation": "PASS",
+          "workspace_navigation": "PASS",
+          "exchange_lifecycle_navigation": "PASS",
+          "explicit_autonomy_install": "PASS_97_FILES",
+          "model_consent": "PASS",
+          "real_qwen_webgpu_generation": "PASS",
+          "editable_draft": "PASS",
+          "explicit_original_kernel_save": "PASS",
+          "reopen_panel_original_kernel_readback": "PASS",
+          "export_preview_and_package": "PASS",
+          "file_download_confirmation": "NOT_COMPLETED",
+          "file_chooser_import": "BLOCKED_IAB_NATIVE_FILE_DIALOG_HANDOFF",
+          "cold_browser_offline_restart": "NOT_RUN",
+          "offline_model_regeneration": "NOT_RUN",
+          "model_response_quality": "SMALL_MODEL_ADDED_UNREQUESTED_CONTENT_USER_EDITED"
+        },
+        "policy": "OWNER_REQUESTED_SELF_TESTING_REMAINDER_ON_GITHUB_NO_FURTHER_CODEX_DELEGATION",
+        "final_engineering_completion": {
+          "run": 46044096981,
+          "request_commit": "549276dfb453dadde1b485f58dd99068fefb6024",
+          "prepared_commit": "c7102fdecd2d70c9037030aacf94f6fc087cdbfe",
+          "job": 140658893590,
+          "status": "IN_PROGRESS",
+          "scope": "EXACT_PUBLISHED_LOOPBACK_ZIP_REAL_FILE_CHOOSER_IMPORT_REPEAT_EXPORT_INDEPENDENT_RESTORE_COLD_OFFLINE_SERVER_STOPPED",
+          "model_generation_in_completion": "NOT_IN_SCOPE_PREVIOUS_EXACT_PLATFORM_HARDWARE_PASS_AND_REAL_WINDOWS_CODEX_FIRST_GENERATION"
+        }
+      },
       "independent_acceptance_attempt": {
         "reported_by": "OWNER_PROVIDED_CODEX_REPORT",
         "status": "BLOCKED",
