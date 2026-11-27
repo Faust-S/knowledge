@@ -398,3 +398,11 @@ test("D6 pins installed recipient through Human Review and cold readback",async(
     {code:"T3_D6_NATIVE_RECIPIENT_CHANGED"});
   assert.equal(cold.receives(),1,"no replay after recipient switch");
 });
+
+
+test("D6 preview revalidates original source after an asynchronous empty receipt",async()=>{
+  const f=fixture();
+  f.setReceiptHook(()=>{f.changeRevision(3);});
+  await assert.rejects(f.port.preview(f.ref),{code:"T3_D6_STALE_OR_MISSING_REFERENCE"});
+  assert.equal(f.receives(),0);assert.equal(f.confirmations(),0);
+});

@@ -4,8 +4,9 @@ import { createHash } from 'node:crypto';
 import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { applyWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
-import { inspectWorkspaceMethodAgentPredecessorResults } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
+import { inspectWorkspaceMethodAgentPredecessorResults,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
 import { createTrustedWorkspaceMethodStageReader } from '../src/t3/workspace-method-stage-reader.mjs';
+import { createTrustedNativeContinuation } from '../src/t3/native-result-continuation.mjs';
 
 const ws='stage-result-workspace',projectId='research',time='2026-11-27T14:00:00Z';
 const material={workspace_id:ws,object_id:'source',schema_id:'note',schema_version:'1.0.0',revision:1,data:{private:'source body'}};
@@ -94,7 +95,7 @@ test('accepted owner or exact material changed during observation cannot confirm
       const r=await f.readObject(w,id);return changed&&id==='source'?{object:{...r.object,revision:2}}:r;
     }})),code('METHOD_STAGE_RESULT_BASIS_CHANGED'));
 });
-function trusted(f){
+function trusted(f,{withAgent=true,withNative=false}={}){
   const workspace={workspace_id:ws,deleted_at:null};
   let chosen=workspace,active=true,allowed=true;const listeners=new Set();
   const currentWorkspace={get:()=>chosen,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);}};
@@ -111,11 +112,20 @@ function trusted(f){
   const kernel={sessionInfo:{contract_version:'1.3.0'},hasOperation:op=>['t1.getWorkspace','t1.getObject'].includes(op),
     getWorkspace:async workspaceId=>workspaceId===ws?workspace:null,
     getObject:async(...a)=>{const row=await f.readObject(...a);return row?{...row,relations:{incoming:[],outgoing:[]}}:null;}};
-  let hook=null;
+  let hook=null,nativeHook=null,received=null,inspections=0,receives=0,confirmations=0;
+  const recipientId='iwxa.atlas',operationId='native:operation:fixture';
+  const nativeOwner={recipientId,
+    inspect:async({reference})=>{inspections++;if(nativeHook)await nativeHook();return {status:'READY',reference,recipientId,operationId};},
+    receive:async({reference})=>{receives++;received={state:'COMMITTED',reference,recipientId,operationId,resultRef:'atlas:result:fixture'};},
+    receipt:async()=>received,readback:async()=>received?{...received,state:'PERSISTED'}:null};
+  const nativeContinuation=withNative?createTrustedNativeContinuation({kernel,accessForRead:async()=>access,currentWorkspace,nativeOwner,
+    confirmHuman:async()=>{confirmations++;return true;},isHostActive:()=>active}):null;
   const reader=createTrustedWorkspaceMethodStageReader({kernel,accessForRead:async()=>access,currentWorkspace,sourceOwner:f.owner,
-    originalAgentResultOwner:{readAccepted:async ref=>{if(hook)await hook();return f.readAccepted(ref);}},isHostActive:()=>active});
+    originalAgentResultOwner:withAgent?{readAccepted:async ref=>{if(hook)await hook();return f.readAccepted(ref);}}:null,
+    nativeContinuation,nativeRecipientId:withNative?recipientId:null,isHostActive:()=>active});
   const changeSelection=()=>{chosen={...workspace};for(const notify of listeners)notify();};
-  return {reader,context,deny:()=>{allowed=false;},changeSelection,dispose:()=>{active=false;},hook:fn=>{hook=fn;}};
+  return {reader,context,deny:()=>{allowed=false;},changeSelection,dispose:()=>{active=false;},hook:fn=>{hook=fn;},
+    nativeHook:fn=>{nativeHook=fn;},nativeContinuation,inspections:()=>inspections,receives:()=>receives,confirmations:()=>confirmations};
 }
 const hostInput=f=>({workspaceId:ws,projectId,stepId:'review',expected:f.base,resultSelections:selection});
 test('trusted stage reader composes actual original signed binding and scoped original owner',async()=>{
@@ -168,4 +178,105 @@ test('material-free root Work still requires current D1 at final trusted readbac
   h=trusted({...f,owner});
   await assert.rejects(h.reader.inspect({...hostInput(f),stepId:'analyse',resultSelections:[]}),code('T3_ACCESS_NOT_PERMITTED'));
   assert.equal(f.calls.length,0);assert.equal(f.nativeCalls.length,0);
+});
+
+
+test('root handoff preview is exact and deterministic but does not issue a signed Task or approve a model',async()=>{
+  const f=await setup(),request=args(f,{stepId:'analyse',resultSelections:[],readAccepted:undefined});
+  const first=await previewWorkspaceMethodStageHandoff(request),second=await previewWorkspaceMethodStageHandoff(request);
+  assert.equal(first.state,'INPUTS_PREPARED_OWNER_SELECTION_REQUIRED');assert.match(first.candidateDigest,/^[a-f0-9]{64}$/);
+  assert.equal(first.candidateDigest,second.candidateDigest);assert.deepEqual(first.binding.workRef,first.inspection.stageInput.basis.stageRef);
+  assert.equal(first.binding.inputBasisDigest,first.inspection.stageInput.inputBasisDigest);
+  assert.ok(first.requiredOriginalOwnerChecks.includes('ORIGINAL_SIGNED_TASK_BINDING'));
+  assert.equal(first.signedTaskIssued,false);assert.equal(first.taskCreated,false);
+  assert.equal(first.contentBindingProven,false);assert.equal(first.dispatchAuthorized,false);assert.equal(f.nativeCalls.length,0);
+});
+test('downstream handoff binds observed native Result references but requires exact original input binding',async()=>{
+  const f=await setup();
+  const r=await previewWorkspaceMethodStageHandoff(args(f));
+  assert.equal(r.state,'PRIOR_RESULTS_OBSERVED_EXACT_BINDING_REQUIRED');
+  assert.equal(r.binding.predecessorResults[0].accepted.resultId,accepted.resultId);
+  assert.equal(r.binding.predecessorResults[0].canonicalWorkRef.recordId,'analyse-source');
+  assert.ok(r.requiredOriginalOwnerChecks.includes('EXACT_PREDECESSOR_RESULT_INPUT_BINDING'));
+  assert.ok(r.requiredOriginalOwnerChecks.includes('HUMAN_REVIEW_AND_ORIGINAL_RESULT_OWNER'));
+  assert.equal(r.exactInputBindingProven,false);assert.equal(r.resultReuseProven,false);
+  f.changeAccepted({...accepted,archiveSha256:'c'.repeat(64)});
+  const changed=await previewWorkspaceMethodStageHandoff(args(f));
+  assert.notEqual(changed.candidateDigest,r.candidateDigest);
+  const missing=await previewWorkspaceMethodStageHandoff(args(f,{resultSelections:[]}));
+  assert.equal(missing.binding,null);assert.equal(missing.candidateDigest,null);
+});
+test('program handoff never infers program operation, parameters or connection from methodology text',async()=>{
+  const value=draft();value.steps[0].actor='program';
+  const f=await setup(value),r=await previewWorkspaceMethodStageHandoff(args(f,{stepId:'analyse',resultSelections:[]}));
+  assert.equal(r.binding.intendedActor,'program');
+  assert.ok(r.requiredOriginalOwnerChecks.includes('EXPLICIT_PROGRAM_OPERATION_AND_ARGUMENTS'));
+  assert.ok(r.requiredOriginalOwnerChecks.includes('CURRENT_CONNECTION_AND_TOOL_APPROVAL'));
+  for(const key of ['operation','parameters','providerId','connectionEpoch'])assert.equal(Object.hasOwn(r.binding,key),false);
+  assert.equal(r.dispatchAuthorized,false);
+});
+test('trusted overview and root handoff work without an installed Agent; selecting its Result requires original owner',async()=>{
+  const f=await setup(),h=trusted(f,{withAgent:false});
+  const report=await h.reader.overview({workspaceId:ws,projectId,expected:f.base});
+  assert.equal(report.counts.total,2);assert.equal(report.executionAuthority,false);
+  const r=await h.reader.previewHandoff({...hostInput(f),stepId:'analyse',resultSelections:[]});
+  assert.equal(r.state,'INPUTS_PREPARED_OWNER_SELECTION_REQUIRED');
+  await assert.rejects(h.reader.inspect(hostInput(f)),code('T3_METHOD_STAGE_RESULT_OWNER_REQUIRED'));
+});
+test('trusted Workflow uses the ORIGINAL D6 preview and recovery; it never dispatches or confirms a native write',async()=>{
+  const f=await setup(),h=trusted(f,{withNative:true}),input={...hostInput(f),predecessorStepId:'analyse'};
+  const first=await h.reader.previewContinuation({...input,recipientId:'caller:forged',recover:true,confirmHuman:()=>true});
+  assert.equal(first.nativeContinuation.preview.status,'AVAILABLE');
+  assert.equal(first.nativeContinuation.preview.recipientId,'iwxa.atlas');
+  assert.equal(first.nativeContinuation.receipt,null);assert.equal(first.targetWorkBound,false);
+  assert.equal(first.dispatchAuthorized,false);assert.equal(h.receives(),0);assert.equal(h.confirmations(),0);
+  const unknown=await h.reader.recoverContinuation(input);
+  assert.equal(unknown.nativeContinuation.receipt.status,'OUTCOME_UNKNOWN');assert.equal(h.receives(),0);
+  // The existing original D6 product route performs its own separate
+  // explicit native write; the Workflow only observes its durable receipt.
+  const committed=await h.nativeContinuation.continueSelected(resultRef);
+  assert.equal(committed.status,'OWNER_READBACK_CONFIRMED');assert.equal(h.receives(),1);assert.equal(h.confirmations(),1);
+  const recovered=await h.reader.recoverContinuation(input);
+  assert.equal(recovered.nativeContinuation.preview.status,'RECOVER_ONLY');
+  assert.equal(recovered.nativeContinuation.receipt.status,'OWNER_READBACK_CONFIRMED');
+  assert.equal(recovered.nativeContinuation.receipt.resultRef,'atlas:result:fixture');
+  assert.equal(recovered.targetWorkBound,false);assert.equal(recovered.executionAuthority,false);
+  assert.equal(h.receives(),1);assert.equal(h.confirmations(),1);
+});
+test('unselected or stale predecessor cannot enter native recipient preview; caller cannot supply a native port',async()=>{
+  const f=await setup(),h=trusted(f,{withNative:true});
+  await assert.rejects(h.reader.previewContinuation({...hostInput(f),predecessorStepId:'other'}),code('METHOD_STAGE_NATIVE_PREDECESSOR_REQUIRED'));
+  const input={...hostInput(f),predecessorStepId:'analyse'};
+  const missing=await h.reader.previewContinuation({...input,resultSelections:[]});
+  assert.equal(missing.nativeContinuation,null);assert.equal(h.inspections(),0);
+  f.changeResult({...resultObject,revision:2});
+  const stale=await h.reader.previewContinuation(input);
+  assert.equal(stale.nativeContinuationState,'PREDECESSOR_RESULT_NOT_AVAILABLE');assert.equal(h.inspections(),0);
+  const noNative=trusted(f);
+  await assert.rejects(noNative.reader.previewContinuation({...input,nativeContinuation:{preview:()=>({})}}),
+    code('T3_METHOD_STAGE_NATIVE_OWNER_REQUIRED'));
+});
+test('native continuation readback must match exact source and pinned recipient; no target Work acceptance',async()=>{
+  const f=await setup(),p={status:'AVAILABLE',operationId:'native:op',recipientId:'iwxa.atlas',reference:resultRef};
+  const call=extra=>inspectWorkspaceMethodNativeContinuation({...args(f),predecessorStepId:'analyse',recipientId:'iwxa.atlas',
+    nativeContinuation:{preview:()=>p,recover:()=>({status:'OWNER_READBACK_CONFIRMED',operationId:p.operationId,
+      recipientId:p.recipientId,reference:p.reference,resultRef:'atlas:result'})},...extra});
+  await assert.rejects(call({nativeContinuation:{preview:()=>({...p,recipientId:'wrong'})}}),code('METHOD_STAGE_NATIVE_PREVIEW_MISMATCH'));
+  await assert.rejects(call({recover:true,nativeContinuation:{preview:()=>p,recover:()=>({status:'OUTCOME_UNKNOWN',operationId:'other'})}}),
+    code('METHOD_STAGE_NATIVE_RECEIPT_MISMATCH'));
+  const r=await call({recover:true});
+  assert.equal(r.nativeContinuation.receipt.status,'OWNER_READBACK_CONFIRMED');
+  assert.equal(r.nativeContinuation.recipientAcceptanceDoesNotProveWorkCompletion,true);
+  assert.equal(r.targetWorkBound,false);assert.equal(r.resultReuseProven,false);
+});
+test('changed materials or signed context while original native recipient is inspected invalidate Workflow observation',async()=>{
+  const f=await setup(),h=trusted(f,{withNative:true}),input={...hostInput(f),predecessorStepId:'analyse'};
+  h.nativeHook(()=>{h.context.purpose='other';});
+  await assert.rejects(h.reader.previewContinuation(input),e=>['T3_D6_SIGNED_CONTEXT_CHANGED','T3_METHOD_STAGE_SIGNED_CONTEXT_CHANGED'].includes(e.code));
+  const g=await setup();let changed=false;
+  const port={preview:async reference=>{changed=true;return {status:'AVAILABLE',recipientId:'iwxa.atlas',operationId:'native:op',reference};}};
+  await assert.rejects(inspectWorkspaceMethodNativeContinuation({...args(g),predecessorStepId:'analyse',recipientId:'iwxa.atlas',
+    nativeContinuation:port,readObject:async(w,id)=>{
+      const row=await g.readObject(w,id);return changed&&id==='source'?{object:{...row.object,revision:2}}:row;
+    }}),code('METHOD_STAGE_RESULT_BASIS_CHANGED'));
 });

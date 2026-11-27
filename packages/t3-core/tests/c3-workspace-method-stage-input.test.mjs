@@ -204,3 +204,30 @@ test('complete method overview rejects missing or duplicate original revisions b
   const rows=f.base.workRefs.map(row=>({...row}));rows[1].recordId=rows[0].recordId;
   await assert.rejects(overview(f,{expected:{...f.base,workRefs:rows}}),code('METHOD_STAGE_SELECTION_INVALID'));
 });
+
+
+test('single selected stage identity is captured before async source observation',async()=>{
+  const f=await setup();let release,entered;const gate=new Promise(resolve=>{release=resolve;});
+  const ready=new Promise(resolve=>{entered=resolve;});let first=true;
+  const owner={load:async(...args)=>{if(first){first=false;entered();await gate;}return f.owner.load(...args);}};
+  const args={owner,workspaceId,projectId,expected:f.base,readObject:f.readObject,stepId:'compute'};
+  const pending=readWorkspaceMethodStageInputBasis(args);await ready;args.stepId='prepare';release();
+  assert.equal((await pending).basis.stepId,'compute');
+});
+test('64-stage complete overview scales owner reads with Works and shares each material observation',async()=>{
+  const {owner}=await createProjectProcessSourceOwnerQualificationHarness();
+  const value=draft();value.steps=Array.from({length:64},(_,i)=>({id:'stage-'+i,name:'Stage '+i,
+    actor:'program',instruction:'Calculate stage '+i,dependsOn:i?['stage-'+(i-1)]:[],materialIds:['model']}));
+  const result=await createWorkspaceMethodThroughSourceOwner({owner,workspaceId,objects,draft:value,
+    recordIds:{project:'large-project',works:Object.fromEntries(value.steps.map(s=>[projectId+'.'+s.id,'large-'+s.id]))},knowledgeAt:time});
+  let loads=0,materialReads=0;
+  const port={load:async(...args)=>{loads++;return owner.load(...args);}};
+  const material=async(ws,id)=>{materialReads++;return {object:{...objects.find(o=>o.workspace_id===ws&&o.object_id===id)}};};
+  const r=await readWorkspaceMethodInputOverview({owner:port,workspaceId,projectId,expected:result.method,readObject:material});
+  assert.equal(r.stages.length,64);assert.equal(loads,195);assert.equal(materialReads,2);
+  assert.equal(r.stages.at(-1).prerequisiteCount,63);
+  assert.equal(r.counts.predecessorResultsRequired,63);assert.equal(r.counts.rootInputsVerified,1);
+  const last=await readWorkspaceMethodStageInputBasis({owner,workspaceId,projectId,expected:result.method,readObject:material,stepId:'stage-63'});
+  assert.equal(r.stages.at(-1).inputBasisDigest,last.inputBasisDigest);
+  assert.equal((await owner.audit()).length,65);
+});

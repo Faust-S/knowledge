@@ -225,6 +225,9 @@ export function createTrustedNativeContinuation({
     return withSelectedSource(input,async state=>{
       const plan=await inspect(state);
       const prior=await probePrior(state,plan.operationId);
+      // Even a null receipt was an asynchronous original recipient read.
+      // Re-observe the signed source before reporting availability.
+      await state.readSource();
       const status=inFlight.has(plan.operationId)?"OPERATION_IN_PROGRESS":
         prior!==null||plan.status==="RECOVER_ONLY"||
         dispatched.has(plan.operationId)?"RECOVER_ONLY":"AVAILABLE";

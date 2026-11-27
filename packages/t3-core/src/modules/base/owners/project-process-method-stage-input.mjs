@@ -102,9 +102,10 @@ async function openInputObservation({owner,readObject,workspaceId,projectId,expe
   const reportFor=id=>stageReport({workspaceId,projectId,stepId:id,closure,observedById});
   return {closure,materials,reportFor,revalidate};
 }
-async function openStageInputObservation(input){
-  const observation=await openInputObservation(input,false);
-  return {report:observation.reportFor(input.stepId),revalidate:observation.revalidate};
+async function openStageInputObservation(input={}){
+  const stepId=input.stepId;
+  const observation=await openInputObservation({...input,stepId},false);
+  return {report:observation.reportFor(stepId),revalidate:observation.revalidate};
 }
 export async function readWorkspaceMethodStageInputBasis(input){
   return (await openStageInputObservation(input)).report;
@@ -237,21 +238,28 @@ async function observeAgentResult({readObject,readAccepted,workspaceId,projectId
       ?'ACCEPTED_WORK_NUMBER_MATCHED_INPUT_BINDING_UNPROVEN':'ACCEPTED_OLDER_OR_OTHER_WORK_REVISION',
     exactInputBindingProven:false});
 }
-export async function inspectWorkspaceMethodAgentPredecessorResults({
+export async function inspectWorkspaceMethodAgentPredecessorResults(input={}){
+  return inspectStageResults(input,null);
+}
+async function inspectStageResults({
   owner,readObject,readAccepted,workspaceId,projectId,expected,stepId,resultSelections=[]
-}={}){
-  if(typeof readAccepted!=='function')fail('METHOD_STAGE_RESULT_OWNER_REQUIRED','Original installed Agent accepted Result read port required');
+},nativeRequest){
   const selected=selection(expected),selections=captureResultSelections(resultSelections,workspaceId);
+  if(selections.length&&typeof readAccepted!=='function')fail('METHOD_STAGE_RESULT_OWNER_REQUIRED','Original installed Agent accepted Result read port required');
   const args={owner,readObject,workspaceId,projectId,expected:selected,stepId};
   const observation=await openStageInputObservation(args),initial=observation.report;
   const byStep=new Map(initial.predecessors.map(row=>[row.stepId,row]));
   if(selections.some(row=>!byStep.has(row.stepId))){
     fail('METHOD_STAGE_RESULT_SELECTION_INVALID','Only direct declared predecessor Results may be selected');
   }
+  if(nativeRequest&&!byStep.has(nativeRequest.predecessorStepId)){
+    fail('METHOD_STAGE_NATIVE_PREDECESSOR_REQUIRED','Only a direct declared predecessor can be inspected for native continuation');
+  }
   const flags={atomicSnapshot:false,executionAuthority:false,resultReuseProven:false,writeAuthorized:false,
     exactInputBindingProven:false,originalExecutionOwnerRequired:true};
   if(initial.state!=='INPUT_REFERENCES_VERIFIED'){
-    return Object.freeze({state:'MATERIAL_REVIEW_REQUIRED',stageInput:initial,results:Object.freeze([]),...flags});
+    return Object.freeze({state:'MATERIAL_REVIEW_REQUIRED',stageInput:initial,results:Object.freeze([]),...flags,
+      ...(nativeRequest?{nativeContinuation:null,nativeContinuationState:'MATERIAL_REVIEW_REQUIRED',targetWorkBound:false,dispatchAuthorized:false}:{})});
   }
   const bySelection=new Map(selections.map(row=>[row.stepId,row.reference]));
   const observe=()=>Promise.all(initial.predecessors.map(predecessor=>{
@@ -261,6 +269,15 @@ export async function inspectWorkspaceMethodAgentPredecessorResults({
         accepted:null,state:'ORIGINAL_RESULT_OWNER_REQUIRED',exactInputBindingProven:false});
   }));
   const results=await observe();
+  // D6 is a read-only observation of an existing recipient route here.
+  // It must finish between the same original source/material/Result fences.
+  let nativeObservation=null;
+  if(nativeRequest){
+    const source=results.find(row=>row.stepId===nativeRequest.predecessorStepId);
+    if(source?.state==='ACCEPTED_WORK_NUMBER_MATCHED_INPUT_BINDING_UNPROVEN'){
+      nativeObservation=await observeNativeContinuation(nativeRequest,source);
+    }
+  }
   await observation.revalidate('METHOD_STAGE_RESULT_BASIS_CHANGED');
   const confirmed=await observe();
   if(!equal(results,confirmed))fail('METHOD_STAGE_RESULT_CHANGED','Original accepted Result observation changed during inspection');
@@ -268,5 +285,86 @@ export async function inspectWorkspaceMethodAgentPredecessorResults({
   const state=results.some(r=>['RESULT_UNAVAILABLE','RESULT_REVISION_CHANGED','ACCEPTED_OLDER_OR_OTHER_WORK_REVISION'].includes(r.state))
     ?'PREDECESSOR_RESULT_REVIEW_REQUIRED':results.some(r=>r.state==='ORIGINAL_RESULT_OWNER_REQUIRED')
       ?'PREDECESSOR_RESULTS_REQUIRED':results.length?'ACCEPTED_RESULTS_OBSERVED_INPUT_BINDING_UNPROVEN':'NO_PREDECESSOR_RESULTS_REQUIRED';
-  return Object.freeze({state,stageInput:initial,results:Object.freeze(results),...flags});
+  return Object.freeze({state,stageInput:initial,results:Object.freeze(results),...flags,
+    ...(nativeRequest?{nativeContinuation:nativeObservation,
+      nativeContinuationState:nativeObservation?'ORIGINAL_RECIPIENT_OBSERVED_TARGET_WORK_BINDING_UNPROVEN':'PREDECESSOR_RESULT_NOT_AVAILABLE',
+      targetWorkBound:false,dispatchAuthorized:false}:{})});
+}
+
+
+// W05.6. A source-owned handoff PREVIEW, not a new Task/Exchange contract.
+// The original executor must later sign/validate the exact input binding,
+// including actual content/assets and its native execution identity.
+export async function previewWorkspaceMethodStageHandoff(input={}){
+  const inspection=await inspectWorkspaceMethodAgentPredecessorResults(input);
+  const {stageInput,results}=inspection,basis=stageInput.basis;
+  const actor=basis.intendedActor;
+  const needs=Object.freeze([
+    'EXACT_MATERIAL_CONTENT_AND_ASSET_BINDING',
+    ...(stageInput.predecessors.length?['EXACT_PREDECESSOR_RESULT_INPUT_BINDING']:[]),
+    ...(actor==='agent'?['ORIGINAL_SIGNED_TASK_BINDING','CURRENT_MODEL_AND_AUTHORITY']:
+      actor==='program'?['EXPLICIT_PROGRAM_OPERATION_AND_ARGUMENTS','CURRENT_CONNECTION_AND_TOOL_APPROVAL']:
+        ['HUMAN_REVIEW_AND_ORIGINAL_RESULT_OWNER'])
+  ]);
+  const complete=stageInput.inputBasisDigest!==null&&results.length===stageInput.predecessors.length
+    &&results.every(row=>row.state==='ACCEPTED_WORK_NUMBER_MATCHED_INPUT_BINDING_UNPROVEN');
+  const binding=complete?Object.freeze({
+    schema:'IWXA_T2_WORKSPACE_METHOD_HANDOFF_PREVIEW_V1',
+    workspaceId:basis.workspaceId,projectId:basis.projectId,stepId:basis.stepId,
+    projectRef:basis.projectRef,workRef:basis.stageRef,intendedActor:actor,
+    inputBasisDigest:stageInput.inputBasisDigest,
+    predecessorResults:Object.freeze(results.map(row=>Object.freeze({stepId:row.stepId,
+      canonicalWorkRef:row.workRef,accepted:row.accepted}))),
+  }):null;
+  const candidateDigest=binding?createHash('sha256').update(canonicalStringify(binding)).digest('hex'):null;
+  const state=!complete?inspection.state:stageInput.predecessors.length?
+    'PRIOR_RESULTS_OBSERVED_EXACT_BINDING_REQUIRED':'INPUTS_PREPARED_OWNER_SELECTION_REQUIRED';
+  return Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_STAGE_HANDOFF_PREVIEW_V1',state,
+    inspection,binding,candidateDigest,requiredOriginalOwnerChecks:needs,
+    signedTaskIssued:false,taskCreated:false,contentBindingProven:false,exactInputBindingProven:false,
+    dispatchAuthorized:false,executionAuthority:false,writeAuthorized:false,resultReuseProven:false,atomicSnapshot:false});
+}
+
+// W07.1. Reuse the existing trusted D6 recipient preview/recovery port.
+// The existing D6 transfer binds the source Object and recipient, but NOT
+// the exact target canonical Work. No new transfer or dispatcher here.
+const NATIVE_ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
+function nativePreviewReport(value,reference,recipientId){
+  if(!value||value.recipientId!==recipientId||!NATIVE_ID.test(value.operationId??'')
+      ||!['AVAILABLE','RECOVER_ONLY','OPERATION_IN_PROGRESS'].includes(value.status)
+      ||!equal(resultRef(value.reference,reference.workspace_id),reference)){
+    fail('METHOD_STAGE_NATIVE_PREVIEW_MISMATCH','Original D6 recipient preview must match exact selected source and recipient');
+  }
+  return Object.freeze({status:value.status,operationId:value.operationId,recipientId,reference});
+}
+async function observeNativeContinuation(request,source){
+  const reference=source.reference;
+  const preview=nativePreviewReport(await request.port.preview(reference),reference,request.recipientId);
+  let receipt=null;
+  if(request.recover){
+    const raw=await request.port.recover(reference);
+    if(!raw||raw.operationId!==preview.operationId||!['OWNER_READBACK_CONFIRMED','OUTCOME_UNKNOWN'].includes(raw.status)){
+      fail('METHOD_STAGE_NATIVE_RECEIPT_MISMATCH','Original D6 recovery must address the previewed operation');
+    }
+    if(raw.status==='OWNER_READBACK_CONFIRMED'){
+      if(raw.recipientId!==request.recipientId||!NATIVE_ID.test(raw.resultRef??'')
+          ||!equal(resultRef(raw.reference,reference.workspace_id),reference)){
+        fail('METHOD_STAGE_NATIVE_RECEIPT_MISMATCH','Original D6 receipt identity mismatch');
+      }
+      receipt=Object.freeze({status:raw.status,operationId:raw.operationId,recipientId:request.recipientId,
+        resultRef:raw.resultRef,reference});
+    }else receipt=Object.freeze({status:raw.status,operationId:raw.operationId});
+  }
+  return Object.freeze({predecessorStepId:source.stepId,sourceWorkRef:source.workRef,preview,receipt,
+    targetWorkBound:false,dispatchAuthorized:false,recipientAcceptanceDoesNotProveWorkCompletion:true});
+}
+export async function inspectWorkspaceMethodNativeContinuation({nativeContinuation,recipientId,
+  predecessorStepId,recover=false,...input}={}){
+  if(typeof predecessorStepId!=='string'||!/^[A-Za-z0-9_-]{1,63}$/u.test(predecessorStepId)
+      ||typeof recipientId!=='string'||!NATIVE_ID.test(recipientId)
+      ||typeof nativeContinuation?.preview!=='function'||typeof recover!=='boolean'
+      ||(recover&&typeof nativeContinuation.recover!=='function')){
+    fail('METHOD_STAGE_NATIVE_OWNER_REQUIRED','Trusted original D6 recipient port and explicit predecessor required');
+  }
+  return inspectStageResults(input,Object.freeze({predecessorStepId,recipientId,recover,port:nativeContinuation}));
 }
