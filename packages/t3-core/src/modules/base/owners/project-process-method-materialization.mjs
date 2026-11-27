@@ -2,7 +2,7 @@ import { CanonicalInstant } from '../../../foundation/time.mjs';
 import { canonicalStringify } from '../../../persistence/canonical-codec.mjs';
 import { normalizeProject, normalizeWork, assertProjectMethodologyCreation, assertProjectMethodologyCreationWork } from '../features/project-process/project-process.mjs';
 import { prepareWorkspaceMethodSourceInputs, reconstructWorkspaceMethodDraft, inspectWorkspaceMethodMaterials } from '../features/workspace/workspace-project-method.mjs';
-import { projectProcessSourceObjectId } from './project-process-source-owner.mjs';
+import { projectProcessSourceObjectId,hasProjectProcessSourceIdentity } from './project-process-source-owner.mjs';
 import { projectProcessSourceBinding } from './project-process-source-contract.mjs';
 import { readWorkspaceMethodFromSourceOwner } from './project-process-method-readback.mjs';
 
@@ -111,7 +111,7 @@ export async function createWorkspaceMethodThroughSourceOwner({owner,workspaceId
         if(!preflight.has(ref.recordId)) fail('METHOD_SOURCE_CREATE_CONFLICT','Existing record has an unavailable creation prerequisite');
       }
       preflight.add(item.recordId);
-    }else if((await owner.history(item.kind,workspaceId,item.id)).length!==0){
+    }else if(await hasProjectProcessSourceIdentity(owner,item.kind,workspaceId,item.id)){
       fail('METHOD_SOURCE_CREATE_CONFLICT','Existing history prevents new creation of this identity');
     }
   }
@@ -123,7 +123,7 @@ export async function createWorkspaceMethodThroughSourceOwner({owner,workspaceId
     }
     let writeError;
     try{
-      await owner.create(item.kind,{...item.input,recordId:item.recordId,knowledgeAt:instant});
+      await owner.create(item.kind,{...item.input,recordId:item.recordId,knowledgeAt:instant,expectedCanonicalRefs:item.expectedRefs});
     }catch(error){writeError=error;}
     let row;
     try{row=await readExact(owner,workspaceId,item,instant);}
@@ -203,7 +203,7 @@ export async function inspectWorkspaceMethodCreation({owner,workspaceId,projectI
     const row=await owner.load(item.kind,workspaceId,item.id);
     observed.set(item.recordId,row?.baseRevisionId??null);
     const state=row ? (matches(row,item,knowledgeAt)?'CONFIRMED':'CONFLICT')
-      : (await owner.history(item.kind,workspaceId,item.id)).length ? 'CONFLICT':'MISSING';
+      : (await hasProjectProcessSourceIdentity(owner,item.kind,workspaceId,item.id)) ? 'CONFLICT':'MISSING';
     sourceStates.set(item.recordId,state);
   }
   // An exact child is not a confirmed part of a recoverable creation set
@@ -223,7 +223,7 @@ export async function inspectWorkspaceMethodCreation({owner,workspaceId,projectI
     const row=await owner.load(item.kind,workspaceId,item.id);
     if((row?.baseRevisionId??null)!==observed.get(item.recordId)
         || (sourceStates.get(item.recordId)==='CONFIRMED' && (!row||!matches(row,item,knowledgeAt)))
-        || (!row && sourceStates.get(item.recordId)==='MISSING' && (await owner.history(item.kind,workspaceId,item.id)).length)){
+        || (!row && sourceStates.get(item.recordId)==='MISSING' && await hasProjectProcessSourceIdentity(owner,item.kind,workspaceId,item.id))){
       fail('METHOD_SOURCE_REFERENCE_CHANGED','Source head changed during creation inspection');
     }
   }

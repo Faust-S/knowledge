@@ -31,7 +31,7 @@ async function setup(adapter=new MemoryCanonicalAdapter()){
 }
 const request=(owner,base,d=changed(),extra={})=>({owner,workspaceId,projectId,expected:base,draft:d,objects,
   operationId:'attempt-1',knowledgeAt:nextTime,...extra});
-const port=(owner,overrides={})=>({...Object.fromEntries(['create','revise','release','load','history','historyThrough','audit'].map(name=>[name,owner[name].bind(owner)])),...overrides});
+const port=(owner,overrides={})=>({...Object.fromEntries(['create','revise','release','load','sourceIdentityExists','history','historyThrough','audit'].map(name=>[name,owner[name].bind(owner)])),...overrides});
 const ref=(readback,id)=>readback.workRefs.find(row=>row.objectId.endsWith('.'+id));
 async function interrupted(owner,base){
   const stopped=port(owner,{revise:async(kind,input)=>{
@@ -387,4 +387,79 @@ test('concurrent change of the excluded Work is detected before rewriting Projec
   assert.equal((await inspectWorkspaceMethodRevision(args)).state,'CONFLICT');
   await assert.rejects(applyWorkspaceMethodRevision(args),code('METHOD_REVISION_CONFLICT'));
   assert.equal((await owner.audit()).length,6);
+});
+
+// Addressed identity checks use the original atomic source head, not a
+// full canonical record enumeration. Tombstones still reserve identities.
+test('fresh method creation and stage addition never enumerate history with original owner',async()=>{
+  const adapter=new CountingAdapter(),{owner,base}=await setup(adapter);
+  assert.equal(adapter.historyScans,0);
+  for(let i=0;i<1000;i++)await owner.create('project',{workspaceId:'unrelated',projectId:'identity-noise-'+i,
+    name:'Unrelated '+i,domainApplicability:['generic'],recordId:'identity-noise-record-'+i,knowledgeAt:time});
+  const next=draft();next.steps.push({id:'validate',name:'Validate',actor:'human',instruction:'Check',dependsOn:['prepare'],materialIds:['source']});
+  const plan=await previewWorkspaceMethodRevision(request(owner,base,next));
+  assert.equal(plan.counts.create,1);
+  const args=request(owner,base,next);
+  assert.equal((await inspectWorkspaceMethodRevision(args)).state,'NOT_STARTED');
+  const result=await applyWorkspaceMethodRevision(args);
+  assert.equal(result.createdCount,1);assert.equal(result.revisedCount,5);
+  assert.equal(adapter.historyScans,0);assert.deepEqual(result.method.draft,next);
+  assert.equal((await owner.audit()).length,1011);
+});
+test('addressed identity distinguishes unused, live and tombstoned without full history',async()=>{
+  const adapter=new CountingAdapter(),{owner,base}=await setup(adapter);
+  const id=projectId+'.validate';
+  assert.equal(await owner.sourceIdentityExists('work',workspaceId,id),false);
+  assert.equal(await owner.sourceIdentityExists('work',workspaceId,projectId+'.analyse'),true);
+  const old=await owner.create('work',{workspaceId,projectId,workId:id,name:'Previously used',
+    recordId:'old-addressed-stage',knowledgeAt:time});
+  await owner.release('work',{workspaceId,objectId:id,recordId:'old-addressed-stage-release',baseRevisionId:old.recordId,knowledgeAt:time});
+  assert.equal(await owner.load('work',workspaceId,id),null);
+  assert.equal(await owner.sourceIdentityExists('work',workspaceId,id),true);
+  assert.equal(await owner.sourceIdentityExists('work','unrelated',id),false);
+  const next=draft();next.steps.push({id:'validate',name:'Validate',actor:'human',instruction:'Check',dependsOn:[],materialIds:[]});
+  await assert.rejects(previewWorkspaceMethodRevision(request(owner,base,next)),code('METHOD_REVISION_STAGE_ID_USED'));
+  await assert.rejects(applyWorkspaceMethodRevision(request(owner,base,next)),code('METHOD_REVISION_CONFLICT'));
+  assert.equal(adapter.historyScans,0);assert.equal((await owner.audit()).length,7);
+});
+test('addressed source identity failure and invalid result never fall back to history',async()=>{
+  const {owner,base}=await setup();
+  const next=draft();next.steps.push({id:'validate',name:'Validate',actor:'human',instruction:'Check',dependsOn:[],materialIds:[]});
+  let scans=0;
+  const legacyHistory=async()=>{scans++;return [];};
+  for(const [identity,expected] of [
+    [async()=>{throw Object.assign(new Error('addressed read denied'),{code:'TEST_ADDRESS_DENIED'});},'TEST_ADDRESS_DENIED'],
+    [async()=>null,'PROJECT_PROCESS_SOURCE_HEAD_MISMATCH'],
+  ]){
+    const denied=port(owner,{sourceIdentityExists:identity,history:legacyHistory});
+    await assert.rejects(applyWorkspaceMethodRevision(request(denied,base,next)),code(expected));
+  }
+  assert.equal(scans,0);assert.equal((await owner.audit()).length,5);
+});
+test('addressed identity refuses corrupted head-to-record binding',async()=>{
+  const adapter=new CountingAdapter(),{owner,base}=await setup(adapter);
+  const selected=ref(base,'analyse');
+  const original=adapter.getRecord.bind(adapter);
+  adapter.getRecord=async id=>{
+    const wire=await original(id);
+    if(id!==selected.recordId||!wire)return wire;
+    return encodeCanonicalValue({...decodeCanonicalValue(wire),refs:{workspaceId:'foreign'}});
+  };
+  await assert.rejects(owner.sourceIdentityExists('work',workspaceId,projectId+'.analyse'),code('PROJECT_PROCESS_SOURCE_HEAD_MISMATCH'));
+  assert.equal(adapter.historyScans,0);
+});
+test('initial creation supplies exact expected original owner refs for every record',async()=>{
+  const adapter=new CountingAdapter();
+  const owner=(await createProjectProcessSourceOwnerQualificationHarness({gateway:new OwnerWriteGateway({adapter})})).owner;
+  const d=draft(),recordIds={project:'captured-project',works:Object.fromEntries(d.steps.map(step=>[projectId+'.'+step.id,'captured-'+step.id]))};
+  const captured=[];
+  const wrapped=port(owner,{create:async(kind,input)=>{captured.push({kind,refs:input.expectedCanonicalRefs});return owner.create(kind,input);}});
+  const done=await createWorkspaceMethodThroughSourceOwner({owner:wrapped,workspaceId,objects,draft:d,recordIds,knowledgeAt:time});
+  assert.equal(done.createdCount,5);assert.equal(captured.length,5);
+  assert.deepEqual(captured[0].refs,{workspaceId,canonicalHeads:{}});
+  for(const row of captured.slice(1)){
+    assert.equal(row.refs.workspaceId,workspaceId);
+    assert.equal(row.refs.canonicalHeads.project.recordId,recordIds.project);
+  }
+  assert.equal(adapter.historyScans,0);
 });

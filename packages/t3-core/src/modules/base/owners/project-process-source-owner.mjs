@@ -421,6 +421,15 @@ class ProjectProcessSourceOwnerCore {
     });
   }
 
+  /** Address identity reservation through the original atomic head.
+   * The head is retained on tombstone. Its absence denotes an unused
+   * identity under the original adapter's atomic record/head invariant.
+   * This is not an audit of a damaged or partially imported Store.
+   */
+  async sourceIdentityExists(kind,workspaceId,objectId) {
+    return (await this.#readSourceRecord(kind,workspaceId,objectId))!==null;
+  }
+
   async history(kind,workspaceId,objectId) {
     const binding=projectProcessSourceBinding(kind);
     return this.#gateway.history(
@@ -446,9 +455,9 @@ class ProjectProcessSourceOwnerCore {
     return this.#gateway.audit();
   }
 
-  // Resolve the actual live source revision, never a tombstone or an
-  // unrelated record that happens to be named by a head.
-  async #readLiveRecord(kind,workspaceId,id){
+  // A validated original head includes a tombstone, if any. Never use
+  // an unrelated record that happens to be named by a head.
+  async #readSourceRecord(kind,workspaceId,id){
     workspaceId=requireText(workspaceId,'workspaceId');
     id=requireText(id,'objectId');
     const binding=projectProcessSourceBinding(kind);
@@ -464,12 +473,17 @@ class ProjectProcessSourceOwnerCore {
         || record.refs?.workspaceId!==workspaceId){
       throw new ProjectProcessSourceOwnerError('Source head and record identity mismatch','PROJECT_PROCESS_SOURCE_HEAD_MISMATCH');
     }
-    if(record.operation==='tombstone' && record.payload===null) return null;
+    if(record.operation==='tombstone' && record.payload===null) return record;
     if(record.operation!=='upsert' || record.payload?.workspaceId!==workspaceId || record.payload?.[binding.idField]!==id){
       throw new ProjectProcessSourceOwnerError('Source payload identity mismatch','PROJECT_PROCESS_SOURCE_HEAD_MISMATCH');
     }
     assertProjectProcessSourceRecord(kind,record.payload,{ownerId:OWNER_ID});
     return record;
+  }
+
+  async #readLiveRecord(kind,workspaceId,id){
+    const record=await this.#readSourceRecord(kind,workspaceId,id);
+    return record?.operation==='tombstone'?null:record;
   }
 
   // This checks the exact prerequisite closure of planned source Work.
@@ -556,6 +570,22 @@ class ProjectProcessSourceOwnerCore {
   }
 }
 
+/** Use the addressed original owner port when present. Older qualified
+ * ports can still enumerate original history. Do not fall back after a
+ * failed or malformed addressed response.
+ */
+export async function hasProjectProcessSourceIdentity(owner,kind,workspaceId,objectId){
+  if(typeof owner?.sourceIdentityExists==='function'){
+    const exists=await owner.sourceIdentityExists(kind,workspaceId,objectId);
+    if(typeof exists!=='boolean')throw new ProjectProcessSourceOwnerError('Invalid source identity response','PROJECT_PROCESS_SOURCE_HEAD_MISMATCH');
+    return exists;
+  }
+  if(typeof owner?.history!=='function')throw new ProjectProcessSourceOwnerError('Original source identity/history port required','PROJECT_PROCESS_SOURCE_HISTORY_REQUIRED');
+  const history=await owner.history(kind,workspaceId,objectId);
+  if(!Array.isArray(history))throw new ProjectProcessSourceOwnerError('Invalid source history response','PROJECT_PROCESS_SOURCE_HEAD_MISMATCH');
+  return history.length!==0;
+}
+
 export function projectProcessSourceObjectId(kind,workspaceId,objectId) {
   projectProcessSourceBinding(kind);
   return `${kind}:${encodeURIComponent(requireText(workspaceId,'workspaceId'))}:${encodeURIComponent(requireText(objectId,'objectId'))}`;
@@ -602,6 +632,7 @@ export class ProjectProcessSourceOwner {
   async revise(kind,input) { return this.#core.revise(kind,input); }
   async release(kind,input) { return this.#core.release(kind,input); }
   async load(kind,workspaceId,objectId) { return this.#core.load(kind,workspaceId,objectId); }
+  async sourceIdentityExists(kind,workspaceId,objectId) { return this.#core.sourceIdentityExists(kind,workspaceId,objectId); }
   async history(kind,workspaceId,objectId) { return this.#core.history(kind,workspaceId,objectId); }
   async historyThrough(kind,workspaceId,objectId,recordId,revision) {
     return this.#core.historyThrough(kind,workspaceId,objectId,recordId,revision);

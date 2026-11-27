@@ -4,7 +4,7 @@ import { CanonicalInstant } from '../../../foundation/time.mjs';
 import { normalizeProject,normalizeWork } from '../features/project-process/project-process.mjs';
 import { describeWorkspaceMethodSourceInputs,prepareWorkspaceMethodSourceInputs,
   reconstructWorkspaceMethodDraft,inspectWorkspaceMethodMaterials } from '../features/workspace/workspace-project-method.mjs';
-import { projectProcessSourceObjectId } from './project-process-source-owner.mjs';
+import { projectProcessSourceObjectId,hasProjectProcessSourceIdentity } from './project-process-source-owner.mjs';
 import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from './project-process-method-readback.mjs';
 import { projectProcessSourceBinding } from './project-process-source-contract.mjs';
 
@@ -120,7 +120,7 @@ function selectedBasis(expected){
 async function assertUnusedStages(owner,workspaceId,plan){
   for(const item of plan.workOperations.filter(item=>item.operation==='CREATE')){
     if(typeof owner.history!=='function')fail('METHOD_REVISION_HISTORY_REQUIRED','Original Work history required for new stages');
-    if(await owner.load('work',workspaceId,item.workId)||(await owner.history('work',workspaceId,item.workId)).length){
+    if(await owner.load('work',workspaceId,item.workId)||await hasProjectProcessSourceIdentity(owner,'work',workspaceId,item.workId)){
       fail('METHOD_REVISION_STAGE_ID_USED','A proposed new stage already has original source history');
     }
   }
@@ -275,7 +275,7 @@ async function observeEntry(attempt,entry){
   if(exactTarget(row,entry,instant))return entry.operation==='KEEP'?'KEPT':'CONFIRMED';
   if(entry.operation==='KEEP')return 'CONFLICT';
   if(entry.operation==='REVISE')return rowMatchesRef(row,entry.baseRef)?'PENDING':'CONFLICT';
-  return row||(await owner.history(entry.kind,workspaceId,entry.id)).length?'CONFLICT':'PENDING';
+  return row||(await hasProjectProcessSourceIdentity(owner,entry.kind,workspaceId,entry.id))?'CONFLICT':'PENDING';
 }
 async function observeAttempt(attempt){
   const states=new Map();
