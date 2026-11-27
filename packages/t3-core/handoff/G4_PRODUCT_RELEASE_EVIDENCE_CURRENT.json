@@ -2729,7 +2729,18 @@
         },
         "evidence": "EXACT_ORIGINAL_HOST_HTTPS_BLI_OFFLINE_AND_REAL_IWXA_PASS_WITHOUT_MODEL_DOWNLOAD"
       },
-      "independent_end_user_acceptance": "PENDING_NOT_CODEX_ACCEPTED",
+      "independent_end_user_acceptance": "BLOCKED_LOCAL_TLS_LAUNCHER_CERT_PROVIDER_AND_CURRENTUSER_ROOT_TRUST",
+      "independent_acceptance_attempt": {
+        "reported_by": "OWNER_PROVIDED_CODEX_REPORT",
+        "status": "BLOCKED",
+        "archive_identity": "PASS",
+        "environment": "WINDOWS_X64_POWERSHELL_5_1_CODEX_BUILT_IN_BROWSER",
+        "launcher": "Cannot find drive Cert; CurrentUser Root trust not confirmed; port 18443 not listening; ERR_CONNECTION_REFUSED",
+        "scenario_A_F": "NOT_RUN_BLOCKED_BEFORE_HOST",
+        "product_defects_confirmed": false,
+        "remedy": "CERTIFICATE_FREE_EXACT_LOOPBACK_ACCEPTANCE_DELIVERY_PENDING",
+        "stable_release": "0.3.0"
+      },
       "corporate_aba": "SEPARATE_OPEN_ACCEPTED_KERNEL_EVENT_COLLISION",
       "stable_release_unchanged": "0.3.0",
       "domain_migration_auto_authorized": false,

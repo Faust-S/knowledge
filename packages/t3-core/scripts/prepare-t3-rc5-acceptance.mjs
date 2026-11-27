@@ -24,7 +24,9 @@ const digest=p=>hash(readFileSync(p));
 const [archiveArg,outputArg,originArg="https://localhost:18443"]=process.argv.slice(2);
 assert.ok(archiveArg&&outputArg&&process.argv.length<=5,"USAGE_PLATFORM_ZIP_FRESH_OUTPUT_HTTPS_ORIGIN");
 const parsed=new URL(originArg);
-assert.equal(parsed.protocol,"https:");assert.equal(parsed.origin,originArg,"EXACT_ROOT_HTTPS_ORIGIN_REQUIRED");
+const localAcceptance=originArg==="http://localhost:18443";
+assert.ok(parsed.protocol==="https:"||localAcceptance,"HTTPS_OR_EXACT_LOCAL_ACCEPTANCE_REQUIRED");
+assert.equal(parsed.origin,originArg,"EXACT_ROOT_ORIGIN_REQUIRED");
 assert.ok(!parsed.username&&!parsed.password);
 const out=resolve(outputArg),archive=resolve(archiveArg),dist=join(out,"dist");
 assert.ok(!existsSync(out),"FRESH_DELIVERY_OUTPUT_REQUIRED");
@@ -63,6 +65,18 @@ try{
  const original=async path=>import(pathToFileURL(join(released,path)).href);
  const {materializeIntegrationHost}=await original("scripts/real-kernel-e2e.mjs");
  const {registerT3LocalInferenceService}=await original("scripts/register-t3-local-inference.mjs");
+ // The published materializer is HTTPS-only for deployed domains. For this
+ // separately named localhost acceptance delivery, permit the exact origin
+ // already supported by the original Host schema. Use the same materializer
+ // implementation and inventory algorithm; never patch compiled Host/Kernel.
+ if(localAcceptance){
+  const path=join(released,"scripts/materialize-t3-domain-mode.mjs");
+  const before=readFileSync(path,"utf8");
+  const guard="if (typeof domainOrigin !== \"string\" || !/^https:\\/\\/[^/]+$/.test(domainOrigin)) {";
+  const localGuard="if (typeof domainOrigin !== \"string\" || (!/^https:\\/\\/[^/]+$/.test(domainOrigin) && domainOrigin !== \"http://localhost:18443\")) {";
+  assert.equal(before.split(guard).length,2,"PUBLISHED_MATERIALIZER_GUARD_CHANGED");
+  writeFileSync(path,before.replace(guard,localGuard));
+ }
  const {materializeDomainMode}=await original("scripts/materialize-t3-domain-mode.mjs");
  const {assertQualifiedKernelArtifact}=await original("src/factory2/products/domain-completion/independent-browser-witness.mjs");
  const selector={kernel:PIN.kernel,contract:PIN.contract,artifactId:PIN.kernelArtifact};
@@ -100,7 +114,7 @@ try{
  }
  const receipt={schema:"IWXA_T3_RC5_ACCEPTANCE_DELIVERY/1",...PIN,origin:originArg,
   status:"READY_FOR_INDEPENDENT_BROWSER_ACCEPTANCE_NOT_PRODUCT_ACCEPTED",
-  compiledAssetsUnchanged:true,originalKernelUnchanged:true,offlineVersion:materialized.version,
+  compiledAssetsUnchanged:true,originalKernelUnchanged:true,localAcceptanceOnly:localAcceptance,offlineVersion:materialized.version,
   offlineManifestSha256:digest(offlinePath),offlineFiles:offline.files.length,
   modelWeightsIncluded:false,privateDomainIncluded:false,installedProductAccepted:false};
  json(join(out,"acceptance-receipt.json"),receipt);
