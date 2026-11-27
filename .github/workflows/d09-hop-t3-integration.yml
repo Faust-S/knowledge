@@ -24,8 +24,8 @@ jobs:
             origin: https://hop.iwxa.ru
             preview: '0'
     env:
-      SITE_PIN: d2bc8aaacc85132da27df2291200ca37779a4edb
-      SUBJECT_PIN: e5d5e898098bce5079784bab73d462db048a8401
+      SITE_PIN: bec29c1bb13b091b7841d9f3aa999e7ef475eea5
+      SUBJECT_PIN: 162e3eb77d6d106b647a7acc07bc3fec105b3142
       T3_PIN: a50d40dafc2e029fcc7668dece925f7fc38cc510
       ASSISTANT_PIN: 5419dacf855d81ec089acc23bae0c7aa11713a54
       D09_ORIGIN: ${{ matrix.origin }}
@@ -41,7 +41,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable domain request
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-rc5 --revision site=d2bc8aaacc85132da27df2291200ca37779a4edb --revision subject=e5d5e898098bce5079784bab73d462db048a8401 --revision platform=a50d40dafc2e029fcc7668dece925f7fc38cc510 --revision assistant=5419dacf855d81ec089acc23bae0c7aa11713a54
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-rc5 --revision site=bec29c1bb13b091b7841d9f3aa999e7ef475eea5 --revision subject=162e3eb77d6d106b647a7acc07bc3fec105b3142 --revision platform=a50d40dafc2e029fcc7668dece925f7fc38cc510 --revision assistant=5419dacf855d81ec089acc23bae0c7aa11713a54
       - name: Checkout HOP site
         uses: actions/checkout@v4
         with:
@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for spec in "private-site $SITE_PIN aa7672f357bfb3dabd99260814fcb5a6d3c524df" "original-platform $T3_PIN d375181e1fd79953cdb9ef4e414936e76b584100" "private-assistant $ASSISTANT_PIN 4b4a84cec91aa268048184a477b91efe94ebdea3"; do
+          for spec in "private-site $SITE_PIN 88bb4d4c22b289b53c3286aa1c042c464e118a71" "original-platform $T3_PIN d375181e1fd79953cdb9ef4e414936e76b584100" "private-assistant $ASSISTANT_PIN 4b4a84cec91aa268048184a477b91efe94ebdea3"; do
             read -r dir sha tree <<< "$spec"
             test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
             test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
@@ -213,7 +213,7 @@ jobs:
           set -eu
           if npm run check:d09:hosting-dist > "$RUNNER_TEMP/d09-t3/HOSTING.log" 2>&1; then
             echo D09_T3_HOSTING_DIST=PASS
-            grep -E '^D09_HOSTING_DIST_' "$RUNNER_TEMP/d09-t3/HOSTING.log" | cut -c1-240 | tail -5
+            grep -E '^D09_HOSTING_DIST_' "$RUNNER_TEMP/d09-t3/HOSTING.log" | cut -c1-240 | tail -5 || true
           else
             echo D09_T3_HOSTING_DIST=FAIL
             grep -oE '(D09_[A-Z0-9_]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-t3/HOSTING.log" | sort -u | head -25 || true
