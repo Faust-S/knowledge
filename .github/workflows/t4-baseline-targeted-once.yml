@@ -1,0 +1,26 @@
+name: T4 original baseline targeted qualification
+on:
+  push:
+    branches:
+      - 'ci/once/t4-baseline-targeted/c78f50f6da91'
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: c78f50f6da913f056823e112784dbfcf1c1f81f8
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Confirm first-use baseline and existing activation
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "c78f50f6da913f056823e112784dbfcf1c1f81f8"
+          test "$(git rev-parse HEAD^{tree})" = "bcc4313e3fc21fe3d65d51b11e20f21d8c097cef"
+          node --test packages/t4-network/tests/original-network-baseline-admission.test.mjs packages/t4-network/tests/original-installed-fixed-profile.test.mjs packages/t4-network/tests/original-native-network-product-activation.test.mjs packages/t4-network/tests/original-installed-control-factories.test.mjs
+          timeout 60s node --test --test-name-pattern='both native roles admit the same original fresh Workspace' packages/t4-network/tests/original-native-host-network-owner.test.mjs
