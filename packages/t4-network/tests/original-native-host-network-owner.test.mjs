@@ -137,7 +137,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
   localCapture=false,localGraph=false,localAdmission=allow,frameAdmission=allow,
   indexMigration=false,localResultVerification=false,technicalRead=allow,explicitResume=false,resumeInput=null,resumeAdmission=deny,
   nativeTopologyTransport=null,requireSignedTopologyAccess=false,originalVaultNodeSignaturePort=null,
-  replacementRecovery=false,terminalRecovery=false,freshBaseline=null,peerHistoryRead=async()=>null,portOverrides={},canWake=()=>true,onResult=()=>{},testScopedVaultUnlock=false}){
+  replacementRecovery=false,terminalRecovery=false,freshBaseline=null,nativePhase=false,peerHistoryRead=async()=>null,portOverrides={},canWake=()=>true,onResult=()=>{},testScopedVaultUnlock=false}){
   const tech=store.technicalWorkspaceId;
   const localOps=['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject',
     't1.commitObjectGraph','t1.deleteObject','t1.listAssets','t1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation'];
@@ -185,6 +185,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
   };
   Object.assign(originalPorts,portOverrides);
   if(freshBaseline!==null){delete originalPorts.authorizeOriginalBaselineAdmission;delete originalPorts.verifyOriginalBaselineEvidence;}
+  if(nativePhase)delete originalPorts.verifyOriginalPhaseEvidence;
   if(originalVaultNodeSignaturePort)for(const k of ['verifyOriginalNodeSignature','resolveOriginalSigningContext','signOriginalNodeBytes'])
     delete originalPorts[k];
   const owner=createT4OriginalNativeHostNetworkOwner({...scope(tech),role,requiredCryptoSuite:SUITE,
@@ -857,11 +858,17 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
 });
 
 
-test('K92 original signed native relays drain three causal captures, including two revisions of one object, and resume the remaining backlog cold',{timeout:600000},async()=>{
+for(const nativePhase of [false,true])test(nativePhase?'fresh compact native phase evidence drains original captures and resumes cold without external phase provider':'K92 original signed native relays drain three causal captures, including two revisions of one object, and resume the remaining backlog cold',{timeout:600000},async()=>{
   const source=kernelFixture('k92-source'),recipient=kernelFixture('k92-recipient'),wire=wireFixture(true);
   source.technicalWorkspaceId='ws:k92:source:technical';recipient.technicalWorkspaceId='ws:k92:recipient:technical';
   const base=mutation('o:k92:baseline','baseline','business.baseline');
-  const sourceBaseline=(await source.kernel.putObject(base)).event,recipientBaseline=(await recipient.kernel.putObject(base)).event;
+  const creation={workspace_id:WS,event_id:'event:pilot:phase:creation',event_type:'workspace.created',
+    service_id:'iwxa.admin-center.workspace',occurred_at:'2026-11-27T12:00:00.000Z',
+    payload:{profile:'generic',capabilities:[],read_only:false}};
+  if(nativePhase){source.events.push(clone(creation));recipient.events.push(clone(creation));}
+  const sourceBaseline=nativePhase?creation:(await source.kernel.putObject(base)).event,
+    recipientBaseline=nativePhase?creation:(await recipient.kernel.putObject(base)).event;
+  const freshBaseline=nativePhase?{confirmed:true,eventId:creation.event_id,eventDigest:digestT4OriginalEventRecord(creation,WS)}:null;
   const before=(await readT4OriginalEventWindow({workspaceId:WS,originalWriteOwnerRef:OWNER,
     authorizeOriginalRead:allow,readOriginalEvents:()=>source.kernel.listEventsSince(WS),maxEvents:1})).nextCursor;
   const getMode=()=> 'T4_NETWORK',ledger=createT4OriginalHostCaptureLedgerPort({...scope(source.technicalWorkspaceId),originalKernel:source.kernel,getMode,
@@ -912,7 +919,7 @@ test('K92 original signed native relays drain three causal captures, including t
       gates.delete(role);if(r.state!==g.target)g.reject(Error(r.errorCode??r.state));else g.resolve(r);
     }
   }});
-  const makeSource=()=>nativeFixture({...gate('SOURCE'),testScopedVaultUnlock:true,role:'SOURCE',store:source,wire,localCapture:true,localGraph:true,phaseEvidence,
+  const makeSource=()=>nativeFixture({...gate('SOURCE'),testScopedVaultUnlock:true,role:'SOURCE',store:source,wire,localCapture:true,localGraph:true,phaseEvidence,freshBaseline,nativePhase,
     baselineInput:{sourceCursor:before,originalBaselineRef:sourceBaseline.event_id,originalBaselineDigest:hash(JSON.stringify(sourceBaseline))},
     portOverrides:{verifyOriginalRecipientApplied:verifyApplied,authorizeOriginalSealedContent:allow,
       readOriginalSealedContent:async p=>{
@@ -920,7 +927,7 @@ test('K92 original signed native relays drain three causal captures, including t
         const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv);cipher.setAAD(Buffer.from(p.session.sessionRef));
         return {ciphertext:Buffer.concat([iv,cipher.update(bytes),cipher.final(),cipher.getAuthTag()]),encryptionContextRef:'sealed:k92:epoch2'};
       }}});
-  const makeRecipient=(indexMigration=false)=>nativeFixture({...gate('RECIPIENT'),testScopedVaultUnlock:true,role:'RECIPIENT',store:recipient,source,wire,phaseEvidence,indexMigration,localResultVerification:true,
+  const makeRecipient=(indexMigration=false)=>nativeFixture({...gate('RECIPIENT'),testScopedVaultUnlock:true,role:'RECIPIENT',store:recipient,source,wire,phaseEvidence,freshBaseline,nativePhase,indexMigration,localResultVerification:true,
     baselineInput:{sourceCursor:before,originalBaselineRef:recipientBaseline.event_id,originalBaselineDigest:hash(JSON.stringify(recipientBaseline))},
     portOverrides:{verifyOriginalRecipientApplied:async()=>{throw Error('unexpected external witnessed recipient verification')},verifyOriginalSourceSubject:verifySource,verifyOriginalSourceBinding:verifySource,
       verifyOriginalSourceEvent:verifyEvent,authorizeOriginalSealedOpen:allow,

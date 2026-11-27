@@ -17,6 +17,7 @@ import {isT4NativeTopologyTransport} from './network-topology.mjs';
 import {isT4OriginalVaultNodeSignaturePort} from './original-vault-node-signature.mjs';
 import {isT4OriginalVaultSealedContentPort} from './original-vault-sealed-content.mjs';
 import {createT4CandidateFrameTransport} from './standard-network-wire-transport.mjs';
+import {t4NativeSubjectCriticalExtensions} from './standard-network-wire-candidate.mjs';
 import {createT4OriginalNativeMultipartAgreementBinding,T4OriginalMultipartPeerAgreementUnavailable} from './original-network-multipart-agreement.mjs';
 import {selectT4NativeAssetContentProfile} from './original-native-content-limits.mjs';
 import {createT4OriginalHostOutboxDispatcher,readT4OriginalNativeCaptureSessionAtCursor} from './original-host-outbox-dispatcher.mjs';
@@ -92,7 +93,18 @@ export function createT4OriginalNativeHostNetworkOwner({
     enableOriginalCommitOrder||enableOriginalRecipientFrontierCommitOrder))
     fail('NATIVE_NETWORK_OWNER_MULTIPLE_BASELINE_PROVIDERS');
   if(freshBaseline===null&&readOriginalBaselineAdmissionInput===null)readOriginalBaselineAdmissionInput=async()=>null;
-  const commonPorts=COMMON_PORTS.filter(k=>freshBaseline===null||!baselineCallbacks.includes(k));
+  // The compact first-use route already has exact capture, authenticated
+  // frame and original publication witnesses inside the native Host. Do
+  // not require the installed owner to reconstruct them in a second
+  // provider. Existing externally witnessed and replacement profiles stay
+  // unchanged. Absence of a callback in any other profile is still denied.
+  const nativeFreshPhaseEvidence=freshBaseline!==null&&originalPorts?.verifyOriginalPhaseEvidence===undefined;
+  if(nativeFreshPhaseEvidence&&(enableOriginalMultipartNegotiation||enableOriginalReplacementMultipartNegotiation||
+    enableReplacementSourceAdmission||enableReplacementRecipientAdmission||enableReplacementSourceContent||
+    enableReplacementRecipientContent||enableReplacementRecipientApply||enableReplacementSourceAckConfirmation))
+    fail('NATIVE_NETWORK_OWNER_FRESH_PHASE_COMPACT_REQUIRED');
+  const commonPorts=COMMON_PORTS.filter(k=>(freshBaseline===null||!baselineCallbacks.includes(k))&&
+    (!nativeFreshPhaseEvidence||k!=='verifyOriginalPhaseEvidence'));
   // Multipart is an explicit native profile, not a transport-size setting.
   // Its source requires exact durable dispatch/backing; its recipient
   // requires the original ordered frontier and independent source proof.
@@ -478,11 +490,99 @@ export function createT4OriginalNativeHostNetworkOwner({
       createT4OriginalRecipientAppliedVerifier({session,received,originalKernel,getMode,originalRecipientHistory,originalGraphCatalog,
         authorizeOriginalRead:callback('authorizeOriginalRead'),readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage')}):
       callback('verifyOriginalRecipientApplied');
-    const phase=async({session,received})=>createT4OriginalNetworkSessionPhasePort({...tech,
-      localNodeRef:nodeRef,sessionRef:session.sessionRef,changeId:session.changeId,
-      changeKind:session.changeKind,recipientApplyIntentRequired:role==='RECIPIENT',
-      verifyOriginalPhaseEvidence:callback('verifyOriginalPhaseEvidence'),
-      verifyOriginalRecipientApplied:verifyApplied({session,received})});
+    // The only callers are the existing native source/recipient tasks.
+    // Their request is assembled from the original capture ledger or
+    // independently authenticated source content, never from a UI verb.
+    // Recheck the immutable frame against the original publication/replay
+    // port for phases that record a local publication or an accepted ACK.
+    // APPLIED still has the separate original recipient Event/state gate.
+    const freshPhaseVerifier=({session,task,received,verifiedContent})=>async proof=>{
+      await requireBinding(state,'fresh-phase-evidence');
+      if(proof?.operation!=='t4.original.network.session.phase.evidence'||proof.role!==role||
+        proof.localNodeRef!==nodeRef||proof.originalVerifiedWitnessRequired!==true||
+        proof.networkReceiptDoesNotGrantSubjectWrite!==true||
+        !['sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch','changeId','changeKind'].every(k=>proof[k]===session[k]))
+        return false;
+      const e=proof.evidence,match=(ref,digest)=>e?.evidenceRef===ref&&e.evidenceDigest===digest;
+      const exactFrame=(f,type,sequence,sender,receiver)=>f?.signedMessageType===type&&
+        f.verifiedSequence===sequence&&f.verifiedSourceNodeRef===sender&&f.verifiedRecipientNodeRef===receiver&&
+        f.verifiedSessionRef===session.sessionRef&&f.verifiedScopeRef===scopeRef&&f.verifiedOwnerEpoch===ownerEpoch&&
+        f.verifiedCryptoSuite===requiredCryptoSuite&&f.key===f.sha256+'.t4n'&&
+        f.networkBytesVerified===true&&f.originalBusinessApplied===false;
+      const inbound=(f,type,sequence,sender,receiver)=>exactFrame(f,type,sequence,sender,receiver)&&
+        f.schema==='IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1'&&f.originalSignatureVerified===true&&
+        f.originalAccessVerified===true&&f.originalReplayCheckpointRecorded===true;
+      const outbound=(f,type,sequence,sender,receiver)=>exactFrame(f,type,sequence,sender,receiver)&&
+        f.schema==='IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1'&&f.originalT3PublicationEventChainVerified===true&&
+        f.originalOutboundSignatureVerified===true&&f.originalOutboundAuthorityVerified===true&&
+        f.originalImmutableTransportReadbackVerified===true;
+      const changeBody=b=>b?.changeId===session.changeId&&b.changeKind===session.changeKind&&
+        b.eventRef===session.sourceEventId&&b.sourceRevision===session.sourceRevision&&b.ownerRef===originalWriteOwnerRef;
+      const ackBody=b=>b?.changeId===session.changeId&&b.recipientEventRef===e.originalRecipientEventId&&
+        b.recipientRevision===e.originalRecipientRevision&&b.recipientStateDigest===e.originalRecipientStateDigest;
+      let valid=false;
+      if(role==='SOURCE'){
+        // Re-derive the exact session from the original captured task. The
+        // dispatcher independently refreshes this same capture/frontier
+        // before and after every phase CAS.
+        if(!task||JSON.stringify(deriveT4OriginalNativeCaptureSession(task))!==JSON.stringify(session))return false;
+        if(proof.phase==='INTENT')valid=match(session.sourceEventId,session.capturedWindowDigest);
+        if(proof.phase==='PUBLISHED'){
+          const port=await publication({session}),f=await port.readOriginalPublishedFrame({sequence:2});
+          valid=outbound(f,'CHANGE_REF',2,sourceNodeRef,recipientNodeRef)&&changeBody(f.verifiedBody)&&match(f.key,'sha256:'+f.sha256);
+        }
+        if(proof.phase==='APPLIED_CONFIRMED'){
+          const selector={sourceNodeRef:recipientNodeRef,sessionRef:session.sessionRef,ownerEpoch};
+          const supportedCriticalExtensions=t4NativeSubjectCriticalExtensions(session.changeKind);
+          if(typeof frameDiscoveryPort.readOriginalHistoricalAppliedAck==='function'){
+            // Already accepted ACK: read the original retained replay slot,
+            // not a newly trusted remote receipt or a new subject mutation.
+            const f=await frameDiscoveryPort.readOriginalHistoricalAppliedAck({selector,requiredCryptoSuite,
+              supportedCriticalExtensions,expectedSha256:e.evidenceDigest.slice(7)});
+            valid=f?.schema==='IWXA_T4_HISTORICAL_RECEIVED_FRAME_V1'&&f.messageType==='APPLIED_ACK'&&
+              f.sequence===2&&f.sourceNodeRef===recipientNodeRef&&f.recipientNodeRef===sourceNodeRef&&
+              f.sessionRef===session.sessionRef&&f.scopeRef===scopeRef&&f.ownerEpoch===ownerEpoch&&
+              f.cryptoSuite===requiredCryptoSuite&&f.originalHistoricalAcceptanceProven===true&&
+              f.originalReplayCheckpointCreated===false&&f.historicalSignature?.originalHistoricalSignatureVerified===true&&
+              ackBody(f.body)&&match(f.key,'sha256:'+f.wireSha256);
+          }else{
+            const found=await frameDiscoveryPort.discoverUniqueSignedFrame({selector:{...selector,messageType:'APPLIED_ACK',sequence:2},
+              requiredCryptoSuite,supportedCriticalExtensions});
+            const f=found?.receipt;
+            valid=found?.state==='FOUND'&&inbound(f,'APPLIED_ACK',2,recipientNodeRef,sourceNodeRef)&&
+              ackBody(f.verifiedBody)&&match(f.key,'sha256:'+f.sha256);
+          }
+        }
+      }else{
+        const change=verifiedContent?.verifiedChangeRef,chunk=verifiedContent?.verifiedChunks?.[0];
+        if(!received||received.originalHostAuthenticatedOpen!==true||
+          (received.originalSourceEventAndObjectVerified!==true&&received.originalSourceEventAndSubjectVerified!==true)||
+          received.originalBusinessApplied!==false||received.originalRecipientSubjectPermissionGranted!==false||
+          !['sourceNodeRef','recipientNodeRef','scopeRef','sessionRef','ownerEpoch','changeId'].every(k=>received[k]===session[k])||
+          received.originalEventDigest!==session.sourceEventDigest||received.sha256!==session.capturedSha256||
+          received.delta?.windowDigest!==session.capturedWindowDigest||
+          !inbound(change,'CHANGE_REF',2,sourceNodeRef,recipientNodeRef)||!changeBody(change.verifiedBody)||
+          received.sourceChangeFrameKey!==change.key||received.contentDigest!==change.verifiedBody.contentDigest)return false;
+        if(proof.phase==='RECEIVED')valid=inbound(chunk,'CHUNK',3,sourceNodeRef,recipientNodeRef)&&match(chunk.key,'sha256:'+chunk.sha256);
+        if(proof.phase==='VERIFIED')valid=match(change.key,received.originalStateDigest);
+        if(proof.phase==='APPLY_INTENT')valid=match(change.key,'sha256:'+received.sha256);
+        if(proof.phase==='APPLIED'){
+          const port=await publication({session}),f=await port.readOriginalPublishedFrame({sequence:2});
+          valid=outbound(f,'APPLIED_ACK',2,recipientNodeRef,sourceNodeRef)&&ackBody(f.verifiedBody)&&
+            f.verifiedBody.contentDigest===received.contentDigest&&match(f.key,'sha256:'+f.sha256);
+        }
+      }
+      await requireBinding(state,'fresh-phase-evidence-readback');
+      return valid===true;
+    };
+    const phase=async request=>{
+      const {session,received}=request;
+      return createT4OriginalNetworkSessionPhasePort({...tech,
+        localNodeRef:nodeRef,sessionRef:session.sessionRef,changeId:session.changeId,
+        changeKind:session.changeKind,recipientApplyIntentRequired:role==='RECIPIENT',
+        verifyOriginalPhaseEvidence:nativeFreshPhaseEvidence?freshPhaseVerifier(request):callback('verifyOriginalPhaseEvidence'),
+        verifyOriginalRecipientApplied:verifyApplied({session,received})});
+    };
     const inspectRetired=async({session})=>{
       const port=await phase({session}),status=await port.inspectOriginalRetiredAttempt();
       return status===null?null:Object.freeze({...requireT4OriginalRetiredAttemptStatus(status,session,role,port.checkpointRef),
