@@ -85,6 +85,178 @@ function prepared(task,source,where){
       schema_version:'1.0.0',base_revision:0,data},
     relation_puts:[],relation_deletes:[],event};
 }
+// Original company Result provenance is observed from its existing Object
+// and Event. Both the employee and recipient paths use these same readers.
+async function fencedCompanyReadBinding({kernel,access,target,isHostActive}){
+  const active=()=>requireThat(isHostActive()===true,'T3_COMPANY_ORIGINAL_HOST_NOT_ATTACHED');
+  active();
+  requireThat(access&&typeof access.currentContext==='function',
+    'T3_COMPANY_SIGNED_JIT_REQUIRED');
+  const fields=['kind','context_id','actor_id','principal_id','role_id',
+    'grant_id','realm_id','audience','resource','purpose','workspace_id',
+    'organization_id','scope_revision'];
+  const identity=ctx=>JSON.stringify(fields.map(k=>ctx?.[k]));
+  const scopeCheck=ctx=>requireThat(ctx?.kind==='CORP'&&ctx.organization_id===target.organizationId&&
+    ctx.principal_id===target.organizationId&&ctx.actor_id===target.executorId&&
+    ctx.workspace_id===target.workspaceId&&ctx.resource===target.workspaceId&&
+    ctx.purpose==='workspace.read','T3_COMPANY_SHARED_READER_SCOPE_REQUIRED');
+  const selected=await access.currentContext();scopeCheck(selected);
+  const captured=identity(selected);
+  const currentContext=async()=>{
+    active();const ctx=await access.currentContext();active();scopeCheck(ctx);
+    requireThat(identity(ctx)===captured,'T3_COMPANY_SHARED_READER_CONTEXT_CHANGED');
+    return ctx;
+  };
+  // One original employee read owner and one selected D1 scope across
+  // the whole Object/Event observation, including the final readback.
+  const bound={
+    currentContext,
+    actionFor:async operation=>{
+      const action=await access.actionFor(operation);
+      requireThat(action==='workspace.read','T3_COMPANY_SHARED_READER_DATA_REQUIRED');
+      return action;
+    },
+    operationDigest:input=>access.operationDigest(input),
+    authorize:request=>access.authorize(request),
+    verifyDecisionBinding:(request,decision)=>access.verifyDecisionBinding(request,decision),
+  };
+  return {binding:createSubjectKernelBinding({kernel,access:bound,isHostActive}),currentContext};
+}
+
+async function observeCompanyWorkspace(task,reader){
+  let ws=null;
+  try{ws=await reader.getWorkspace(task.workspaceId);}
+  catch(error){if(!workspaceAbsent(error))throw error;}
+  if(ws!==null&&ws!==undefined){
+    requireThat(ws.workspace_id===task.workspaceId&&ws.deleted_at==null,
+      'T3_COMPANY_ORIGINAL_WORKSPACE_NOT_READY');
+    return ws;
+  }
+  return null; // Original T2 says missing, never a permission denial
+}
+
+async function observeCompanyRecord(task,kind,artifactId,reader,assertCurrent){
+  const where=locator(task,kind,artifactId);
+  await assertCurrent();
+  const ws=await observeCompanyWorkspace(task,reader);
+  if(ws===null)return {where,record:null,workspaceMissing:true};
+  let read;
+  try{read=await reader.getObject(where.workspace_id,where.object_id);}
+  catch(error){
+    if(readOnlyAbsent(error))return {where,record:null};
+    throw error;
+  }
+  if(read==null)return {where,record:null};
+  const record=read.object;
+  requireThat(record?.workspace_id===where.workspace_id&&
+    record.object_id===where.object_id&&
+    record.schema_id===ORIGINAL_COMPANY_RECORD_SCHEMA&&
+    record.schema_version==='1.0.0'&&
+    record.revision===1&&record.deleted!==true&&record.deleted_at==null,
+    'T3_COMPANY_ORIGINAL_OBJECT_READBACK_CHANGED');
+  const data=record.data;
+  requireThat(data?.schema===RECORD_SCHEMA&&
+    data.kind===kind&&data.artifactId===artifactId&&
+    data.organizationId===task.organizationId&&
+    data.workspaceId===task.workspaceId&&
+    data.executorId===task.executorId&&
+    data.taskId===task.taskId&&
+    data.taskRevisionId===task.taskRevisionId&&
+    data.taskPackageSha256===task.packageSha256&&
+    typeof data.text==='string'&&data.text.length>0&&
+    data.text.length<=2000000&&
+    hex(data.sha256)&&digest(data.text)===data.sha256,
+    'T3_COMPANY_ORIGINAL_CONTENT_READBACK_CHANGED');
+  const events=await reader.listEventsSince(where.workspace_id);
+  const expected=eventFor(data,where).payload;
+  const matches=events.filter(e=>
+    e.workspace_id===where.workspace_id&&
+    e.object_id===where.object_id&&
+    e.revision===1&&e.idempotency_key===where.idempotency_key&&
+    e.event_type==='iwxa.company.work-record.committed'&&
+    eq(e.payload,expected,Object.keys(expected))&&
+    Object.keys(e.payload??{}).length===Object.keys(expected).length);
+  requireThat(matches.length===1,
+    'T3_COMPANY_ORIGINAL_EVENT_READBACK_CHANGED');
+  await assertCurrent();
+  return {where,record};
+}
+
+function acceptedCompanyArtifactId(row){
+  let value;
+  try{value=JSON.parse(row.result);}catch{fail('T3_COMPANY_ACCEPTED_COMPLETE_RESULT_REQUIRED');}
+  const artifactId=value?.origin?.agent_result_id;
+  requireThat(value?.schema==='IWXA_T3_COMPANY_ACCEPTED_RESULT/1'&&
+    typeof artifactId==='string'&&/^RES-[A-Za-z0-9_-]+$/.test(artifactId)&&id(artifactId)&&
+    value.accepted_result?.result_id===artifactId&&
+    value.human_review?.result_ref?.ref_id===artifactId&&
+    value.human_review?.decision==='approve_draft'&&
+    value.accepted_artifact?.result_ref?.ref_id===artifactId&&
+    value.accepted_artifact?.acceptance_kind==='HUMAN_ACCEPTED_DRAFT'&&
+    value.origin.agent_task_id===value.accepted_result.task_id&&
+    value.origin.review_id===value.human_review.review_id&&
+    value.origin.accepted_artifact_id===value.accepted_artifact.accepted_artifact_id&&
+    hex(value.origin.agent_result_sha256)&&hex(value.origin.accepted_artifact_sha256)&&
+    value.human_review.result_digest===value.origin.agent_result_sha256&&
+    value.accepted_artifact.artifact_digest===value.origin.accepted_artifact_sha256,
+    'T3_COMPANY_ACCEPTED_COMPLETE_RESULT_REQUIRED');
+  return artifactId;
+}
+
+// Native recipient-side readback, NOT a new ACCEPT operation or Store.
+// The trusted original recipient supplies its own current ledger observation;
+// the original signed Workspace DATA must independently read the same bytes.
+export function createTrustedCompanyAcceptedWorkflowResultReader({
+  kernel,selectSignedAccess,readOriginalAcceptedResult,isHostActive,
+}={}){
+  requireThat(kernel?.sessionInfo?.contract_version==='1.3.0'&&
+    typeof kernel.hasOperation==='function'&&
+    ['t1.getWorkspace','t1.getObject','t1.listEventsSince'].every(op=>kernel.hasOperation(op))&&
+    typeof selectSignedAccess==='function'&&typeof readOriginalAcceptedResult==='function'&&
+    typeof isHostActive==='function','T3_COMPANY_ACCEPTED_WORKFLOW_OWNER_REQUIRED');
+  async function readAccepted({acceptanceId,resultRevisionId}={}){
+    requireThat(hex(acceptanceId)&&hex(resultRevisionId),'T3_COMPANY_ACCEPTED_WORKFLOW_SELECTION_REQUIRED');
+    requireThat(isHostActive()===true,'T3_COMPANY_ORIGINAL_HOST_NOT_ATTACHED');
+    const access=selectSignedAccess('getObject');
+    requireThat(access&&typeof access.currentContext==='function','T3_COMPANY_SIGNED_JIT_REQUIRED');
+    const context=await access.currentContext();
+    const target={organizationId:context?.organization_id,workspaceId:context?.workspace_id,executorId:context?.actor_id};
+    const shared=await fencedCompanyReadBinding({kernel,access,target,isHostActive});
+    const selection=Object.freeze({acceptanceId,resultRevisionId});
+    const observe=async()=>{
+      await shared.currentContext();
+      const row=structuredClone(await readOriginalAcceptedResult(selection));
+      await shared.currentContext();
+      requireThat(row?.state==='ORIGINAL_CORPORATE_ACCEPTED_WORKFLOW_RESULT'&&
+        row.originalRecipientReadback===true&&row.readOnly===true&&row.acceptanceState==='ACCEPTED'&&
+        row.currentness==='CURRENT_BOUNDED'&&row.executionAuthorized===false&&row.workCompleted===false&&
+        row.acceptanceId===acceptanceId&&row.resultRevisionId===resultRevisionId&&
+        row.organizationId===target.organizationId&&row.workspaceId===target.workspaceId&&
+        hex(row.packageSha256)&&hex(row.resultSha256)&&typeof row.result==='string'&&
+        digest(row.result)===row.resultSha256&&
+        row.workflowInput?.schema==='IWXA_T3_WORKFLOW_INPUT_REFERENCE/1'&&
+        row.workflowInput.workspaceId===target.workspaceId&&
+        typeof row.workflowInput.projectId==='string'&&typeof row.workflowInput.stepId==='string'&&
+        hex(row.workflowInput.candidateDigest),'T3_COMPANY_ACCEPTED_WORKFLOW_SOURCE_CHANGED');
+      return row;
+    };
+    const first=await observe();
+    const source=scope({...first,packageSha256:first.taskPackageSha256});
+    const artifactId=acceptedCompanyArtifactId(first);
+    const seen=await observeCompanyRecord(source,'RESULT',artifactId,shared.binding,shared.currentContext);
+    requireThat(seen.record!==null,'T3_COMPANY_SHARED_RESULT_NOT_FOUND');
+    const {schema,...data}=seen.record.data;
+    const content=freezeSource(data,source,'RESULT',artifactId);
+    requireThat(content.sha256===first.resultSha256&&content.text===first.result,
+      'T3_COMPANY_ACCEPTED_RESULT_CONTENT_CHANGED');
+    const last=await observe();
+    requireThat(JSON.stringify(last)===JSON.stringify(first),'T3_COMPANY_ACCEPTED_WORKFLOW_SOURCE_CHANGED');
+    return Object.freeze({...last,artifactId,originalCompanyRecordId:seen.record.object_id,
+      originalKernelReadback:true,executionAuthorized:false,workCompleted:false});
+  }
+  return Object.freeze({readAccepted});
+}
+
 export function createTrustedOriginalCompanyWorkspacePersistence({
   kernel,selectSignedAccess,readOriginalSignedTask,
   readInstalledCompanyArtifact,isHostActive,
@@ -115,57 +287,13 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
     return createSubjectKernelBinding({kernel,access,isHostActive,
       onCommitObjectGraphDispatch});
   };
-  async function sharedReadBinding(target){
-    active();
-    const access=selectSignedAccess('getObject');
-    requireThat(access&&typeof access.currentContext==='function',
-      'T3_COMPANY_SIGNED_JIT_REQUIRED');
-    const fields=['kind','context_id','actor_id','principal_id','role_id',
-      'grant_id','realm_id','audience','resource','purpose','workspace_id',
-      'organization_id','scope_revision'];
-    const identity=ctx=>JSON.stringify(fields.map(k=>ctx?.[k]));
-    const scopeCheck=ctx=>requireThat(ctx?.kind==='CORP'&&ctx.organization_id===target.organizationId&&
-      ctx.principal_id===target.organizationId&&ctx.actor_id===target.executorId&&
-      ctx.workspace_id===target.workspaceId&&ctx.resource===target.workspaceId&&
-      ctx.purpose==='workspace.read','T3_COMPANY_SHARED_READER_SCOPE_REQUIRED');
-    const selected=await access.currentContext();scopeCheck(selected);
-    const captured=identity(selected);
-    const currentContext=async()=>{
-      active();const ctx=await access.currentContext();active();scopeCheck(ctx);
-      requireThat(identity(ctx)===captured,'T3_COMPANY_SHARED_READER_CONTEXT_CHANGED');
-      return ctx;
-    };
-    // One original employee read owner and one selected D1 scope across
-    // the whole Object/Event observation, including the final readback.
-    const bound={
-      currentContext,
-      actionFor:async operation=>{
-        const action=await access.actionFor(operation);
-        requireThat(action==='workspace.read','T3_COMPANY_SHARED_READER_DATA_REQUIRED');
-        return action;
-      },
-      operationDigest:input=>access.operationDigest(input),
-      authorize:request=>access.authorize(request),
-      verifyDecisionBinding:(request,decision)=>access.verifyDecisionBinding(request,decision),
-    };
-    return {binding:createSubjectKernelBinding({kernel,access:bound,isHostActive}),currentContext};
-  }
+  const sharedReadBinding=target=>fencedCompanyReadBinding({kernel,access:selectSignedAccess('getObject'),target,isHostActive});
   const unchanged=async original=>{
     const recent=await current();
     requireThat(eq(recent,original,Object.keys(original)),
       'T3_COMPANY_SIGNED_TASK_CHANGED');
   };
-  async function observedWorkspace(task,shared=null){
-    let ws=null;
-    try{ws=await (shared??signed('getWorkspace')).getWorkspace(task.workspaceId);}
-    catch(error){if(!workspaceAbsent(error))throw error;}
-    if(ws!==null&&ws!==undefined){
-      requireThat(ws.workspace_id===task.workspaceId&&ws.deleted_at==null,
-        'T3_COMPANY_ORIGINAL_WORKSPACE_NOT_READY');
-      return ws;
-    }
-    return null; // Original T2 says missing, never a permission denial
-  }
+  const observedWorkspace=(task,shared=null)=>observeCompanyWorkspace(task,shared??signed('getWorkspace'));
   async function ensureCompanyWorkspace(task){
     await unchanged(task);
     requireThat(kernel.hasOperation('t1.createWorkspace'),
@@ -190,51 +318,13 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
     if(createError)throw createError;
     fail('T3_COMPANY_ORIGINAL_CREATE_READBACK_MISSING');
   }
-  async function recorded(task,kind,artifactId,readerTask=null,shared=null){
-    const where=locator(task,kind,artifactId);
-    await unchanged(readerTask??task);
-    const ws=await observedWorkspace(task,shared);
-    if(ws===null)return {where,record:null,workspaceMissing:true};
-    let read;
-    try{read=await (shared??signed('getObject')).getObject(where.workspace_id,where.object_id);}
-    catch(error){
-      if(readOnlyAbsent(error))return {where,record:null};
-      throw error;
-    }
-    if(read==null)return {where,record:null};
-    const record=read.object;
-    requireThat(record?.workspace_id===where.workspace_id&&
-      record.object_id===where.object_id&&
-      record.schema_id===ORIGINAL_COMPANY_RECORD_SCHEMA&&
-      record.schema_version==='1.0.0'&&
-      record.revision===1&&record.deleted!==true&&record.deleted_at==null,
-      'T3_COMPANY_ORIGINAL_OBJECT_READBACK_CHANGED');
-    const data=record.data;
-    requireThat(data?.schema===RECORD_SCHEMA&&
-      data.kind===kind&&data.artifactId===artifactId&&
-      data.organizationId===task.organizationId&&
-      data.workspaceId===task.workspaceId&&
-      data.executorId===task.executorId&&
-      data.taskId===task.taskId&&
-      data.taskRevisionId===task.taskRevisionId&&
-      data.taskPackageSha256===task.packageSha256&&
-      typeof data.text==='string'&&data.text.length>0&&
-      data.text.length<=2000000&&
-      hex(data.sha256)&&digest(data.text)===data.sha256,
-      'T3_COMPANY_ORIGINAL_CONTENT_READBACK_CHANGED');
-    const events=await (shared??signed('listEventsSince')).listEventsSince(where.workspace_id);
-    const expected=eventFor(data,where).payload;
-    const matches=events.filter(e=>
-      e.workspace_id===where.workspace_id&&
-      e.object_id===where.object_id&&
-      e.revision===1&&e.idempotency_key===where.idempotency_key&&
-      e.event_type==='iwxa.company.work-record.committed'&&
-      eq(e.payload,expected,Object.keys(expected))&&
-      Object.keys(e.payload??{}).length===Object.keys(expected).length);
-    requireThat(matches.length===1,
-      'T3_COMPANY_ORIGINAL_EVENT_READBACK_CHANGED');
-    await unchanged(readerTask??task);
-    return {where,record};
+  function recorded(task,kind,artifactId,readerTask=null,shared=null){
+    const reader=shared??{
+      getWorkspace:ws=>signed('getWorkspace').getWorkspace(ws),
+      getObject:(ws,objectId)=>signed('getObject').getObject(ws,objectId),
+      listEventsSince:ws=>signed('listEventsSince').listEventsSince(ws),
+    };
+    return observeCompanyRecord(task,kind,artifactId,reader,()=>unchanged(readerTask??task));
   }
   async function read(kind,artifactId){
     const task=await current(),seen=await recorded(task,kind,artifactId);

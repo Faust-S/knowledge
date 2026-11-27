@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {createTrustedOriginalCompanyWorkspacePersistence,
-  ORIGINAL_COMPANY_RECORD_SCHEMA} from
+  ORIGINAL_COMPANY_RECORD_SCHEMA,createTrustedCompanyAcceptedWorkflowResultReader} from
   '../src/t3/original-company-workspace-persistence.mjs';
 
 // Contract-owner fixture only. The concrete original T2 0.3.6 Host and the
@@ -113,7 +113,7 @@ function fixture({text='Результат исследования. '.repeat(60
     readInstalledCompanyArtifact:artifact,
     isHostActive:()=>active,
   });
-  return {make,mutateTask:values=>{task={...task,...values};},
+  return {make,kernel,access,mutateTask:values=>{task={...task,...values};},
     get commits(){return commits;},get creates(){return creates;},
     get workspace(){return workspace;},get stored(){return stored;},
     get events(){return events;},get writeJit(){return writeJit;},
@@ -285,5 +285,53 @@ test('shared Result read is fenced across the complete original employee context
   switchContext=true;
   await assert.rejects(fx.make().readSharedResult({sourceTask,artifactId:d.artifactId,artifactSha256:d.sha256}),
     {code:'T3_COMPANY_SHARED_READER_CONTEXT_CHANGED'});
+  assert.equal(fx.commits,1);
+});
+
+
+test('original recipient ACCEPT is bound to the same complete company Result Object/Event and exact signed Work',async()=>{
+  const resultId='RES-accepted',agentTask='TASK-original',reviewId='REV-original',acceptedId='ACC-original',
+    resultDigest=sha('result'),acceptedDigest=sha('accepted');
+  const complete=JSON.stringify({schema:'IWXA_T3_COMPANY_ACCEPTED_RESULT/1',
+    origin:{agent_task_id:agentTask,agent_result_id:resultId,agent_result_sha256:resultDigest,
+      accepted_artifact_sha256:acceptedDigest,review_id:reviewId,accepted_artifact_id:acceptedId},
+    accepted_result:{task_id:agentTask,result_id:resultId},
+    human_review:{review_id:reviewId,result_ref:{ref_id:resultId},decision:'approve_draft',result_digest:resultDigest},
+    accepted_artifact:{accepted_artifact_id:acceptedId,result_ref:{ref_id:resultId},
+      acceptance_kind:'HUMAN_ACCEPTED_DRAFT',artifact_digest:acceptedDigest}});
+  const fx=fixture({text:complete}),saved=await fx.make().commit('RESULT',resultId),d=fx.stored.data;
+  const selection={acceptanceId:sha('accept'),resultRevisionId:sha('revision')};
+  let row={...selection,state:'ORIGINAL_CORPORATE_ACCEPTED_WORKFLOW_RESULT',
+    originalRecipientReadback:true,readOnly:true,acceptanceState:'ACCEPTED',currentness:'CURRENT_BOUNDED',
+    organizationId:d.organizationId,workspaceId:d.workspaceId,executorId:d.executorId,
+    taskId:d.taskId,taskRevisionId:d.taskRevisionId,taskPackageSha256:d.taskPackageSha256,packageSha256:sha('carrier'),
+    workflowInput:{schema:'IWXA_T3_WORKFLOW_INPUT_REFERENCE/1',workspaceId:d.workspaceId,projectId:'research',
+      stepId:'analyse',candidateDigest:sha('method')},result:complete,resultSha256:sha(complete),
+    executionAuthorized:false,workCompleted:false};
+  fx.mutateContext({actor_id:'person:manager',grant_id:'grant:manager-read',purpose:'workspace.read'});
+  let calls=0,changed=false;
+  const recipient=createTrustedCompanyAcceptedWorkflowResultReader({
+    kernel:fx.kernel,selectSignedAccess:()=>fx.access,isHostActive:()=>true,
+    readOriginalAcceptedResult:input=>{assert.deepEqual(input,selection);calls++;
+      return changed&&calls%2===0?{...row,packageSha256:sha('changed')}:row;}});
+  const verified=await recipient.readAccepted(selection);
+  assert.equal(verified.artifactId,resultId);
+  assert.equal(verified.originalCompanyRecordId,saved.originalObjectId);
+  assert.equal(verified.originalKernelReadback,true);
+  assert.equal(verified.originalRecipientReadback,true);
+  assert.equal(verified.result,complete);
+  assert.equal(verified.executionAuthorized,false);
+  assert.equal(calls,2);
+  const original=row;
+  row={...original,result:'Only a summary',resultSha256:sha('Only a summary')};
+  await assert.rejects(recipient.readAccepted(selection),{code:'T3_COMPANY_ACCEPTED_COMPLETE_RESULT_REQUIRED'});
+  row={...original,result:complete+' ',resultSha256:sha(complete+' ')};
+  await assert.rejects(recipient.readAccepted(selection),{code:'T3_COMPANY_ACCEPTED_RESULT_CONTENT_CHANGED'});
+  row={...original,currentness:'SUPERSEDED'};
+  await assert.rejects(recipient.readAccepted(selection),{code:'T3_COMPANY_ACCEPTED_WORKFLOW_SOURCE_CHANGED'});
+  row=original;calls=0;changed=true;
+  await assert.rejects(recipient.readAccepted(selection),{code:'T3_COMPANY_ACCEPTED_WORKFLOW_SOURCE_CHANGED'});
+  changed=false;fx.tamperEvent();
+  await assert.rejects(recipient.readAccepted(selection),{code:'T3_COMPANY_ORIGINAL_EVENT_READBACK_CHANGED'});
   assert.equal(fx.commits,1);
 });
