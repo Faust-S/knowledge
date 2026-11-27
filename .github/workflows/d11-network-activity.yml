@@ -20,7 +20,7 @@ jobs:
           persist-credentials: false
       - name: Admit one exact request
         run: |
-          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-network-activity --profile source-build --revision domain=57724d7da931e0f459034451f6695d09becbc122 --revision site=ae5eaf07226afe71b0280a05289778856df83cef --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-network-activity --profile source-build --revision domain=c4406c29abd639862fc21edf417c5d049184e926 --revision site=a9a26b795e40b44ff2d5217eb4e748291c285412 --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17
       - name: Verify existing approved read scope
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
@@ -34,14 +34,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics
-          ref: 57724d7da931e0f459034451f6695d09becbc122
+          ref: c4406c29abd639862fc21edf417c5d049184e926
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: ae5eaf07226afe71b0280a05289778856df83cef
+          ref: a9a26b795e40b44ff2d5217eb4e748291c285412
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -54,24 +54,32 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.16.0'
       - name: Exact source pins and canonical mirrors
         run: |
-          test "$(git -C domain rev-parse HEAD)" = "57724d7da931e0f459034451f6695d09becbc122"
-          test "$(git -C site rev-parse HEAD)" = "ae5eaf07226afe71b0280a05289778856df83cef"
+          test "$(git -C domain rev-parse HEAD)" = "c4406c29abd639862fc21edf417c5d049184e926"
+          test "$(git -C site rev-parse HEAD)" = "a9a26b795e40b44ff2d5217eb4e748291c285412"
           test "$(git -C t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import {execFileSync} from 'node:child_process';
-          const m=JSON.parse(fs.readFileSync('site/runtime/d11-module/operations/source.json','utf8'));
-          if(m.sourceCommit!=='57724d7da931e0f459034451f6695d09becbc122' || m.files.length!==35) throw Error('D11_SOURCE_MANIFEST_INVALID');
-          for(const f of m.files){
-            const blob=(repo,path)=>execFileSync('git',['-C',repo,'rev-parse','HEAD:'+path],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();
-            if(blob('domain',f.sourcePath)!==f.blob||blob('site',f.localPath)!==f.blob) throw Error('D11_SOURCE_MIRROR_DIFF');
+          const load=path=>JSON.parse(fs.readFileSync('site/'+path,'utf8'));
+          const operations=load('runtime/d11-module/operations/source.json');
+          const methods=load('src/lib/logistics/professional-methods-source.json');
+          const areas=load('runtime/d11-module/os-work-areas-source.json');
+          if(operations.sourceCommit!=='59a60c0be5a267ebc969187ca1bf065fda21b5c9'||operations.files.length!==52||
+             methods.sourceCommit!=='c4406c29abd639862fc21edf417c5d049184e926'||methods.files.length!==3||
+             areas.sourceCommit!=='c2abca447f84b19623740fe428b0dba95aafbc89') throw Error('D11_SOURCE_MANIFEST_INVALID');
+          const files=[...operations.files,...methods.files,{sourcePath:areas.sourcePath,localPath:areas.localPath,blob:areas.sourceBlob}];
+          if(files.length!==56||new Set(files.map(f=>f.sourcePath)).size!==56||new Set(files.map(f=>f.localPath)).size!==56) throw Error('D11_SOURCE_MANIFEST_INVALID');
+          const blob=(repo,path)=>execFileSync('git',['-C',repo,'rev-parse','HEAD:'+path],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();
+          for(const f of files){
+            if(!/^[0-9a-f]{40}$/.test(f.blob)||blob('domain',f.sourcePath)!==f.blob||blob('site',f.localPath)!==f.blob) throw Error('D11_SOURCE_MIRROR_DIFF');
           }
-          console.log('D11_OPERATIONAL_MIRRORS=35/35 PASS');
+          console.log('D11_SOURCE_MIRRORS=56/56 PASS');
           NODE
       - name: Original canonical regression
+        id: domain_regression
         working-directory: domain
         run: |
           log="$RUNNER_TEMP/d11-domain-tests.log"
@@ -84,11 +92,15 @@ jobs:
           fi
           echo D11_DOMAIN_TESTS=PASS
       - name: Install site dependencies
+        if: ${{ !cancelled() && steps.domain_regression.outcome != 'skipped' }}
+        id: site_install
         working-directory: site
         run: |
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/d11-install.log" 2>&1 || { echo D11_NPM_INSTALL_FAILED; exit 1; }
           echo D11_NPM_INSTALL=PASS
-      - name: TypeScript and full site source regression
+      - name: Full site source regression
+        if: ${{ !cancelled() && steps.site_install.outcome == 'success' }}
+        id: site_regression
         working-directory: site
         run: |
           status=0
@@ -100,6 +112,10 @@ jobs:
             exit 1
           fi
           echo D11_SITE_TESTS=PASS
+      - name: TypeScript
+        if: ${{ !cancelled() && steps.site_install.outcome == 'success' }}
+        working-directory: site
+        run: |
           npx --no-install tsc --noEmit --pretty false >"$RUNNER_TEMP/d11-types.log" 2>&1 || {
             grep -oE 'error TS[0-9]+' "$RUNNER_TEMP/d11-types.log" | sort | uniq -c | head -20 || true
             echo D11_TYPES_FAILED
@@ -136,9 +152,29 @@ jobs:
       - name: Static product integrity
         working-directory: site
         run: |
+          status=0
           for check in readability no-localhost assets external-assets links seo htaccess; do
-            npm run "check:$check" >"$RUNNER_TEMP/d11-$check.log" 2>&1 || { echo "D11_STATIC_FAILED=$check"; exit 1; }
+            if npm run "check:$check" >"$RUNNER_TEMP/d11-$check.log" 2>&1; then echo "D11_STATIC_PASS=$check"; else echo "D11_STATIC_FAILED=$check"; status=1; fi
           done
+          test "$status" -eq 0
           echo D11_STATIC_CHECKS=7/7 PASS
+      - name: Public route hydration and runtime smoke
+        working-directory: site
+        run: |
+          status=0
+          for check in hydration runtime; do
+            if npm run "check:$check" >"$RUNNER_TEMP/d11-$check.log" 2>&1; then
+              echo "D11_BROWSER_SMOKE_PASS=$check"
+            else
+              echo "D11_BROWSER_SMOKE_FAIL=$check"
+              status=1
+            fi
+          done
+          exit "$status"
+      - name: Remove private worktrees and diagnostics
+        if: always()
+        run: |
+          rm -rf -- "$GITHUB_WORKSPACE/domain" "$GITHUB_WORKSPACE/site" "$GITHUB_WORKSPACE/t2"
+          rm -f -- "$RUNNER_TEMP"/d11-*.log
       # No private code, raw logs, test data, build output or artifacts are uploaded.
       # This source/build check is not browser product acceptance or a deployment.
