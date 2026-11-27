@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {generateKeyPairSync,sign} from "node:crypto";
+import {generateKeyPairSync,sign,createHash} from "node:crypto";
 import {digest,signRecord,makeProof,iso,keyObjectSigner} from "../src/t3/access/core.mjs";
 import {ORIGINAL_NETWORK_KEY_TRANSITION,ORIGINAL_NETWORK_KEY_MANAGE,originalNetworkKeyPossessionBytes,
   originalNetworkKeyOperationDigest,originalNetworkKeyStatusId} from "../src/t3/access/original-network-key-lifecycle.mjs";
@@ -457,4 +457,114 @@ test("installed scoped corporate Registry never reissues after the admitted auth
   await assert.rejects(strict.commitSignedState(state),{code:"T3_ACCESS_REGISTRY_STATE_UNAVAILABLE"});
   assert.equal(s.original.calls.length,1);
   assert.equal(s.creates.length,1);
+});
+
+// T2 Exchange is modeled in this component test, with genuine original
+// signed Registry state/events. Actual ZIP/IndexedDB remains the integrated
+// Kernel qualification; no test carrier is accepted as a production format.
+async function registryExchangePair(){
+  const s=productionRegistryFixture(),source=s.port();
+  await source.initializeStorage({confirmed:true});await source.commitSignedState(s.state);
+  const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
+  const storage=s.storageId,id="t3.access.signed-registry";
+  const ops=["t2.exportPackage","t2.importPreview","t2.importCommit","t2.importCancel"];
+  const has=s.kernel.hasOperation;
+  s.kernel.hasOperation=op=>has(op)||ops.includes(op);
+  const zero={workspaces:0,objects:0,events:0,assets:0,relations:0,schemas:0};
+  let extraObject=false,changedDuringExport=false;
+  s.kernel.exportPackage=async options=>{
+    assert.deepEqual(options,{workspaces:[storage],include_history:true,include_assets:false,include_relations:false,include_schemas:false,scope:{mode:"workspace"}});
+    const record=(await s.kernel.getObject(storage,id)).object,events=await s.kernel.listEventsSince(storage);
+    const bytes=Buffer.from(JSON.stringify({record,events})),package_digest=sha(bytes),semantic_digest=digest({record,events});
+    const manifest={format:"iwxa.package",format_version:"1.0",workspaces:[storage],
+      options:{include_history:true,include_assets:false,include_relations:false,include_schemas:false},
+      counts:{...zero,workspaces:1,objects:extraObject?2:1,events:events.length},package_digest,semantic_digest};
+    if(changedDuringExport)await source.commitSignedState(await source.readState());
+    return {bytes,size:bytes.length,manifest,package_digest,semantic_digest,validation:{ok:true},
+      summary:{excluded_by_permission:zero}};
+  };
+  let local=null,ws=false,events=[],token=null,previewCount=0,commits=0,cancels=0,loseAck=false,alterPreview=null,denyRead=false;
+  const kernel={sessionInfo:s.kernel.sessionInfo,hasOperation:op=>["t1.getWorkspace","t1.getObject","t1.listEventsSince","t1.putObject",...ops].includes(op),
+    async getWorkspace(x){assert.equal(x,storage);if(denyRead)throw Error("simulated denied read");
+      return ws?{workspace_id:storage,profile:"generic"}:null;},
+    async getObject(x,y){assert.equal(x,storage);assert.equal(y,id);return local?{object:structuredClone(local)}:null;},
+    async listEventsSince(x){assert.equal(x,storage);return structuredClone(events);},
+    async putObject(){assert.fail("must not reconstruct original Registry");},
+    async importPreview(bytes){
+      previewCount++;
+      const {record,events:incoming}=JSON.parse(Buffer.from(bytes).toString("utf8"));
+      const package_digest=sha(bytes),semantic_digest=digest({record,events:incoming});
+      token={record,events:incoming,package_digest,semantic_digest};
+      const manifest={format:"iwxa.package",format_version:"1.0",workspaces:[storage],
+        options:{include_history:true,include_assets:false,include_relations:false},
+        counts:{...zero,workspaces:1,objects:1,events:incoming.length},package_digest,semantic_digest};
+      const result={preview_token:"token:one",package_digest,semantic_digest,allowed_modes:["full","merge"],preview:{
+        manifest,package_digest,semantic_digest,scope_mode:"workspace",
+        workspaces:[{workspace_id:storage,exists_locally:ws}],
+        objects:[{workspace_id:storage,object_id:id,schema_id:ORIGINAL_REGISTRY_SCHEMA,schema_version:"1.0.0",
+          incoming_revision:record.revision,local_revision:local?.revision??null}],
+        totals:{...zero,workspaces:1,objects:1,events:incoming.length},
+        included:{...zero,workspaces:1,objects:1,events:incoming.length},unsupported:[],invalid:{envelopes:0},
+        excluded_by_permission:zero}};
+      alterPreview?.(result);return result;
+    },
+    async importCommit(input){
+      commits++;
+      assert.equal(input.preview_token,"token:one");assert.equal(input.package_digest,token.package_digest);
+      assert.deepEqual(input.plan,{mode:ws?"merge":"full",conflict:local?"overwrite":"fail",include_workspaces:[storage],
+        ...(ws?{target_workspace:storage}:{}),include_history:true,include_assets:false,include_relations:false});
+      const receipt={package_digest:token.package_digest,semantic_digest:token.semantic_digest,mode:input.plan.mode};
+      ws=true;local=structuredClone(token.record);events=structuredClone(token.events);token=null;
+      if(loseAck){loseAck=false;throw Error("SIMULATED_LOST_IMPORT_ACK");}return receipt;
+    },
+    async importCancel(id){assert.equal(id,"token:one");cancels++;token=null;return true;}
+  };
+  const target=()=>createOriginalKernelRegistryStatePort({...s.opts,kernel,corporateScope:{
+    organizationId:s.scope.organizationId,authorityId:s.scope.authorityId,existingSeparateStorageOnly:true}});
+  return {source,target,storage,counts:()=>({previewCount,commits,cancels}),
+    extra(){extraObject=true;},race(){changedDuringExport=true;},lose(){loseAck=true;},
+    alter(f){alterPreview=f;},deny(){denyRead=true;},
+    diverge(){events[0].payload.revision=999;},empty(){ws=true;}};
+}
+test("original Registry Exchange installs one exact signed history and repeats without another import",async()=>{
+  const p=await registryExchangePair(),target=p.target();
+  await assert.rejects(p.source.exportRegistryWorkspace(),{code:"T3_ACCESS_REGISTRY_EXCHANGE_HUMAN_REQUIRED"});
+  const packet=await p.source.exportRegistryWorkspace({confirmed:true});
+  await assert.rejects(target.importRegistryWorkspace(packet),{code:"T3_ACCESS_REGISTRY_EXCHANGE_HUMAN_REQUIRED"});
+  const done=await target.importRegistryWorkspace({...packet,confirmed:true});
+  assert.equal(done.state,"ORIGINAL_REGISTRY_IMPORTED");assert.equal(done.originalRevision,1);
+  assert.deepEqual(await p.target().readRegistryDelivery(),packet.delivery);
+  assert.equal((await p.target().importRegistryWorkspace({...packet,confirmed:true})).state,"ALREADY_CURRENT");
+  assert.deepEqual(p.counts(),{previewCount:1,commits:1,cancels:0});
+});
+test("original Registry Exchange merges only forward exact history and recovers a lost original import reply",async()=>{
+  const p=await registryExchangePair();p.empty();
+  const first=await p.source.exportRegistryWorkspace({confirmed:true});p.lose();
+  assert.equal((await p.target().importRegistryWorkspace({...first,confirmed:true})).state,"ORIGINAL_REGISTRY_IMPORT_RECOVERED");
+  await p.source.commitSignedState(await p.source.readState());
+  const next=await p.source.exportRegistryWorkspace({confirmed:true});
+  assert.equal(next.delivery.record.revision,2);
+  assert.equal((await p.target().importRegistryWorkspace({...next,confirmed:true})).state,"ORIGINAL_REGISTRY_IMPORTED");
+  assert.deepEqual(await p.target().readRegistryDelivery(),next.delivery);
+  await assert.rejects(p.target().importRegistryWorkspace({...first,confirmed:true}),{code:"T3_ACCESS_REGISTRY_EXCHANGE_HISTORY_DIVERGED"});
+  assert.deepEqual(p.counts(),{previewCount:2,commits:2,cancels:0});
+});
+test("original Registry Exchange refuses foreign inventory, damaged bytes and divergent local history before dispatch",async()=>{
+  const p=await registryExchangePair(),packet=await p.source.exportRegistryWorkspace({confirmed:true});
+  const corrupt=structuredClone(packet);corrupt.registryArchive.sha256="0".repeat(64);
+  await assert.rejects(p.target().importRegistryWorkspace({...corrupt,confirmed:true}),{code:"T3_ACCESS_REGISTRY_EXCHANGE_PACKAGE_INVALID"});
+  p.alter(preview=>{preview.preview.objects[0].object_id="foreign";});
+  await assert.rejects(p.target().importRegistryWorkspace({...packet,confirmed:true}),{code:"T3_ACCESS_REGISTRY_EXCHANGE_PREVIEW_INVALID"});
+  assert.deepEqual(p.counts(),{previewCount:1,commits:0,cancels:1});
+  p.alter(null);await p.target().importRegistryWorkspace({...packet,confirmed:true});
+  p.diverge();await assert.rejects(p.target().importRegistryWorkspace({...packet,confirmed:true}),{code:"T3_ACCESS_REGISTRY_EXCHANGE_HISTORY_DIVERGED"});
+  assert.deepEqual(p.counts(),{previewCount:2,commits:1,cancels:1});
+});
+test("original Registry Exchange refuses unrelated objects, changed source and inaccessible target",async()=>{
+  const p=await registryExchangePair(),packet=await p.source.exportRegistryWorkspace({confirmed:true});
+  p.deny();await assert.rejects(p.target().importRegistryWorkspace({...packet,confirmed:true}),/simulated denied read/);
+  assert.deepEqual(p.counts(),{previewCount:0,commits:0,cancels:0});
+  p.extra();await assert.rejects(p.source.exportRegistryWorkspace({confirmed:true}),{code:"T3_ACCESS_REGISTRY_EXCHANGE_PACKAGE_SCOPE_INVALID"});
+  const q=await registryExchangePair();q.race();
+  await assert.rejects(q.source.exportRegistryWorkspace({confirmed:true}),{code:"T3_ACCESS_REGISTRY_EXCHANGE_SOURCE_CHANGED"});
 });
