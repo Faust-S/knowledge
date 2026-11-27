@@ -1,5 +1,5 @@
-"""Apply the qualified hosting-only revision to an authenticated ArtBazy build.
-No source reconstruction, bundle edits, new offline manifest or deployment.
+"""Apply the qualified ArtBazy configuration delta to an authenticated build.
+The original T3 materializer regenerates the offline manifest; no bundle edits.
 """
 import argparse
 import hashlib
@@ -7,12 +7,20 @@ import json
 import os
 import re
 import stat
+import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
 
 BUILD_SITE = 'a6ad6a7a90d97e04a931c8f33598373a5336c1a2'
-FINAL_SITE = '91ce9dc83a0836eb4e40a2c2746e647588413713'
+FINAL_SITE = '3af58d0efa74fb91e22afbddf913f76c6484a3ed'
+PLATFORM_SHA = 'c142597c759d6689c0298d0ec6abc7ee66b2eefbb1d5abb086efff6f0dea891e'
+PASSPORT = '_iwxa/services/ru.iwxa.artbazy.workspace.json'
+CATALOG = '_iwxa/service-catalog.json'
+WORKSPACE_APACHE = 'workspace/.htaccess'
+MANIFEST = 't3-offline-manifest.json'
+PROOFS = ('google16dce79d77367d6f.html', 'yandex_95e23e45501e02eb.html')
+CHANGED = {'.htaccess', PASSPORT, CATALOG, WORKSPACE_APACHE, MANIFEST}
 BUILD_RUN = '46048600732'
 WITNESS_SITE = '5994bc36837beb5534797c5349019d12ed30797c'
 WITNESS_RUN = '46040574272'
@@ -65,8 +73,60 @@ def entries(z):
     return result
 
 
-def finalize(archive, header, output, witness=False):
-    archive, header, output = map(Path, (archive, header, output))
+def apply_configuration(root, platform_archive, temp):
+    need(sha_file(platform_archive) == PLATFORM_SHA, 'ORIGINAL_PLATFORM_IDENTITY')
+    platform = temp / 'platform'
+    platform.mkdir()
+    with zipfile.ZipFile(platform_archive) as original:
+        original.extractall(platform)
+    materializer = platform / 'scripts/materialize-t3-domain-mode.mjs'
+    need(materializer.is_file(), 'ORIGINAL_MATERIALIZER_MISSING')
+    (root / '.htaccess').write_bytes(fix_apache((root / '.htaccess').read_bytes()))
+    def patch(path, old, new, replacements):
+        raw = (root / path).read_bytes()
+        need(sha(raw) == old, 'CONFIG_BASE_IDENTITY:' + path)
+        for a, b in replacements:
+            need(raw.count(a) == 1, 'CONFIG_DELTA_SCOPE:' + path)
+            raw = raw.replace(a, b, 1)
+        need(sha(raw) == new, 'CONFIG_RESULT_IDENTITY:' + path)
+        (root / path).write_bytes(raw)
+    before_passport = '45f5885ef903c520bbb675fdc77dbbd9d79ec9ab0d1d5c162cc24f33ff26ba98'
+    after_passport = 'f3d50f1cccf84c4126ce701320ec5a3dd8027c594126956d92d99eab5e4d88ee'
+    flags = []
+    for schema in ('calculation-result', 'research-draft', 'payment-plan-fact'):
+        a = ('"ru.iwxa.artbazy.' + schema + '":{"schema_version":"1.0.0","preserve_unknown":true,').encode()
+        flags.append((a, a.replace(b'true,', b'false,')))
+    patch(PASSPORT, before_passport, after_passport, flags)
+    patch(CATALOG, '2e8fbc1e5dc98b15e33a91a6c76f202bc12af962a99fa92a43d7f1be14e81376',
+          '6bf9a8746d44dcdaf4e7b25783aa60211accb923ad65d69a77c71e9585bef033',
+          [(before_passport.encode(), after_passport.encode())])
+    patch(WORKSPACE_APACHE, '75a3dabe73f7ce802bb63ced7737615ae4e1f7634074b976d96228c4a8bccf86',
+          'bcd0e3e5d6fe2c2e99bb11899eb83aa54a9aaaa14c15ac679a8baf3db215f350',
+          [(b"script-src 'self' 'wasm-unsafe-eval';", b"script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval';")])
+    old = json.loads((root / MANIFEST).read_bytes())
+    need(old['complete_static_tree'] is True and old['domain_origin'] == 'https://artbazy.ru', 'MANIFEST')
+    # Hosting proof files are excluded by the original domain assembly.
+    proofs = temp / 'hosting-proofs'
+    proofs.mkdir()
+    for name in PROOFS:
+        (root / name).rename(proofs / name)
+    try:
+        subprocess.run(['node', str(materializer), str(root)], check=True, capture_output=True, text=True)
+    finally:
+        for name in PROOFS:
+            (proofs / name).rename(root / name)
+    new = json.loads((root / MANIFEST).read_bytes())
+    need(old['version'] != new['version'], 'OFFLINE_VERSION_NOT_CHANGED')
+    need({k:v for k,v in old.items() if k not in ('files','version','total_bytes')} ==
+         {k:v for k,v in new.items() if k not in ('files','version','total_bytes')}, 'OFFLINE_METADATA_CHANGED')
+    need([r['path'] for r in old['files']] == [r['path'] for r in new['files']], 'OFFLINE_COVERAGE_CHANGED')
+    need({a['path'] for a,b in zip(old['files'],new['files']) if a != b} ==
+         {'/'+PASSPORT, '/'+CATALOG}, 'OFFLINE_DELTA_SCOPE')
+    return old['version'], new['version']
+
+
+def finalize(archive, header, output, platform_archive, witness=False):
+    archive, header, output, platform_archive = map(Path, (archive, header, output, platform_archive))
     need(output.suffix.lower() == '.zip' and output.resolve() != archive.resolve(), 'OUTPUT_PATH')
     checksum = Path(str(output) + '.sha256')
     receipt = Path(str(output) + '.receipt.json')
@@ -88,18 +148,24 @@ def finalize(archive, header, output, witness=False):
         with zipfile.ZipFile(archive) as z:
             before = entries(z)
             need('.htaccess' in before and 't3-offline-manifest.json' in before, 'BUILD_ENTRIES')
-            manifest = json.loads(z.read('t3-offline-manifest.json'))
-            need(manifest['complete_static_tree'] is True and manifest['domain_origin'] == 'https://artbazy.ru', 'MANIFEST')
-            need(all(PureName(r.get('source', r['path'])) != '.htaccess' for r in manifest['files']), 'APACHE_MANIFEST_SCOPE')
-            new_apache = fix_apache(z.read('.htaccess'))
+            deploy = Path(temp) / 'dist'
+            deploy.mkdir()
+            z.extractall(deploy)
+            old_version, new_version = apply_configuration(deploy, platform_archive, Path(temp))
+            need({str(p.relative_to(deploy)).replace(os.sep, '/') for p in deploy.rglob('*') if p.is_file()} ==
+                 {i.filename for i in before.values() if not i.is_dir()}, 'ARCHIVE_PATHS')
+            changed = set()
             with zipfile.ZipFile(staged, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as target:
                 for info in z.infolist():
-                    data = new_apache if info.filename == '.htaccess' else z.read(info)
+                    data = b'' if info.is_dir() else (deploy / info.filename).read_bytes()
+                    if not info.is_dir() and data != z.read(info):
+                        changed.add(info.filename)
                     row = zipfile.ZipInfo(info.filename, date_time=info.date_time)
                     row.create_system = 3
                     row.external_attr = ((stat.S_IFDIR | 0o755) << 16 | 0x10) if info.is_dir() else ((stat.S_IFREG | 0o644) << 16)
                     row.compress_type = zipfile.ZIP_STORED if info.is_dir() else zipfile.ZIP_DEFLATED
                     target.writestr(row, data)
+            need(changed == CHANGED, 'ARCHIVE_DELTA_SCOPE')
             with zipfile.ZipFile(staged) as out:
                 after = entries(out)
                 need(set(after) == set(before), 'ARCHIVE_PATHS')
@@ -112,19 +178,20 @@ def finalize(archive, header, output, witness=False):
                         dirs += 1
                     else:
                         files += 1
-                        expected = new_apache if key == '.htaccess' else z.read(original)
+                        expected = (deploy / original.filename).read_bytes()
                         need(out.read(revised) == expected, 'ARCHIVE_BYTES')
-                        unchanged += key != '.htaccess'
-                need(files == unchanged + 1, 'ARCHIVE_DELTA')
+                        unchanged += original.filename not in CHANGED
+                need(files == unchanged + len(CHANGED), 'ARCHIVE_DELTA')
                 need(out.testzip() is None, 'ARCHIVE_CRC')
         final_sha = sha_file(staged)
-        result = {'status': 'HOSTING_DELTA_WITNESS_ONLY' if witness else 'FINAL_SITE_ZIP_NOT_PRODUCT_ACCEPTED',
+        result = {'status': 'CONFIGURATION_DELTA_WITNESS_ONLY' if witness else 'FINAL_SITE_ZIP_NOT_PRODUCT_ACCEPTED',
                   'buildSite': site, 'buildRun': run,
-                  'targetSite': None if witness else FINAL_SITE, 'qualifiedHostingDelta': FINAL_SITE,
+                  'targetSite': None if witness else FINAL_SITE, 'qualifiedConfigurationDelta': FINAL_SITE,
                   'sourceZipSha256': before_sha, 'sha256': final_sha,
-                  'files': files, 'unchangedFiles': unchanged, 'changedFiles': ['.htaccess'],
+                  'files': files, 'unchangedFiles': unchanged, 'changedFiles': sorted(CHANGED),
                   'directories': dirs, 'fileMode': '0644', 'directoryMode': '0755',
-                  'offlineManifestUnchanged': True, 'productAccepted': False}
+                  'originalPlatformSha256': PLATFORM_SHA, 'previousOfflineVersion': old_version,
+                  'offlineVersion': new_version, 'productAccepted': False}
         try:
             os.link(staged, output)
             published.append(output)
@@ -142,18 +209,16 @@ def finalize(archive, header, output, witness=False):
     return result
 
 
-def PureName(path):
-    return path.rstrip('/').rsplit('/', 1)[-1]
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('archive', type=Path)
     parser.add_argument('authenticated_header', type=Path)
     parser.add_argument('output', type=Path)
+    parser.add_argument('--platform-archive', required=True, type=Path)
     parser.add_argument('--witness', action='store_true', help='Exercise earlier known build; never label it final')
     args = parser.parse_args()
     try:
-        print(json.dumps(finalize(args.archive, args.authenticated_header, args.output, args.witness), indent=2))
-    except (ValueError, KeyError, OSError, zipfile.BadZipFile) as exc:
+        print(json.dumps(finalize(args.archive, args.authenticated_header, args.output, args.platform_archive, args.witness), indent=2))
+    except (ValueError, KeyError, OSError, subprocess.CalledProcessError, zipfile.BadZipFile) as exc:
         parser.exit(1, f'ARTBAZY_FINALIZATION_FAIL: {exc}\n')
