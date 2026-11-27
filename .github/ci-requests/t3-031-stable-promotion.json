@@ -1,0 +1,14 @@
+{
+  "preparedSha": "352675a2b35594e2a1cd39adb87274fbfcfbed1a",
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-031-stable-promotion",
+  "source": "d7f439fe974fab1709270e515721da72d887240f",
+  "base": "3e8c40fc5a80866f32f4547f1780ebef525c964c",
+  "baseTag": "t3-platform-v0.3.1-rc.6",
+  "baseArchiveSha256": "bc52020b421acd334b7c5a8db8672e153933c767159609db06239f784e6ee13e",
+  "baseManifestSha256": "9a39448eefb9ceffd8e898a6faa395fc993df7481e01fe9228ff5e10c7e4f290",
+  "basePublicationRun": 46053077770,
+  "userRoutesRun": 46050260479,
+  "tag": "t3-platform-v0.3.1",
+  "reason": "PROMOTE_ENGINEERING_QUALIFIED_RC6_WITH_VERSION_METADATA_ONLY_NO_REBUILD"
+}
