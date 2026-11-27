@@ -16,7 +16,7 @@ const context={kind:'PERSONAL',context_id:'context:local',actor_id:'person:local
 // This fixture models the Access decision and original T2 receipts ONLY.
 // Both the production Relay and SubjectKernelBinding are used unchanged
 // apart from the candidate relay changes; no original Kernel execution is claimed.
-function fixture({role='SOURCE',installed=false,grants=[...new Set([...base,...operations])],profilePatch={},ownerPatch={},createHook=null,bindHook=null,attachHook=null,nativeAttach=null,wake=null,history=null,local=null}={}){
+function fixture({role='SOURCE',installed=false,registryExchangeOperations=[],grants=[...new Set([...base,...operations])],profilePatch={},ownerPatch={},createHook=null,bindHook=null,attachHook=null,nativeAttach=null,wake=null,history=null,local=null}={}){
   const installedScope={schema:'IWXA_T4_INSTALLED_NATIVE_NETWORK_SCOPE/1',role,sourceWorkspaceId:WS,technicalWorkspaceId:TECH,registryWorkspaceId:REG};
   let epoch=1,registry=null,kernel=null,profile=null,revoked=false,lateRead=null;
   const counts={create:0,attach:0,detach:0,close:0,bind:0,stop:0,proofs:0},calls=[];
@@ -54,7 +54,7 @@ function fixture({role='SOURCE',installed=false,grants=[...new Set([...base,...o
       },async bindPeerHistoryReceiver(receiver){counts.bind++;assert.equal(typeof receiver.read,'function');if(bindHook)return bindHook(receiver);return ()=>{counts.stop++;};}
     }});
   const attach=(version=1)=>relay.exchange({verb:'attach',payload:{sessionInfo:info(grants),networkRelayVersion:1,
-    networkActivationVersion:version,...(installed?{installedNetworkScope:installedScope}:{}),...(role==='SOURCE'?{localSourceMutationVersion:1,localSourceGraphVersion:1}:{})}},epoch);
+    networkActivationVersion:version,...(installed?{installedNetworkScope:installedScope,registryExchangeOperations}:{}),...(role==='SOURCE'?{localSourceMutationVersion:1,localSourceGraphVersion:1}:{})}},epoch);
   const ex=(s,verb,rest={})=>relay.exchange({verb,payload:{sessionId:s.sessionId,...rest}},s.contextEpoch);
   const next=s=>ex(s,'next');
   async function command(s,method,args,result){
@@ -371,4 +371,73 @@ test('failed peer release denies activation instead of advertising a broken READ
     assert.equal(reply.activation.networkMethods,undefined);assert.equal(reply.activation.localSourceMutationVersion,undefined);
     assert.equal(f.relay.networkAttached,false);assert.equal(f.counts.stop,1);assert.equal(f.counts.close,1);assert.equal(f.counts.detach,1);
   }finally{f.relay.close();}
+});
+
+const registryImportOps=['t2.importPreview','t2.importCommit','t2.importCancel'];
+const registryExportOptions={workspaces:[REG],include_history:true,include_assets:false,
+  include_relations:false,include_schemas:false,scope:{mode:'workspace'}};
+const importPreview={preview_token:'registry-preview',package_digest:'d'.repeat(64),preview:{
+  workspaces:[{workspace_id:REG,exists_locally:false}],objects:[{workspace_id:REG,object_id:OBJ,
+    schema_id:'iwxa.t3.access.signed-registry',schema_version:'1.0.0',local_revision:null}]}};
+const importCommand={preview_token:importPreview.preview_token,package_digest:importPreview.package_digest,
+  plan:{mode:'full',conflict:'fail',include_workspaces:[REG],include_history:true,include_assets:false,include_relations:false}};
+test('installed SOURCE transfers original T2 Registry archive before network READY using the existing command slot',async()=>{
+  const bytes=Uint8Array.from([0,255,128,64,1]);
+  let imported=false;
+  const f=fixture({installed:true,registryExchangeOperations:registryImportOps,
+    async createHook({registryKernel:reg}){
+      assert.equal(reg.hasOperation('t2.importPreview'),true);
+      assert.equal(reg.hasOperation('t2.exportPackage'),false);
+      assert.equal(f.relay.nativeKernel.hasOperation('t2.importCommit'),false);
+      const handle=await reg.importPreview(bytes);assert.deepEqual(handle,importPreview);
+      await assert.rejects(reg.importCommit({...importCommand,plan:{...importCommand.plan,include_workspaces:[WS]}}),
+        {code:'T3_ORIGINAL_REGISTRY_EXCHANGE_SCOPE_DENIED'});
+      assert.deepEqual(await reg.importCommit(importCommand),{imported:true});
+      imported=true;
+    }});
+  try{
+    const s=await f.attach();
+    await assert.rejects(f.relay.nativeRegistryKernel.importPreview(bytes),{code:'T3_ORIGINAL_REGISTRY_EXCHANGE_LIFETIME_ENDED'});
+    await f.command(s,'importPreview',[Buffer.from(bytes).toString('base64url')],importPreview);
+    assert.equal(f.relay.networkAttached,false);
+    await f.command(s,'importCommit',[importCommand],{imported:true});
+    await f.command(s,'listEventsSince',[REG]);
+    const result=await f.next(s);assert.equal(result.activation.state,'READY');assert.equal(imported,true);
+    await assert.rejects(f.registry.importPreview(bytes),{code:'T3_ORIGINAL_REGISTRY_EXCHANGE_LIFETIME_ENDED'});
+  }finally{f.relay.close();}
+});
+test('installed SOURCE cancels a foreign original Exchange preview without dispatching import',async()=>{
+  const bytes=Uint8Array.from([1,2,3]),foreign=structuredClone(importPreview);
+  foreign.preview.objects[0].object_id='foreign';
+  const f=fixture({installed:true,registryExchangeOperations:registryImportOps,
+    async createHook({registryKernel:reg}){
+      await reg.importPreview(bytes);
+      await assert.rejects(reg.importCommit(importCommand),{code:'T3_ORIGINAL_REGISTRY_EXCHANGE_SCOPE_DENIED'});
+      assert.equal(await reg.importCancel(importPreview.preview_token),true);
+      throw Error('expected admission hold');
+    }});
+  try{const s=await f.attach();await f.command(s,'importPreview',[Buffer.from(bytes).toString('base64url')],foreign);
+    await f.command(s,'importCancel',[importPreview.preview_token],true);const done=await f.next(s);
+    assert.equal(done.activation.state,'DENIED');assert.equal(f.relay.networkAttached,false);
+    assert.equal(f.calls.some(([method])=>method==='importCommit'),false);
+  }finally{f.relay.close();}
+});
+test('installed RECIPIENT exports only its original Registry partition and returns exact archive bytes',async()=>{
+  const f=fixture({installed:true,role:'RECIPIENT',registryExchangeOperations:['t2.exportPackage']});
+  try{const s=await f.attach();await f.activate(s);const reg=f.registry;
+    assert.equal(reg.hasOperation('t2.exportPackage'),true);assert.equal(reg.hasOperation('t2.importCommit'),false);
+    await assert.rejects(reg.exportPackage({...registryExportOptions,workspaces:[WS]}),{code:'T3_ORIGINAL_REGISTRY_EXCHANGE_SCOPE_DENIED'});
+    const bytes=Uint8Array.from([0,255,7]);
+    const pending=reg.exportPackage(registryExportOptions);
+    await f.command(s,'exportPackage',[registryExportOptions],{bytesBase64url:Buffer.from(bytes).toString('base64url'),size:bytes.length});
+    assert.deepEqual(await pending,{bytes,size:3});
+  }finally{f.relay.close();}
+});
+test('ordinary or wrong role cannot negotiate private Registry Exchange',async()=>{
+  for(const options of [{installed:false,registryExchangeOperations:registryImportOps},
+    {installed:true,role:'RECIPIENT',registryExchangeOperations:registryImportOps},
+    {installed:true,registryExchangeOperations:['t2.exportPackage']}]){
+    const f=fixture(options);try{await assert.rejects(f.attach(),{code:'T3_ORIGINAL_REGISTRY_EXCHANGE_OPERATIONS_INVALID'});}
+    finally{f.relay.close();}
+  }
 });
