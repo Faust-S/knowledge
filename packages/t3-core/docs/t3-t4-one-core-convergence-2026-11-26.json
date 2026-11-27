@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_T3_T4_ONE_CORE_CONVERGENCE_STAGE/1",
-  "state": "NATIVE_SIGNED_GRANT_AND_READY_LIFETIME_STAGED",
+  "state": "FIXED_OWNER_DB8_INSTALLED_PROFILE_STAGED",
   "mergeBase": "fd927a1efb083219442d9504285f75fa738dbdda",
   "corporateT3": "8db847058cab231d2d39c34df46024b60564d2ad",
   "networkT4": "896515f361611e311b0df22dbcfebfefa8e58fa0",
@@ -27,11 +27,11 @@
   "networkWireUnchanged": true,
   "accepted": false,
   "blocking": [
-    "Execute exact corrected original K036 qualification from authorized local Git snapshots using Center 16f9802f. Accepted K036 full corporate return archive remains FAIL; corrected candidate NOT_RUN; do not rerun blocked public Center without authorized access.",
-    "Finish actual installed SOURCE/RECIPIENT provider using existing signed native owner, enrolled grants, genuine credential and topology readers, original operation ports. SOURCE rejects unconfigured provider. Both native owner full execution and Windows build/mount NOT_RUN.",
-    "Provision existing original signed grants for explicit role/operation scopes, device keys, separate technical workspace and authenticated peer topology. Extra mutation actions need explicit policy admission; no automatic grant issuance or fallback. Original TLS handshake alone is not peer owner READY.",
-    "Qualify full original carrier/Relay activation after current changes, actual DB9, installed physical two-node transfer, disconnect/reconnect and measured performance.",
-    "Independent final acceptance."
+    "Original DB8 canonical Event merge: separate T2 owner acceptance, using evidence 45596499435 (43/43 source and 2/2 cross-product per OS) and 45611967597. Exact integrated corrected DB8 candidate and installed product still NOT_RUN. Do not alter T2 in this T4 project.",
+    "Complete installed native provider in both products with existing real signed grants, Vault and authenticated topology. User explicitly selects T3 or T4; T4 has no automatic LOCAL_T3 fallback. No invented enrollment or authority. Agent still rejects unconfigured SOURCE.",
+    "Use one fixed writer, one peer route, one business Workspace plus existing technical/Registry scopes. Independent source window and recipient Result evidence required; new replacement attempts and DB9/multipart extensions are not admitted by installed 0.1.",
+    "Qualify the complete DB8 native route, explicit T3/T4 selection, real two-device exchange, lost response, disconnect/reconnect, restart, clock/history divergence and measured performance. Unknown outcome or diverged prefix stops the write; no replay based on missing Event. DB9 remains separate unaccepted advanced work, not a first-release gate.",
+    "Independent final acceptance of actual installed products."
   ],
   "notes": [
     "No automatic Registry migration, issuance or fallback.",
@@ -54,7 +54,8 @@
     "Explicit SOURCE forwarded by qualified Agent builder and CLI. Agent build-only packaging admits a single canonical sibling layout, pinned native owner, canonical SOURCE passport and unaccepted package metadata; actual Windows build and native mount NOT_RUN. Existing local owner still refuses pilot passport.",
     "All 66 original frozen network source blobs unchanged; five integration additions. No new Actions or Codex.",
     "2026-11-27: all 66 original frozen T4 network source blobs still byte-identical; six integration modules. Existing release branches untouched. Source candidate 513a11bf has actual TLS startup helper tests, but new product factory glue and combined canonical carrier test require full checkout. No new Actions or Codex.",
-    "2026-11-27: native startup lifetime, receiver-ready transition and shared signed grant selection staged at 4335694c/9800854e. Exact scoped helper tests PASS (TLS 14, native owner composition 44, Agent 24, launcher 15; reruns include previous tests), full integrated Relay/owner/Kernel and Windows qualification NOT_RUN. All 66 frozen source blobs compared unchanged. Existing accepted branches untouched; no Actions or Codex."
+    "2026-11-27: native startup lifetime, receiver-ready transition and shared signed grant selection staged at 4335694c/9800854e. Exact scoped helper tests PASS (TLS 14, native owner composition 44, Agent 24, launcher 15; reruns include previous tests), full integrated Relay/owner/Kernel and Windows qualification NOT_RUN. All 66 frozen source blobs compared unchanged. Existing accepted branches untouched; no Actions or Codex.",
+    "2026-11-27 engineering review: owner clarified T4 is network mode, T3 autonomy is user-selected, no offline imitation of T4 or automatic mode fallback. Fixed installed profile uses DB8, original independent source/result evidence and stops unknown outcomes. Six new replacement progression stages disabled only in installed path; historical terminal recovery and generic extended profile retained. 65/66 original frozen blobs unchanged, one native composition changed, six integration modules. Exact source selection 15 PASS, launcher 15 PASS, Agent Python 19 PASS. No T2 writes; full installed runtime, carrier and performance NOT_RUN."
   ],
   "additionalTests": {
     "packages/t4-network/tests/original-native-network-product-activation.test.mjs": "9f1fd80a9f76a2dd9f99d7367d804cc1acfe0f02",
@@ -225,8 +226,12 @@
   "frozenNetworkSource": {
     "commit": "6e542f5d28386c39a6fd9b5206c7d3fa79414c31",
     "originalBlobs": 66,
-    "changed": 0,
-    "additionalProductIntegrationModules": 6
+    "changed": 1,
+    "additionalProductIntegrationModules": 6,
+    "changedFiles": [
+      "packages/t4-network/src/network/original-native-host-network-profile.mjs"
+    ],
+    "unchangedOriginalBlobs": 65
   },
   "nativePilot": {
     "scope": "LIMITED_ONE_WRITER_TWO_NODE_DEVELOPMENT_ONLY",
@@ -513,6 +518,73 @@
       "physicalTwoNode": "NOT_RUN",
       "independentAcceptance": "NOT_RUN",
       "accepted": false,
+      "T4_READY": false,
+      "FEATURE_FREEZE": true
+    },
+    "latestEngineeringSimplification": {
+      "date": "2026-11-27",
+      "state": "STAGED_NOT_ACCEPTED",
+      "core": {
+        "commit": "9fe841ff2a323ce397aefe640c844d9aa8885f7a",
+        "tree": "ee1bbf93f78ba563feb8794008696ba601506574"
+      },
+      "nativeOwner": {
+        "commit": "9800854ec3aba3b55f2d42b3219c92574e4dbcc4",
+        "changedThisCycle": false
+      },
+      "agent": {
+        "commit": "cf887359415388bdf37f12edcdb6c7776f2b0e3b",
+        "tree": "54617700438edfe93df98eabc43b711e57fc0862",
+        "pythonFixturePass": 19,
+        "installedProvider": "NOT_CONFIGURED"
+      },
+      "center": {
+        "commit": "20feca876704a6e7905a9f6d6127d12282878361",
+        "tree": "05728d87217ed0bdb93184323a6af58acf151d52",
+        "pythonLauncherPass": 10,
+        "nodeDescriptorPass": 5,
+        "integratedQualification": "NOT_RUN"
+      },
+      "sourceSelection": {
+        "localPass": 15,
+        "newTests": 5,
+        "originalRegression": 10,
+        "selectionBlob": "23e398a82f0357e6e92287fd058ed06e2357e5bc",
+        "testBlob": "117858f58bb2c97f0e9c645c9e4e8892d0d4964c",
+        "scope": "Actual isolated selected-profile and network selection modules; no installed owner or Kernel exercised."
+      },
+      "composition": {
+        "nativeProfileBlob": "ac1e271b29c2d9cdac5e44fa7252b83179fb5e38",
+        "installedFactoryBlob": "4388812723af22e53e840ff94d172af5491db608",
+        "actualAssembly": "NOT_RUN",
+        "newReplacementProgressionStagesDisabled": 6,
+        "terminalEvidenceRecoveryRetained": true,
+        "advancedDirectProfileRetained": true,
+        "firstReleaseDb9Required": false,
+        "explicitModeRequired": true,
+        "noAutomaticModeFallback": true
+      },
+      "kernel": {
+        "baseline": "DB8",
+        "canonicalMergeHistoricalSourceAndCrossProduct": "PASS_2026_11_25_EXACT_REVISION",
+        "finalAcceptance": "PENDING_T2",
+        "db9": "DEFERRED_NOT_ACCEPTED",
+        "t2WritesThisCycle": 0
+      },
+      "localChecks": {
+        "pass": 49,
+        "fail": 0,
+        "scope": "15 selection, 15 launcher/descriptor fixtures, 19 Agent package/layout fixtures."
+      },
+      "frozenSource": {
+        "unchanged": 65,
+        "changed": 1,
+        "additionalIntegrationModules": 6,
+        "wireChanged": false
+      },
+      "actualTwoNode": "NOT_RUN",
+      "performance": "NOT_MEASURED",
+      "independentAcceptance": "NOT_RUN",
       "T4_READY": false,
       "FEATURE_FREEZE": true
     }
