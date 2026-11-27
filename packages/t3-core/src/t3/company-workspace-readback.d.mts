@@ -28,10 +28,11 @@ export function validateCompanyMergeReceipt(preview:unknown,plan:unknown,receipt
 export function readOriginalCompanyTaskRecords(input:{
   kernel:Pick<KernelFacade,'sessionInfo'|'hasOperation'|'getWorkspace'|'getObject'|'listEventsSince'>;
   organizationId:string;workspaceId:string;executorId:string;taskId:string;
-  taskRevisionId:string;taskPackageSha256:string;
+  taskRevisionId:string;taskPackageSha256:string;selectedResultObjectId?:string|null;
 }):Promise<Readonly<{
   organizationId:string;workspaceId:string;executorId:string;taskId:string;
   taskRevisionId:string;taskPackageSha256:string;originalKernelReadback:true;
   signedReceiptVerified:false;task:CompanyWorkReadbackRecord|null;
   results:readonly CompanyWorkReadbackRecord[];
+  selectedEvidence?:Readonly<{object:unknown;events:readonly unknown[]}>;
 }>>;
