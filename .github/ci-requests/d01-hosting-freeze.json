@@ -1,0 +1,9 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d01-hosting-freeze",
+  "prepared_sha": "4942e0262d23a7d72aef0ef6c36331b840a97179",
+  "profile": "learn-assessment-context-source",
+  "revisions": {
+    "site": "6e5a50dacece088ff604fb8435ea4016fd21522f"
+  }
+}
