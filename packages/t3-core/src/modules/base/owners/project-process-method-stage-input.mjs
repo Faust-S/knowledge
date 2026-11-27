@@ -3,9 +3,7 @@
 // Task, Result, acceptance, storage or grant. This is a non-atomic read.
 import { createHash } from 'node:crypto';
 import { canonicalStringify } from '../../../persistence/canonical-codec.mjs';
-import { describeWorkspaceMethodSourceInputs } from '../features/workspace/workspace-project-method.mjs';
-import { projectProcessSourceObjectId } from './project-process-source-owner.mjs';
-import { readWorkspaceMethodFromSourceOwner } from './project-process-method-readback.mjs';
+import { openWorkspaceMethodStageClosure } from './project-process-method-readback.mjs';
 
 function fail(code,message){throw Object.assign(new Error(message),{code});}
 const text=value=>typeof value==='string'&&value.length>0&&value.trim()===value;
@@ -26,9 +24,6 @@ function selection(value){
   if(new Set(rows.map(r=>r.objectId)).size!==rows.length)fail('METHOD_STAGE_SELECTION_INVALID','Duplicate Work reference');
   return Object.freeze({projectRef:ref(value.projectRef),workRefs:Object.freeze(rows)});
 }
-function verifySelection(expected,current){
-  if(!equal(expected,selection(current)))fail('METHOD_STAGE_SOURCE_CHANGED','The selected complete method is no longer current');
-}
 async function observeMaterial(readObject,workspaceId,pin){
   const row=await readObject(workspaceId,pin.object_id);
   if(row===null)return Object.freeze({object_id:pin.object_id,revision:pin.revision,state:'UNAVAILABLE',current:null});
@@ -43,50 +38,47 @@ async function observeMaterial(readObject,workspaceId,pin){
     schema_id:o.schema_id,schema_version:o.schema_version});
   return Object.freeze({object_id:pin.object_id,revision:pin.revision,state:o.revision===pin.revision?'CURRENT':'CHANGED',current});
 }
-export async function readWorkspaceMethodStageInputBasis({owner,readObject,workspaceId,projectId,expected,stepId}={}){
+async function openStageInputObservation({owner,readObject,workspaceId,projectId,expected,stepId}={}){
   if(!text(workspaceId)||!text(projectId)||typeof stepId!=='string'||!/^[A-Za-z0-9_-]{1,63}$/u.test(stepId)
       ||typeof readObject!=='function'){
     fail('METHOD_STAGE_INPUT_INVALID','Original method owner, addressed material port and exact stage required');
   }
   const selected=selection(expected);
-  const live=()=>readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId});
-  const method=await live();
-  verifySelection(selected,method);
-  const byStage=new Map(method.draft.steps.map(step=>[step.id,step]));
-  if(!byStage.has(stepId))fail('METHOD_STAGE_UNKNOWN','Selected stage is not declared in the original Project');
-  const closure=new Set(),visit=id=>{
-    if(closure.has(id))return;closure.add(id);
-    for(const predecessor of byStage.get(id).dependsOn)visit(predecessor);
-  };
-  visit(stepId);
-  const plan=describeWorkspaceMethodSourceInputs({workspaceId,draft:method.draft});
-  const byObject=new Map(method.workRefs.map(row=>[row.objectId,row]));
-  const workRef=id=>ref(byObject.get(projectProcessSourceObjectId('work',workspaceId,projectId+'.'+id)));
-  const stage=byStage.get(stepId);
-  const ordered=plan.writeOrder.map(id=>id.slice(projectId.length+1)).filter(id=>closure.has(id));
-  const pins=new Set(ordered.flatMap(id=>byStage.get(id).materialIds));
-  const chosen=method.draft.materials.filter(pin=>pins.has(pin.object_id)).sort((a,b)=>order(a.object_id,b.object_id));
+  const closure=await openWorkspaceMethodStageClosure({owner,workspaceId,projectId,expected:selected,stepId});
+  const byStage=new Map(closure.works.map(row=>[row.work.methodology.stepId,row]));
+  const work=byStage.get(stepId).work;
+  const pins=new Set(closure.works.flatMap(row=>row.work.methodology.materialRefs.map(pin=>pin.object_id)));
+  const chosen=closure.project.methodology.materialRefs.filter(pin=>pins.has(pin.object_id))
+    .sort((a,b)=>order(a.object_id,b.object_id));
   const readMaterials=()=>Promise.all(chosen.map(pin=>observeMaterial(readObject,workspaceId,pin)));
   const materials=await readMaterials();
-  // Revalidate after async addressed reads. This does not claim a
-  // cross-owner atomic snapshot; native execution must revalidate again.
-  verifySelection(selected,await live());
-  const finalMaterials=await readMaterials();
-  if(!equal(materials,finalMaterials))fail('METHOD_STAGE_MATERIAL_CHANGED','A selected material changed during addressed readback');
-  verifySelection(selected,await live());
-  const predecessors=Object.freeze(stage.dependsOn.map(id=>Object.freeze({stepId:id,workRef:workRef(id),
-    acceptedResultRef:null,state:'ORIGINAL_RESULT_OWNER_REQUIRED'})));
-  const stageRef=workRef(stepId),closureRefs=Object.freeze(ordered.map(id=>Object.freeze({stepId:id,workRef:workRef(id)})));
+  await closure.verifyCurrent();
+  const revalidate=async(code='METHOD_STAGE_MATERIAL_CHANGED')=>{
+    if(!equal(materials,await readMaterials()))fail(code,'A selected material changed during addressed readback');
+    await closure.verifyCurrent();
+  };
+  await revalidate();
+  const predecessors=Object.freeze(work.dependencies.map(dep=>{
+    const id=dep.predecessorWorkId.slice(projectId.length+1);
+    return Object.freeze({stepId:id,workRef:byStage.get(id).workRef,acceptedResultRef:null,state:'ORIGINAL_RESULT_OWNER_REQUIRED'});
+  }));
+  const stageRef=byStage.get(stepId).workRef;
+  const closureRefs=Object.freeze(closure.works.map(row=>Object.freeze({stepId:row.work.methodology.stepId,workRef:row.workRef})));
   const current=materials.every(row=>row.state==='CURRENT');
-  const basis=Object.freeze({workspaceId,projectId,stepId,projectRef:ref(method.projectRef),stageRef,
+  const basis=Object.freeze({workspaceId,projectId,stepId,projectRef:closure.projectRef,stageRef,
     prerequisiteClosure:closureRefs,materialRefs:Object.freeze(materials.map(row=>row.current)),
-    objective:method.draft.objective,domainApplicability:Object.freeze([...method.draft.domainApplicability]),
-    intendedActor:stage.actor,instruction:stage.instruction});
+    objective:closure.project.methodology.objective,domainApplicability:Object.freeze([...closure.project.domainApplicability]),
+    intendedActor:work.methodology.intendedActor,instruction:work.methodology.instruction});
   const inputBasisDigest=current?createHash('sha256').update(canonicalStringify(basis)).digest('hex'):null;
-  return Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_STAGE_INPUT_BASIS_V1',
+  const report=Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_STAGE_INPUT_BASIS_V1',
     state:current?'INPUT_REFERENCES_VERIFIED':'MATERIAL_REVIEW_REQUIRED',basis,inputBasisDigest,
     materials:Object.freeze(materials),predecessors,requiredResultOwnerReadback:predecessors.length>0,
+    selectedClosureVerified:true,completeMethodCurrentVerified:false,unrelatedHeadsNotRead:true,
     atomicSnapshot:false,writeAuthorized:false,executionAuthority:false,resultReuseProven:false});
+  return {report,revalidate};
+}
+export async function readWorkspaceMethodStageInputBasis(input){
+  return (await openStageInputObservation(input)).report;
 }
 
 
@@ -171,7 +163,7 @@ export async function inspectWorkspaceMethodAgentPredecessorResults({
   if(typeof readAccepted!=='function')fail('METHOD_STAGE_RESULT_OWNER_REQUIRED','Original installed Agent accepted Result read port required');
   const selected=selection(expected),selections=captureResultSelections(resultSelections,workspaceId);
   const args={owner,readObject,workspaceId,projectId,expected:selected,stepId};
-  const initial=await readWorkspaceMethodStageInputBasis(args);
+  const observation=await openStageInputObservation(args),initial=observation.report;
   const byStep=new Map(initial.predecessors.map(row=>[row.stepId,row]));
   if(selections.some(row=>!byStep.has(row.stepId))){
     fail('METHOD_STAGE_RESULT_SELECTION_INVALID','Only direct declared predecessor Results may be selected');
@@ -189,18 +181,12 @@ export async function inspectWorkspaceMethodAgentPredecessorResults({
         accepted:null,state:'ORIGINAL_RESULT_OWNER_REQUIRED',exactInputBindingProven:false});
   }));
   const results=await observe();
-  const final=await readWorkspaceMethodStageInputBasis(args);
-  if(initial.inputBasisDigest!==final.inputBasisDigest||final.state!=='INPUT_REFERENCES_VERIFIED'){
-    fail('METHOD_STAGE_RESULT_BASIS_CHANGED','Exact Work/material basis changed during original Result readback');
-  }
+  await observation.revalidate('METHOD_STAGE_RESULT_BASIS_CHANGED');
   const confirmed=await observe();
   if(!equal(results,confirmed))fail('METHOD_STAGE_RESULT_CHANGED','Original accepted Result observation changed during inspection');
-  const last=await readWorkspaceMethodStageInputBasis(args);
-  if(initial.inputBasisDigest!==last.inputBasisDigest||last.state!=='INPUT_REFERENCES_VERIFIED'){
-    fail('METHOD_STAGE_RESULT_BASIS_CHANGED','Exact Work/material basis changed during final original Result readback');
-  }
+  await observation.revalidate('METHOD_STAGE_RESULT_BASIS_CHANGED');
   const state=results.some(r=>['RESULT_UNAVAILABLE','RESULT_REVISION_CHANGED','ACCEPTED_OLDER_OR_OTHER_WORK_REVISION'].includes(r.state))
     ?'PREDECESSOR_RESULT_REVIEW_REQUIRED':results.some(r=>r.state==='ORIGINAL_RESULT_OWNER_REQUIRED')
       ?'PREDECESSOR_RESULTS_REQUIRED':results.length?'ACCEPTED_RESULTS_OBSERVED_INPUT_BINDING_UNPROVEN':'NO_PREDECESSOR_RESULTS_REQUIRED';
-  return Object.freeze({state,stageInput:last,results:Object.freeze(results),...flags});
+  return Object.freeze({state,stageInput:initial,results:Object.freeze(results),...flags});
 }

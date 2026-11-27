@@ -106,3 +106,39 @@ test('exact stage source selection is captured before original async reads',asyn
   await assert.rejects(read(f,'prepare',{expected:{...f.base,workRefs:f.base.workRefs.slice(1)}}),code('METHOD_STAGE_SOURCE_CHANGED'));
   assert.equal((await f.owner.audit()).length,5);
 });
+
+test('selected closure does not load unrelated heads or require their old revisions to remain current',async()=>{
+  const f=await setup(),before=await read(f,'compute');
+  await edit(f,'analyse');
+  const loads=[];
+  const owner={load:async(kind,ws,id)=>{loads.push([kind,id]);return f.owner.load(kind,ws,id);}};
+  const value=await read(f,'compute',{owner});
+  assert.equal(value.inputBasisDigest,before.inputBasisDigest);
+  assert.equal(value.selectedClosureVerified,true);assert.equal(value.completeMethodCurrentVerified,false);
+  assert.equal(value.unrelatedHeadsNotRead,true);assert.equal(value.executionAuthority,false);
+  assert.equal(loads.length,9);
+  assert.deepEqual([...new Set(loads.map(row=>row[1]))].sort(),[projectId,projectId+'.compute',projectId+'.prepare'].sort());
+  await assert.rejects(read(f,'review'),code('METHOD_STAGE_SOURCE_CHANGED'));
+});
+test('selected closure requires exact canonical prerequisite links and refuses a forged cycle',async()=>{
+  const f=await setup();
+  const broken={load:async(kind,ws,id)=>{
+    const r=await f.owner.load(kind,ws,id);
+    if(kind!=='work'||id!==projectId+'.compute')return r;
+    return {...r,refs:{...r.refs,canonicalHeads:{...r.refs.canonicalHeads,
+      ['predecessor:'+projectId+'.prepare']:{...r.refs.canonicalHeads['predecessor:'+projectId+'.prepare'],recordId:'forged'}}}};
+  }};
+  await assert.rejects(read(f,'compute',{owner:broken}),e=>e.code==='METHOD_SOURCE_REFERENCE_CHANGED');
+  const cycle={load:async(kind,ws,id)=>{
+    const r=await f.owner.load(kind,ws,id);
+    if(kind!=='work'||id!==projectId+'.prepare')return r;
+    return {...r,value:{...r.value,dependencies:[{predecessorWorkId:projectId+'.compute',relation:'finish-to-start',lagNanoseconds:0n}]}};
+  }};
+  await assert.rejects(read(f,'compute',{owner:cycle}),code('METHOD_DEPENDENCY_CYCLE'));
+});
+test('selected closure rejects a complete-looking selection containing duplicate canonical revision IDs',async()=>{
+  const f=await setup();
+  const workRefs=f.base.workRefs.map(row=>({...row}));
+  workRefs[1].recordId=workRefs[0].recordId;
+  await assert.rejects(read(f,'compute',{expected:{...f.base,workRefs}}),code('METHOD_STAGE_SELECTION_INVALID'));
+});

@@ -1,7 +1,7 @@
 import { projectProcessSourceObjectId } from './project-process-source-owner.mjs';
 import { projectProcessSourceBinding } from './project-process-source-contract.mjs';
 import { reconstructWorkspaceMethodDraft } from '../features/workspace/workspace-project-method.mjs';
-import { normalizeProject,normalizeWork,assertProjectMethodologyCreation,assertProjectMethodologyCreationWork } from '../features/project-process/project-process.mjs';
+import { normalizeProject,normalizeWork,assertProjectMethodologyWork,assertProjectMethodologyCreation,assertProjectMethodologyCreationWork } from '../features/project-process/project-process.mjs';
 import { CanonicalInstant } from '../../../foundation/time.mjs';
 import { qualifyProjectProcessSameWorkspaceHistory } from './project-process-history.mjs';
 
@@ -25,7 +25,7 @@ function sourceRef(kind,workspaceId,id,loaded){
 }
 
 function matches(ref,expected){
-  return ref?.family===expected.family && ref.objectId===expected.objectId && ref.recordId===expected.recordId;
+  return !!expected && ref?.family===expected.family && ref.objectId===expected.objectId && ref.recordId===expected.recordId;
 }
 
 function methodWorkIds(project,projectId){
@@ -42,6 +42,12 @@ function verifyMethodSet({workspaceId,project,projectRef,ids,loaded}){
   const workRefs=loaded.map((row,index)=>sourceRef('work',workspaceId,ids[index],row));
   const byId=new Map(ids.map((id,index)=>[id,workRefs[index]]));
   const draft=reconstructWorkspaceMethodDraft({workspaceId,project:project.value,works:loaded.map(row=>row.value)});
+  verifyMethodWorkBindings({project,projectRef,loaded,byId});
+  const originalCreation=normalizeProject(project.value).methodology.creation??null;
+  return {draft,workRefs,originalCreation};
+}
+
+function verifyMethodWorkBindings({project,projectRef,loaded,byId}){
   const initial=projectRef.revision===1 && project.value.methodology?.creation;
   if(initial){
     const normalized=normalizeProject(project.value);
@@ -67,10 +73,6 @@ function verifyMethodSet({workspaceId,project,projectRef,ids,loaded}){
       fail('METHOD_SOURCE_REFERENCE_CHANGED','Project/Work references no longer form the captured revision set');
     }
   }
-  // This immutable metadata belongs to the selected Project revision;
-  // retaining it avoids a separate history read during revision planning.
-  const originalCreation=normalizeProject(project.value).methodology.creation??null;
-  return {draft,workRefs,originalCreation};
 }
 
 /** Read a complete planned methodology via the existing source owner's load
@@ -182,4 +184,73 @@ export async function readHistoricalWorkspaceMethod({owner,workspaceId,projectId
   const {draft,workRefs,originalCreation}=verifyMethodSet({workspaceId,project,projectRef,ids,loaded});
   return Object.freeze({workspaceId,projectId,draft,projectRef,workRefs:Object.freeze(workRefs),originalCreation,revisionSetVerified:true,
     historicalRead:true,currentHeadVerified:false,atomicSnapshot:false,writeAuthorized:false,executionAuthority:false});
+}
+
+
+/** Address only the selected Work and its transitive prerequisite closure.
+ * The captured selection declares every Work identity, but unrelated heads
+ * need not still match. This is NOT verification of the whole method or an
+ * execution authorization. The original immutable source owner is required.
+ */
+export async function openWorkspaceMethodStageClosure({owner,workspaceId,projectId,expected,stepId}){
+  if(!owner||typeof owner.load!=='function')fail('METHOD_SOURCE_INCOMPATIBLE','Original source owner read port required');
+  const projectRef=historyRef('project',workspaceId,projectId,expected?.projectRef);
+  const requested=Array.from(expected?.workRefs??[],row=>Object.freeze({
+    family:row?.family,objectId:row?.objectId,recordId:row?.recordId,revision:row?.revision}));
+  if(!requested.length||requested.length>64||new Set(requested.map(row=>row.objectId)).size!==requested.length
+      ||new Set([projectRef.recordId,...requested.map(row=>row.recordId)]).size!==requested.length+1){
+    fail('METHOD_STAGE_SELECTION_INVALID','Distinct declared Work revisions required');
+  }
+  const loadExact=async(kind,id,ref)=>{
+    const row=await owner.load(kind,workspaceId,id);
+    if(!row)fail('METHOD_STAGE_SOURCE_CHANGED','Selected original source is no longer available');
+    const actual=sourceRef(kind,workspaceId,id,row);
+    if(!matches(actual,ref)||actual.revision!==ref.revision){
+      fail('METHOD_STAGE_SOURCE_CHANGED','Selected original source revision changed');
+    }
+    return row;
+  };
+  const project=await loadExact('project',projectId,projectRef);
+  if(project.value.status!=='planned'||!project.value.methodology){
+    fail('METHOD_SOURCE_INCOMPATIBLE','Expected planned original Project methodology');
+  }
+  const normalized=normalizeProject(project.value),ids=methodWorkIds(project,projectId);
+  const byObject=new Map(requested.map(row=>[row.objectId,row]));
+  if(ids.length!==requested.length||ids.some(id=>!byObject.has(projectProcessSourceObjectId('work',workspaceId,id)))){
+    fail('METHOD_STAGE_SOURCE_CHANGED','Work selection does not match Project declarations');
+  }
+  const refs=new Map(ids.map(id=>[id,historyRef('work',workspaceId,id,byObject.get(projectProcessSourceObjectId('work',workspaceId,id)))]));
+  const selectedId=projectId+'.'+stepId;
+  if(!refs.has(selectedId))fail('METHOD_STAGE_UNKNOWN','Selected stage is not declared in the original Project');
+  const loaded=new Map(),depth=new Map(),visiting=new Set();
+  async function visit(id){
+    if(visiting.has(id))fail('METHOD_DEPENDENCY_CYCLE','The selected closure has cyclic prerequisites');
+    if(loaded.has(id))return depth.get(id);
+    if(!refs.has(id))fail('METHOD_SOURCE_INCOMPLETE','Undeclared prerequisite Work');
+    visiting.add(id);
+    const row=await loadExact('work',id,refs.get(id)),value=row.value;
+    if(value.projectId!==projectId||value.status!=='planned'||!value.methodology||!value.schedule
+        ||value.schedule.plannedStart!==null||value.schedule.plannedFinish!==null){
+      fail('METHOD_SOURCE_INCOMPATIBLE','Selected Work is not an unscheduled planned method step');
+    }
+    const work=normalizeWork(value);
+    assertProjectMethodologyWork(normalized,work);
+    let level=0;
+    for(const predecessor of work.dependencies){
+      level=Math.max(level,1+await visit(predecessor.predecessorWorkId));
+    }
+    loaded.set(id,{row,work});depth.set(id,level);visiting.delete(id);
+    return level;
+  }
+  await visit(selectedId);
+  // Preserve the original structural preview's wave/declaration ordering;
+  // ancestors of a selected node are closed under prerequisites.
+  const ordered=ids.filter(id=>loaded.has(id)).sort((a,b)=>depth.get(a)-depth.get(b));
+  verifyMethodWorkBindings({project,projectRef,loaded:ordered.map(id=>loaded.get(id).row),
+    byId:new Map(ordered.map(id=>[id,refs.get(id)]))});
+  const works=Object.freeze(ordered.map(id=>Object.freeze({work:loaded.get(id).work,workRef:refs.get(id)})));
+  const verifyCurrent=async()=>{
+    await Promise.all([loadExact('project',projectId,projectRef),...ordered.map(id=>loadExact('work',id,refs.get(id)))]);
+  };
+  return Object.freeze({project:normalized,projectRef,works,verifyCurrent,atomicSnapshot:false});
 }
