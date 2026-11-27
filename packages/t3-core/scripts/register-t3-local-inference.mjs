@@ -4,13 +4,16 @@
 import {LOCAL_INFERENCE_DRAFT_SCHEMA,LOCAL_INFERENCE_DRAFT_DECLARATION,ANDROID_LOCAL_INFERENCE_DRAFT_DECLARATION}
   from "../src/t3/local-inference-draft.mjs";
 
+import {AGENT_CONVERSATION_SCHEMA,AGENT_CONVERSATION_DECLARATION} from "../src/t3/agent-conversation-declaration.mjs";
+
 export const LOCAL_INFERENCE_MODULE_ID="iwxa.t3.local-inference";
 const fail=code=>{throw Error("T3_D5_MODULE_"+code);};
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const append=(rows,value)=>{if(!rows.includes(value))rows.push(value);};
 
-export function registerT3LocalInferenceService({domain,workspaceConfig,passport,androidNativeInference=false}={}){
-  if(typeof androidNativeInference!=="boolean"||
+export function registerT3LocalInferenceService({domain,workspaceConfig,passport,androidNativeInference=false,androidConversationArchive=false}={}){
+  if(typeof androidNativeInference!=="boolean"||typeof androidConversationArchive!=="boolean"||
+     (androidConversationArchive&&!androidNativeInference)||
      (androidNativeInference&&(domain?.domain_id!=="iwxa.personal-agent"||
       domain.origin!=="https://localhost"||
       workspaceConfig?.workspace_service_id!=="iwxa.personal-agent.workspace")))
@@ -20,7 +23,7 @@ export function registerT3LocalInferenceService({domain,workspaceConfig,passport
   const module={
     module_id:LOCAL_INFERENCE_MODULE_ID,state:"active",ui_mode:"standard",
     route_base:"/workspace/",slots:["inspector"],required_levels:["T1"],
-    required_operations:["t1.getWorkspace"],object_schemas:[schema],
+    required_operations:["t1.getWorkspace"],object_schemas:androidConversationArchive?[schema,AGENT_CONVERSATION_SCHEMA]:[schema],
     dependencies:["iwxa.workspace.base"],
   };
   if(workspaceConfig?.base_path!=="/workspace/"||
@@ -51,12 +54,18 @@ export function registerT3LocalInferenceService({domain,workspaceConfig,passport
   // No browser declaration is replaced by the Android producer.
   if(Object.hasOwn(passport.schemas,schema)&&!same(passport.schemas[schema],declaration))
     fail("SCHEMA_CONFLICT");
+  if(androidConversationArchive&&Object.hasOwn(passport.schemas,AGENT_CONVERSATION_SCHEMA)&&
+     !same(passport.schemas[AGENT_CONVERSATION_SCHEMA],AGENT_CONVERSATION_DECLARATION))fail("CONVERSATION_SCHEMA_CONFLICT");
   // All preflight checks above run before the first mutation. Existing
   // service and other subject/module permissions are never replaced.
   if(existing.length===0)workspaceConfig.modules.push(module);
   for(const row of rows)append(row,schema);
   if(!Object.hasOwn(passport.schemas,schema))
     passport.schemas[schema]=declaration;
+  if(androidConversationArchive){
+    for(const row of rows)append(row,AGENT_CONVERSATION_SCHEMA);
+    if(!Object.hasOwn(passport.schemas,AGENT_CONVERSATION_SCHEMA))passport.schemas[AGENT_CONVERSATION_SCHEMA]=AGENT_CONVERSATION_DECLARATION;
+  }
   return {module_id:LOCAL_INFERENCE_MODULE_ID,schema_id:schema,
     registered:true,already_registered:existing.length===1};
 }

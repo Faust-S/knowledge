@@ -377,6 +377,8 @@ export function assembleSignedControlDist({
   if(androidNativeMarker&&!androidAgentAssets)
     fail("ANDROID_NATIVE_INFERENCE_WRONG_PRODUCT");
   const androidNativeInference=androidAgentAssets&&androidNativeMarker;
+  const androidConversationArchive=jsBodies.some(body=>body.includes("IWXA_ANDROID_CONVERSATION_ARCHIVE_V1"));
+  if(androidConversationArchive&&!androidNativeInference)fail("ANDROID_CONVERSATION_ARCHIVE_WRONG_PRODUCT");
   if(androidAgentAssets&&(workers.length!==0||
       (androidNativeInference?marks.some(mark=>!mark):marks.some(Boolean))))
     fail("ANDROID_AGENT_BROWSER_OR_INCOMPLETE_INFERENCE_FORBIDDEN");
@@ -399,7 +401,7 @@ export function assembleSignedControlDist({
     servicePassport=JSON.parse(readFileSync(passportFile,'utf8'));
     if(localInference||androidNativeInference)
       registerT3LocalInferenceService({domain,workspaceConfig:config,
-        passport:servicePassport,androidNativeInference});
+        passport:servicePassport,androidNativeInference,androidConversationArchive});
     if(installedOriginalAdminD3)
       registerInstalledAdminAppliedResult({domain,config,passport:servicePassport});
     if(installedOriginalAgentD6)
@@ -407,7 +409,7 @@ export function assembleSignedControlDist({
   }
   // Keep the original product entry first. Only exact installed product IDs
   // get the second original T2 service connection. Web domains are unchanged.
-  const exchangeServiceId=servicePassport&&companyExchangeServiceId(servicePassport.service_id);
+  const exchangeServiceId=!androidAgentAssets&&servicePassport&&companyExchangeServiceId(servicePassport.service_id);
   let exchangePassport=null,exchangePath=null,exchangeControl=null;
   if(exchangeServiceId){
     if(!Array.isArray(domain.modules)||!domain.modules.some(m=>m.service_id===servicePassport.service_id)||
@@ -530,6 +532,7 @@ export function assembleSignedControlDist({
       autonomous_domain_mode_staged:web&&!androidAgentAssets,
       ...(androidAgentAssets?{android_agent_assets_staged:true,
         native_model_bridge_registered:androidNativeInference,
+        ...(androidConversationArchive?{conversation_archive_registered:true}:{}),
         signed_native_owner_registered:false}:{}),output};
   }catch(error){rmSync(temp,{recursive:true,force:true});throw error;}
 }
