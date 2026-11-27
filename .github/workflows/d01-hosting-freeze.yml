@@ -42,22 +42,22 @@ jobs:
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-hosting-freeze \
             --profile learn-final-real-local-generation \
-            --revision site=245337261c9cad7810be9bce527a83a5005d6b22 \
+            --revision site=6935c9f23de6369d5af3a05064883556135e523c \
             --revision subject=77336a8a481005dda0c10c0df9a9f56655fb3fc6 \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1 \
-            --revision core=8f55367b3c8f310aad4e3217fe0b53b6950ce220 \
+            --revision core=29a536b2374935a67f802be7f7870fdbf608fcb2 \
             --revision assistant=5419dacf855d81ec089acc23bae0c7aa11713a54
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 245337261c9cad7810be9bce527a83a5005d6b22
+          ref: 6935c9f23de6369d5af3a05064883556135e523c
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 8f55367b3c8f310aad4e3217fe0b53b6950ce220
+          ref: 29a536b2374935a67f802be7f7870fdbf608fcb2
           persist-credentials: false
           path: original/core
       - uses: actions/checkout@v4
@@ -88,9 +88,9 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 245337261c9cad7810be9bce527a83a5005d6b22
+          test "$(git -C private/site rev-parse HEAD)" = 6935c9f23de6369d5af3a05064883556135e523c
           test "$(git -C private/domain rev-parse HEAD)" = 77336a8a481005dda0c10c0df9a9f56655fb3fc6
-          test "$(git -C original/core rev-parse HEAD)" = 8f55367b3c8f310aad4e3217fe0b53b6950ce220
+          test "$(git -C original/core rev-parse HEAD)" = 29a536b2374935a67f802be7f7870fdbf608fcb2
           test "$(git -C private/assistant rev-parse HEAD)" = 5419dacf855d81ec089acc23bae0c7aa11713a54
           test "$(git -C private/t2 rev-parse HEAD)" = 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
       - name: Original assistant complete regression
@@ -105,8 +105,8 @@ jobs:
         with:
           github-token: ${{ github.token }}
           repository: Faust-S/knowledge
-          run-id: 45990975472
-          name: iwxa-t3-mobile-portable-candidate-8f55367b3c8f310aad4e3217fe0b53b6950ce220
+          run-id: 46005718948
+          name: iwxa-t3-mobile-portable-candidate-29a536b2374935a67f802be7f7870fdbf608fcb2
           path: original/artifact
       - name: Exact original subject knowledge and consultation corpus
         shell: bash
@@ -150,7 +150,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          expected=c153df67ed0f4665d43404bb7952f2b86ffbb7ab6169b4838d10f008836684b6
+          expected=e9c73afe3f29e1e01cc040c5550bb8db7ddb6ef0674a803fb185dee44271a33a
           mapfile -t archives < <(find "$GITHUB_WORKSPACE/original/artifact" -type f -name '*.zip' -print0 | xargs -0 -r sha256sum | awk -v expected="$expected" '$1==expected {print substr($0,67)}')
           test "${#archives[@]}" = 1 || { echo D01_T3_EXACT_INNER_ARCHIVE_MISSING; exit 1; }
           archive="${archives[0]}"
@@ -216,7 +216,7 @@ jobs:
         working-directory: private/site
         env:
           D01_SITE_TOKEN: ${{ secrets.DOMEN }}
-          D01_SITE_REVISION: '245337261c9cad7810be9bce527a83a5005d6b22'
+          D01_SITE_REVISION: '6935c9f23de6369d5af3a05064883556135e523c'
         shell: bash
         run: python3 "$GITHUB_WORKSPACE/ci-harness/tools/ci/retain-d01-private-inputs.py"
       - name: Browser prerequisites for exact Learn runtime
