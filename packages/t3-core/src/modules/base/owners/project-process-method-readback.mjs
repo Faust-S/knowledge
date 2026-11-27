@@ -232,29 +232,55 @@ async function openMethodInputClosure({owner,workspaceId,projectId,expected,step
   const selectedId=projectId+'.'+stepId;
   if(!wholeMethod&&!refs.has(selectedId))fail('METHOD_STAGE_UNKNOWN','Selected stage is not declared in the original Project');
   const loaded=new Map(),depth=new Map(),visiting=new Set();
-  // Complete overview addresses all Works concurrently once. Selected
-  // stage traversal still loads ONLY its ancestors.
-  const prefetched=wholeMethod?new Map(await Promise.all(ids.map(async id=>[id,await loadExact('work',id,refs.get(id))]))):null;
-  async function visit(id){
-    if(visiting.has(id))fail('METHOD_DEPENDENCY_CYCLE','The selected closure has cyclic prerequisites');
-    if(loaded.has(id))return depth.get(id);
+  const loadWork=async id=>{
     if(!refs.has(id))fail('METHOD_SOURCE_INCOMPLETE','Undeclared prerequisite Work');
-    visiting.add(id);
-    const row=prefetched?prefetched.get(id):await loadExact('work',id,refs.get(id)),value=row.value;
+    const row=await loadExact('work',id,refs.get(id)),value=row.value;
     if(value.projectId!==projectId||value.status!=='planned'||!value.methodology||!value.schedule
         ||value.schedule.plannedStart!==null||value.schedule.plannedFinish!==null){
       fail('METHOD_SOURCE_INCOMPATIBLE','Selected Work is not an unscheduled planned method step');
     }
     const work=normalizeWork(value);
     assertProjectMethodologyWork(normalized,work);
-    let level=0;
-    for(const predecessor of work.dependencies){
-      level=Math.max(level,1+await visit(predecessor.predecessorWorkId));
+    return {id,row,work};
+  };
+  // W05.20: selected closure discovery addresses only the requested Work
+  // and the dependencies actually declared by verified original Works.
+  // Independent sibling reads overlap; shared ancestors are requested once.
+  // Never prefetch unrelated heads. Original Project declares at most 64.
+  if(wholeMethod){
+    for(const item of await Promise.all(ids.map(loadWork)))loaded.set(item.id,item);
+  }else{
+    let frontier=[selectedId];
+    const requestedIds=new Set(frontier);
+    while(frontier.length){
+      const wave=await Promise.all(frontier.map(loadWork)),next=[];
+      for(const item of wave){
+        loaded.set(item.id,item);
+        for(const predecessor of item.work.dependencies){
+          const id=predecessor.predecessorWorkId;
+          if(!refs.has(id))fail('METHOD_SOURCE_INCOMPLETE','Undeclared prerequisite Work');
+          if(!requestedIds.has(id)){requestedIds.add(id);next.push(id);}
+        }
+      }
+      frontier=next;
     }
-    loaded.set(id,{row,work});depth.set(id,level);visiting.delete(id);
+  }
+  // Detect cycles and compute the original dependency depth only from
+  // the loaded exact records, not from completion order or caller hints.
+  function visit(id){
+    if(visiting.has(id))fail('METHOD_DEPENDENCY_CYCLE','The selected closure has cyclic prerequisites');
+    if(depth.has(id))return depth.get(id);
+    const item=loaded.get(id);
+    if(!item)fail('METHOD_SOURCE_INCOMPLETE','Undeclared prerequisite Work');
+    visiting.add(id);
+    let level=0;
+    for(const predecessor of item.work.dependencies){
+      level=Math.max(level,1+visit(predecessor.predecessorWorkId));
+    }
+    depth.set(id,level);visiting.delete(id);
     return level;
   }
-  if(wholeMethod){for(const id of ids)await visit(id);}else await visit(selectedId);
+  if(wholeMethod){for(const id of ids)visit(id);}else visit(selectedId);
   // Preserve the original structural preview's wave/declaration ordering;
   // ancestors of a selected node are closed under prerequisites.
   const ordered=ids.filter(id=>loaded.has(id)).sort((a,b)=>depth.get(a)-depth.get(b));

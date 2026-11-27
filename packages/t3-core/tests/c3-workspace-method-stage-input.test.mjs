@@ -120,6 +120,32 @@ test('selected closure does not load unrelated heads or require their old revisi
   assert.deepEqual([...new Set(loads.map(row=>row[1]))].sort(),[projectId,projectId+'.compute',projectId+'.prepare'].sort());
   await assert.rejects(read(f,'review'),code('METHOD_STAGE_SOURCE_CHANGED'));
 });
+test('selected diamond loads independent original siblings concurrently and shared ancestors once per pass',async()=>{
+  const f=await setup(),reference=await read(f,'review'),loads=[],firstCounts=new Map();
+  const siblings=new Set([projectId+'.analyse',projectId+'.compute']);
+  const inFlight=new Set();let overlap=false;
+  const owner={load:async(kind,ws,id)=>{
+    loads.push([kind,id]);
+    const count=(firstCounts.get(id)??0)+1;firstCounts.set(id,count);
+    if(kind==='work'&&siblings.has(id)&&count===1){
+      inFlight.add(id);
+      if(inFlight.size===2)overlap=true;
+      try{await new Promise(resolve=>setImmediate(resolve));return await f.owner.load(kind,ws,id);}
+      finally{inFlight.delete(id);}
+    }
+    return f.owner.load(kind,ws,id);
+  }};
+  const result=await read(f,'review',{owner});
+  assert.equal(overlap,true,'both sibling reads must start before either completes');
+  assert.equal(result.inputBasisDigest,reference.inputBasisDigest);
+  assert.deepEqual(result.basis.prerequisiteClosure,reference.basis.prerequisiteClosure);
+  assert.deepEqual(loads.slice(0,5),[['project',projectId],['work',projectId+'.review'],
+    ['work',projectId+'.analyse'],['work',projectId+'.compute'],['work',projectId+'.prepare']]);
+  assert.equal(loads.length,15);
+  assert.equal(firstCounts.get(projectId+'.prepare'),3);
+  assert.equal(result.executionAuthority,false);
+  assert.equal((await f.owner.audit()).length,5);
+});
 test('selected closure requires exact canonical prerequisite links and refuses a forged cycle',async()=>{
   const f=await setup();
   const broken={load:async(kind,ws,id)=>{
