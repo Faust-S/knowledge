@@ -64,7 +64,10 @@ with tempfile.TemporaryDirectory(prefix='iwxa-t4-dav-') as temp:
  try:
   process=start()
   suite_files=[str(p.relative_to(ROOT)) for p in sorted((ROOT/'tests/network').glob('*.test.mjs'))]
-  suite=subprocess.run(['node','--test']+suite_files,cwd=ROOT,env=env,capture_output=True,text=True)
+  # The real DAV suite shares one mailbox. Separate test files must not
+  # change its listing while another file verifies an exact continuation.
+  # Explicit concurrency within the actual CAS scenarios is unchanged.
+  suite=subprocess.run(['node','--test','--test-concurrency=1']+suite_files,cwd=ROOT,env=env,capture_output=True,text=True)
   (OUT/'node-network-tests.log').write_text(suite.stdout+suite.stderr);print(suite.stdout,end='',flush=True)
   if suite.returncode:raise RuntimeError('Network test failure; see log')
   totals={}
