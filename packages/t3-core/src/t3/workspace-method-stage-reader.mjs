@@ -69,6 +69,8 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       const workspace=await guarded(()=>signed.getWorkspace(request.workspaceId));
       check(workspace?.workspace_id===request.workspaceId&&workspace.deleted_at==null,'T3_METHOD_STAGE_WORKSPACE_REQUIRED');
       const report=await inspectWorkspaceMethodAgentPredecessorResults({...request,owner,readObject,readAccepted});
+      const finalWorkspace=await guarded(()=>signed.getWorkspace(request.workspaceId));
+      check(finalWorkspace?.workspace_id===request.workspaceId&&finalWorkspace.deleted_at==null,'T3_METHOD_STAGE_WORKSPACE_REQUIRED');
       await unchanged();
       return report;
     }finally{unsubscribe();}

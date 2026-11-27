@@ -171,7 +171,9 @@ export async function probeAttachedHistoryCandidate({writer,reader,limitedExport
         idempotency_key:'tamper-old-asset',payload:{recordId:prior.recordId}}});
     mutation={status:'RETURNED',chain:(await inspectChain(tamper.writer,ws)).state};
   }catch(error){mutation={status:'REJECTED',code:error.code??null,chain:(await inspectChain(tamper.writer,ws)).state};}
+  console.log('ASSET_HISTORY_OBSERVATIONS',JSON.stringify({limitedExport,copy,independentCopy,sameServiceAssetMutation:mutation}));
   const clean=await openEmpty();
+  await clean.writer.t1.listWorkspaces();
   same('Asset witness continues in one original DB',(await indexedDB.databases()).map(d=>d.name),['iwxa-local']);
   return {writer:clean.writer,observations:{status:'PRIMITIVES_ONLY_NOT_ADOPTED',catalogObjects:1,historyRevisions:66,historyAssets:65,
     stagedBeforeHead:true,originalSchemaRestrictedAssetRead:true,metadataOnlyJournal:true,limitedExport,copy,independentCopy,

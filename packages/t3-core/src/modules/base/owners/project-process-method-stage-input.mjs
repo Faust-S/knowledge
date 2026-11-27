@@ -195,9 +195,12 @@ export async function inspectWorkspaceMethodAgentPredecessorResults({
   }
   const confirmed=await observe();
   if(!equal(results,confirmed))fail('METHOD_STAGE_RESULT_CHANGED','Original accepted Result observation changed during inspection');
-  verifySelection(selected,await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId}));
+  const last=await readWorkspaceMethodStageInputBasis(args);
+  if(initial.inputBasisDigest!==last.inputBasisDigest||last.state!=='INPUT_REFERENCES_VERIFIED'){
+    fail('METHOD_STAGE_RESULT_BASIS_CHANGED','Exact Work/material basis changed during final original Result readback');
+  }
   const state=results.some(r=>['RESULT_UNAVAILABLE','RESULT_REVISION_CHANGED','ACCEPTED_OLDER_OR_OTHER_WORK_REVISION'].includes(r.state))
     ?'PREDECESSOR_RESULT_REVIEW_REQUIRED':results.some(r=>r.state==='ORIGINAL_RESULT_OWNER_REQUIRED')
       ?'PREDECESSOR_RESULTS_REQUIRED':results.length?'ACCEPTED_RESULTS_OBSERVED_INPUT_BINDING_UNPROVEN':'NO_PREDECESSOR_RESULTS_REQUIRED';
-  return Object.freeze({state,stageInput:final,results:Object.freeze(results),...flags});
+  return Object.freeze({state,stageInput:last,results:Object.freeze(results),...flags});
 }

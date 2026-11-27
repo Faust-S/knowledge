@@ -109,7 +109,8 @@ function trusted(f){
       evaluatedAt:new Date().toISOString(),authorityPath:[{grantId:context.grant_id}]}),
     verifyDecisionBinding:(request,decision)=>decision.requestDigest===sha(request)};
   const kernel={sessionInfo:{contract_version:'1.3.0'},hasOperation:op=>['t1.getWorkspace','t1.getObject'].includes(op),
-    getWorkspace:async workspaceId=>workspaceId===ws?workspace:null,getObject:f.readObject};
+    getWorkspace:async workspaceId=>workspaceId===ws?workspace:null,
+    getObject:async(...a)=>{const row=await f.readObject(...a);return row?{...row,relations:{incoming:[],outgoing:[]}}:null;}};
   let hook=null;
   const reader=createTrustedWorkspaceMethodStageReader({kernel,accessForRead:async()=>access,currentWorkspace,sourceOwner:f.owner,
     originalAgentResultOwner:{readAccepted:async ref=>{if(hook)await hook();return f.readAccepted(ref);}},isHostActive:()=>active});
@@ -131,4 +132,18 @@ test('trusted stage reader rejects Workspace or full signed context changes duri
     h.hook(()=>{if(change==='selection')h.changeSelection();else if(change==='dispose')h.dispose();else h.context.purpose='different';});
     await assert.rejects(h.reader.inspect(hostInput(f)),e=>['T3_METHOD_STAGE_WORKSPACE_CHANGED','T3_METHOD_STAGE_SIGNED_CONTEXT_CHANGED'].includes(e.code));
   }
+});
+
+test('material changed during second native Result readback cannot pass final stage evidence',async()=>{
+  const f=await setup();let calls=0;
+  await assert.rejects(inspectWorkspaceMethodAgentPredecessorResults(args(f,{
+    readAccepted:async()=>{calls++;return accepted;},
+    readObject:async(w,id)=>{
+      const r=await f.readObject(w,id);return calls>=2&&id==='source'?{object:{...r.object,revision:2}}:r;
+    }})),code('METHOD_STAGE_RESULT_BASIS_CHANGED'));
+});
+test('original D1 permission revocation during accepted owner read prevents report',async()=>{
+  const f=await setup(),h=trusted(f);
+  h.hook(()=>{h.deny();});
+  await assert.rejects(h.reader.inspect(hostInput(f)),code('T3_ACCESS_NOT_PERMITTED'));
 });
