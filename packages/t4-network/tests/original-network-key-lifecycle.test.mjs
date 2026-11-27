@@ -1464,7 +1464,14 @@ for(const multipart of [false,true])test(multipart?'K158 selected multipart prof
         networkAccess:{expectedContext:f.context,currentContext:()=>f.context,clock:f.clock,
           personal:{signProof:({request,challenge,asOf})=>makeProof(request,challenge,Date.parse(asOf),f.actor.provider)}},
         resolveOriginalKernelAccess:()=>null})});
-    const product=await create({registryKernel:f.kernel,sessionId:'s'.repeat(43),contextEpoch:1,isHostActive:()=>true});
+    const lifetime={registryKernel:f.kernel,sessionId:'s'.repeat(43),contextEpoch:1,isHostActive:()=>true};
+    // RC.1 installed pilot deliberately excludes DB9 and multipart. The
+    // generic native profile below must STILL exercise the extended path.
+    if(multipart){
+      await assert.rejects(create(lifetime),{code:'T4_INSTALLED_PRODUCT_EXTENDED_PROFILE_NOT_QUALIFIED'});
+      continue;
+    }
+    const product=await create(lifetime);
     try{
       assert.equal(product.role,options.role);
       assert.equal(product.networkOwner.originalSignedTopologyAccess,true);
