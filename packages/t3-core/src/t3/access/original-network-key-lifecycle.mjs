@@ -1,9 +1,10 @@
 // Candidate T4 extension of the ORIGINAL signed T3 Access registry.
 // Pure verification and transition derivation only: no registry, key store,
 // authority issuer, device scheduler or subject-write permission is created.
-import {createPublicKey,verify,generateKeyPairSync,diffieHellman,randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
+import {createPublicKey,verify,sign,generateKeyPairSync,diffieHellman,randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
 import {canonical,copy,digest,fields,identifier,insist,timestamp,validatePolicy,
   validateStatusSnapshot} from './core.mjs';
+import {generateVaultKey,vaultPrivateKey} from './local-vault.mjs';
 
 export const ORIGINAL_NETWORK_KEY_TRANSITION='IWXA_T4_ORIGINAL_NETWORK_KEY_TRANSITION/1';
 export const ORIGINAL_NETWORK_KEY_MANAGE='t4.network.key.manage';
@@ -199,4 +200,65 @@ export function deriveOriginalNetworkKeyTransition({transition,signedStatus,poli
   const nextBinding={...b,authorityId:c.authorityId,principalId:c.principalId,
     active:c.kind!=='REVOKE',transitionDigest:digest(t)};
   return {policy:nextPolicy,binding:nextBinding,transition:t};
+}
+
+// The existing device Vault holds the dedicated keys before enrollment and
+// after restart. Only the issuer's original challenge may be answered.
+// No network authorization follows from generating a local key.
+export const ORIGINAL_NETWORK_DEVICE_KEY_PREFIX='key:t4-pilot:';
+export function createOriginalNetworkDeviceKeyCustody({role,actorId,principalId,authorityId,workspaceId,
+  permissionRef,rootPolicyDigest,requireCurrent,readVault,commitVault,clock=Date.now}={}){
+  check(['SOURCE','RECIPIENT'].includes(role)&&hex(rootPolicyDigest)&&
+    [requireCurrent,readVault,commitVault,clock].every(f=>typeof f==='function'),'NETWORK_DEVICE_CUSTODY_REQUIRED');
+  [actorId,principalId,authorityId,workspaceId,permissionRef].forEach(identifier);
+  const selected=(route,use)=>{
+    const r=copy(route);fields(r,['sourceNodeRef','recipientNodeRef','originalWriteOwnerRef','scopeRef','ownerEpoch']);
+    [r.sourceNodeRef,r.recipientNodeRef,r.originalWriteOwnerRef,r.scopeRef].forEach(identifier);
+    check(r.sourceNodeRef!==r.recipientNodeRef&&Number.isSafeInteger(r.ownerEpoch)&&r.ownerEpoch>=1&&
+      (use==='NETWORK_FRAME'||role==='RECIPIENT'&&use==='NETWORK_AGREEMENT'),'NETWORK_DEVICE_ROUTE_INVALID');
+    const keyId=ORIGINAL_NETWORK_DEVICE_KEY_PREFIX+digest({role,actorId,principalId,authorityId,workspaceId,permissionRef,route:r,keyUse:use});
+    return {r,keyId,algorithm:use==='NETWORK_FRAME'?'Ed25519':'X25519'};
+  };
+  const localKey=(vault,keyId,algorithm)=>{
+    const k=vault?.keys?.[keyId];
+    check(k?.subjectId===actorId&&k.algorithm===algorithm,'NETWORK_DEVICE_LOCAL_KEY_MISMATCH');
+    return k;
+  };
+  function prepare({route,keyUse,confirmed=false}={}){
+    requireCurrent();check(confirmed===true,'NETWORK_DEVICE_EXPLICIT_APPROVAL_REQUIRED');
+    const {keyId,algorithm}=selected(route,keyUse),vault=readVault();
+    if(!Object.hasOwn(vault.keys,keyId)){
+      const next=copy(vault);
+      generateVaultKey(next,{keyId,subjectId:actorId,algorithm,createdAt:new Date(clock()).toISOString()});
+      requireCurrent();
+      commitVault(next);
+      // commitVault must perform original encrypted save and readback.
+      const stored=localKey(readVault(),keyId,algorithm);
+      check(stored.publicKeyPem===next.keys[keyId].publicKeyPem,'NETWORK_DEVICE_KEY_SAVE_UNCONFIRMED');
+    }
+    requireCurrent();
+    const key=localKey(readVault(),keyId,algorithm);
+    return Object.freeze({keyId,keyUse,publicKey:key.publicKeyPem,privateKeyRetained:true});
+  }
+  function answer({claims,agreementChallenge=null,confirmed=false}={}){
+    requireCurrent();check(confirmed===true,'NETWORK_DEVICE_EXPLICIT_APPROVAL_REQUIRED');
+    const c=checkedClaims(claims),b=c.binding,source=role==='SOURCE',route={
+      sourceNodeRef:source?b.nodeRef:b.recipientNodeRef,recipientNodeRef:source?b.recipientNodeRef:b.nodeRef,
+      originalWriteOwnerRef:b.originalWriteOwnerRef,scopeRef:b.scopeRef,ownerEpoch:b.ownerEpoch};
+    const {keyId,algorithm}=selected(route,b.keyUse),now=clock();
+    check(c.kind==='ENROLL'&&b.generation===1&&c.authorityId===authorityId&&c.principalId===principalId&&
+      c.rootPolicyDigest===rootPolicyDigest&&b.subjectId===actorId&&b.workspaceId===workspaceId&&
+      b.permissionRef===permissionRef&&b.keyId===keyId&&timestamp(c.issuedAt)<=now&&now-timestamp(c.issuedAt)<60000,
+      'NETWORK_DEVICE_CHALLENGE_SCOPE_INVALID');
+    const vault=readVault(),key=localKey(vault,keyId,algorithm);
+    check(c.keyRecord.publicKey===key.publicKeyPem,'NETWORK_DEVICE_CHALLENGE_KEY_MISMATCH');
+    requireCurrent();
+    const privateKey=vaultPrivateKey(vault,keyId);
+    const response=b.keyUse==='NETWORK_AGREEMENT'?
+      {agreementResponse:answerOriginalNetworkAgreementChallenge({claims:c,challenge:agreementChallenge,privateKey})}:
+      (check(agreementChallenge===null,'NETWORK_DEVICE_CHALLENGE_SCOPE_INVALID'),
+       {possessionSignature:sign(null,originalNetworkKeyPossessionBytes(c),privateKey).toString('base64url')});
+    requireCurrent();return Object.freeze({transitionRef:c.transitionRef,...response});
+  }
+  return Object.freeze({prepare,answer});
 }

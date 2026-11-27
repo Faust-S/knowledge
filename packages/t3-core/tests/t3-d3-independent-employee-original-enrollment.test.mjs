@@ -4,7 +4,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,sign} from 'node:crypto';
-import {originalNetworkKeyPossessionBytes,answerOriginalNetworkAgreementChallenge} from '../src/t3/access/original-network-key-lifecycle.mjs';
+import {originalNetworkKeyPossessionBytes,answerOriginalNetworkAgreementChallenge,createOriginalNetworkDeviceKeyCustody} from '../src/t3/access/original-network-key-lifecycle.mjs';
+import {emptyVault,encryptVault,decryptVault} from '../src/t3/access/local-vault.mjs';
 import {keyObjectSigner,makeProof,signRecord,iso,digest,evaluate}
   from '../src/t3/access/core.mjs';
 import {createOriginalEmployeeEnrollmentOwner}
@@ -957,4 +958,33 @@ test('pilot device key enrollment requires explicit confirmation and actual priv
   {code:'NETWORK_KEY_POSSESSION_INVALID'});
  assert.equal(s.graphCalls.length,count);
  assert.equal((await s.registry.readState()).policy.keys['key:one'],undefined);
+});
+
+test('pilot device custody generates three distinct keys inside existing encrypted Vaults and answers only its original challenge',async()=>{
+ const s=setup({graphKernel:true,networkPilot:true});await s.init();const args=await pilotEmployee(s);
+ const rights=await s.owner.issueNetworkGrantSet({...args,confirmed:true}),root=digest(s.fixture.policy);
+ const route={sourceNodeRef:'node:source',recipientNodeRef:'node:recipient',originalWriteOwnerRef:'owner:one',
+  scopeRef:'scope:one',ownerEpoch:1};
+ const passphrase='TEST_ONLY_existing_device_vault';
+ const vaults=new Map(['SOURCE','RECIPIENT'].map(role=>[role,encryptVault(emptyVault(),passphrase)]));
+ let writes=0;
+ for(const [role,keyUse] of [['SOURCE','NETWORK_FRAME'],['RECIPIENT','NETWORK_FRAME'],['RECIPIENT','NETWORK_AGREEMENT']]){
+  const options={role,actorId:role==='SOURCE'?'person:alice':'person:operator',principalId:'org:north',
+   authorityId:'issuer:north',workspaceId:'ws:north',permissionRef:role==='SOURCE'?rights.attachments.networkAccess.grantId:'grant:t4-recipient-network',
+   rootPolicyDigest:root,clock:time,requireCurrent(){},readVault:()=>decryptVault(vaults.get(role),passphrase),
+   commitVault:next=>{writes++;vaults.set(role,encryptVault(next,passphrase));}};
+  const custody=createOriginalNetworkDeviceKeyCustody(options);
+  const key=custody.prepare({route,keyUse,confirmed:true});
+  assert.deepEqual(Object.keys(key).sort(),['keyId','keyUse','privateKeyRetained','publicKey'].sort());
+  const cold=createOriginalNetworkDeviceKeyCustody(options);
+  assert.deepEqual(cold.prepare({route,keyUse,confirmed:true}),key);
+  const started=await s.owner.beginNetworkKeyEnrollment({...args,role,keyUse,route,keyId:key.keyId,publicKey:key.publicKey,confirmed:true});
+  assert.throws(()=>cold.answer({...started,claims:{...started.claims,binding:{...started.claims.binding,permissionRef:'grant:foreign'}},confirmed:true}),
+   {code:'NETWORK_DEVICE_CHALLENGE_SCOPE_INVALID'});
+  const proof=cold.answer({...started,confirmed:true});
+  assert.equal((await s.owner.completeNetworkKeyEnrollment({...proof,confirmed:true})).keyCurrentlyActive,true);
+ }
+ assert.equal(writes,3);
+ assert.equal(Object.keys(decryptVault(vaults.get('SOURCE'),passphrase).keys).length,1);
+ assert.equal(Object.keys(decryptVault(vaults.get('RECIPIENT'),passphrase).keys).length,2);
 });
