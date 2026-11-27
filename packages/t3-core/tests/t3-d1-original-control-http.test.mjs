@@ -1662,6 +1662,7 @@ test("local original Admin prepares Registry archive without any peer or network
     }});
   const f=await fixture({serviceId:adminInfo.service_id,originalRegistryExportWorkspaceId:pilotRegistry,
     originalKernelRelayFor:()=>relay});
+  const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
   try{
     const cfg=await (await fetch(f.origin+"/workspace/t3-kernel-realm.json")).json();
     assert.equal(cfg.registry_export_workspace_id,pilotRegistry);
@@ -1684,7 +1685,7 @@ test("local original Admin prepares Registry archive without any peer or network
     assert.deepEqual(await result,{bytes,size:bytes.length});
     await f.browser.originalKernelRelay("detach",{sessionId:attached.sessionId});
     assert.equal(native.hasOperation("t2.exportPackage"),false);
-  }finally{relay.close();await f.close();}
+  }finally{stop();relay.close();await f.close();}
 });
 test("preparation export is confined to an explicit Admin scope and is not a general Exchange grant",async()=>{
   for(const [scope,service,operations] of [
