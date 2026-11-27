@@ -2738,8 +2738,19 @@
         "launcher": "Cannot find drive Cert; CurrentUser Root trust not confirmed; port 18443 not listening; ERR_CONNECTION_REFUSED",
         "scenario_A_F": "NOT_RUN_BLOCKED_BEFORE_HOST",
         "product_defects_confirmed": false,
-        "remedy": "CERTIFICATE_FREE_EXACT_LOOPBACK_ACCEPTANCE_DELIVERY_PENDING",
-        "stable_release": "0.3.0"
+        "remedy": "CERTIFICATE_FREE_EXACT_LOOPBACK_ACCEPTANCE_DELIVERY_IN_PROGRESS",
+        "stable_release": "0.3.0",
+        "loopback_delivery": {
+          "run": 46034089610,
+          "request_commit": "9df639d480502235082d1ceb8d66170ef28fcc53",
+          "prepared_commit": "a357d78ccbc168b9822c3963777945b1f465a464",
+          "windows_job": 140624999747,
+          "origin": "http://localhost:18443",
+          "status": "IN_PROGRESS",
+          "scope": "LOCAL_ONLY_ORIGINAL_COMPILED_HOST_KERNEL_BLI_NO_CERTIFICATE_STORE_OR_BROWSER_FLAGS",
+          "publication_asset": "acceptance-host-loopback-windows-x64.zip",
+          "independent_acceptance": "BLOCKED_UNTIL_ACTUAL_BROWSER_ACCESS"
+        }
       },
       "corporate_aba": "SEPARATE_OPEN_ACCEPTED_KERNEL_EVENT_COLLISION",
       "stable_release_unchanged": "0.3.0",
