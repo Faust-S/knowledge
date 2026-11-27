@@ -2693,11 +2693,14 @@
         "scope": "LIGHT_QWEN_MODEL_GENERATION_AND_COLD_OFFLINE_SECOND_GENERATION_NOT_MODEL_QUALITY_OR_PHYSICAL_PHONE_ACCEPTANCE"
       },
       "independent_acceptance_delivery": {
-        "state": "PREPARING_EXISTING_RC2_DELIVERY_FOR_RC5",
+        "state": "DELIVERY_QUALIFICATION_IN_PROGRESS",
         "scope": "LOCAL_READY_ORIGINAL_GENERIC_HOST_NO_REBUILD",
         "origin": "https://localhost:18443",
         "independent_acceptance": "PENDING",
-        "remote_browser_access": "REQUIRES_SAME_MACHINE_OR_EXPLICITLY_PROVIDED_ROOT_HTTPS_ORIGIN"
+        "remote_browser_access": "REQUIRES_SAME_MACHINE_OR_EXPLICITLY_PROVIDED_ROOT_HTTPS_ORIGIN",
+        "run": 46020529707,
+        "request_commit": "c4e833664755b8f7ef781733aba314a307c8a552",
+        "prepared_commit": "8f89a1f77936a0dee9f1a517ee70b35ed4fd126d"
       },
       "independent_end_user_acceptance": "PENDING_NOT_CODEX_ACCEPTED",
       "corporate_aba": "SEPARATE_OPEN_ACCEPTED_KERNEL_EVENT_COLLISION",
