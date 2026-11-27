@@ -1,0 +1,25 @@
+name: T4 original shared first-use Workspace baseline
+on:
+  push:
+    branches:
+      - 'ci/once/t4-fresh-baseline/8351bf79f2fb'
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 8351bf79f2fbba9374657ca712c8d855f2e594ce
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify revision and run baseline, original native owner and prior profile integration
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "8351bf79f2fbba9374657ca712c8d855f2e594ce"
+          test "$(git rev-parse HEAD^{tree})" = "9e99f858c93c4eae772988175f96cf99dab2aa4c"
+          node --test packages/t4-network/tests/original-network-baseline-admission.test.mjs packages/t4-network/tests/original-native-host-network-owner.test.mjs packages/t4-network/tests/original-installed-fixed-profile.test.mjs packages/t4-network/tests/original-native-network-product-activation.test.mjs packages/t4-network/tests/original-installed-control-factories.test.mjs
