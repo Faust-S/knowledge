@@ -37,7 +37,7 @@ jobs:
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-hosting-freeze \
             --profile full-hosting-qualification \
-            --revision site=b0879a67adb3cc4e3c14370122e56fcc0ddb324c \
+            --revision site=f0bf6ef4b04d26a06e7ec9242d03002736639d59 \
             --revision subject=1e8700f4fd6f11c50db154f9f080b2406bef02ec \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1 \
             --revision core=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: b0879a67adb3cc4e3c14370122e56fcc0ddb324c
+          ref: f0bf6ef4b04d26a06e7ec9242d03002736639d59
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -83,7 +83,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = b0879a67adb3cc4e3c14370122e56fcc0ddb324c
+          test "$(git -C private/site rev-parse HEAD)" = f0bf6ef4b04d26a06e7ec9242d03002736639d59
           test "$(git -C private/domain rev-parse HEAD)" = 1e8700f4fd6f11c50db154f9f080b2406bef02ec
           test "$(git -C original/core rev-parse HEAD)" = 326f725c44d69ac99f6b912241e9e8a6c3d716a5
           test "$(git -C private/assistant rev-parse HEAD)" = 5e3083788aa541921559de29d3457d4a52bbba00
