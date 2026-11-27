@@ -89,7 +89,7 @@ it("does not resolve the previous router's route against a replacement runtime",
   expect(commits).not.toContain("missing");
   expect(next.lookups.length).toBeGreaterThan(0);
   expect(next.lookups.every(id => id === next.ref.id)).toBe(true);
-  expect((await screen.findByTestId("route-content")).textContent).toBe("next");
+  expect(await screen.findByText("next")).toBeVisible();
 });
 
 it("preserves genuine unavailable state, activation, deactivation and runtime loss", async () => {
