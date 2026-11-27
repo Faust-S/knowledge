@@ -21,7 +21,7 @@ PINS = {
     'proofs': {'google16dce79d77367d6f.html': 'e00d88abdf9eac6d343e8f90163f165886f5034e',
                'yandex_95e23e45501e02eb.html': '98101d34a80c463b6ad8c7e2a7feb5cbc51f020c'},
 }
-SITE_COMMIT = '5994bc36837beb5534797c5349019d12ed30797c'
+SITE_COMMIT = 'a6ad6a7a90d97e04a931c8f33598373a5336c1a2'
 KERNEL = '_iwxa/runtime/0.3.6/runtime.js'
 SKILLS = 'assets/artbazy-assistant-skills.json'
 MANIFEST = 't3-offline-manifest.json'
