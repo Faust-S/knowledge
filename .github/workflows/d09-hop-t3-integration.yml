@@ -1,0 +1,168 @@
+name: D09 HOP original T3 rc.5 integration
+on:
+  push:
+    branches: ['ci/once/d09-hop-t3-integration/**']
+    paths: ['.github/ci-requests/d09-hop-t3-integration.json']
+concurrency:
+  group: d09-hop-t3-integration
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  product:
+    if: github.event.created == false && github.event.deleted == false && github.event.forced == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      SITE_PIN: b6622118f139af2fc117c566e8bbc7b6335c25e5
+      SUBJECT_PIN: 94fd40413525b099a141ea4b077c6eb117ed7722
+      T3_PIN: a50d40dafc2e029fcc7668dece925f7fc38cc510
+      ASSISTANT_PIN: 5419dacf855d81ec089acc23bae0c7aa11713a54
+      D09_ORIGIN: https://hop.iwxa.ru:9443
+      D09_PREVIEW_PRODUCTION_LOOPBACK: '1'
+      D09_ASSEMBLY_ONLY: '0'
+      D09_ASSEMBLY_ONLY_CONSENT: ''
+    steps:
+      - name: Checkout public request guard
+        uses: actions/checkout@v4
+        with:
+          path: ci-harness
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit immutable domain request
+        working-directory: ci-harness
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-rc5 --revision site=b6622118f139af2fc117c566e8bbc7b6335c25e5 --revision subject=94fd40413525b099a141ea4b077c6eb117ed7722 --revision platform=a50d40dafc2e029fcc7668dece925f7fc38cc510 --revision assistant=5419dacf855d81ec089acc23bae0c7aa11713a54
+      - name: Checkout HOP site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/hop.iwxa.ru
+          ref: ${{ env.SITE_PIN }}
+          token: ${{ secrets.DOMEN }}
+          path: private-site
+          persist-credentials: false
+          show-progress: false
+      - name: Checkout released original T3 source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: ${{ env.T3_PIN }}
+          path: original-platform
+          persist-credentials: false
+          sparse-checkout: |
+            packages/t3-core
+      - name: Checkout original domain assistant
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: ${{ env.ASSISTANT_PIN }}
+          token: ${{ secrets.DOMEN }}
+          path: private-assistant
+          persist-credentials: false
+          show-progress: false
+          sparse-checkout: |
+            browser-local-inference/domain-assistant
+      - name: Verify pins and download public platform release
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "private-site $SITE_PIN 2ee209edc50addaca9bd1661ff87f259d8c41749" "original-platform $T3_PIN d375181e1fd79953cdb9ef4e414936e76b584100" "private-assistant $ASSISTANT_PIN 4b4a84cec91aa268048184a477b91efe94ebdea3"; do
+            read -r dir sha tree <<< "$spec"
+            test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
+            test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
+            echo "D09_T3_INPUT $dir PASS"
+          done
+          test "$(git -C private-site rev-parse HEAD:public/assets/hop-assistant-skills.json)" = 3603ce0dddddb107b5773b08dbe3c06273456a29
+          mkdir -p "$RUNNER_TEMP/d09-t3"
+          curl --fail --silent --show-error --location --retry 2 'https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.1-rc.5/platform-inputs.zip' -o "$RUNNER_TEMP/d09-t3/platform-inputs.zip"
+          printf '%s  %s\n' '381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4' "$RUNNER_TEMP/d09-t3/platform-inputs.zip" | sha256sum -c - >/dev/null
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=hop.iwxa.ru' -keyout "$RUNNER_TEMP/d09-t3/key.pem" -out "$RUNNER_TEMP/d09-t3/cert.pem" >/dev/null 2>&1
+          {
+            echo "D09_T3_CORE_SOURCE=$GITHUB_WORKSPACE/original-platform/packages/t3-core"
+            echo "D09_T3_ASSISTANT_SOURCE=$GITHUB_WORKSPACE/private-assistant"
+            echo "D09_T3_PLATFORM_ARCHIVE=$RUNNER_TEMP/d09-t3/platform-inputs.zip"
+            echo "D09_PREVIEW_CERT_PATH=$RUNNER_TEMP/d09-t3/cert.pem"
+            echo "D09_PREVIEW_KEY_PATH=$RUNNER_TEMP/d09-t3/key.pem"
+            echo "npm_config_cache=$RUNNER_TEMP/d09-t3/npm-cache"
+          } >> "$GITHUB_ENV"
+          echo D09_T3_RELEASE_ARCHIVE=PASS
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Locked HOP dependencies
+        working-directory: private-site
+        shell: bash
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-t3/npm.log" 2>&1 || { echo D09_T3_NPM=FAIL; exit 1; }
+          if command -v google-chrome >/dev/null 2>&1; then
+            echo "PUPPETEER_EXECUTABLE_PATH=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          else
+            npx --no-install puppeteer browsers install chrome > "$RUNNER_TEMP/d09-t3/browser-install.log" 2>&1 || { echo D09_T3_CHROME=FAIL; exit 1; }
+          fi
+          echo D09_T3_NPM=PASS
+      - name: Prepare ONE original T3 Host with HOP editor and assistant
+        id: prepare
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -eu
+          for path in scripts/d09-t3-integration.mjs scripts/build-d09-site-only.mjs scripts/assemble-d09-site-only.mjs tests/d09-t3-user.browser.mjs; do
+            node --check "$path"
+          done
+          if npm run t3:prepare > "$RUNNER_TEMP/d09-t3/prepare.log" 2>&1; then
+            grep -E '^D09_T3_[A-Z0-9_]+=(PASS|[0-9]+)$' "$RUNNER_TEMP/d09-t3/prepare.log" | tail -20
+            echo D09_T3_PREPARE=PASS
+          else
+            echo D09_T3_PREPARE=FAIL
+            grep -oE '(D09_[A-Z0-9_]+|T3_[A-Z0-9_]+|T2_[A-Z0-9_]+|ERR_[A-Z0-9_]+|error TS[0-9]+)' "$RUNNER_TEMP/d09-t3/prepare.log" | sort -u | head -50 || true
+            grep -E '^([[:alnum:]_./-]+\.(tsx?|mjs)\([0-9]+,[0-9]+\): error TS[0-9]+:|error during build:)' "$RUNNER_TEMP/d09-t3/prepare.log" | cut -c1-200 | head -20 || true
+            exit 1
+          fi
+      - name: Build from local prepared T3 inputs only
+        id: build
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -eu
+          rm -rf "$GITHUB_WORKSPACE/original-platform" "$GITHUB_WORKSPACE/private-assistant"
+          rm -f "$D09_T3_PLATFORM_ARCHIVE"
+          unset D09_T3_CORE_SOURCE D09_T3_ASSISTANT_SOURCE D09_T3_PLATFORM_ARCHIVE
+          if npm run build > "$RUNNER_TEMP/d09-t3/build.log" 2>&1; then
+            echo D09_T3_BUILD=PASS
+            grep -E '^D09_T3_ONE_DIST=' "$RUNNER_TEMP/d09-t3/build.log" | tail -1
+          else
+            echo D09_T3_BUILD=FAIL
+            grep -oE '(D09_[A-Z0-9_]+|T3_[A-Z0-9_]+|T2_[A-Z0-9_]+|ERR_[A-Z0-9_]+|error TS[0-9]+)' "$RUNNER_TEMP/d09-t3/build.log" | sort -u | head -50 || true
+            grep -E '^([[:alnum:]_./-]+\.(tsx?|mjs)\([0-9]+,[0-9]+\): error TS[0-9]+:|error during build:)' "$RUNNER_TEMP/d09-t3/build.log" | cut -c1-200 | head -20 || true
+            exit 1
+          fi
+      - name: Real T3 assistant, offline cold restart and original HOP journeys
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -eu
+          failed=0
+          check() {
+            local id="$1"; shift
+            if "$@" > "$RUNNER_TEMP/d09-t3/$id.log" 2>&1; then
+              echo "D09_T3_$id=PASS"
+            else
+              echo "D09_T3_$id=FAIL"
+              grep -oE '(D09_[A-Z0-9_]+|T3_[A-Z0-9_]+|error TS[0-9]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-t3/$id.log" | sort -u | head -30 || true
+              failed=1
+            fi
+            grep -E '^D09_[A-Z0-9_]+=(PASS|FAIL)$|^D09_PRODUCT_ROUTE_FAIL [^ ]+' "$RUNNER_TEMP/d09-t3/$id.log" | cut -c1-200 | tail -30 || true
+          }
+          check USER node tests/d09-t3-user.browser.mjs
+          check FIRST_WORKSPACE node tests/d09-original-t2-production-first-run.browser.mjs
+          check PROJECT_RESULT_EXCHANGE node tests/d09-original-t2-project-save.browser.mjs
+          check USER_ROUTES npm run test:d09:user-routes
+          check CONTRACTS npm run test:d09
+          exit "$failed"
+      - name: Remove private inputs, site and evidence
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/private-site" "$GITHUB_WORKSPACE/private-assistant" "$GITHUB_WORKSPACE/original-platform" "$RUNNER_TEMP/d09-t3"
+          echo D09_PRIVATE_ARTIFACT_UPLOADS=NONE
