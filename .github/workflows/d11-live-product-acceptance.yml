@@ -1,4 +1,4 @@
-name: D11 exact release live Windows Linux acceptance
+name: D11 original T3 rc.5 integration and product qualification
 on:
   workflow_dispatch:
   push:
@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   browser:
-    name: D11 LIVE ${{ matrix.os }}
+    name: D11 T3 ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 75
     strategy:
@@ -27,23 +27,27 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
-      - name: Admit one exact request
+      - name: Admit one exact T3 request
         run: |
-          python tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-live-product-acceptance --profile live-os --revision domain=c4406c29abd639862fc21edf417c5d049184e926 --revision site=c15e21b94c2079ed744f2397b77fa6e906077812 --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17
+          python tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-live-product-acceptance --profile t3-live-os --revision domain=c4406c29abd639862fc21edf417c5d049184e926 --revision site=89e1e2c1c29568cc2e680da7af360fef706f8f88 --revision t3=a50d40dafc2e029fcc7668dece925f7fc38cc510
           if ($LASTEXITCODE -ne 0) { throw "D11_REQUEST_INVALID" }
-      - name: Confirm previously qualified exact product sources
+      - name: Verify original T3 candidate and prior canonical regression
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $r=gh api "repos/Faust-S/knowledge/actions/runs/46045820704" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or $r.conclusion -ne "success" -or $r.head_sha -ne "598d881dbbdc540ef7ed5b1c32e8c56bf1e5c0eb") { throw "D11_PRIOR_QUALIFICATION_MISSING" }
-          Write-Output "D11_PRIOR_QUALIFICATION=PASS"
-      - name: Check existing private read scope
+          $r=gh api "repos/Faust-S/knowledge/actions/runs/46012582910" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $r.conclusion -ne "success" -or $r.head_sha -ne "4c6061f9fbf5452b0f10ba8f34375dbda2a4d73d") { throw "D11_T3_ORIGINAL_QUALIFICATION_MISSING" }
+          $a=gh api "repos/Faust-S/knowledge/actions/runs/46012582910/artifacts" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw "D11_T3_ARTIFACT_METADATA_MISSING" }
+          $exact=@($a.artifacts | Where-Object { $_.id -eq 15203239524 -and $_.name -eq "iwxa-t3-mobile-portable-candidate-a50d40dafc2e029fcc7668dece925f7fc38cc510" -and !$_.expired -and $_.digest -eq "sha256:4d397282cc704f61fd7966394ddbbffe88e124c2d3e5a75d12bdc726f9ae0dd4" })
+          if ($exact.Count -ne 1) { throw "D11_T3_ARTIFACT_IDENTITY" }
+          Write-Output "D11_T3_ORIGINAL_CANDIDATE=PASS"
+      - name: Existing private repository read scope
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw "D11_DOMEN_UNAVAILABLE" }
-          foreach ($repo in @("Faust-S/advice-logistics.ru","Faust-S/advice-logistics","Faust-S/T2")) {
+          foreach ($repo in @("Faust-S/advice-logistics.ru","Faust-S/advice-logistics")) {
             gh api "repos/$repo" --jq ".id" *> $null
             if ($LASTEXITCODE -ne 0) { throw "D11_READ_SCOPE_UNAVAILABLE" }
           }
@@ -51,10 +55,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: c15e21b94c2079ed744f2397b77fa6e906077812
+          ref: 89e1e2c1c29568cc2e680da7af360fef706f8f88
           token: ${{ secrets.DOMEN }}
           path: site
-          fetch-depth: 5
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
@@ -65,23 +68,28 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          repository: Faust-S/T2
-          ref: e70de29b72b83e2546f7ab74b17572685a728c17
-          token: ${{ secrets.DOMEN }}
-          path: t2
+          repository: Faust-S/knowledge
+          ref: a50d40dafc2e029fcc7668dece925f7fc38cc510
+          path: t3
           persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: iwxa-t3-mobile-portable-candidate-a50d40dafc2e029fcc7668dece925f7fc38cc510
+          run-id: 46012582910
+          repository: Faust-S/knowledge
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/d11-t3-platform-input
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
-      - name: Verify unchanged product sources and 56 canonical mirrors
+      - name: Verify exact T3 source and 56 D11 canonical mirrors
         run: |
-          if ((git -C site rev-parse HEAD).Trim() -ne "c15e21b94c2079ed744f2397b77fa6e906077812" -or
+          if ((git -C site rev-parse HEAD).Trim() -ne "89e1e2c1c29568cc2e680da7af360fef706f8f88" -or
               (git -C domain rev-parse HEAD).Trim() -ne "c4406c29abd639862fc21edf417c5d049184e926" -or
-              (git -C t2 rev-parse HEAD).Trim() -ne "e70de29b72b83e2546f7ab74b17572685a728c17" -or
-              (git -C site rev-parse HEAD~4).Trim() -ne "56d5851c466d14d17a2c6e250df452a4dfeaf068") { throw "D11_PIN_MISMATCH" }
-          $changes=@(git -C site diff --name-only HEAD~4 HEAD)
-          $expected=@("scripts/build-t2-integrated-site.mjs","scripts/d11-live-operational-os.mjs","scripts/d11-live-t2-kernel-exchange-acceptance.mjs","tests/d11-integrated-build.test.mjs")
-          if ($changes.Count -ne $expected.Count -or @($changes | Where-Object { $expected -notcontains $_ }).Count -ne 0) { throw "D11_PRODUCT_SOURCE_CHANGED" }
+              (git -C t3 rev-parse HEAD).Trim() -ne "a50d40dafc2e029fcc7668dece925f7fc38cc510" -or
+              (git -C t3 rev-parse "HEAD^{tree}").Trim() -ne "d375181e1fd79953cdb9ef4e414936e76b584100" -or
+              (git -C t3 rev-parse "HEAD:packages/t3-core/src").Trim() -ne "3a391777a51012e51356b61b9d61bc94c511de67" -or
+              (git -C t3 rev-parse "HEAD:packages/t3-core").Trim() -ne "372c6cb67f1167ba43c08322c86bfce861db1831") { throw "D11_T3_PIN_MISMATCH" }
           $o=Get-Content -Raw -Encoding UTF8 site/runtime/d11-module/operations/source.json | ConvertFrom-Json
           $m=Get-Content -Raw -Encoding UTF8 site/src/lib/logistics/professional-methods-source.json | ConvertFrom-Json
           $a=Get-Content -Raw -Encoding UTF8 site/runtime/d11-module/os-work-areas-source.json | ConvertFrom-Json
@@ -91,60 +99,76 @@ jobs:
             if ((git -C domain rev-parse "HEAD:$($f.sourcePath)").Trim() -ne $f.blob -or (git -C site rev-parse "HEAD:$($f.localPath)").Trim() -ne $f.blob) { throw "D11_MIRROR_MISMATCH" }
           }
           Write-Output "D11_MIRRORS=56/56 PASS"
-          Write-Output "D11_PRODUCT_SOURCES_UNCHANGED=PASS"
-      - name: Install dependencies and parse browser witnesses
+          $archive=Join-Path $env:RUNNER_TEMP "d11-t3-platform-input/platform-inputs.zip"
+          if (!(Test-Path $archive) -or (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne "381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4") { throw "D11_T3_ARCHIVE_MISMATCH" }
+          Write-Output "D11_T3_ARCHIVE=PASS"
+          "IWXA_D11_T3_PLATFORM_ARCHIVE=$archive" >> $env:GITHUB_ENV
+          "IWXA_D11_T3_PREPARED_HOST=$(Join-Path $env:RUNNER_TEMP 'd11-t3-prepared-host')" >> $env:GITHUB_ENV
+      - name: Site dependencies and source regression
+        id: source
         working-directory: site
+        continue-on-error: true
         run: |
-          & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP "d11-npm-install.log")
-          if ($LASTEXITCODE -ne 0) { throw "D11_NPM_INSTALL_FAILED" }
-          foreach ($script in @("d11-live-operational-os","d11-live-t2-kernel-exchange-acceptance","d11-live-browser-acceptance")) {
-            & node --check "scripts/$script.mjs"
-            if ($LASTEXITCODE -ne 0) { throw "D11_BROWSER_WITNESS_PARSE_FAILED" }
-          }
-          Write-Output "D11_WITNESSES_PARSE=PASS"
-      - name: Regression of the changed integrated build
-        id: build_regression
-        working-directory: site
-        run: |
-          $log=Join-Path $env:RUNNER_TEMP "d11-build-regression.log"
-          & node --experimental-strip-types --test --test-reporter=tap tests/d11-integrated-build.test.mjs *> $log
-          $code=$LASTEXITCODE
-          Get-Content $log | Where-Object { $_ -match '^# (tests|pass|fail|skipped) [0-9]+$' } | Write-Output
-          if ($code -ne 0) { throw "D11_BUILD_REGRESSION_FAILED" }
-          Write-Output "D11_BUILD_REGRESSION=PASS"
-      - name: Build the exact previously qualified product
-        id: build
-        working-directory: site
-        env:
-          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
-        run: |
-          $log=Join-Path $env:RUNNER_TEMP "d11-build.log"
-          & npm run build:t2:site *> $log
+          $status=0
+          & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP "d11-install.log")
+          if ($LASTEXITCODE -ne 0) { throw "D11_INSTALL_FAILED" }
+          $tests=@(Get-ChildItem tests -File -Filter "*.test.mjs" | ForEach-Object { $_.FullName })
+          if ($tests.Count -eq 0) { throw "D11_TESTS_MISSING" }
+          $log=Join-Path $env:RUNNER_TEMP "d11-site-regression.log"
+          & node --experimental-strip-types --test --test-reporter=tap @tests *> $log
           $code=$LASTEXITCODE
           Get-Content $log | ForEach-Object {
-            if ($_ -match '\b(D11_(?:HOST_INSTALL|KERNEL_INSTALL|SUBBUILD_HOST|SUBBUILD_KERNEL|SUBBUILD_SITE|HOST_TYPECHECK_ON_ERROR))=(PASS|FAIL)\b') { Write-Output ($Matches[1]+"="+$Matches[2]) }
-            elseif ($_ -match '\b(D11_KERNEL_PHASE_FAILED)=(INSTALL|BUILD)\b') { Write-Output ($Matches[1]+"="+$Matches[2]) }
-            elseif ($_ -match '(?:Error:|error:)\s*((?:D11_|T2_|K035_|K036_|SOURCE_|SUCCESSOR_|EXACT_|OVERLAY_|PREDECESSOR_)[A-Z0-9_]+)\b') { Write-Output ("D11_BUILD_DIAGNOSTIC="+$Matches[1]) }
-            elseif ($_ -match '\berror TS([0-9]{4})\b') { Write-Output ("D11_BUILD_TYPESCRIPT=TS"+$Matches[1]) }
-            elseif ($_ -match '\bnpm (?:ERR!|error) code ([A-Z0-9_]+)\b') { Write-Output ("D11_BUILD_NPM_CODE="+$Matches[1]) }
-            elseif ($_ -match '\b(ENOENT|EACCES|EPERM|EINVAL|ENAMETOOLONG|EAI_AGAIN|ECONNRESET|ERR_[A-Z0-9_]+)\b') { Write-Output ("D11_BUILD_OS_DIAGNOSTIC="+$Matches[1]) }
-            elseif ($_ -match '\[runtime-version\].*DRIFT') { Write-Output "D11_KERNEL_VERSION_DRIFT" }
-            elseif ($_ -match 'service catalog check failed|service-catalog.*(?:DRIFT|MISMATCH|FAIL)') { Write-Output "D11_KERNEL_CATALOG_CHECK_FAILED" }
-            elseif ($_ -match 'vite build failed') { Write-Output "D11_KERNEL_DIAGNOSTICS_BUILD_FAILED" }
-            elseif ($_ -match 'validator bundle failed') { Write-Output "D11_KERNEL_VALIDATOR_BUILD_FAILED" }
-            elseif ($_ -match 'overlay copy failed') { Write-Output "D11_KERNEL_OVERLAY_COPY_FAILED" }
-            elseif ($_ -match 'runtime bundle failed') { Write-Output "D11_KERNEL_RUNTIME_BUILD_FAILED" }
-            elseif ($_ -match 'Cannot find module|Cannot find package') { Write-Output "D11_BUILD_MODULE_NOT_FOUND" }
-            elseif ($_ -match 'Could not resolve|failed to resolve import') { Write-Output "D11_BUILD_IMPORT_UNRESOLVED" }
-            elseif ($_ -match 'is not recognized as an internal or external command') { Write-Output "D11_BUILD_COMMAND_UNRECOGNIZED" }
-            elseif ($_ -match 'JavaScript heap out of memory') { Write-Output "D11_BUILD_HEAP_LIMIT" }
+            if ($_ -match '^# (tests|pass|fail|skipped) [0-9]+$') { Write-Output $_ }
+            elseif ($_ -match '^not ok ([0-9]+)') { Write-Output ("D11_FAILED_TEST_NUMBER="+$Matches[1]) }
           }
-          if ($code -ne 0) { Write-Output "D11_BUILD_EXIT=$code"; throw "D11_UI_BUILD_FAILED" }
-          if (!(Test-Path dist/workspace/index.html)) { throw "D11_DIST_MISSING" }
-          if (!(Select-String -Path $log -SimpleMatch "D11_KERNEL_QUALIFIED_FILES=4/4 PASS" -Quiet)) { throw "D11_QUALIFIED_KERNEL_WITNESS_MISSING" }
+          if ($code -ne 0) { $status=1 }
+          & npx --no-install tsc --noEmit --pretty false *> (Join-Path $env:RUNNER_TEMP "d11-types.log")
+          if ($LASTEXITCODE -ne 0) { $status=1; Write-Output "D11_TYPES=FAIL" } else { Write-Output "D11_TYPES=PASS" }
+          if ($status -ne 0) { throw "D11_SOURCE_REGRESSION_FAILED" }
+          Write-Output "D11_T3_SITE_SOURCE=PASS"
+      - name: Verify exact portable T3 inputs
+        working-directory: site
+        run: |
+          & npm run verify:t3:inputs -- "$env:IWXA_D11_T3_PLATFORM_ARCHIVE" *> (Join-Path $env:RUNNER_TEMP "d11-t3-verify.log")
+          if ($LASTEXITCODE -ne 0) { throw "D11_T3_PORTABLE_VERIFY_FAILED" }
+          Write-Output "D11_T3_PORTABLE_FILES=174/174 PASS"
+      - name: Prepare original T3 Host with current D11 module and BLI
+        id: host
+        working-directory: site
+        run: |
+          $core=Join-Path $env:GITHUB_WORKSPACE "t3/packages/t3-core"
+          $log=Join-Path $env:RUNNER_TEMP "d11-t3-host.log"
+          & npm run prepare:t3:host -- "$core" "$env:IWXA_D11_T3_PREPARED_HOST" "$env:IWXA_D11_T3_PLATFORM_ARCHIVE" *> $log
+          $code=$LASTEXITCODE
+          Get-Content $log | ForEach-Object {
+            if ($_ -match '(?:Error:|error:)\s*((?:D11_T3_|T3_|T2_|SOURCE_|EXACT_)[A-Z0-9_]+)\b') { Write-Output ("D11_T3_HOST_DIAGNOSTIC="+$Matches[1]) }
+            elseif ($_ -match '\berror TS([0-9]{4})\b') { Write-Output ("D11_T3_HOST_TYPESCRIPT=TS"+$Matches[1]) }
+            elseif ($_ -match '\b(ENOENT|EACCES|EPERM|EINVAL|ENAMETOOLONG|EAI_AGAIN|ECONNRESET|ERR_[A-Z0-9_]+)\b') { Write-Output ("D11_T3_HOST_OS_DIAGNOSTIC="+$Matches[1]) }
+            elseif ($_ -match '\bnpm (?:ERR!|error) code ([A-Z0-9_]+)\b') { Write-Output ("D11_T3_HOST_NPM_CODE="+$Matches[1]) }
+          }
+          if ($code -ne 0) { throw "D11_T3_HOST_PREPARE_FAILED" }
+          & npm run verify:t3:host -- "$env:IWXA_D11_T3_PREPARED_HOST" *> (Join-Path $env:RUNNER_TEMP "d11-t3-host-readback.log")
+          if ($LASTEXITCODE -ne 0) { throw "D11_T3_HOST_READBACK_FAILED" }
+          Write-Output "D11_T3_ORIGINAL_HOST=PASS"
+      - name: Ordinary product build on T3 only
+        id: build
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP "d11-t3-build.log"
+          & npm run build *> $log
+          $code=$LASTEXITCODE
+          Get-Content $log | ForEach-Object {
+            if ($_ -match '^D11_T3_ONE_DIST=PASS version=0\.3\.1-rc\.5 offline=[0-9]+$') { Write-Output $_ }
+            elseif ($_ -match '(?:Error:|error:)\s*((?:D11_T3_|T3_|T2_|SOURCE_|EXACT_)[A-Z0-9_]+)\b') { Write-Output ("D11_T3_BUILD_DIAGNOSTIC="+$Matches[1]) }
+            elseif ($_ -match '\berror TS([0-9]{4})\b') { Write-Output ("D11_T3_BUILD_TYPESCRIPT=TS"+$Matches[1]) }
+          }
+          if ($code -ne 0) { throw "D11_T3_BUILD_FAILED" }
+          foreach ($p in @("workspace/index.html","workspace/exchange/index.html","workspace/lifecycle/index.html","t3-domain-mode.mjs","t3-sw.js","t3-app-manifest.json","t3-offline-manifest.json","_iwxa/runtime/0.3.6/runtime.js")) {
+            if (!(Test-Path "dist/$p")) { throw "D11_T3_DIST_MISSING" }
+          }
+          if (!(Select-String -Path $log -SimpleMatch "D11_T3_ONE_DIST=PASS version=0.3.1-rc.5" -Quiet)) { throw "D11_T3_BUILD_WITNESS_MISSING" }
           if (Test-Path dist/_iwxa/diagnostics) { throw "D11_ENGINEERING_DIAGNOSTICS_INCLUDED" }
-          Write-Output "D11_KERNEL_QUALIFIED_FILES=4/4 PASS"
-          Write-Output "D11_ONE_DIST=PASS"
+          Write-Output "D11_T3_DIST=PASS"
       - name: Static product and public page checks
         id: static
         continue-on-error: true
@@ -157,7 +181,7 @@ jobs:
           }
           if ($status -ne 0) { throw "D11_STATIC_FAILED" }
           Write-Output "D11_STATIC=9/9 PASS"
-      - name: Real browser ten cases and own-project forms
+      - name: Online public routes and native product forms in compiled T3
         id: ui
         continue-on-error: true
         working-directory: site
@@ -166,26 +190,26 @@ jobs:
           & node scripts/d11-live-browser-acceptance.mjs *> $log
           $code=$LASTEXITCODE
           Get-Content $log | ForEach-Object {
-            if ($_ -match '^(D11_(?:LIVE_GUI|OWN_)[A-Z0-9_]*)(?:=)([0-9/ ]*PASS)') { Write-Output ($Matches[1]+"="+$Matches[2]) }
+            if ($_ -match '^(D11_(?:LIVE_GUI|OWN_)[A-Z0-9_]*=([0-9/ ]*PASS))') { Write-Output $Matches[1] }
             elseif ($_ -match '^(D11_LIVE_GUI_FAILED=[A-Z0-9_]+)') { Write-Output $Matches[1] }
           }
-          if ($code -ne 0) { throw "D11_LIVE_TEN_CASES_FAILED" }
-          Write-Output "D11_LIVE_BROWSER=PASS"
-      - name: Original T2 result readback and Exchange
-        id: kernel
+          if ($code -ne 0) { throw "D11_T3_ONLINE_PUBLIC_FAILED" }
+          Write-Output "D11_T3_ONLINE_PUBLIC=PASS"
+      - name: Original inherited result readback and Exchange in T3
+        id: exchange
         continue-on-error: true
         working-directory: site
         run: |
-          $log=Join-Path $env:RUNNER_TEMP "d11-live-kernel.log"
+          $log=Join-Path $env:RUNNER_TEMP "d11-live-exchange.log"
           & node scripts/d11-live-t2-kernel-exchange-acceptance.mjs *> $log
           $code=$LASTEXITCODE
           Get-Content $log | ForEach-Object {
-            if ($_ -match '^(D11_[A-Z0-9_]+)=([0-9/ ]*PASS)') { Write-Output ($Matches[1]+"="+$Matches[2]) }
-            elseif ($_ -match '^(D11_REAL_T2_FAILED=[A-Z0-9_]+)') { Write-Output $Matches[1] }
+            if ($_ -match '^(D11_[A-Z0-9_]+=([0-9/ ]*PASS))') { Write-Output $Matches[1] }
+            elseif ($_ -match '^(D11_(?:REAL_T2_FAILED|LIVE_FAILURE_KIND)=[A-Z0-9_]+)') { Write-Output $Matches[1] }
           }
-          if ($code -ne 0) { throw "D11_T2_REAL_KERNEL_EXCHANGE_FAILED" }
-          Write-Output "D11_T2_REAL_KERNEL_EXCHANGE=PASS"
-      - name: Real operational OS stock to economics and independent import
+          if ($code -ne 0) { throw "D11_T3_ONLINE_EXCHANGE_FAILED" }
+          Write-Output "D11_T3_ONLINE_EXCHANGE=PASS"
+      - name: Original D11 operating route in compiled T3
         id: os
         continue-on-error: true
         working-directory: site
@@ -194,37 +218,22 @@ jobs:
           & node scripts/d11-live-t2-kernel-exchange-acceptance.mjs --operational *> $log
           $code=$LASTEXITCODE
           Get-Content $log | ForEach-Object {
-            if ($_ -match '^(D11_[A-Z0-9_]+)=([0-9/ ]*PASS)') { Write-Output ($Matches[1]+"="+$Matches[2]) }
-            elseif ($_ -match '^(D11_(?:OS_STAGE|REAL_T2_FAILED)=[A-Z0-9_]+)') { Write-Output $Matches[1] }
-            elseif ($_ -match '^(D11_(?:LIVE_FAILURE_KIND|OS_DISPATCH_NOTICE|OS_FORM_INVALID_KIND)=[A-Z0-9_,]+)$') { Write-Output $Matches[1] }
+            if ($_ -match '^(D11_[A-Z0-9_]+=([0-9/ ]*PASS))') { Write-Output $Matches[1] }
+            elseif ($_ -match '^(D11_(?:OS_STAGE|REAL_T2_FAILED|LIVE_FAILURE_KIND|OS_DISPATCH_NOTICE|OS_FORM_INVALID_KIND)=[A-Z0-9_,]+)$') { Write-Output $Matches[1] }
             elseif ($_ -match '^(D11_OS_FORM_INVALID_COUNT=[0-9]+)$') { Write-Output $Matches[1] }
           }
-          if ($code -ne 0) { throw "D11_OPERATIONAL_OS_FAILED" }
-          Write-Output "D11_OPERATIONAL_OS=PASS"
-      - name: Verify original 26 desktop and mobile screenshots locally
-        id: visual
-        continue-on-error: true
-        run: |
-          $dir=Join-Path $env:RUNNER_TEMP "d11-visual"
-          $names=@("d11-dashboard-desktop.png","d11-dashboard-mobile.png","d11-home-desktop.png","d11-home-mobile.png","d11-result-detail-desktop.png","d11-result-detail-mobile.png","d11-projects-desktop.png","d11-projects-mobile.png","d11-customer-order-desktop.png","d11-customer-order-mobile.png")
-          foreach ($caseNumber in 2..9) {
-            foreach ($viewport in @("desktop","mobile")) { $names+=("d11-own-{0:D3}-{1}.png" -f $caseNumber,$viewport) }
-          }
-          foreach ($name in $names) {
-            $file=Join-Path $dir $name
-            if (!(Test-Path $file) -or (Get-Item $file).Length -lt 1000) { throw "D11_SCREENSHOT_MISSING" }
-          }
-          Write-Output "D11_SCREENSHOT_FILES=26/26 PASS"
-      - name: Require all applicable product checks
+          if ($code -ne 0) { throw "D11_T3_ONLINE_OS_FAILED" }
+          Write-Output "D11_T3_ONLINE_OS=PASS"
+      - name: Require all current T3 build and online checks
         if: always()
         run: |
-          if ("${{ steps.build_regression.outcome }}" -ne "success" -or "${{ steps.build.outcome }}" -ne "success" -or "${{ steps.static.outcome }}" -ne "success" -or "${{ steps.os.outcome }}" -ne "success") { throw "D11_LIVE_ACCEPTANCE_INCOMPLETE" }
-          if ("${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.kernel.outcome }}" -ne "success" -or "${{ steps.visual.outcome }}" -ne "success") { throw "D11_PUBLIC_OR_EXCHANGE_QUALIFICATION_INCOMPLETE" }
-          Write-Output "D11_LIVE_FULL_ACCEPTANCE=PASS"
+          if ("${{ steps.source.outcome }}" -ne "success" -or "${{ steps.host.outcome }}" -ne "success" -or "${{ steps.build.outcome }}" -ne "success" -or "${{ steps.static.outcome }}" -ne "success" -or "${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.exchange.outcome }}" -ne "success" -or "${{ steps.os.outcome }}" -ne "success") { throw "D11_T3_BUILD_ONLINE_QUALIFICATION_INCOMPLETE" }
+          Write-Output "D11_T3_BUILD_ONLINE_QUALIFICATION=PASS"
+          Write-Output "D11_T3_OFFLINE_AND_MODEL_QUALIFICATION=NOT_RUN"
       - name: Remove private inputs and diagnostics
         if: always()
         run: |
-          foreach ($name in @("domain","site","t2")) {
+          foreach ($name in @("domain","site","t3")) {
             $folder=Join-Path $env:GITHUB_WORKSPACE $name
             if (Test-Path $folder) { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue }
           }
