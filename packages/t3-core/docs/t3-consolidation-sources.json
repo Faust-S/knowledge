@@ -203,8 +203,8 @@
     "packages/t3-core/docs/EXCHANGE_RECEIPT_EXISTING_RECORDS_2026_11_27_RU.md"
   ],
   "qualification": "Generic T3 exact Host, accepted Kernel, complete .iwxa restore, cold autonomy, BLI and portable artifact. Separate original corporate installed A-B-A qualification remains open, not a domain/platform release prerequisite.",
-  "version": "0.3.1-rc.5",
-  "snapshot": "Frozen qualified component cuts for generic platform delivery; corporate signed native product acceptance and later Workflow development are separate.",
+  "version": "0.3.1-rc.6",
+  "snapshot": "rc.5 published platform + one noncompiled domain-mode layout correction; all compiled Host, BLI and accepted Kernel bytes inherited unchanged.",
   "qualificationAttempts": [
     {
       "candidate": "f3d0404da883c98fed4188fdff9006aa43c07eec",
@@ -294,6 +294,18 @@
           "upstreamQualification": 46007067538
         }
       }
+    },
+    {
+      "version": "0.3.1-rc.5",
+      "run": 46044096981,
+      "status": "FAIL_PRODUCT_LAYOUT_OVERLAP",
+      "phase": "FIRST_IMPORT",
+      "passed": [
+        "EXACT_PUBLISHED_LOOPBACK_HOST",
+        "REAL_FILE_CHOOSER",
+        "IMPORT_PREVIEW"
+      ],
+      "failure": "Fixed domain-mode controls intercept pointer events on enabled import-commit button."
     }
   ],
   "integrationFixes": [
@@ -336,6 +348,10 @@
     {
       "scope": "universal platform qualification",
       "fix": "Retain separate original corporate runtime witness and failure evidence; generic platform lane does not repeat corporate A-B-A on known accepted Kernel collision."
+    },
+    {
+      "scope": "global T3 controls placement",
+      "fix": "Replace fixed fallback overlay with in-flow responsive control bar; preserve explicit site-owned mount and all existing state/actions. Observed rc.5 click interception on ImportView, run 46044096981."
     }
   ],
   "workflowOwnerQualification": {

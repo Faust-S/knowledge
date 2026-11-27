@@ -27,8 +27,15 @@ const standalone = () => window.matchMedia?.("(display-mode: standalone)")?.matc
 function style() {
   const el = document.createElement("style");
   el.textContent = [
-    "#iwxa-t3-domain-controls{font:14px system-ui,sans-serif;box-sizing:border-box;color:#f8fafc;background:#142638;border:1px solid #46657b;border-radius:12px;padding:10px 12px;box-shadow:0 8px 20px #0a223333;max-width:min(92vw,340px);z-index:2147483000}",
-    "#iwxa-t3-domain-controls[data-floating]{position:fixed;bottom:16px;left:16px}",
+    "#iwxa-t3-domain-controls{font:14px system-ui,sans-serif;box-sizing:border-box;color:#f8fafc;background:#142638;border:1px solid #46657b;border-radius:12px;padding:10px 12px;box-shadow:0 8px 20px #0a223333;max-width:min(100%,340px)}",
+    // Fallback controls are part of the document flow, never a fixed overlay.
+    // In particular, Exchange and Lifecycle actions must remain clickable.
+    "#iwxa-t3-domain-controls[data-inline-fallback]{position:static;max-width:none;margin:8px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;overflow-wrap:anywhere}",
+    "#iwxa-t3-domain-controls[data-inline-fallback]>*{min-width:0;max-width:100%}",
+    "#iwxa-t3-domain-controls[data-inline-fallback] label{min-height:32px}",
+    "#iwxa-t3-domain-controls[data-inline-fallback] [data-iwxa-t3-auto-update-label]{margin:0}",
+    "#iwxa-t3-domain-controls[data-inline-fallback] [role=status]{flex-basis:100%;margin:0}",
+    "#iwxa-t3-domain-controls[data-inline-fallback] button{margin:0}",
     "#iwxa-t3-domain-controls label{display:flex;align-items:center;gap:9px;font-weight:650;cursor:pointer}",
     "#iwxa-t3-domain-controls button{font:inherit;margin:8px 5px 0 0;padding:5px 9px;border:1px solid #80a9bd;border-radius:6px;color:#f8fafc;background:#20516b;cursor:pointer}",
     "#iwxa-t3-domain-controls button:disabled{opacity:.55;cursor:default}",
@@ -46,7 +53,7 @@ function createControl() {
   const box = document.createElement("section");
   box.id = "iwxa-t3-domain-controls";
   box.setAttribute("aria-label", "Режим автономного сайта IWXA T3");
-  if (!mount) box.setAttribute("data-floating", "");
+  if (!mount) box.setAttribute("data-inline-fallback", "");
   const label = document.createElement("label");
   const toggle = document.createElement("input");
   toggle.type = "checkbox";
@@ -97,7 +104,8 @@ function createControl() {
   state.textContent = "Режим не включён.";
   box.append(label, installApp, installHint, automaticLabel,
     updateCheck, updateInstall, reloadWindow, sharedNote, state);
-  (mount || document.body).append(box);
+  if (mount) mount.append(box);
+  else document.body.prepend(box);
   style();
   return {toggle, state, installApp, installHint, automatic, updateCheck,
     updateInstall, reloadWindow, pendingUpdate: null, autoCheckInFlight:false};

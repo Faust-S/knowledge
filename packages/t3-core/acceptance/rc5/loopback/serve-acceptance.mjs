@@ -1,7 +1,7 @@
 // Static loopback-only delivery transport. No certificate or OS policy changes.
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {readFileSync,statSync} from "node:fs";
+import {readFileSync,statSync,existsSync} from "node:fs";
 import {createServer} from "node:http";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -9,8 +9,15 @@ const base=dirname(fileURLToPath(import.meta.url)),dist=join(base,"dist");
 const origin="http://localhost:18443";
 const receipt=JSON.parse(readFileSync(join(base,"acceptance-receipt.json"),"utf8"));
 assert.equal(receipt.schema,"IWXA_T3_RC5_ACCEPTANCE_DELIVERY/1");
-assert.equal(receipt.sourceCommit,"a50d40dafc2e029fcc7668dece925f7fc38cc510");
-assert.equal(receipt.archiveSha256,"381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4");
+const candidatePath=join(base,"platform-candidate-receipt.json");
+if(existsSync(candidatePath)){
+ const candidate=JSON.parse(readFileSync(candidatePath,"utf8"));
+ for(const field of ["version","sourceCommit","archiveSha256","manifestSha256","kernel","contract","kernelArchiveSha256"])
+  assert.equal(receipt[field],candidate[field],"DELIVERY_CANDIDATE_MISMATCH:"+field);
+}else{
+ assert.equal(receipt.sourceCommit,"a50d40dafc2e029fcc7668dece925f7fc38cc510");
+ assert.equal(receipt.archiveSha256,"381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4");
+}
 assert.equal(receipt.origin,origin);
 assert.equal(receipt.localAcceptanceOnly,true);
 const sha=b=>createHash("sha256").update(b).digest("hex");

@@ -9,7 +9,7 @@ import {tmpdir} from "node:os";
 import {fileURLToPath,pathToFileURL} from "node:url";
 import {readStoredZip} from "./zip-store.mjs";
 const CORE=resolve(dirname(fileURLToPath(import.meta.url)),"..");
-const PIN={version:"0.3.1-rc.5",sourceCommit:"a50d40dafc2e029fcc7668dece925f7fc38cc510",
+const BASE_PIN={version:"0.3.1-rc.5",sourceCommit:"a50d40dafc2e029fcc7668dece925f7fc38cc510",
  archiveSha256:"381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4",
  manifestSha256:"ef5824279883296d836eacb7ba00f352be357d0dd5c49e26b32ec1a02a336e48",
  kernelArchiveSha256:"7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68",
@@ -21,8 +21,19 @@ const json=(path,value)=>writeFileSync(path,JSON.stringify(value,null,2)+"\n");
 const safePath=p=>typeof p==="string"&&/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(p)&&!p.split("/").some(x=>x==="."||x===".."||x===".git");
 const put=(root,path,bytes)=>{assert.ok(safePath(path));const p=join(root,path);mkdirSync(dirname(p),{recursive:true});writeFileSync(p,bytes,{flag:"wx"});};
 const digest=p=>hash(readFileSync(p));
-const [archiveArg,outputArg,originArg="https://localhost:18443"]=process.argv.slice(2);
-assert.ok(archiveArg&&outputArg&&process.argv.length<=5,"USAGE_PLATFORM_ZIP_FRESH_OUTPUT_HTTPS_ORIGIN");
+const [archiveArg,outputArg,originArg="https://localhost:18443",candidateArg]=process.argv.slice(2);
+assert.ok(archiveArg&&outputArg&&process.argv.length<=6,"USAGE_PLATFORM_ZIP_FRESH_OUTPUT_ORIGIN_OPTIONAL_CANDIDATE_RECEIPT");
+const candidate=candidateArg?JSON.parse(readFileSync(resolve(candidateArg),"utf8")):null;
+if(candidate){
+ assert.match(candidate.version,/^0\.3\.1-rc\.[6-9][0-9]*$|^0\.3\.1-rc\.[1-9][0-9]+$/);
+ for(const name of ["sourceCommit","archiveSha256","manifestSha256"])assert.match(candidate[name],name==="sourceCommit"?/^[a-f0-9]{40}$/:/^[a-f0-9]{64}$/);
+ assert.equal(candidate.status,"TECHNOLOGY_CANDIDATE_DOMAIN_NOT_ACCEPTED");
+ assert.equal(candidate.kernel,BASE_PIN.kernel);assert.equal(candidate.contract,BASE_PIN.contract);
+ assert.equal(candidate.kernelArchiveSha256,BASE_PIN.kernelArchiveSha256);assert.equal(candidate.kernelArtifact,BASE_PIN.kernelArtifact);
+ assert.equal(candidate.webllm,BASE_PIN.webllm);assert.equal(candidate.modelWeightsIncluded,false);assert.equal(candidate.privateDomainIncluded,false);
+ assert.equal(candidate.manifestFiles,174);assert.ok(Number.isSafeInteger(candidate.qualificationRun));
+}
+const PIN=candidate?{...BASE_PIN,version:candidate.version,sourceCommit:candidate.sourceCommit,archiveSha256:candidate.archiveSha256,manifestSha256:candidate.manifestSha256,platformQualificationRun:candidate.qualificationRun}:BASE_PIN;
 const parsed=new URL(originArg);
 const localAcceptance=originArg==="http://localhost:18443";
 assert.ok(parsed.protocol==="https:"||localAcceptance,"HTTPS_OR_EXACT_LOCAL_ACCEPTANCE_REQUIRED");
@@ -96,7 +107,7 @@ try{
  json(join(dist,"_iwxa/service-catalog.json"),{count:1,entries:[{service_id:host.passport.service_id,service_version:host.passport.service_version,base_path:host.passport.base_path,supported_levels:host.passport.supported_levels,file:passFile,sha256:hash(passBytes)}]});
  cpSync(join(dist,"favicon.ico"),join(workspace,"favicon.ico"));
  // A minimal entry page to the ACTUAL compiled Host, not a demonstration implementation.
- put(dist,"index.html",Buffer.from('<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>IWXA T3 0.3.1-rc.5</title><link rel="icon" href="/favicon.ico"></head><body style="font:16px system-ui;max-width:700px;margin:40px auto;padding:0 20px"><main><h1>IWXA T3 0.3.1-rc.5</h1><p>Независимая приёмка оригинального Workspace Host. Kernel 0.3.6 / Runtime Contract 1.3.0.</p><p><a href="/workspace/">Открыть рабочую область</a></p><p>Используйте только тестовые данные. Автономный режим и установка модели включаются отдельно по вашему выбору.</p></main></body></html>'));
+ put(dist,"index.html",Buffer.from('<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>IWXA T3 '+PIN.version+'</title><link rel="icon" href="/favicon.ico"></head><body style="font:16px system-ui;max-width:700px;margin:40px auto;padding:0 20px"><main><h1>IWXA T3 '+PIN.version+'</h1><p>Независимая приёмка оригинального Workspace Host. Kernel 0.3.6 / Runtime Contract 1.3.0.</p><p><a href="/workspace/">Открыть рабочую область</a></p><p>Используйте только тестовые данные. Автономный режим и установка модели включаются отдельно по вашему выбору.</p></main></body></html>'));
  const materialized=materializeDomainMode(dist);
  assertQualifiedKernelArtifact(dist,selector);
  assert.equal(digest(join(dist,"_iwxa/runtime/0.3.6/runtime.js")),PIN.kernelRuntimeSha256);
@@ -113,10 +124,11 @@ try{
   const bytes=readFileSync(file);assert.equal(bytes.length,row.bytes);assert.equal(hash(bytes),row.sha256);
  }
  const receipt={schema:"IWXA_T3_RC5_ACCEPTANCE_DELIVERY/1",...PIN,origin:originArg,
-  status:"READY_FOR_INDEPENDENT_BROWSER_ACCEPTANCE_NOT_PRODUCT_ACCEPTED",
+  status:candidate?"ENGINEERING_CANDIDATE_NOT_RELEASED":"READY_FOR_INDEPENDENT_BROWSER_ACCEPTANCE_NOT_PRODUCT_ACCEPTED",
   compiledAssetsUnchanged:true,originalKernelUnchanged:true,localAcceptanceOnly:localAcceptance,offlineVersion:materialized.version,
   offlineManifestSha256:digest(offlinePath),offlineFiles:offline.files.length,
   modelWeightsIncluded:false,privateDomainIncluded:false,installedProductAccepted:false};
  json(join(out,"acceptance-receipt.json"),receipt);
+ if(candidate)json(join(out,"platform-candidate-receipt.json"),candidate);
  console.log("T3_RC5_ACCEPTANCE_DIST_READY "+JSON.stringify(receipt));
 }catch(e){rmSync(out,{recursive:true,force:true});throw e;}finally{process.chdir(CORE);rmSync(temp,{recursive:true,force:true});}

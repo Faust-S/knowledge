@@ -2759,9 +2759,17 @@
           "request_commit": "549276dfb453dadde1b485f58dd99068fefb6024",
           "prepared_commit": "c7102fdecd2d70c9037030aacf94f6fc087cdbfe",
           "job": 140658893590,
-          "status": "IN_PROGRESS",
+          "status": "FAIL_PRODUCT_LAYOUT_OVERLAP",
           "scope": "EXACT_PUBLISHED_LOOPBACK_ZIP_REAL_FILE_CHOOSER_IMPORT_REPEAT_EXPORT_INDEPENDENT_RESTORE_COLD_OFFLINE_SERVER_STOPPED",
-          "model_generation_in_completion": "NOT_IN_SCOPE_PREVIOUS_EXACT_PLATFORM_HARDWARE_PASS_AND_REAL_WINDOWS_CODEX_FIRST_GENERATION"
+          "model_generation_in_completion": "NOT_IN_SCOPE_PREVIOUS_EXACT_PLATFORM_HARDWARE_PASS_AND_REAL_WINDOWS_CODEX_FIRST_GENERATION",
+          "observed_pass": [
+            "EXACT_LOCAL_HOST",
+            "REAL_FILE_CHOOSER",
+            "IMPORT_PREVIEW"
+          ],
+          "failed_at": "FIRST_IMPORT_COMMIT_POINTER_INTERCEPTED_BY_FIXED_T3_DOMAIN_CONTROLS",
+          "product_defect": true,
+          "next": "RC6_INLINE_FALLBACK_CORRECTION_TARGETED_QUALIFICATION"
         }
       },
       "independent_acceptance_attempt": {

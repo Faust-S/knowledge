@@ -8,7 +8,7 @@ import {spawn} from "node:child_process";
 import {once} from "node:events";
 import http from "node:http";
 import {chromium} from "playwright";
-const [rootArg,resultsArg]=process.argv.slice(2);
+const [rootArg,resultsArg,candidateArg]=process.argv.slice(2);
 const root=resolve(rootArg),results=resolve(resultsArg),origin="http://localhost:18443";
 mkdirSync(results,{recursive:true});
 const ws="rc5-acceptance-document-review",ids=["review:request","review:conclusion"],service="iwxa.workspace.integration";
@@ -21,9 +21,17 @@ assert.equal(originalReceipt.counts.objects,2);
 assert.equal(originalReceipt.counts.assets,1);
 assert.equal(originalReceipt.counts.relations,1);
 const delivery=JSON.parse(readFileSync(join(root,"acceptance-receipt.json"),"utf8"));
-assert.equal(delivery.sourceCommit,"a50d40dafc2e029fcc7668dece925f7fc38cc510");
+if(candidateArg){
+ const candidate=JSON.parse(readFileSync(candidateArg,"utf8"));
+ assert.equal(delivery.sourceCommit,candidate.sourceCommit);
+ assert.equal(delivery.archiveSha256,candidate.archiveSha256);
+ assert.equal(delivery.manifestSha256,candidate.manifestSha256);
+ assert.equal(delivery.version,candidate.version);
+}else{
+ assert.equal(delivery.sourceCommit,"a50d40dafc2e029fcc7668dece925f7fc38cc510");
+ assert.equal(delivery.offlineManifestSha256,"4c2e7d80116a9bef8c7d75591de97595fe72d4d34898587935f7e25aac9e3d1e");
+}
 assert.equal(delivery.origin,origin);
-assert.equal(delivery.offlineManifestSha256,"4c2e7d80116a9bef8c7d75591de97595fe72d4d34898587935f7e25aac9e3d1e");
 const request=path=>new Promise((ok,bad)=>{
  const req=http.get(origin+path,{family:4},r=>{const chunks=[];r.on("data",c=>chunks.push(c));r.on("end",()=>ok({status:r.statusCode,bytes:Buffer.concat(chunks)}));r.on("error",bad);});
  req.setTimeout(2500,()=>req.destroy(Error("HTTP_TIMEOUT:"+path)));req.on("error",bad);
@@ -31,7 +39,7 @@ const request=path=>new Promise((ok,bad)=>{
 const child=spawn(join(root,"runtime/node.exe"),[join(root,"serve-acceptance.mjs")],{cwd:root,windowsHide:true,stdio:["ignore","pipe","pipe"]});
 child.stdout.on("data",d=>process.stdout.write(d));child.stderr.on("data",d=>process.stderr.write(d));
 let phase="START",a,b,current;const passed=[];
-const pass=(name,detail={})=>{passed.push(name);console.log("T3_RC5_FINAL_"+name+"_PASS "+JSON.stringify(detail));};
+const pass=(name,detail={})=>{passed.push(name);console.log("T3_FINAL_"+name+"_PASS "+JSON.stringify(detail));};
 async function stopHost(){
  if(child.exitCode===null&&child.signalCode===null){const ended=once(child,"exit");child.kill();await ended;}
 }
@@ -85,6 +93,12 @@ async function commit(page,mode,digest){
  if(mode==="merge")await page.getByTestId("import-target-workspace").selectOption(ws);
  for(const key of ["history","assets","relations"])await page.getByTestId("import-include_"+key).check();
  assert.equal(await page.getByTestId("import-scope-blocked").count(),0);
+ if(candidateArg){
+  const box=page.locator("#iwxa-t3-domain-controls");
+  await box.waitFor({state:"visible"});
+  assert.equal(await box.evaluate(el=>getComputedStyle(el).position),"static","T3_FALLBACK_MUST_NOT_OVERLAY");
+  assert.equal(await box.getAttribute("data-inline-fallback"),"");
+ }
  await page.getByTestId("import-commit").click();
  await page.waitForFunction(()=>["committed","incomplete","unconfirmed","error","expired"].includes(document.querySelector('[data-testid="import-view"]')?.getAttribute("data-import-state")));
  const state=await page.getByTestId("import-view").getAttribute("data-import-state");
@@ -151,6 +165,7 @@ try{
  const before=await read(a.page);verifyData(before);
  pass("FIRST_FILE_CHOOSER_IMPORT",{receipt:first,counts:before.counts});
  phase="REPEAT_IMPORT";
+ if(candidateArg)await a.page.setViewportSize({width:390,height:844});
  assert.equal(await selectArchive(a.page,example),digest);
  const repeated=await commit(a.page,"merge",digest);
  assert.equal(Number(repeated["Объектов создано"]),0);assert.equal(Number(repeated["Объектов обновлено"]),0);
@@ -162,7 +177,9 @@ try{
  const beforeIds=new Set(before.eventIds);
  assert.ok(after.eventTypes.filter(e=>!beforeIds.has(e.id)).every(e=>e.type==="iwxa.import.applied"),"DUPLICATE_HISTORY");
  pass("REPEAT_IMPORT_NO_DUPLICATES",{receipt:repeated});
- phase="EXPORT";const dest=join(results,"workspace-exported.iwxa");const exported=await exportFile(a.page,dest);
+ phase="EXPORT";
+ if(candidateArg)await a.page.setViewportSize({width:1280,height:820});
+ const dest=join(results,"workspace-exported.iwxa");const exported=await exportFile(a.page,dest);
  pass("EXPORT_REAL_DOWNLOAD_AND_CONFIRM",exported);
  phase="INDEPENDENT_PROFILE";b=await launch(join(results,"profile-b"));
  await host(b.page);
@@ -190,7 +207,7 @@ try{
  pass("COLD_OFFLINE_SERVER_STOPPED",{newBrowserProcess:true,networkDisabled:true,serverStopped:true,counts:cold.counts});
  writeFileSync(join(results,"result.json"),JSON.stringify({status:"PASS",source:delivery.sourceCommit,phase,passed,exported,originalExampleSha256:originalReceipt.sha256},null,2)+"\n");
 }catch(e){
- console.error("T3_RC5_FINAL_FAIL "+phase+" "+(e?.stack||String(e)));
+ console.error("T3_FINAL_FAIL "+phase+" "+(e?.stack||String(e)));
  if(current&&!current.isClosed())await current.screenshot({path:join(results,"failure.png"),fullPage:true}).catch(()=>{});
  writeFileSync(join(results,"result.json"),JSON.stringify({status:"FAIL",phase,passed,error:String(e)},null,2)+"\n");process.exitCode=1;
 }finally{for(const side of [a,b])if(side)await side.context.close().catch(()=>{});await stopHost();}
