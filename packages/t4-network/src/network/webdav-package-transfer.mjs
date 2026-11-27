@@ -1,7 +1,6 @@
 /** Opaque original-owner package transport. No codec, Kernel, signer or business Store. */
 import { createHash } from 'node:crypto';
 import { createPlacementPolicy } from '../contracts/hosted-context-boundary.mjs';
-import {decodeT4WebDavFrameAddressList,MAX_T4_FRAME_LIST_BYTES} from './webdav-frame-address-list.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {encodeT4NativeFrameIndex,decodeT4NativeFrameIndex} from './original-network-frame-address.mjs';
 export class T4TransferError extends Error {
@@ -186,6 +185,11 @@ export function createWebDavPackageTransport(options = {}) {
   }
   async function listNativeFrameAddresses(check=live){
     if(keySuffix!=='.t4n'||candidateNetworkWire!==true)fail('FRAME_DISCOVERY_NOT_PERMITTED');
+    // The installed RC.1 indexed profile never enumerates a DAV collection.
+    // Avoid loading the optional legacy XML parser in native product startup.
+    // Keep the same denied outcome before touching credentials or network.
+    if(indexedNetworkWire)fail('AUTHORIZATION_DENIED');
+    const {decodeT4WebDavFrameAddressList,MAX_T4_FRAME_LIST_BYTES}=await import('./webdav-frame-address-list.mjs');
     const call=await request('PROPFIND',null,{Depth:'1','Content-Type':'application/xml; charset=utf-8'},
       '<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:resourcetype/></D:prop></D:propfind>',null,check);
     try{
