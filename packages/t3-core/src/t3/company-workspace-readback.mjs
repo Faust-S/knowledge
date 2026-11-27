@@ -147,10 +147,13 @@ export async function readOriginalCompanyWorkspace({
 // exact Object lookup, rather than copying the entire Workspace across IPC.
 // This proves local readback, not an employee signature or D3 acceptance.
 export async function readOriginalCompanyTaskRecords({kernel,organizationId,
-  workspaceId,executorId,taskId,taskRevisionId,taskPackageSha256}={}){
+  workspaceId,executorId,taskId,taskRevisionId,taskPackageSha256,
+  selectedResultObjectId=null}={}){
   requireThat([organizationId,workspaceId,executorId,taskId].every(id)&&
     !workspaceId.startsWith('workspace:registry:')&&
     hex(taskRevisionId)&&hex(taskPackageSha256)&&
+    (selectedResultObjectId===null||typeof selectedResultObjectId==='string'&&
+      /^company:work:[a-f0-9]{64}$/.test(selectedResultObjectId))&&
     kernel?.sessionInfo?.contract_version==='1.3.0'&&
     typeof kernel.hasOperation==='function'&&
     ['getWorkspace','getObject','listEventsSince'].every(method=>
@@ -182,9 +185,11 @@ export async function readOriginalCompanyTaskRecords({kernel,organizationId,
     const token=await sha256Text(JSON.stringify(companyWorkRecordKeyParts(data)));
     requireThat(event.object_id==='company:work:'+token&&data.objectId===event.object_id&&
       event.idempotency_key===token,'T3_COMPANY_READBACK_EVENT_MISMATCH');
-    selected.add(event.object_id);
+    if(data.kind==='TASK'||selectedResultObjectId===null||
+       event.object_id===selectedResultObjectId)selected.add(event.object_id);
   }
   const records=[];
+  let selectedEvidence=null;
   // The original native relay has a single pending operation. Fetch only
   // selected immutable records, sequentially; never poll or retry writes.
   for(const objectId of selected){
@@ -197,10 +202,16 @@ export async function readOriginalCompanyTaskRecords({kernel,organizationId,
         row.data.artifactId===taskId&&row.data.sourceKind==='ORIGINAL_SIGNED_TASK'),
       'T3_COMPANY_READBACK_SIGNED_TASK_MISMATCH');
     records.push(await verifyCompanyWorkRecord(row,{workspaceId,organizationId,eventIndex}));
+    if(objectId===selectedResultObjectId){
+      requireThat(row.data.kind==='RESULT','T3_COMPANY_READBACK_SIGNED_TASK_MISMATCH');
+      selectedEvidence=Object.freeze({object:structuredClone(row),
+        events:Object.freeze([structuredClone(eventIndex.get(objectId)[0])])});
+    }
   }
   const tasks=records.filter(row=>row.kind==='TASK');
   const results=records.filter(row=>row.kind==='RESULT');
-  requireThat(tasks.length<=1&&(results.length===0||tasks.length===1),
+  requireThat(tasks.length<=1&&(results.length===0||tasks.length===1)&&
+    (selectedResultObjectId===null||tasks.length===1&&results.length===1&&selectedEvidence!==null),
     'T3_COMPANY_READBACK_SIGNED_TASK_MISMATCH');
   const after=await kernel.getWorkspace(workspaceId);
   requireThat(after?.workspace_id===workspaceId&&after.deleted_at==null&&
@@ -209,7 +220,8 @@ export async function readOriginalCompanyTaskRecords({kernel,organizationId,
   results.sort((a,b)=>a.artifactId.localeCompare(b.artifactId));
   return Object.freeze({workspaceId,organizationId,executorId,taskId,
     taskRevisionId,taskPackageSha256,originalKernelReadback:true,
-    signedReceiptVerified:false,task:tasks[0]??null,results:Object.freeze(results)});
+    signedReceiptVerified:false,task:tasks[0]??null,results:Object.freeze(results),
+    ...(selectedResultObjectId===null?{}:{selectedEvidence})});
 }
 
 // Original T2's atomic importer skips byte-equivalent existing objects and
