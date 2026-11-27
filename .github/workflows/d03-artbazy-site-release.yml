@@ -13,6 +13,7 @@ concurrency:
   cancel-in-progress: false
 permissions:
   contents: read
+  actions: read
 jobs:
   release:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
@@ -41,6 +42,18 @@ jobs:
         working-directory: ci-harness
         run: |
           python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-site-release --profile artbazy-integrated-site-release --revision site=bab2e91d4bef1525aadaaef0b5c247be5d939722 --revision subject=b3e6614aeace087b66a7b25e3d881fab074e4d8e --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17 --revision core=4dc21f8439b6988eed043bbe74dc34d8a7e7d875 --revision assistant=244ad469a71ae65910144c6918488a2d061eecce --revision skills=829d9ea85ec2cc96e83f7b4acf5184559de1fcc5
+      - name: Require successful exact predecessor before delivery rebuild
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          predecessor="$(gh api repos/Faust-S/knowledge/actions/runs/46033174183 --jq '[.status,.conclusion,.head_sha] | join(":")')"
+          if [[ "$predecessor" != 'completed:success:263e61c63dc662edbf15d7230f4ac76e6eb8b88c' ]]; then
+            echo D03_PREDECESSOR_NOT_SUCCESSFUL
+            exit 1
+          fi
+          echo D03_PREDECESSOR=PASS
       - name: Identify exact private GitHub source access before build
         shell: bash
         env:
