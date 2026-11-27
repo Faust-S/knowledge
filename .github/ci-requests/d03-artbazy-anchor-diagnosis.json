@@ -1,0 +1,9 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d03-artbazy-anchor-diagnosis",
+  "prepared_sha": "a73191405f39962eac80fb950ef3da8738a0a2ef",
+  "profile": "source-anchor-diagnosis",
+  "revisions": {
+    "site": "a6ad6a7a90d97e04a931c8f33598373a5336c1a2"
+  }
+}
