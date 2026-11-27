@@ -1,0 +1,11 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-sequential-assistant",
+  "preparedSha": "1dcf4fb0306b9708201800e1d15eca264afd9660",
+  "originalAssistant": "8b5a62fcaf2ac2cd714dc8af4468d5ac4e4f5922",
+  "cehovodSite": "004b90f1f50b19ca402e3846b36aa1af3df7ec9b",
+  "retainedPlatformArtifact": 15227050568,
+  "scope": "EXISTING_SOURCE_AND_NATIVE_DOMAIN_ROUTE_INCREMENTAL_USER_FACTS",
+  "priorEditableFormRun": 46059443513,
+  "modelWitnessUnchangedRun": 46058573231
+}
