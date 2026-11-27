@@ -480,8 +480,8 @@ function AppShellRuntimeBridge({
     setCapabilitySnapshot(previous =>
       previous.session === session && previous.values.length === next.length &&
       previous.values.every((cap, i) => cap === next[i])
-        ? previous : { session, values: Object.freeze([...next]) });
-  }, [session]);
+        ? previous : { session, values: next.length === 0 ? emptyCapabilities : Object.freeze([...next]) });
+  }, [session, emptyCapabilities]);
   useEffect(() => { receiveCapabilities([]); }, [session, receiveCapabilities]);
   const workspaceConfig = useMemo(
     () => ({

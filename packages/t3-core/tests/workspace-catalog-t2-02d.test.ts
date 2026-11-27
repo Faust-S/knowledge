@@ -247,9 +247,8 @@ describe("PROMPT 28 — Host route focus uses animation frame, no setTimeout", (
     expect(src).toMatch(/cancelAnimationFrame/);
     expect(src).not.toMatch(/setTimeout/);
   });
-  it("skips focusing on the first render via an initial ref guard", () => {
-    expect(src).toMatch(/initialRef/);
-  });
+  // Initial focus and the first actual navigation are exercised behaviorally
+  // in domain-shell-accessibility.dom.test.tsx, not by a variable-name check.
   it("only refocuses when the active RouteRef id changes", () => {
     expect(src).toMatch(/prevId/);
     expect(src).toMatch(/routeRef\.id/);
