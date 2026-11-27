@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 110
     env:
-      SITE_PIN: 09f899de9d9b5a7848473165dc0189588e93a59a
-      SITE_TREE: 1c88db18cd6aa99d9e11eda4d996fa8a2ecbd202
+      SITE_PIN: 31d8388a80dc8cf08470442d267a2bc683fff5f3
+      SITE_TREE: d300dc360e81ab548d8f0add47f64968c8190882
       T2_PIN: e70de29b72b83e2546f7ab74b17572685a728c17
       T2_TREE: b36ed00dcd7c518b593cb4794bfabf85e7eab049
       T3_PIN: 4dc21f8439b6988eed043bbe74dc34d8a7e7d875
@@ -40,7 +40,7 @@ jobs:
       - name: Verify deliberate immutable request before private checkout
         working-directory: ci-harness
         run: |
-          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-site-release --profile artbazy-integrated-site-release --revision site=09f899de9d9b5a7848473165dc0189588e93a59a --revision subject=b3e6614aeace087b66a7b25e3d881fab074e4d8e --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17 --revision core=4dc21f8439b6988eed043bbe74dc34d8a7e7d875 --revision assistant=244ad469a71ae65910144c6918488a2d061eecce --revision skills=829d9ea85ec2cc96e83f7b4acf5184559de1fcc5
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-site-release --profile artbazy-integrated-site-release --revision site=31d8388a80dc8cf08470442d267a2bc683fff5f3 --revision subject=b3e6614aeace087b66a7b25e3d881fab074e4d8e --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17 --revision core=4dc21f8439b6988eed043bbe74dc34d8a7e7d875 --revision assistant=244ad469a71ae65910144c6918488a2d061eecce --revision skills=829d9ea85ec2cc96e83f7b4acf5184559de1fcc5
       - name: Identify exact private GitHub source access before build
         shell: bash
         env:
@@ -92,7 +92,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazy.ru
-          ref: 09f899de9d9b5a7848473165dc0189588e93a59a
+          ref: 31d8388a80dc8cf08470442d267a2bc683fff5f3
           token: ${{ secrets.DOMEN }}
           path: private-site
           persist-credentials: false
@@ -188,6 +188,7 @@ jobs:
           phase SITE_DEPENDENCIES bun install --frozen-lockfile --ignore-scripts
           failures=()
           phase SUBJECT_PIN node --test scripts/verify-artbazy-subject-pin.test.mjs || failures+=(SUBJECT_PIN)
+          phase SOURCE_LINK_TESTS npm run test:source-links || failures+=(SOURCE_LINK_TESTS)
           phase PUBLIC_SOURCE_LINKS npm run check:source-links || failures+=(PUBLIC_SOURCE_LINKS)
           phase SITE_PROJECTION npm run check:t3:calculation-projection || failures+=(SITE_PROJECTION)
           phase PACKAGING npm run test:t3:packaging || failures+=(PACKAGING)
