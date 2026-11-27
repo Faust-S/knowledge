@@ -597,4 +597,101 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     expect(screen.queryByTestId("workflow-personal-task-match")).toBeNull();
   });
 
+
+  function dependentPersonalFixture(){
+    const f=fixture(),digest="e".repeat(64),taskId="TASK-root";
+    const originalOverview:WorkspaceMethodInputOverview={...report,stages:report.stages.map(row=>({...row,actor:"agent" as const}))};
+    f.overview.mockResolvedValue(originalOverview);
+    const materialEvidence:WorkspaceMethodMaterialEvidence={
+      schema:"IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1",state:"VISIBLE_MATERIAL_CONTENT_OBSERVED",
+      stageInput:makeInspection("review").stageInput,materialEvidenceDigest:"d".repeat(64),
+      observation:{materials:[],counts:{materials:1,assets:0,assetBytes:0,canonicalBytes:9}},
+      atomicSnapshot:false,allAssetsProven:false,contentBindingProven:false,exactInputBindingProven:false,
+      writeAuthorized:false,executionAuthority:false,resultReuseProven:false,dispatchAuthorized:false};
+    const preview:WorkspaceMethodHandoffPreview={
+      schema:"IWXA_T2_WORKSPACE_METHOD_STAGE_HANDOFF_PREVIEW_V1",
+      state:"PERSONAL_PRIOR_RESULTS_OBSERVED_DECLARED_INPUTS_MATCHED",subjectKind:"PERSONAL",
+      inspection:makeInspection("review"),candidateDigest:digest,materialEvidenceRequested:true,materialEvidence,
+      personalResults:[{stepId:"analyse",canonicalWorkRef:a,acceptedTask:{
+        taskId,resultId:"RES-root",reviewId:"REV-root",acceptedDigest:digest,acceptedSummarySha256:digest,
+        candidateDigest:digest,agentWorkspaceId:"personal"}}],
+      requiredOriginalOwnerChecks:["ORIGINAL_PERSONAL_TASK_AND_CONTEXT_BINDING"],
+      signedTaskIssued:false,taskCreated:false,contentBindingProven:false,exactInputBindingProven:false,
+      dispatchAuthorized:false,executionAuthority:false,writeAuthorized:false,resultReuseProven:false};
+    f.previewHandoff.mockResolvedValue(preview);
+    const createPersonalDraft=vi.fn(async()=>({state:"DRAFT_CONFIRMED" as const,candidateDigest:digest,
+      workspaceId:"w",projectId:"research",stepId:"review",agentWorkspaceId:"personal",
+      draftDigest:"a".repeat(64),draftSaved:true,taskCreated:false as const,executionPerformed:false as const,
+      modelInvoked:false as const,allAssetsProven:false as const,exactInputBindingProven:false as const}));
+    const inspectPersonalTask=vi.fn(async()=>{throw Error("not called");});
+    const binding:WorkspaceMethodWorkflowBinding={...f.binding,personalResultSelections:[{stepId:"analyse",taskId}],
+      reader:{...f.binding.reader,inspectMaterialEvidence:vi.fn(async()=>materialEvidence),
+        createPersonalDraft,recoverPersonalDraft:createPersonalDraft,inspectPersonalTask}};
+    return {...f,binding,preview,digest,taskId,createPersonalDraft,inspectPersonalTask};
+  }
+  it("uses trusted selected personal predecessor Tasks rather than corporate publication, and forwards exact selections to the composer",async()=>{
+    const f=dependentPersonalFixture();
+    render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[source]} selectedObjectIds={[source.object_id]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:/Проверка результатов/}));
+    expect(screen.getByTestId("workflow-personal-prerequisites").textContent).toContain("TASK-root");
+    expect(screen.queryByLabelText("Результат: Анализ материалов")).toBeNull();
+    expect(screen.queryByRole("button",{name:"Проверить квитанцию"})).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"Подготовить передачу"}));
+    await screen.findByText("Передаётся точное принятое текстовое содержимое результатов: 1.");
+    fireEvent.click(await screen.findByRole("button",{name:"Передать в черновик Agent"}));
+    await screen.findByText("Черновик Agent сохранён. Задача не запущена.");
+    const expected={workspaceId:"w",projectId:"research",expected:f.binding.expected,stepId:"review",
+      resultSelections:[],personalResultSelections:f.binding.personalResultSelections};
+    expect(f.previewHandoff).toHaveBeenCalledExactlyOnceWith({...expected,includeMaterialEvidence:true});
+    expect(f.createPersonalDraft).toHaveBeenCalledExactlyOnceWith({...expected,expectedCandidateDigest:f.digest});
+    expect(f.inspectPersonalTask).not.toHaveBeenCalled();
+    expect(f.recoverContinuation).not.toHaveBeenCalled();
+  });
+  it("does not prepare a personal chain with missing or duplicate prerequisite selections",async()=>{
+    const f=dependentPersonalFixture();
+    const view=render(<WorkspaceMethodWorkflowPanel binding={{...f.binding,personalResultSelections:[]}} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:/Проверка результатов/}));
+    expect((screen.getByRole("button",{name:"Подготовить передачу"}) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("workflow-personal-prerequisites").textContent).toContain("Не выбрана");
+    view.rerender(<WorkspaceMethodWorkflowPanel binding={{...f.binding,personalResultSelections:[
+      {stepId:"analyse",taskId:"TASK-root"},{stepId:"analyse",taskId:"TASK-other"}]}} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:/Проверка результатов/}));
+    expect((screen.getByRole("button",{name:"Подготовить передачу"}) as HTMLButtonElement).disabled).toBe(true);
+    expect(f.previewHandoff).not.toHaveBeenCalled();
+  });
+  it("rejects a predecessor receipt with another Task or canonical Work revision",async()=>{
+    const f=dependentPersonalFixture();
+    f.previewHandoff.mockResolvedValueOnce({...f.preview,personalResults:f.preview.personalResults!.map(row=>({
+      ...row,canonicalWorkRef:{...row.canonicalWorkRef,revision:2}}))});
+    render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:/Проверка результатов/}));
+    fireEvent.click(screen.getByRole("button",{name:"Подготовить передачу"}));
+    await screen.findByRole("alert");
+    expect(screen.queryByTestId("workflow-handoff-preview")).toBeNull();
+    expect(f.createPersonalDraft).not.toHaveBeenCalled();
+  });
+  it("does not expose a late personal chain receipt after selected original Tasks change",async()=>{
+    const f=dependentPersonalFixture();let release:(v:WorkspaceMethodHandoffPreview)=>void=()=>{};
+    f.previewHandoff.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
+    const view=render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:/Проверка результатов/}));
+    fireEvent.click(screen.getByRole("button",{name:"Подготовить передачу"}));
+    expect(f.previewHandoff).toHaveBeenCalledTimes(1);
+    view.rerender(<WorkspaceMethodWorkflowPanel binding={{...f.binding,personalResultSelections:[{stepId:"analyse",taskId:"TASK-other"}]}}
+      objects={[]} selectedObjectIds={[]}/>);
+    release(f.preview);
+    await waitFor(()=>expect(screen.queryByTestId("workflow-handoff-preview")).toBeNull());
+    expect(screen.queryByRole("button",{name:"Передать в черновик Agent"})).toBeNull();
+  });
+
 });
