@@ -1,4 +1,4 @@
-name: D09 HOP original T3 product and production dist
+name: D09 HOP released T3 0.3.2 product and production dist
 on:
   push:
     branches: ['ci/once/d09-hop-t3-integration/**']
@@ -24,10 +24,10 @@ jobs:
             origin: https://hop.iwxa.ru
             preview: '0'
     env:
-      SITE_PIN: bec29c1bb13b091b7841d9f3aa999e7ef475eea5
+      SITE_PIN: 446e21f1e3c61d00171fa89ae6d2bc675ea1c12b
       SUBJECT_PIN: 162e3eb77d6d106b647a7acc07bc3fec105b3142
-      T3_PIN: a50d40dafc2e029fcc7668dece925f7fc38cc510
-      ASSISTANT_PIN: 5419dacf855d81ec089acc23bae0c7aa11713a54
+      T3_PIN: 8e26076ce66f0c26693a647e061fcd568e055b77
+      ASSISTANT_PIN: 2c247482306f218a7d5be668de11e98f168862d4
       D09_ORIGIN: ${{ matrix.origin }}
       D09_PREVIEW_PRODUCTION_LOOPBACK: ${{ matrix.preview }}
       D09_ASSEMBLY_ONLY: '0'
@@ -41,7 +41,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable domain request
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-rc5 --revision site=bec29c1bb13b091b7841d9f3aa999e7ef475eea5 --revision subject=162e3eb77d6d106b647a7acc07bc3fec105b3142 --revision platform=a50d40dafc2e029fcc7668dece925f7fc38cc510 --revision assistant=5419dacf855d81ec089acc23bae0c7aa11713a54
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=446e21f1e3c61d00171fa89ae6d2bc675ea1c12b --revision subject=162e3eb77d6d106b647a7acc07bc3fec105b3142 --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
       - name: Checkout HOP site
         uses: actions/checkout@v4
         with:
@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for spec in "private-site $SITE_PIN 88bb4d4c22b289b53c3286aa1c042c464e118a71" "original-platform $T3_PIN d375181e1fd79953cdb9ef4e414936e76b584100" "private-assistant $ASSISTANT_PIN 4b4a84cec91aa268048184a477b91efe94ebdea3"; do
+          for spec in "private-site $SITE_PIN c8d5f5d5e9fe16c22a272b007c34ba1cf35866d2" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
             read -r dir sha tree <<< "$spec"
             test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
             test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
@@ -83,8 +83,8 @@ jobs:
           done
           test "$(git -C private-site rev-parse HEAD:public/assets/hop-assistant-skills.json)" = 47cf03f25daac9e458c84dcac13607946a4c7f80
           mkdir -p "$RUNNER_TEMP/d09-t3"
-          curl --fail --silent --show-error --location --retry 2 'https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.1-rc.5/platform-inputs.zip' -o "$RUNNER_TEMP/d09-t3/platform-inputs.zip"
-          printf '%s  %s\n' '381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4' "$RUNNER_TEMP/d09-t3/platform-inputs.zip" | sha256sum -c - >/dev/null
+          curl --fail --silent --show-error --location --retry 2 'https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.2/platform-inputs.zip' -o "$RUNNER_TEMP/d09-t3/platform-inputs.zip"
+          printf '%s  %s\n' '5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b' "$RUNNER_TEMP/d09-t3/platform-inputs.zip" | sha256sum -c - >/dev/null
           openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=hop.iwxa.ru' -keyout "$RUNNER_TEMP/d09-t3/key.pem" -out "$RUNNER_TEMP/d09-t3/cert.pem" >/dev/null 2>&1
           {
             echo "D09_T3_CORE_SOURCE=$GITHUB_WORKSPACE/original-platform/packages/t3-core"
