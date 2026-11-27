@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 8
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -88,12 +88,16 @@ jobs:
             $cer=Join-Path $tls.FullName 'localhost.cer'
             Export-PfxCertificate -Cert $cert -FilePath $env:IWXA_ACCEPTANCE_PFX -Password (ConvertTo-SecureString $password -AsPlainText -Force) | Out-Null
             Export-Certificate -Cert $cert -FilePath $cer | Out-Null
-            # Disposable runner user only. Match the consented launcher trust;
-            # Chromium SW requests must not depend on page-only TLS exceptions.
-            certutil.exe -user -f -addstore Root $cer
-            if ($LASTEXITCODE -ne 0) { throw 'CI_LOCAL_CERT_TRUST_FAILED' }
-            if (!(Test-Path ('Cert:\CurrentUser\Root\'+$cert.Thumbprint))) { throw 'CI_LOCAL_CERT_NOT_TRUSTED' }
+            # CurrentUser Root enrollment can open an unseen confirmation dialog
+            # in a noninteractive Windows runner. The runner is disposable and
+            # administrative: use its machine Root only for this one short-lived
+            # localhost certificate, and remove exactly that thumbprint below.
+            # The actual user launcher remains CurrentUser + explicit consent.
+            Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\LocalMachine\Root' | Out-Null
+            if (!(Test-Path ('Cert:\LocalMachine\Root\'+$cert.Thumbprint))) { throw 'CI_LOCAL_CERT_NOT_TRUSTED' }
+            Write-Host 'T3_RC5_CI_LOCAL_TLS_TRUST_READY'
             $process=Start-Process -FilePath (Join-Path $dest 'runtime\node.exe') -ArgumentList 'serve-acceptance.mjs' -WorkingDirectory $dest -PassThru -RedirectStandardOutput (Join-Path $tls.FullName 'stdout.log') -RedirectStandardError (Join-Path $tls.FullName 'stderr.log')
+            Write-Host 'T3_RC5_LOCAL_HOST_STARTED'
             node acceptance/rc5/smoke.mjs $dest $cer
             if ($LASTEXITCODE -ne 0) { throw 'EXACT_DELIVERY_SMOKE_FAILED' }
           } finally {
@@ -102,7 +106,7 @@ jobs:
             Remove-Item Env:\IWXA_ACCEPTANCE_PFX -ErrorAction SilentlyContinue
             Remove-Item Env:\IWXA_ACCEPTANCE_PFX_PASSWORD -ErrorAction SilentlyContinue
             if ($cert) {
-              Remove-Item ('Cert:\CurrentUser\Root\'+$cert.Thumbprint) -ErrorAction SilentlyContinue
+              Remove-Item ('Cert:\LocalMachine\Root\'+$cert.Thumbprint) -ErrorAction SilentlyContinue
               Remove-Item ('Cert:\CurrentUser\My\'+$cert.Thumbprint) -ErrorAction SilentlyContinue
             }
             Remove-Item $tls.FullName -Recurse -Force
@@ -158,3 +162,4 @@ jobs:
           expected="$(jq -r .deliveryArchiveSha256 acceptance-host-receipt.json)"
           echo "$expected  acceptance-host-windows-x64.zip" | sha256sum -c -
           gh release upload t3-platform-v0.3.1-rc.5 acceptance-host-windows-x64.zip acceptance-host-receipt.json
+          gh api "repos/$GH_REPO/releases/tags/t3-platform-v0.3.1-rc.5" --jq '{tag_name,target_commitish,assets:[.assets[]|{name,size,digest}]}'

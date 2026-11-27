@@ -8,11 +8,17 @@ import {chromium} from "playwright";
 const [root,certFile]=process.argv.slice(2);
 const origin="https://localhost:18443";
 const ca=new X509Certificate(readFileSync(certFile)).toString();
-const request=path=>new Promise((ok,bad)=>https.get(origin+path,{ca,family:4},r=>{const chunks=[];r.on("data",c=>chunks.push(c));r.on("end",()=>ok({status:r.statusCode,bytes:Buffer.concat(chunks)}));}).on("error",bad));
+const request=path=>new Promise((ok,bad)=>{
+ const req=https.get(origin+path,{ca,family:4},r=>{const chunks=[];r.on("data",c=>chunks.push(c));r.on("end",()=>ok({status:r.statusCode,bytes:Buffer.concat(chunks)}));r.on("error",bad);});
+ req.setTimeout(5000,()=>req.destroy(Error("LOCAL_HTTPS_REQUEST_TIMEOUT:"+path)));
+ req.on("error",bad);
+});
 const hash=b=>createHash("sha256").update(b).digest("hex");
-let ready=false;
-for(let i=0;i<40;i++){try{ready=(await request("/workspace/")).status===200;if(ready)break;}catch{}await new Promise(r=>setTimeout(r,500));}
-assert.ok(ready,"DELIVERED_HTTPS_HOST_NOT_STARTED");
+let ready=false,lastError="";
+const startDeadline=Date.now()+30000;
+while(Date.now()<startDeadline){try{ready=(await request("/workspace/")).status===200;if(ready)break;}catch(error){lastError=String(error);}await new Promise(r=>setTimeout(r,500));}
+assert.ok(ready,"DELIVERED_HTTPS_HOST_NOT_STARTED: "+lastError);
+console.log("T3_RC5_LOCAL_HTTPS_READY");
 const receipt=JSON.parse(readFileSync(join(root,"acceptance-receipt.json"),"utf8"));
 assert.equal(hash((await request("/t3-offline-manifest.json")).bytes),receipt.offlineManifestSha256);
 assert.equal(hash((await request("/_iwxa/runtime/0.3.6/runtime.js")).bytes),receipt.kernelRuntimeSha256);
@@ -38,8 +44,10 @@ try{
  await launcher.getByRole("button",{name:"Открыть локальную модель"}).click();
  await page.getByTestId("t3-local-inference-panel").waitFor({state:"visible"});
  // Original Kernel makes a transferable example, rather than a hand-built .iwxa.
+ console.log("T3_RC5_ORIGINAL_BLI_PANEL_READY");
  const example=await page.evaluate(async()=>{
   const kernel=await IWXA.connect({service_id:"iwxa.workspace.integration"});
+  if(kernel.contract_version!=="1.3.0"||kernel.runtime_version!=="0.3.6")throw Error("NOT_ORIGINAL_KERNEL");
   const workspace="rc5-acceptance-document-review";
   await kernel.t1.createWorkspace({workspace_id:workspace,profile:"generic"});
   const a=await kernel.t1.putObject({workspace_id:workspace,object_id:"review:request",schema_id:"iwxa.demo.note",schema_version:"1.0.0",base_revision:0,data:{title:"Заявка на проверку документа",text:"Согласовать комплект поставки и приложенные замечания."},event:{event_type:"t3.acceptance.request.created",payload:{}}});
@@ -49,10 +57,12 @@ try{
   const opts={workspaces:[workspace],include_history:true,include_assets:true,include_relations:true,include_schemas:true};
   const preview=await kernel.t2.exportPreview(opts);
   const archive=await kernel.t2.exportPackage(opts);
-  await kernel.t2.confirmExport({package_digest:archive.package_digest,workspace_ids:[workspace]});
+  const confirmed=await kernel.t2.confirmExport({package_digest:archive.package_digest,workspace_ids:[workspace]});
+  if(confirmed.package_digest!==archive.package_digest)throw Error("ORIGINAL_EXPORT_NOT_CONFIRMED");
   return {counts:preview.counts,bytes:Array.from(archive.bytes),events:[a.event.event_id,b.event.event_id]};
  });
- assert.equal(example.counts.objects,2);assert.equal(example.counts.assets,1);assert.equal(example.counts.relations,1);
+ assert.equal(example.counts.objects,2);assert.equal(example.counts.assets,1);assert.equal(example.counts.relations,1);assert.ok(example.counts.schemas>=1);
+ console.log("T3_RC5_ORIGINAL_IWXA_EXAMPLE_CREATED");
  mkdirSync(join(root,"examples"),{recursive:true});
  const bytes=Buffer.from(example.bytes);writeFileSync(join(root,"examples/workspace-original.iwxa"),bytes);
  writeFileSync(join(root,"examples/receipt.json"),JSON.stringify({source:"ORIGINAL_KERNEL_EXPORT",counts:example.counts,sha256:hash(bytes),events:example.events},null,2)+"\n");
@@ -77,6 +87,7 @@ try{
  await context.setOffline(true);
  await page.reload({waitUntil:"domcontentloaded"});
  await page.waitForFunction(()=>typeof window.IWXA?.connect==="function");
+ assert.equal(await page.evaluate(()=>navigator.onLine),false);
  await page.getByTestId("workspace-view").waitFor({state:"visible",timeout:45000});
  const record=await page.evaluate(async()=>{const k=await IWXA.connect({service_id:"iwxa.workspace.integration"});return k.t1.getObject("rc5-acceptance-document-review","review:request");});
  assert.equal(record?.object?.data?.title,"Заявка на проверку документа");
