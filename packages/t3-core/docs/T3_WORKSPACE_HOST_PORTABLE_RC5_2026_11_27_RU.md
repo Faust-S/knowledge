@@ -60,3 +60,5 @@ Exchange не требует корпоративного Agent/Admin маршр
 handoff/G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json. Замороженный source manifest
 внутри ZIP отражает состояние до qualification, не является новым статусом.
 Существующий current_release.core_release сохраняет стабильную 0.3.0.
+
+Аппаратная квалификация опубликованного архива: [46014698884](https://github.com/Faust-S/knowledge/actions/runs/46014698884), статус при записи: IN_PROGRESS. Первый запрос 46014574727 отклонён до запуска job; исправлено использование runner.temp в job-level env. Исполняемый продукт и существующий D5 witness не менялись. До получения реального результата аппаратная генерация не считается подтверждённой.

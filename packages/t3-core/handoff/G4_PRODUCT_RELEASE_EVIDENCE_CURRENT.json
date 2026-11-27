@@ -2656,6 +2656,20 @@
       "exchange_receipt_fix": "63d76beb11752b6e3f3c545d79f30b14b0bd816b",
       "bli_engine_source_fix": "92ba6c314725a46f8f0ac0a6fd1a4ee9d315d60e",
       "hardware_generation_exact_release": "NOT_RUN_SOFTWARE_ADAPTER_ONLY_IN_COMPLETED_RC5_CI",
+      "exact_release_hardware_qualification": {
+        "run": 46014698884,
+        "request_commit": "b9cef2506dfc87baddaeaff9ac6fdb440f09047c",
+        "prepared_commit": "b1a0808818c923657134c5922f0570ae3e1f08ce",
+        "status": "IN_PROGRESS",
+        "model": "Qwen2.5-0.5B-Instruct-q4f32_1-MLC",
+        "runner": "macos-latest",
+        "source": "PUBLISHED_PLATFORM_INPUTS_NO_REBUILD",
+        "prior_attempt": {
+          "run": 46014574727,
+          "conclusion": "FAIL_NO_JOB_EXECUTED",
+          "cause": "Runner context used in job-level env; fixed before new request."
+        }
+      },
       "independent_end_user_acceptance": "PENDING_NOT_CODEX_ACCEPTED",
       "corporate_aba": "SEPARATE_OPEN_ACCEPTED_KERNEL_EVENT_COLLISION",
       "stable_release_unchanged": "0.3.0",
