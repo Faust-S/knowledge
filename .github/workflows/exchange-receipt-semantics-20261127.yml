@@ -1,0 +1,57 @@
+name: Exchange receipt semantics T2 and T3
+on:
+  push:
+    branches: ['ci/once/exchange-receipt-semantics-20261127/**']
+    paths: ['.github/ci-requests/exchange-receipt-semantics-20261127.json']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: exchange-receipt-semantics-20261127
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: ${{ github.event_name == 'workflow_dispatch' || (!github.event.created && !github.event.deleted && !github.event.forced) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [t2,t3]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Verify immutable one-shot request before private access
+        run: node qualification/exchange-receipt-semantics-20261127/verify-request.mjs
+      - uses: actions/checkout@v4
+        if: matrix.profile == 't2'
+        with:
+          repository: Faust-S/T2
+          ref: '63d61f872ad88694096abbf748855546b0a4ec21'
+          path: private-t2
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        if: matrix.profile == 't2'
+        with:
+          repository: Faust-S/T2
+          ref: 'c4ae63d36d0ee64013b333368d930d477be0213c'
+          path: private-kernel
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-python@v5
+        if: matrix.profile == 't2'
+        with:
+          python-version: '3.12'
+      - name: Qualify original receipt correction
+        run: node qualification/exchange-receipt-semantics-20261127/run.mjs ${{ matrix.profile }}
+      - name: Remove disposable private inputs
+        if: always()
+        run: rm -rf private-t2 private-kernel "$RUNNER_TEMP/exchange-receipt-semantics-20261127-t2" "$RUNNER_TEMP/exchange-receipt-semantics-20261127-t3"
