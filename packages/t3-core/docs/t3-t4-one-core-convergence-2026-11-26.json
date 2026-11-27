@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_T3_T4_ONE_CORE_CONVERGENCE_STAGE/1",
-  "state": "SOURCE_CONVERGENCE_PARTIALLY_QUALIFIED_NATIVE_PILOT_STAGED",
+  "state": "PUBLIC_ORIGINAL_PILOT_PASSPORT_QUALIFIED_NATIVE_OWNER_SOURCE_STAGED",
   "mergeBase": "fd927a1efb083219442d9504285f75fa738dbdda",
   "corporateT3": "8db847058cab231d2d39c34df46024b60564d2ad",
   "networkT4": "896515f361611e311b0df22dbcfebfefa8e58fa0",
@@ -27,10 +27,10 @@
   "networkWireUnchanged": true,
   "accepted": false,
   "blocking": [
-    "Complete independent native pilot Runtime witness. Existing original K036 corporate return Exchange collision remains FAIL; qualify corrected original Kernel candidate separately.",
-    "Bundle and supply canonical installed network factories and actual native profile provider; SOURCE original Registry/evaluator adoption remains unimplemented, RECIPIENT composition is staged only.",
-    "Provision exact original signed grants, durable keys and separate existing Registry/technical workspaces in authorized original owners.",
-    "Original DB9 qualification and actual two-node installed pilot.",
+    "Restore authorized private T2 source availability for disposable public Center qualification of exact corrected original K036 candidate; complete corporate return archive remains FAIL on old accepted K036.",
+    "Supply actual installed SOURCE/RECIPIENT provider, existing signed Registry history and explicit original signed native grant selection; no fallback, bootstrapping or automatic grant issuance.",
+    "Provision real original device grants, existing durable keys/Vault, separate technical workspace and authenticated peer topology.",
+    "Qualify actual DB9 and installed two-node pilot.",
     "Independent final acceptance."
   ],
   "notes": [
@@ -45,14 +45,17 @@
     "Current source extends the original scoped Registry binding, never initializes on disappearance of an admitted authority record. New T4 passport grants no original Access authority; both product-local routes reject unconfigured pilot admission.",
     "Compared full Git trees: all 66 original network src blobs unchanged; five additional integration modules.",
     "One new public grouped run in this cycle; no private Actions or Codex.",
-    "Latest exact public source run: 110/110 changed contracts, TypeScript and complete build PASS; legacy accepted K036 failed the return archive before pilot execution. Split test witnesses and keep the prior failure visible. No original Kernel modification or fabricated receipts."
+    "Latest exact public source run: 110/110 changed contracts, TypeScript and complete build PASS; legacy accepted K036 failed the return archive before pilot execution. Split test witnesses and keep the prior failure visible. No original Kernel modification or fabricated receipts.",
+    "2026-11-27: independently qualified accepted K036 pilot with natural process exit; corrected Node BroadcastChannel lifetime in test fixture, not production Runtime.",
+    "Shared original native owner SOURCE/RECIPIENT Registry binding and SOURCE enrollment/grant composition staged; native Agent worker still rejects unconfigured T4 passport. Eight exact local helper cases PASS; not a full private runtime qualification.",
+    "One public source run PASS, one public Center run BLOCKED by HTTP 403 before private source tests. No private Actions, no Codex, no retries to bypass access."
   ],
   "additionalTests": {
     "packages/t4-network/tests/original-native-network-product-activation.test.mjs": "9f1fd80a9f76a2dd9f99d7367d804cc1acfe0f02",
     "packages/t4-network/tests/original-installed-control-factories.test.mjs": "9391594c3d36003edcdce510514c5b73e6d258a1",
     "packages/t4-network/tests/original-installed-control-http.test.mjs": "9d29f4c3908667604c77738d266db47f8650f361",
     "packages/t4-network/tests/original-installed-product-passport.test.mjs": "5a8fcd4139b5d42485164bcbb2cff10e118b7fe5",
-    "packages/t3-core/tests/t3-company-original-runtime-roundtrip.test.mjs": "dbdf49d314e51cd7d4c703bafbfc7b82fd8cc4da"
+    "packages/t3-core/tests/t3-company-original-runtime-roundtrip.test.mjs": "f31387663756b798feb5175c82a9aeefbc7f4a75"
   },
   "localRelayQualification": {
     "candidate": "976efab7eca7afa09995d0ffa63413c3b99834d7",
@@ -80,8 +83,8 @@
     ]
   },
   "sourceCandidate": {
-    "commit": "3eaf02f3a611fc8716b7a55b3fb9c0d8f536d150",
-    "tree": "3cf1a2cda61a39c68d819e79b646966636391061"
+    "commit": "683b8c14adeef650d7eb5901f0ff1865267f68b6",
+    "tree": "5cc15bcc41dcf01eb1aa6d1a40905970d901f222"
   },
   "publicQualification": {
     "previous": {
@@ -167,8 +170,50 @@
       "run": 45891507458,
       "ciCommit": "0576d9d5bb711212aa9507688430368972178a78",
       "candidate": "3eaf02f3a611fc8716b7a55b3fb9c0d8f536d150",
-      "state": "IN_PROGRESS",
-      "scope": "Separate native pilot test name only; does not requalify or hide earlier full corporate return-archive failure."
+      "state": "FAIL_PROCESS_TIMEOUT_SUBJECT_PASS",
+      "scope": "Separate native pilot test name only; does not requalify or hide earlier full corporate return-archive failure.",
+      "subject": {
+        "pass": 1,
+        "fail": 0
+      },
+      "process": "CANCELLED_BY_TIMEOUT"
+    },
+    "platformPilotRecheck": {
+      "run": 45952421385,
+      "ciCommit": "3abf18d3806070c236a8a839276aa433a51ee79b",
+      "candidate": "683b8c14adeef650d7eb5901f0ff1865267f68b6",
+      "state": "PASS",
+      "assemblySelectorAndPassport": {
+        "pass": 22,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "build": "PASS",
+      "originalRuntimePilot": {
+        "pass": 1,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "originalArtifactSha256": "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68",
+      "process": "NATURAL_EXIT",
+      "scope": "Exact accepted K036 original Runtime, real compiled UI, modeled browser platform. Independent pilot test only; no claim about full corporate return archive or DB9."
+    },
+    "centerCorrectedCandidate": {
+      "run": 45952015270,
+      "ciCommit": "ac7f88550e2acb6815119593d985c52b1bce7096",
+      "candidate": "683b8c14adeef650d7eb5901f0ff1865267f68b6",
+      "ownerCandidate": "b2b809a223741830b906bc59a65b66a1599ea2c4",
+      "state": "BLOCKED_PRIVATE_T2_HTTP_403",
+      "correctedOriginalKernel": "NOT_RUN",
+      "privateOwnerQualification": "NOT_RUN",
+      "artifact": "iwxa-kernel-k036-canonical-event-merge-20261125-candidate.1",
+      "artifactSha256": "5320dcb6c42d5fca410880677c8a8b595d4c9a2a6cedf51089b5f60f4ceeb52a",
+      "source": "4e4ad5c5e566a74f24243b9d0744a6d64652a199",
+      "packaging": "c28e01876f3230307b7f20449f7ef54374367c93",
+      "secondaryFailure": "Missing checkout causes K036_SOURCE_PIN_MISMATCH, not evidence of a Kernel regression.",
+      "releaseAccepted": false
     }
   },
   "frozenNetworkSource": {
@@ -208,8 +253,26 @@
       "mode": "LOCAL_OWNER_REJECTS_T4_PASSPORT",
       "installed": "NOT_RUN"
     },
-    "sourceProfileProvider": "NOT_IMPLEMENTED",
+    "sourceProfileProvider": "ORIGINAL_SIGNED_GRANT_AND_REGISTRY_COMPOSITION_STAGED; INSTALLED_NATIVE_PROVIDER_NOT_CONFIGURED",
     "realOwnerGrantsAndKeys": "NOT_PROVISIONED",
-    "productionActivation": false
+    "productionActivation": false,
+    "sharedOwner": {
+      "repository": "Faust-S/T3",
+      "branch": "work/2026-11-26-admin-t4-original-registry",
+      "bindingCommit": "b2b809a223741830b906bc59a65b66a1599ea2c4",
+      "commit": "cce37351f96ad4d050f1dc5ca95d7d13fcf7d076",
+      "tree": "75d87fb48c542910630e110d31d35a8ccfee7c61",
+      "helperBlob": "aa4eeb353edfd4413a6eca9c6c5cf142c5b24d51",
+      "testBlob": "b402870e57b212f784232256de59be2d51cb49e8",
+      "runtimeBlob": "e1d61190751be52817f2029f1059c7da3cf2f6d7",
+      "serverBlob": "f57a8c12dbd623ed6a07013cc8c8b962fe3ea8df",
+      "local": {
+        "pass": 8,
+        "fail": 0,
+        "scope": "Exact shared helper and modeled original owner/Access factories, includes previous six cases."
+      },
+      "privateFull": "NOT_RUN",
+      "installed": "NOT_RUN"
+    }
   }
 }
