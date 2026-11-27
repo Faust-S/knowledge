@@ -21,7 +21,7 @@ export function createTrustedWorkspaceMethodCorporateInputReader(options={}){
 }
 function createReader({kernel,accessForRead,currentWorkspace,
   sourceOwner,originalAgentResultOwner=null,nativeContinuation=null,nativeRecipientId=null,
-  personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null,corporateTaskOwner=null,isHostActive}={},nativeCorporateOnly=false){
+  personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null,corporateTaskOwner=null,corporateResultOwner=null,isHostActive}={},nativeCorporateOnly=false){
   check(kernel?.sessionInfo?.contract_version==='1.3.0'&&typeof kernel.hasOperation==='function'
     &&kernel.hasOperation('t1.getObject')===true&&typeof accessForRead==='function'
     &&typeof currentWorkspace?.get==='function'&&typeof currentWorkspace?.subscribe==='function'
@@ -34,6 +34,7 @@ function createReader({kernel,accessForRead,currentWorkspace,
     &&(personalTaskOwner===null||(personalComposer!==null&&typeof personalTaskOwner.readAcceptedRun==='function'
       &&typeof personalTaskOwner.taskDocumentSource==='function'))
     &&(corporateTaskOwner===null||typeof corporateTaskOwner.readSignedTask==='function')
+    &&(corporateResultOwner===null||typeof corporateResultOwner.readAccepted==='function'||typeof corporateResultOwner.readAcceptedForInputs==='function')
     &&typeof isHostActive==='function'&&(!nativeCorporateOnly||corporateTaskOwner!==null),'T3_METHOD_STAGE_TRUSTED_HOST_REQUIRED');
   let personalDraftInFlight=false;
   async function personalDraft(input,mode){
@@ -55,6 +56,10 @@ function createReader({kernel,accessForRead,currentWorkspace,
       &&(!['corporate-reference-inspect','corporate-reference-recover','corporate-inputs'].includes(mode)||/^task:[A-Za-z0-9:-]{1,100}$/.test(input.taskId))
       &&(!['corporate-reference-recover','corporate-inputs'].includes(mode)||input.expectedCandidateDigest===undefined)
       &&(mode!=='corporate-inputs'||(nativeCorporateOnly&&(input.resultSelections??[]).length===0))
+      &&(input.corporateResultSelections===undefined||(['handoff','corporate-reference','corporate-reference-inspect','corporate-reference-recover','corporate-inputs'].includes(mode)
+        &&Array.isArray(input.corporateResultSelections)&&input.corporateResultSelections.length>0&&input.corporateResultSelections.length<=63
+        &&(input.resultSelections??[]).length===0&&input.personalResultSelections===undefined
+        &&(mode!=='handoff'||input.includeMaterialEvidence===true)))
       &&(mode!=='personal-task-recover'||(input.personalResultSelections===undefined&&(input.resultSelections??[]).length===0))
       &&(input.personalResultSelections===undefined||(['handoff','personal-draft','personal-draft-recover','personal-task-inspect'].includes(mode)
         &&Array.isArray(input.personalResultSelections)&&input.personalResultSelections.length<=63
@@ -72,7 +77,9 @@ function createReader({kernel,accessForRead,currentWorkspace,
       ...(['personal-draft','personal-draft-recover','personal-task-inspect','corporate-reference','corporate-reference-inspect'].includes(mode)?{expectedCandidateDigest:input.expectedCandidateDigest}:{}),
       ...(['personal-task-inspect','personal-task-recover','corporate-reference-inspect','corporate-reference-recover','corporate-inputs'].includes(mode)?{taskId:input.taskId}:{}),
       ...(input.personalResultSelections===undefined?{}:{personalResultSelections:input.personalResultSelections.map(row=>({
-        stepId:row?.stepId,taskId:row?.taskId}))})});
+        stepId:row?.stepId,taskId:row?.taskId}))}),
+      ...(input.corporateResultSelections===undefined?{}:{corporateResultSelections:input.corporateResultSelections.map(row=>({
+        stepId:row?.stepId,acceptanceId:row?.acceptanceId,resultRevisionId:row?.resultRevisionId}))})});
     check(isHostActive()===true,'T3_HOST_DISPOSED');
     const selected=currentWorkspace.get();
     check(selected?.workspace_id===request.workspaceId&&selected.deleted_at==null,'T3_METHOD_STAGE_WORKSPACE_REQUIRED');
@@ -89,7 +96,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
       check(context?.workspace_id===request.workspaceId&&context.resource===request.workspaceId,
         'T3_METHOD_STAGE_SIGNED_SCOPE_MISMATCH');
       const corporateMode=['corporate-reference','corporate-reference-inspect','corporate-reference-recover','corporate-inputs'].includes(mode);
-      if(corporateMode)check(context.kind==='CORP','T3_METHOD_CORPORATE_TASK_SCOPE_REQUIRED');
+      const corporateChain=request.corporateResultSelections!==undefined;
+      if(corporateMode||corporateChain)check(context.kind==='CORP','T3_METHOD_CORPORATE_TASK_SCOPE_REQUIRED');
       const personalChain=request.personalResultSelections!==undefined;
       const recoverTask=mode==='personal-task-recover';
       const inspectTask=mode==='personal-task-inspect'||recoverTask;
@@ -124,7 +132,17 @@ function createReader({kernel,accessForRead,currentWorkspace,
       check(kernel.hasOperation('t1.getWorkspace')===true,'T3_METHOD_STAGE_WORKSPACE_READ_REQUIRED');
       const workspace=await guarded(()=>signed.getWorkspace(request.workspaceId));
       check(workspace?.workspace_id===request.workspaceId&&workspace.deleted_at==null,'T3_METHOD_STAGE_WORKSPACE_REQUIRED');
-      const args={...request,owner,readObject,readAccepted,subjectKind:context.kind};
+      // The original recipient (Admin) may read its accepted Result for
+      // planning. Native execution is a DIFFERENT original access route:
+      // no fallback to the administrator's data access when running a Task.
+      const planningResult=selected=>{
+        check(typeof corporateResultOwner?.readAccepted==='function','T3_METHOD_CORPORATE_RESULT_ORIGINAL_OWNER_REQUIRED');
+        return guarded(()=>corporateResultOwner.readAccepted(selected,context));
+      };
+      if(corporateChain)check(typeof corporateResultOwner?.[mode==='corporate-inputs'?'readAcceptedForInputs':'readAccepted']==='function',
+        'T3_METHOD_CORPORATE_RESULT_ORIGINAL_OWNER_REQUIRED');
+      const args={...request,owner,readObject,readAccepted,subjectKind:context.kind,
+        ...(corporateChain?{organizationId:context.organization_id,readCorporateAcceptedResult:planningResult}:{})};
       let report;
       if(mode==='overview')report=await readWorkspaceMethodInputOverview(args);
       else if(mode==='handoff'&&!request.includeMaterialEvidence&&!personalChain)report=await previewWorkspaceMethodStageHandoff(args);
@@ -180,7 +198,13 @@ function createReader({kernel,accessForRead,currentWorkspace,
               &&/^[a-f0-9]{64}$/.test(w.candidateDigest??''),
               'T3_METHOD_CORPORATE_TASK_REFERENCE_SCOPE_MISMATCH');
             const prepare=mode==='corporate-inputs'?buildWorkspaceMethodCorporateTaskInputs:buildWorkspaceMethodCorporateTaskReference;
-            const prepared=await prepare(recovering?{...evidenceArgs,expectedCandidateDigest:w.candidateDigest}:evidenceArgs),last=await readReference();
+            const preparedArgs=recovering?{...evidenceArgs,expectedCandidateDigest:w.candidateDigest}:evidenceArgs;
+            // The installed owner must independently verify DATA disclosure
+            // to this exact current signed employee Task. The Admin planning
+            // port, D1 Workspace read and signed reference are not that grant.
+            if(mode==='corporate-inputs'&&corporateChain)
+              preparedArgs.readCorporateAcceptedResult=selected=>guarded(()=>corporateResultOwner.readAcceptedForInputs(selected,context,first));
+            const prepared=await prepare(preparedArgs),last=await readReference();
             check(canonicalStringify(first)===canonicalStringify(last),'T3_METHOD_CORPORATE_TASK_REVISION_CHANGED');
             check(canonicalStringify(last.workflowInput)===canonicalStringify(prepared.workflowInput),'T3_METHOD_CORPORATE_TASK_REFERENCE_MISMATCH');
             report=mode==='corporate-inputs'?Object.freeze({...prepared,...last,declaredReferenceMatched:true}):Object.freeze({state:'SIGNED_CORPORATE_TASK_CURRENT_REFERENCE_MATCHED',...last,
