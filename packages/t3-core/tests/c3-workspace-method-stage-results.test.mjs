@@ -5,8 +5,8 @@ import { canonicalStringify } from '../src/persistence/canonical-codec.mjs';
 import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { applyWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
-import { inspectWorkspaceMethodAgentPredecessorResults,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation,buildWorkspaceMethodPersonalTaskDraft } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
-import { createTrustedWorkspaceMethodStageReader } from '../src/t3/workspace-method-stage-reader.mjs';
+import { inspectWorkspaceMethodAgentPredecessorResults,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation,buildWorkspaceMethodPersonalTaskDraft,buildWorkspaceMethodCorporateTaskInputs } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
+import { createTrustedWorkspaceMethodStageReader,createTrustedWorkspaceMethodCorporateInputReader } from '../src/t3/workspace-method-stage-reader.mjs';
 import { inspectOriginalPersonalWorkflowTask } from '../src/t3/workspace-method-personal-draft.mjs';
 import { createTrustedNativeContinuation } from '../src/t3/native-result-continuation.mjs';
 
@@ -97,7 +97,7 @@ test('accepted owner or exact material changed during observation cannot confirm
       const r=await f.readObject(w,id);return changed&&id==='source'?{object:{...r.object,revision:2}}:r;
     }})),code('METHOD_STAGE_RESULT_BASIS_CHANGED'));
 });
-function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=()=>{},personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null,corporateTaskOwner=null,subjectKind='PERSONAL'}={}){
+function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=()=>{},personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null,corporateTaskOwner=null,subjectKind='PERSONAL',assetBytes=new Uint8Array([42]),assetMime='text/plain'}={}){
   const workspace={workspace_id:ws,deleted_at:null};
   let chosen=workspace,active=true,allowed=true;const listeners=new Set();
   const currentWorkspace={get:()=>chosen,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);}};
@@ -114,14 +114,14 @@ function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=(
       validUntil:new Date(Date.now()+60000).toISOString(),statusObservedAt:new Date().toISOString(),
       evaluatedAt:new Date().toISOString(),authorityPath:[{grantId:context.grant_id}]}),
     verifyDecisionBinding:(request,decision)=>decision.requestDigest===sha(request)};
-  const asset={workspace_id:ws,object_id:'source',asset_id:'asset:1',revision:1,mime:'text/plain',size:1,
+  const asset={workspace_id:ws,object_id:'source',asset_id:'asset:1',revision:1,mime:assetMime,size:assetBytes.byteLength,
     service_id:'svc',created_at:time,updated_at:time,updated_by_service:'svc'};
   const kernel={sessionInfo:{contract_version:'1.3.0'},hasOperation:op=>['t1.getWorkspace','t1.getObject',
       ...(withAssets?['t1.listAssets','t1.getAsset']:[])].includes(op),
     getWorkspace:async workspaceId=>workspaceId===ws?workspace:null,
     getObject:async(...a)=>{const row=await f.readObject(...a);return row?{...row,object:{...row.object,extensions:{}},relations:{incoming:[],outgoing:[]}}:null;},
     listAssets:async query=>{assetHook('list',query);return query.object_id==='source'?[asset]:[];},
-    getAsset:async(workspaceId,id)=>{assetHook('get',{workspace_id:workspaceId,asset_id:id});return {asset,bytes:new Uint8Array([42])};}};
+    getAsset:async(workspaceId,id)=>{assetHook('get',{workspace_id:workspaceId,asset_id:id});return {asset,bytes:assetBytes.slice()};}};
   let hook=null,nativeHook=null,received=null,inspections=0,receives=0,confirmations=0;
   const recipientId='iwxa.atlas',operationId='native:operation:fixture';
   const nativeOwner={recipientId,
@@ -130,11 +130,13 @@ function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=(
     receipt:async()=>received,readback:async()=>received?{...received,state:'PERSISTED'}:null};
   const nativeContinuation=withNative?createTrustedNativeContinuation({kernel,accessForRead:async()=>access,currentWorkspace,nativeOwner,
     confirmHuman:async()=>{confirmations++;return true;},isHostActive:()=>active}):null;
-  const reader=createTrustedWorkspaceMethodStageReader({kernel,accessForRead:async()=>access,currentWorkspace,sourceOwner:f.owner,
+  const ports={kernel,accessForRead:async()=>access,currentWorkspace,sourceOwner:f.owner,
     originalAgentResultOwner:withAgent?{readAccepted:async ref=>{if(hook)await hook();return f.readAccepted(ref);}}:null,
-    nativeContinuation,nativeRecipientId:withNative?recipientId:null,personalComposer,confirmPersonalDraft,personalTaskOwner,corporateTaskOwner,isHostActive:()=>active});
+    nativeContinuation,nativeRecipientId:withNative?recipientId:null,personalComposer,confirmPersonalDraft,personalTaskOwner,corporateTaskOwner,isHostActive:()=>active};
+  const reader=createTrustedWorkspaceMethodStageReader(ports);
+  const nativeInputs=corporateTaskOwner?createTrustedWorkspaceMethodCorporateInputReader(ports):null;
   const changeSelection=()=>{chosen={...workspace};for(const notify of listeners)notify();};
-  return {reader,context,deny:()=>{allowed=false;},changeSelection,dispose:()=>{active=false;},hook:fn=>{hook=fn;},
+  return {reader,nativeInputs,context,deny:()=>{allowed=false;},changeSelection,dispose:()=>{active=false;},hook:fn=>{hook=fn;},
     nativeHook:fn=>{nativeHook=fn;},nativeContinuation,inspections:()=>inspections,receives:()=>receives,confirmations:()=>confirmations};
 }
 const hostInput=f=>({workspaceId:ws,projectId,stepId:'review',expected:f.base,resultSelections:selection});
@@ -914,4 +916,85 @@ test('corporate reference recovery requires explicit current direct Result selec
   f.changeAccepted({...accepted,archiveSha256:'c'.repeat(64)});
   await assert.rejects(h.reader.recoverCorporateTaskReference(request),code('METHOD_CORPORATE_TASK_EVIDENCE_CHANGED'));
   assert.equal((await f.owner.audit()).length,3);
+});
+
+
+function signedRoot(plan,extra={}){
+  return {found:true,taskId:'task:workflow',taskRevisionId:'b'.repeat(64),packageSha256:'c'.repeat(64),
+    recipientId:'person:owner',organizationId:'org:fixture',workspaceId:ws,originalContextEpoch:2,status:'SIGNED_TASK_CURRENT_SELECTED',
+    workflowReference:{state:'SIGNED_WORKFLOW_REFERENCE_ONLY',taskId:'task:workflow',taskRevisionId:'b'.repeat(64),
+      workflowInput:plan.workflowInput,exactInputBindingProven:false,workCompleted:false,resultReuseProven:false,executionAuthorized:false},...extra};
+}
+test('native-only corporate root inputs include actual selected Object and Asset text and the exact signed handoff manifest',async()=>{
+  const f=await setup(),raw='Первый\r\nSecond Ω\n',bytes=new TextEncoder().encode(raw);
+  let stored=null,reads=0,assets=0;
+  const h=trusted(f,{subjectKind:'CORP',withAssets:true,assetBytes:bytes,assetHook:(op)=>{if(op==='get')assets++;},
+    corporateTaskOwner:{readSignedTask:async()=>{reads++;return clone(stored);}}});
+  const input=corporateRoot(f),preview=await h.reader.previewHandoff({...input,includeMaterialEvidence:true});
+  const p=await h.reader.prepareCorporateTaskReference({...input,expectedCandidateDigest:preview.candidateDigest});
+  stored=signedRoot(p);
+  const before=assets;
+  const request={...input,taskId:'task:workflow'};
+  const actual=await h.nativeInputs.readInputs(request);
+  assert.equal(actual.state,'CORPORATE_TASK_TEXT_INPUTS_PREPARED');
+  assert.equal(actual.task,p.task);assert.deepEqual(actual.workflowInput,p.workflowInput);
+  assert.equal(actual.recipientId,h.context.actor_id);assert.equal(actual.organizationId,h.context.organization_id);
+  assert.equal(actual.declaredReferenceMatched,true);assert.equal(actual.observedMaterialBytesVerified,true);
+  assert.equal(actual.allAssetsProven,false);assert.equal(actual.exactInputBindingProven,false);
+  assert.equal(actual.executionAuthority,false);assert.equal(actual.taskCreated,false);
+  assert.deepEqual(actual.attachments.map(a=>a.name),['material-001.json','attachment-001.txt','workflow-inputs.json']);
+  assert.equal(actual.attachments[1].text,raw);
+  assert.equal(JSON.parse(actual.attachments[0].text).data.private,'source body');
+  const manifest=JSON.parse(actual.attachments[2].text);
+  assert.equal(manifest.candidateDigest,p.workflowInput.candidateDigest);
+  assert.equal(manifest.handoff.subjectKind,'CORP');
+  assert.equal(manifest.materialEvidence.materials[0].visibleAssets[0].sha256,createHash('sha256').update(bytes).digest('hex'));
+  assert.equal(actual.counts.attachmentBytes,actual.attachments.reduce((sum,a)=>sum+Buffer.byteLength(a.text,'utf8'),0));
+  assert.equal(reads,2);assert.equal(assets-before,2);
+  assert.equal('readInputs' in h.reader,false);
+  const view=await h.reader.recoverCorporateTaskReference(request);
+  assert.equal('attachments' in view,false);assert.equal(JSON.stringify(view).includes(raw),false);
+  assert.equal((await f.owner.audit()).length,3);
+});
+test('corporate actual input reader checks selected recipient, organization, workspace and native context epoch before returning bytes',async()=>{
+  const f=await setup();let stored=null,reads=0,assetReads=0,hook=()=>{};
+  const h=trusted(f,{subjectKind:'CORP',withAssets:true,assetHook:op=>{if(op==='get')assetReads++;},
+    corporateTaskOwner:{readSignedTask:async()=>{reads++;hook();return clone(stored);}}});
+  const input=corporateRoot(f),preview=await h.reader.previewHandoff({...input,includeMaterialEvidence:true});
+  const plan=await h.reader.prepareCorporateTaskReference({...input,expectedCandidateDigest:preview.candidateDigest});
+  const request={...input,taskId:'task:workflow'},baseline=assetReads;
+  for(const patch of [{recipientId:'person:other'},{organizationId:'org:other'},{workspaceId:'other'},
+    {status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED'},{originalContextEpoch:0}]){
+    stored=signedRoot(plan,patch);
+    await assert.rejects(h.nativeInputs.readInputs(request),code('T3_METHOD_CORPORATE_TASK_EXECUTOR_MISMATCH'));
+  }
+  assert.equal(assetReads,baseline);
+  stored=signedRoot(plan);let n=0;hook=()=>{if(++n===2)stored.originalContextEpoch++;};
+  await assert.rejects(h.nativeInputs.readInputs(request),code('T3_METHOD_CORPORATE_TASK_REVISION_CHANGED'));
+  hook=()=>{};h.deny();const before=reads;
+  await assert.rejects(h.nativeInputs.readInputs(request),code('T3_ACCESS_NOT_PERMITTED'));assert.equal(reads,before);
+});
+test('corporate actual input assembly refuses changed bytes, nontext and dependent Work without truncation or substitute metadata',async()=>{
+  const f=await setup(),bytes=new Uint8Array([42]);let stored=null;
+  const h=trusted(f,{subjectKind:'CORP',withAssets:true,assetBytes:bytes,corporateTaskOwner:{readSignedTask:async()=>clone(stored)}});
+  const input=corporateRoot(f),preview=await h.reader.previewHandoff({...input,includeMaterialEvidence:true});
+  const plan=await h.reader.prepareCorporateTaskReference({...input,expectedCandidateDigest:preview.candidateDigest});
+  stored=signedRoot(plan);bytes[0]=43;
+  await assert.rejects(h.nativeInputs.readInputs({...input,taskId:'task:workflow'}),code('METHOD_CORPORATE_TASK_EVIDENCE_CHANGED'));
+  for(const [assetMime,assetBytes,expected] of [
+    ['application/pdf',new Uint8Array([1,2,3]),'METHOD_PERSONAL_DRAFT_ATTACHMENT_UNSUPPORTED'],
+    ['text/plain',new Uint8Array([0xff]),'METHOD_PERSONAL_DRAFT_ATTACHMENT_UNSUPPORTED'],
+    ['text/plain',new TextEncoder().encode('x'.repeat(48001)),'METHOD_PERSONAL_DRAFT_CONTENT_LIMIT']]){
+    const next=trusted(f,{subjectKind:'CORP',withAssets:true,assetMime,assetBytes,corporateTaskOwner:{readSignedTask:async()=>clone(stored)}});
+    const report=await next.reader.previewHandoff({...input,includeMaterialEvidence:true});
+    stored=signedRoot(await next.reader.prepareCorporateTaskReference({...input,expectedCandidateDigest:report.candidateDigest}));
+    await assert.rejects(next.nativeInputs.readInputs({...input,taskId:'task:workflow'}),code(expected));
+  }
+  const d=draft();d.steps[1].actor='agent';
+  const g=await setup(d);const dependent=trusted(g,{subjectKind:'CORP',withAssets:true});
+  const current=await dependent.reader.previewHandoff({...hostInput(g),includeMaterialEvidence:true});
+  const req=args(g,{subjectKind:'CORP',expectedCandidateDigest:current.candidateDigest,readObject:async(...a)=>{
+    const row=await g.readObject(...a);return row?{object:{...row.object,extensions:{}}}:null;},
+    listAssets:async()=>[],getAsset:async()=>null});
+  await assert.rejects(buildWorkspaceMethodCorporateTaskInputs(req),code('METHOD_CORPORATE_TASK_ROOT_AGENT_REQUIRED'));
 });

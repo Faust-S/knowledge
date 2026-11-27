@@ -106,3 +106,19 @@ export function createTrustedWorkspaceMethodStageReader(input:{
   corporateTaskOwner?:unknown;personalTaskOwner?:unknown;personalComposer?:unknown;confirmPersonalDraft?:(preview:unknown)=>boolean|Promise<boolean>;
   isHostActive:()=>boolean;
 }):WorkspaceMethodStageReader;
+
+// Native-only source reader. Do not bind the material payload to the UI
+// reader or IPC display model. No task or execution grant is returned.
+export type WorkspaceMethodCorporateTextInputs=Readonly<{
+  state:'CORPORATE_TASK_TEXT_INPUTS_PREPARED';task:string;workflowInput:WorkspaceMethodCorporateTaskReference;
+  taskId:string;taskRevisionId:string;packageSha256:string;recipientId:string;organizationId:string;workspaceId:string;
+  originalContextEpoch:number;declaredReferenceMatched:true;observedMaterialBytesVerified:true;
+  attachments:readonly Readonly<{name:string;text:string}>[];
+  counts:Readonly<{materials:number;assets:number;attachments:number;attachmentBytes:number}>;
+  allAssetsProven:false;exactInputBindingProven:false;taskCreated:false;executionAuthority:false;
+  writeAuthorized:false;resultReuseProven:false;workCompleted:false;
+}>;
+export function createTrustedWorkspaceMethodCorporateInputReader(input:{
+  kernel:unknown;accessForRead:(operation:string)=>unknown;currentWorkspace:unknown;
+  sourceOwner:unknown;corporateTaskOwner:unknown;isHostActive:()=>boolean;
+}):Readonly<{readInputs(input:WorkspaceMethodStageRequest&Readonly<{taskId:string}>):Promise<WorkspaceMethodCorporateTextInputs>}>;

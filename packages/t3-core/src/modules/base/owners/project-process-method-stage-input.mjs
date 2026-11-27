@@ -368,7 +368,7 @@ async function inspectStageResults({
   const args={owner,readObject,workspaceId,projectId,expected:selected,stepId};
   const observation=await openStageInputObservation(args),initial=observation.report;
   if(materialRequest?.draftCapture&&(initial.basis.intendedActor!=='agent'||initial.predecessors.length!==0)){
-    fail('METHOD_PERSONAL_DRAFT_ROOT_AGENT_REQUIRED','This original text composer route requires a root Agent Work; native predecessor content and program execution are separate');
+    fail(materialRequest.corporateInput?'METHOD_CORPORATE_TASK_ROOT_AGENT_REQUIRED':'METHOD_PERSONAL_DRAFT_ROOT_AGENT_REQUIRED','This original text composer route requires a root Agent Work; native predecessor content and program execution are separate');
   }
   const byStep=new Map(initial.predecessors.map(row=>[row.stepId,row]));
   if(selections.some(row=>!byStep.has(row.stepId))){
@@ -492,6 +492,9 @@ export async function buildWorkspaceMethodCorporateTaskReference(input={}){
   if(typeof expectedCandidateDigest!=='string'||!HEX.test(expectedCandidateDigest))
     fail('METHOD_CORPORATE_TASK_EXPECTED_EVIDENCE_REQUIRED','Explicit reviewed handoff digest required');
   const report=await previewWorkspaceMethodStageHandoff({...input,includeMaterialEvidence:true});
+  return corporateTaskReference(report,expectedCandidateDigest);
+}
+function corporateTaskReference(report,expectedCandidateDigest){
   if(!report.binding||!report.materialEvidence?.observation||report.candidateDigest!==expectedCandidateDigest)
     fail('METHOD_CORPORATE_TASK_EVIDENCE_CHANGED','Current original input reference differs from the reviewed handoff');
   const {basis}=report.inspection.stageInput,binding=report.binding;
@@ -517,6 +520,32 @@ export async function buildWorkspaceMethodCorporateTaskReference(input={}){
     exactInputBindingProven:false,allAssetsProven:false,resultReuseProven:false,workCompleted:false});
 }
 
+// W05.29: actual addressed source bytes for the EXISTING Agent text input
+// path. Root Work only: dependent accepted Result content must come from
+// its original owner, not a publication metadata record. Not a UI report,
+// package, Task creation, permission or execution receipt.
+export async function buildWorkspaceMethodCorporateTaskInputs(input={}){
+  if(input.subjectKind!=='CORP'||input.personalResultSelections!==undefined)
+    fail('METHOD_CORPORATE_TASK_SCOPE_REQUIRED','Original corporate subject required');
+  if(typeof input.expectedCandidateDigest!=='string'||!HEX.test(input.expectedCandidateDigest))
+    fail('METHOD_CORPORATE_TASK_EXPECTED_EVIDENCE_REQUIRED','Exact original signed handoff digest required');
+  const {listAssets,getAsset}=input;
+  if(typeof listAssets!=='function'||typeof getAsset!=='function')
+    fail('METHOD_MATERIAL_ASSET_OWNER_REQUIRED','Original addressed Asset read ports required');
+  const capture=personalCapture();
+  const inspection=await inspectStageResults(input,null,Object.freeze({listAssets,getAsset,draftCapture:capture,corporateInput:true}));
+  const report=handoffReport(inspection,true,'CORP');
+  const plan=corporateTaskReference(report,input.expectedCandidateDigest);
+  const payload=materializeAgentTextInputs(report,capture);
+  // Exact source instruction is the original signed text, never trimmed or
+  // reconstructed from prompt display. Provenance travels as a real input.
+  if(payload.draft.text!==plan.task)fail('METHOD_CORPORATE_TASK_EVIDENCE_CHANGED','Original task text differs');
+  return Object.freeze({state:'CORPORATE_TASK_TEXT_INPUTS_PREPARED',task:plan.task,workflowInput:plan.workflowInput,
+    attachments:payload.draft.attachments,counts:payload.counts,observedMaterialBytesVerified:true,
+    allAssetsProven:false,exactInputBindingProven:false,taskCreated:false,executionAuthority:false,writeAuthorized:false,
+    resultReuseProven:false,workCompleted:false});
+}
+
 // W05.10: materialize only the original Agent text composer payload in
 // trusted native Host memory. Never return its bytes through the UI reader.
 // The original composer owns saving and digest CAS. An editable draft is
@@ -532,9 +561,9 @@ export async function buildWorkspaceMethodPersonalTaskDraft(input={}){
   const report=handoffReport(inspection,true,'PERSONAL');
   if(report.candidateDigest!==expectedCandidateDigest||!report.materialEvidence?.observation)
     fail('METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED','The exact selected handoff content changed; review it again');
-  return materializePersonalDraft(report,capture);
+  return materializeAgentTextInputs(report,capture);
 }
-function materializePersonalDraft(report,capture){
+function materializeAgentTextInputs(report,capture){
   const basis=report.inspection.stageInput.basis;
   // Provenance accompanies the actual selected input text. It does not
   // authorize a task or claim complete/immutable input binding.
@@ -673,7 +702,7 @@ export async function prepareWorkspaceMethodPersonalChain(input={}){
         appendPersonalDraftAttachment(capture,'result-'+String(++capture.resultCount).padStart(3,'0')+'.txt',row.summary);
       }
       const report=personalChainReport(stage,materialEvidence,prior);
-      const plan=materializePersonalDraft(report,capture);
+      const plan=materializeAgentTextInputs(report,capture);
       if(stage.basis.stepId===stepId){
         // W05.17: verify the selected target Task inside the same two
         // complete observations, not a second duplicated chain build.
