@@ -1,14 +1,33 @@
 {
   "schema": "iwxa.t3.consolidation-sources/1",
-  "status": "DOMAIN_ASSISTANT_UI_SUCCESSOR_CANDIDATE_NOT_RELEASED",
+  "status": "QUALIFIED_DOMAIN_ASSISTANT_INTEGRATION_CANDIDATE_NOT_RELEASED",
   "base": "3056eef0665fb3503294d49b89d937af2ea060e2",
   "rc2": "4b3314079600f5d95b3dd9e0defe3be8e845378e",
   "corporate": "8db847058cab231d2d39c34df46024b60564d2ad",
   "workflow": "196e3cd824f2a21078f75576f09c1153a6b17d17",
   "originalAssistant": {
     "repository": "Faust-S/T3",
-    "commit": "ce79b696739efb7183cc52b281009fddeab95949",
-    "sourceDisposition": "private owner; build only through authorized qualification"
+    "commit": "8b5a62fcaf2ac2cd714dc8af4468d5ac4e4f5922",
+    "sourceDisposition": "private owner; build only through authorized qualification",
+    "sourceRoot": "browser-local-inference/domain-assistant",
+    "files": [
+      {
+        "path": "main.mjs",
+        "blob": "d79b9e33d3f79a5b05278880298b5c83a8f300ef"
+      },
+      {
+        "path": "field-policy.mjs",
+        "blob": "475045a4b86d6a2ef0535fb05be8f6a853ec3166"
+      },
+      {
+        "path": "skill-runtime.mjs",
+        "blob": "1288a888aa5232984e5bd2caae168e43aa7b70ef"
+      },
+      {
+        "path": "device-policy.mjs",
+        "blob": "eee136413dc33a649be42b2d229125c69fd06cae"
+      }
+    ]
   },
   "originalCorporateWorkflow": {
     "repository": "Faust-S/T3",
@@ -203,8 +222,8 @@
     "packages/t3-core/docs/EXCHANGE_RECEIPT_EXISTING_RECORDS_2026_11_27_RU.md"
   ],
   "qualification": "Generic T3 exact Host, accepted Kernel, complete .iwxa restore, cold autonomy, BLI and portable artifact. Separate original corporate installed A-B-A qualification remains open, not a domain/platform release prerequisite.",
-  "version": "0.3.2-rc.1",
-  "snapshot": "Metadata-only stable promotion of published engineering-qualified rc.6. All executable files, compiled Host/BLI, original Kernel and domain materialization mechanisms are unchanged.",
+  "version": "0.3.2-rc.2",
+  "snapshot": "Exact qualified domain assistant source pin over the 0.3.2-rc.1 public platform. Generic compiled Host, BLI catalog/engine, original Kernel and all executable platform files remain unchanged relative to rc.1.",
   "qualificationAttempts": [
     {
       "candidate": "f3d0404da883c98fed4188fdff9006aa43c07eec",
@@ -421,7 +440,62 @@
     "baseStableSource": "d7f439fe974fab1709270e515721da72d887240f",
     "previousQualifiedUiSource": "5819814c401820ad02f5fac1cd62e348b30b4f3c",
     "previousQualifiedUiRun": 46054005187,
-    "scope": "DOMAIN_INLINE_ASSISTANT_INSTALL_ONLY_AND_DESIGN_TOKENS",
-    "publishedStableUnchanged": true
+    "scope": "DOMAIN_INLINE_DESIGN_NATIVE_FORM_RESULT_NAVIGATION_AND_SEQUENTIAL_HELP",
+    "publishedStableUnchanged": true,
+    "priorPlatformCandidate": {
+      "version": "0.3.2-rc.1",
+      "source": "51439e7f0a83e62cfb63d494a43429250b13986f",
+      "artifact": 15227050568,
+      "archiveSha256": "c47d78e503eaccd769b4024b3685e7d93c420272acafa5436409f7756bfdfc98",
+      "qualificationRun": 46056058954
+    },
+    "qualifiedSource": {
+      "assistant": "8b5a62fcaf2ac2cd714dc8af4468d5ac4e4f5922",
+      "site": "004b90f1f50b19ca402e3846b36aa1af3df7ec9b",
+      "subject": "6852d55ae8e7100b480b2d5c0a10b92de1c7d467",
+      "skillPack": "1.6.1",
+      "run": 46060488224,
+      "sourceTests": {
+        "pass": 136,
+        "fail": 0,
+        "skipped": 0
+      },
+      "nativeDomainBrowser": {
+        "layouts": [
+          375,
+          1440
+        ],
+        "themes": [
+          "light",
+          "dark"
+        ],
+        "guidedNavigation": true,
+        "fieldQuestion": true,
+        "resultReader": true,
+        "directResultQuestion": true,
+        "sequentialForm": true,
+        "editableProposal": true,
+        "coldOffline": true
+      },
+      "scope": "SOURCE_AND_AUTOMATED_BROWSER_NO_REAL_MODEL"
+    },
+    "sharedModelCatalog": {
+      "owner": "Faust-S/knowledge",
+      "path": "packages/t3-core/integration-sources/bli1/catalog.mjs",
+      "version": 3,
+      "profiles": [
+        "light",
+        "balanced",
+        "extended"
+      ],
+      "unchanged": true
+    },
+    "inferenceEvidence": {
+      "priorGenericHardwareRun": 46014698884,
+      "priorGenericHardware": "PASS_REAL_QWEN_LIGHT_COLD_OFFLINE",
+      "softwareDomainRun": 46058573231,
+      "softwareDomain": "INSTALL_AND_COLD_LOAD_PASS; DOMAIN_GENERATION_TIMEOUT_ON_SOFTWARE_WEBGPU_ONLINE_AND_OFFLINE; WORKER_EXIT_NOT_OBSERVED",
+      "domainHardware": "NOT_YET_RUN_ON_THIS_CANDIDATE"
+    }
   }
 }
