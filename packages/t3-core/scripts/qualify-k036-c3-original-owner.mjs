@@ -5,7 +5,7 @@ import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from
 import { applyWorkspaceMethodRevision,inspectWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
 import { openK036C3QualificationOwner,captureK036C3CopyFixture,verifyK036C3CopyFixture } from './k036-c3-owner-qualification-adapter.mjs';
 import { projectProcessSourceObjectId } from '../src/modules/base/owners/project-process-source-owner.mjs';
-import { readWorkspaceMethodStageInputBasis,readWorkspaceMethodInputOverview,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodMaterialEvidence } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
+import { readWorkspaceMethodStageInputBasis,readWorkspaceMethodInputOverview,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodMaterialEvidence,buildWorkspaceMethodPersonalTaskDraft } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
 import { compareWorkspaceMethodAlternatives } from '../src/modules/base/owners/project-process-method-comparison.mjs';
 import { previewWorkspaceMethodAlternative,createWorkspaceMethodAlternativeThroughSourceOwner,readWorkspaceMethodAlternativeOrigin } from '../src/modules/base/owners/project-process-method-alternative.mjs';
 
@@ -273,6 +273,27 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   const lineage=await readWorkspaceMethodAlternativeOrigin({owner:reopened.owner,workspaceId:ws,projectId:alternativeId});
   same('same-ID Exchange preserves explicit original alternative lineage',lineage.state,'ORIGIN_VERIFIED');
   same('restored alternative resolves exact original historical source',exact(lineage.source.draft),exact(draft));
+  // Prepare a real root Agent Work against the original restored K036
+  // objects and text Asset. This is not an installed Agent write.
+  const personalProjectId='personal-root-project',personalMaterial=(await reopenedClient.t1.getObject(ws,materialId)).object;
+  const personal=await createWorkspaceMethodThroughSourceOwner({owner:reopened.owner,workspaceId:ws,objects:[personalMaterial],
+    draft:{templateId:'personal-root',templateRevision:'1',projectId:personalProjectId,name:'Personal research',
+      objective:'Analyse source',domainApplicability:['generic'],materials:[{object_id:materialId,revision:personalMaterial.revision}],
+      steps:[{id:'analyse',name:'Analyse',actor:'agent',instruction:'Prepare analysis',dependsOn:[],materialIds:[materialId]}]},
+    recordIds:{project:'personal-root-project@1',works:{[personalProjectId+'.analyse']:'personal-root-analyse@1'}},knowledgeAt:time});
+  const actualText='Original K036 text attachment\n';
+  await reopenedClient.t1.putAsset({workspace_id:ws,object_id:materialId,asset_id:'personal-root-text',
+    mime:'text/plain',bytes:new TextEncoder().encode(actualText),base_revision:0,event:{event_type:'qualification.personal-text',
+      idempotency_key:'qualification-personal-text'}});
+  const personalArgs={owner:reopened.owner,workspaceId:ws,projectId:personalProjectId,expected:personal.method,
+    stepId:'analyse',subjectKind:'PERSONAL',includeMaterialEvidence:true,resultSelections:[],
+    readObject:(...a)=>reopenedClient.t1.getObject(...a),listAssets:q=>reopenedClient.t1.listAssets(q),getAsset:(...a)=>reopenedClient.t1.getAsset(...a)};
+  const personalPreview=await previewWorkspaceMethodStageHandoff(personalArgs);
+  const personalPlan=await buildWorkspaceMethodPersonalTaskDraft({...personalArgs,expectedCandidateDigest:personalPreview.candidateDigest});
+  same('original K036 root personal draft has exact text attachment',personalPlan.draft.attachments[1].text,actualText);
+  same('original K036 root personal draft retains original object data',exact(JSON.parse(personalPlan.draft.attachments[0].text).data),exact(personalMaterial.data));
+  same('original K036 root personal draft provenance binds observed material digest',
+    JSON.parse(personalPlan.draft.attachments[2].text).handoff.materialEvidenceDigest,personalPreview.materialEvidence.materialEvidenceDigest);
   same('fixture owner and Exchange use only original database',(await indexedDB.databases()).map(d=>d.name),['iwxa-local']);
   return {status:'PASS_ORIGINAL_OWNER_FIXTURE_ONLY',recordCount:9,restoredPartial:true,copyBinding:'EXPLICIT_EPHEMERAL_FIXTURE_PASS_PRODUCTION_BLOCKED',
     currentMethodAddressedReads:{before:beforeReads,after:afterReads},unfilteredCatalog:{before:catalogBefore,after:catalogAfter},

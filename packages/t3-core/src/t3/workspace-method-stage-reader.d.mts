@@ -52,6 +52,13 @@ export type WorkspaceMethodPersonalDraftReceipt=Readonly<{
   candidateDigest:string;workspaceId:string;projectId:string;stepId:string;agentWorkspaceId:string;draftDigest:string|null;
   draftSaved:boolean;taskCreated:false;executionPerformed:false;modelInvoked:false;allAssetsProven:false;exactInputBindingProven:false;
 }>;
+export type WorkspaceMethodPersonalTaskInspection=Readonly<{
+  state:'ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED';workspaceId:string;projectId:string;stepId:string;
+  candidateDigest:string;agentWorkspaceId:string;taskId:string;resultId:string;taskDigest:string;
+  reviewId:string;acceptedDigest:string;acceptedSummarySha256:string;snapshotId:string;snapshotDigest:string;
+  projectionDigest:string;bundleDigest:string;declaredDraftInputsVerified:true;allAssetsProven:false;
+  exactInputBindingProven:false;workCompleted:false;resultReuseProven:false;executionAuthority:false;writeAuthorized:false;
+}>;
 export interface WorkspaceMethodStageReader {
   overview(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodInputOverview>;
   inspect(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodStageInspection>;
@@ -59,12 +66,13 @@ export interface WorkspaceMethodStageReader {
   inspectMaterialEvidence?(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodMaterialEvidence>;
   createPersonalDraft?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string}>):Promise<WorkspaceMethodPersonalDraftReceipt>;
   recoverPersonalDraft?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string}>):Promise<WorkspaceMethodPersonalDraftReceipt>;
+  inspectPersonalTask?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string;taskId:string}>):Promise<WorkspaceMethodPersonalTaskInspection>;
   previewContinuation(input:WorkspaceMethodStageRequest&Readonly<{predecessorStepId:string}>):Promise<WorkspaceMethodNativeInspection>;
   recoverContinuation(input:WorkspaceMethodStageRequest&Readonly<{predecessorStepId:string}>):Promise<WorkspaceMethodNativeInspection>;
 }
 export function createTrustedWorkspaceMethodStageReader(input:{
   kernel:unknown;accessForRead:(operation:string)=>unknown;currentWorkspace:unknown;
   sourceOwner:unknown;originalAgentResultOwner?:unknown;nativeContinuation?:unknown;nativeRecipientId?:string|null;
-  personalComposer?:unknown;confirmPersonalDraft?:(preview:unknown)=>boolean|Promise<boolean>;
+  personalTaskOwner?:unknown;personalComposer?:unknown;confirmPersonalDraft?:(preview:unknown)=>boolean|Promise<boolean>;
   isHostActive:()=>boolean;
 }):WorkspaceMethodStageReader;

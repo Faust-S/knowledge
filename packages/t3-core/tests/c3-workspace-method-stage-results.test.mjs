@@ -6,6 +6,7 @@ import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/own
 import { applyWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
 import { inspectWorkspaceMethodAgentPredecessorResults,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation,buildWorkspaceMethodPersonalTaskDraft } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
 import { createTrustedWorkspaceMethodStageReader } from '../src/t3/workspace-method-stage-reader.mjs';
+import { inspectOriginalPersonalWorkflowTask } from '../src/t3/workspace-method-personal-draft.mjs';
 import { createTrustedNativeContinuation } from '../src/t3/native-result-continuation.mjs';
 
 const ws='stage-result-workspace',projectId='research',time='2026-11-27T14:00:00Z';
@@ -504,4 +505,54 @@ test('personal draft Host permits only one outstanding approval and preserves or
   approve(true);
   assert.equal((await first).state,'DRAFT_CONFIRMED');assert.equal(c.writes(),1);
   assert.equal(c.view().local_model,'original-model');
+});
+
+async function personalTaskFixture(){
+  const f=await setup(),p=personalTextPort(),input=personalArgs(f,p);
+  const preview=await previewWorkspaceMethodStageHandoff(input),build=()=>buildWorkspaceMethodPersonalTaskDraft({...input,expectedCandidateDigest:preview.candidateDigest});
+  const plan=await build(),c=composerFixture(),hash=text=>createHash('sha256').update(text,'utf8').digest('hex');
+  const taskId='TASK-fixture',summary='Human reviewed analysis';
+  let run={task:{task_id:taskId,objective:plan.draft.text},result:{task_id:taskId,result_id:'RES-fixture',
+    task_digest:'a'.repeat(64),context_projection_digest:'b'.repeat(64),run_bundle_digest:'c'.repeat(64),
+    performed_external_actions:false,summary},
+    snapshot:{task_id:taskId,snapshot_id:'CSN-fixture',snapshot_digest:'d'.repeat(64),projection_digest:'b'.repeat(64),
+      bundle_digest:'c'.repeat(64),retrieval_refs:[],source_items:plan.draft.attachments.map((a,i)=>({
+        path:'attachments/'+String(i+1).padStart(2,'0')+'-'+a.name,origin:'interaction_attachment',sha256:hash(a.text),bytes:Buffer.byteLength(a.text)}))},
+    acceptedSource:{task_id:taskId,workspace_ref:'personal',contract_version:'PA.K01_ACCEPTED_RESULT_SOURCE/0.1.0',
+      state:'accepted',read_only:true,commercial_approval_claimed:false,result_id:'RES-fixture',review_id:'REV-fixture',
+      accepted_artifact_digest:'e'.repeat(64),revision:'sha256:'+hash(summary),content:summary}};
+  let reads=0,documents=0,hook=null;
+  const taskOwner={readAcceptedRun:async(id,binding)=>{assert.equal(id,taskId);assert.equal(binding.agentWorkspaceId,'personal');reads++;return structuredClone(run);},
+    taskDocumentSource:async(id,sid,path,digest,binding)=>{assert.equal(binding.agentWorkspaceId,'personal');documents++;
+      const a=plan.draft.attachments[Number(path.slice(12,14))-1];
+      const value={task_id:id,snapshot_id:sid,path,sha256:digest,text:a.text};
+      return hook?hook(value):value;}};
+  return {run,plan,c,build,reads:()=>reads,documents:()=>documents,hook:fn=>{hook=fn;},
+    inspect:()=>inspectOriginalPersonalWorkflowTask({plan,taskId,composer:c.port,taskOwner,guarded:fn=>fn(),refreshPlan:build})};
+}
+test('selected accepted personal Task matches original accepted run and exact declared text sources, not the editable draft',async()=>{
+  const f=await personalTaskFixture(),r=await f.inspect();
+  assert.equal(r.state,'ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED');assert.equal(r.declaredDraftInputsVerified,true);
+  assert.equal(r.exactInputBindingProven,false);assert.equal(r.workCompleted,false);assert.equal(r.resultReuseProven,false);
+  assert.equal(f.reads(),2);assert.equal(f.documents(),6);assert.equal(f.c.writes(),0);
+  assert.equal(JSON.stringify(r).includes('Human reviewed analysis'),false);
+});
+test('accepted Task verification rejects a different run, extra retrieval, altered objective and changed attachment bytes',async()=>{
+  for(const mutate of [r=>r.snapshot.bundle_digest='f'.repeat(64),r=>r.acceptedSource.workspace_ref='AREA-123456789012345678',
+    r=>r.acceptedSource.revision='sha256:'+'f'.repeat(64)]){
+    const f=await personalTaskFixture();mutate(f.run);
+    await assert.rejects(f.inspect(),code('T3_METHOD_PERSONAL_TASK_ACCEPTED_RUN_MISMATCH'));
+  }
+  for(const mutate of [r=>r.snapshot.retrieval_refs.push({id:'extra'}),r=>r.task.objective='changed',
+    r=>r.snapshot.source_items[0].sha256='f'.repeat(64)]){
+    const f=await personalTaskFixture();mutate(f.run);
+    await assert.rejects(f.inspect(),code('T3_METHOD_PERSONAL_TASK_INPUT_CHANGED'));
+  }
+  const f=await personalTaskFixture();f.hook(value=>({...value,text:'changed'}));
+  await assert.rejects(f.inspect(),code('T3_METHOD_PERSONAL_TASK_INPUT_CHANGED'));
+});
+test('accepted personal Task changed during verification is not reported as matched',async()=>{
+  const f=await personalTaskFixture();
+  f.hook(value=>{f.run.acceptedSource.accepted_artifact_digest='f'.repeat(64);return value;});
+  await assert.rejects(f.inspect(),code('T3_METHOD_PERSONAL_TASK_ACCEPTED_RUN_CHANGED'));
 });

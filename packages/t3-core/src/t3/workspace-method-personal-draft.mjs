@@ -1,6 +1,7 @@
 // W05.10. A thin consumer of the ORIGINAL local Agent SessionRuntime
 // composer_draft read/compare-and-save operation. No Task creation, Store,
 // queue, additional native owner, local model invocation, or transport.
+import {createHash} from 'node:crypto';
 import {canonicalStringify} from '../persistence/canonical-codec.mjs';
 const HEX=/^[a-f0-9]{64}$/;
 const AREA=/^(personal|AREA-[0-9a-f]{18})$/;
@@ -84,4 +85,73 @@ export async function saveOriginalPersonalWorkflowDraft({plan,refreshPlan,compos
   try{after=await read();}catch{return response('OUTCOME_UNKNOWN');}
   return sameDraft(after,fresh)&&canonicalStringify(after.local_model)===model?
     response('DRAFT_CONFIRMED',after):response('OUTCOME_UNKNOWN');
+}
+
+// W05.12: correlate the explicitly selected accepted original personal
+// Task and its actual accepted run, not the latest editable composer or a
+// different historical snapshot. The native owner must verify the ORIGINAL
+// Core Task/Result/Review chain and return its accepted-run snapshot.
+// No acceptance, publication, workflow completion, or new Task is written.
+const sha=text=>createHash('sha256').update(text,'utf8').digest('hex');
+export async function inspectOriginalPersonalWorkflowTask({plan,taskId,composer,taskOwner,guarded,refreshPlan}){
+  check(typeof taskId==='string'&&/^TASK-[A-Za-z0-9_-]{1,120}$/.test(taskId)
+    &&typeof composer?.currentBinding==='function'&&typeof taskOwner?.readAcceptedRun==='function'
+    &&typeof taskOwner?.taskDocumentSource==='function'&&typeof guarded==='function'&&typeof refreshPlan==='function',
+    'T3_METHOD_PERSONAL_TASK_ORIGINAL_OWNER_REQUIRED');
+  const binding=nativeBinding(await guarded(()=>composer.currentBinding()),plan.workspaceId);
+  const current=async()=>check(equal(nativeBinding(await guarded(()=>composer.currentBinding()),plan.workspaceId),binding),
+    'T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED');
+  const read=async()=>{
+    await current();
+    const value=structuredClone(await guarded(()=>taskOwner.readAcceptedRun(taskId,binding)));
+    await current();
+    const {task,result,snapshot,acceptedSource}=value??{};
+    check(task?.task_id===taskId&&result?.task_id===taskId&&snapshot?.task_id===taskId
+      &&acceptedSource?.task_id===taskId&&acceptedSource.workspace_ref===binding.agentWorkspaceId
+      &&acceptedSource.contract_version==='PA.K01_ACCEPTED_RESULT_SOURCE/0.1.0'
+      &&acceptedSource.state==='accepted'&&acceptedSource.read_only===true
+      &&acceptedSource.commercial_approval_claimed===false&&acceptedSource.result_id===result.result_id
+      &&HEX.test(result.task_digest??'')&&HEX.test(acceptedSource.accepted_artifact_digest??'')
+      &&typeof acceptedSource.review_id==='string'&&acceptedSource.review_id.startsWith('REV-')
+      &&typeof result.result_id==='string'&&result.result_id.startsWith('RES-')
+      &&typeof result.summary==='string'&&result.summary.trim()!==''&&result.summary===acceptedSource.content
+      &&acceptedSource.revision==='sha256:'+sha(result.summary)&&result.performed_external_actions===false
+      &&snapshot.projection_digest===result.context_projection_digest&&snapshot.bundle_digest===result.run_bundle_digest
+      &&HEX.test(snapshot.projection_digest??'')&&HEX.test(snapshot.bundle_digest??'')
+      &&HEX.test(snapshot.snapshot_digest??'')&&/^CSN-[A-Za-z0-9_-]+$/.test(snapshot.snapshot_id??''),
+      'T3_METHOD_PERSONAL_TASK_ACCEPTED_RUN_MISMATCH');
+    // Only the exact selected inputs from the prepared draft are checked.
+    // Additional retrievals or changed/extra attachments cannot masquerade
+    // as the same executed input basis. No claim about system/model prompts.
+    check(task.objective===plan.draft.text.trim()&&Array.isArray(snapshot.source_items)
+      &&Array.isArray(snapshot.retrieval_refs)&&snapshot.retrieval_refs.length===0
+      &&snapshot.source_items.length===plan.draft.attachments.length,
+      'T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
+    const expected=new Map(plan.draft.attachments.map((a,i)=>[
+      'attachments/'+String(i+1).padStart(2,'0')+'-'+a.name,{sha256:sha(a.text),bytes:Buffer.byteLength(a.text,'utf8'),text:a.text}]));
+    for(const item of snapshot.source_items){
+      const match=expected.get(item.path);
+      check(match&&item.origin==='interaction_attachment'&&item.sha256===match.sha256&&item.bytes===match.bytes,
+        'T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
+      const actual=await guarded(()=>taskOwner.taskDocumentSource(taskId,snapshot.snapshot_id,item.path,item.sha256,binding));
+      check(actual?.task_id===taskId&&actual.snapshot_id===snapshot.snapshot_id&&actual.path===item.path
+        &&actual.sha256===match.sha256&&actual.text===match.text,'T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
+      expected.delete(item.path);
+    }
+    check(expected.size===0,'T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
+    await current();
+    // Never project Task, Result, or document text to the Workspace UI.
+    return Object.freeze({taskId,resultId:result.result_id,taskDigest:result.task_digest,
+      reviewId:acceptedSource.review_id,acceptedDigest:acceptedSource.accepted_artifact_digest,
+      acceptedSummarySha256:sha(result.summary),snapshotId:snapshot.snapshot_id,snapshotDigest:snapshot.snapshot_digest,
+      projectionDigest:snapshot.projection_digest,bundleDigest:snapshot.bundle_digest});
+  };
+  const first=await read(),fresh=await refreshPlan();
+  check(fresh.candidateDigest===plan.candidateDigest&&equal(fresh.draft,plan.draft),'T3_METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED');
+  const last=await read();
+  check(equal(first,last),'T3_METHOD_PERSONAL_TASK_ACCEPTED_RUN_CHANGED');
+  return Object.freeze({state:'ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED',workspaceId:plan.workspaceId,projectId:plan.projectId,
+    stepId:plan.stepId,candidateDigest:plan.candidateDigest,agentWorkspaceId:binding.agentWorkspaceId,...last,
+    declaredDraftInputsVerified:true,allAssetsProven:false,exactInputBindingProven:false,
+    workCompleted:false,resultReuseProven:false,executionAuthority:false,writeAuthorized:false});
 }
