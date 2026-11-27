@@ -1,4 +1,4 @@
-name: D01 retained-input T3 reproducibility
+name: D01 original Learn assistant environment
 on:
   workflow_dispatch:
   push:
@@ -7,7 +7,7 @@ on:
     paths:
       - '.github/ci-requests/d01-hosting-freeze.json'
 concurrency:
-  group: d01-learn-t3-first-user-isolated
+  group: d01-learn-assistant-environment
   # Finish the running candidate. GitHub keeps at most one pending run in
   # this group, replacing an older pending candidate when a new one is queued.
   cancel-in-progress: false
@@ -16,9 +16,9 @@ permissions:
 jobs:
   t3:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
-    name: T3 retained-input reproducibility qualification
+    name: Exact Learn consultation environment
     runs-on: ubuntu-24.04
-    timeout-minutes: 110
+    timeout-minutes: 35
     permissions:
       contents: read
       actions: read
@@ -36,16 +36,16 @@ jobs:
         run: |
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-hosting-freeze \
-            --profile retained-input-reproduction \
-            --revision site=e745c22c44dce1de6d3446cfedaf0960110389d1 \
-            --revision subject=1e8700f4fd6f11c50db154f9f080b2406bef02ec \
+            --profile learn-original-assistant-environment \
+            --revision site=1ed3c3f44239caf564eeee0a5d15f5d7c46d0e80 \
+            --revision subject=adf9e4342242cbc1dfad4edbd4b2bf128fd8b8df \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1 \
             --revision core=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
             --revision assistant=5e3083788aa541921559de29d3457d4a52bbba00
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: e745c22c44dce1de6d3446cfedaf0960110389d1
+          ref: 1ed3c3f44239caf564eeee0a5d15f5d7c46d0e80
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -72,7 +72,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn
-          ref: 1e8700f4fd6f11c50db154f9f080b2406bef02ec
+          ref: adf9e4342242cbc1dfad4edbd4b2bf128fd8b8df
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -83,8 +83,8 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = e745c22c44dce1de6d3446cfedaf0960110389d1
-          test "$(git -C private/domain rev-parse HEAD)" = 1e8700f4fd6f11c50db154f9f080b2406bef02ec
+          test "$(git -C private/site rev-parse HEAD)" = 1ed3c3f44239caf564eeee0a5d15f5d7c46d0e80
+          test "$(git -C private/domain rev-parse HEAD)" = adf9e4342242cbc1dfad4edbd4b2bf128fd8b8df
           test "$(git -C original/core rev-parse HEAD)" = 326f725c44d69ac99f6b912241e9e8a6c3d716a5
           test "$(git -C private/assistant rev-parse HEAD)" = 5e3083788aa541921559de29d3457d4a52bbba00
           test "$(git -C private/t2 rev-parse HEAD)" = 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
@@ -96,6 +96,19 @@ jobs:
           run-id: 45395047723
           name: iwxa-t3-mobile-portable-candidate-326f725c44d69ac99f6b912241e9e8a6c3d716a5
           path: original/artifact
+      - name: Exact original subject knowledge and held-out consultation qualification
+        shell: bash
+        run: |
+          set -eu
+          cd private/domain
+          node --test --test-reporter=tap tests/assistant-skills.test.mjs >"$RUNNER_TEMP/d01-subject-assistant.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-subject-assistant.log" | cut -c1-160 || true; exit 1; }
+          grep -E '^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-subject-assistant.log"
+          node scripts/learn-skill-authoring.mjs check >/dev/null
+          cmp models/assistant-skills.json ../site/assets/learn-assistant-skills.json
+          cmp models/assistant-service-scope.json ../site/scripts/t3-inputs/assistant-service-scope.json
+          cmp models/assistant-query-routing-cases.json ../site/qa/d01-product-witness-2026-10-26/assistant-query-routing-cases.json
+          cmp models/assistant-consultation-cases.json ../site/qa/d01-product-witness-2026-10-26/assistant-consultation-cases.json
+          echo D01_ASSISTANT_EXACT_PROJECTION=PASS
       - name: T3 source and original offline controller tests
         shell: bash
         run: |
@@ -139,35 +152,22 @@ jobs:
           grep '^D01_T3_ORIGINAL_KERNEL_PASSPORTS=' "$RUNNER_TEMP/d01-t3-build.log"
           npm run verify:hosting-dist
           npm run audit:links
-      - name: Isolated retained-input build witness tests
+      - name: Browser prerequisites for real original assistant without a model
+        id: browser
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          cd "$D01_T2_SOURCE"
+          npm ci --no-audit --no-fund >"$RUNNER_TEMP/d01-assistant-browser-deps.log" 2>&1 || { echo D01_ASSISTANT_BROWSER_DEPS_FAIL; exit 1; }
+          npx playwright install --with-deps chromium >"$RUNNER_TEMP/d01-assistant-browser-install.log" 2>&1 || { echo D01_ASSISTANT_BROWSER_INSTALL_FAIL; exit 1; }
+      - name: Actual Learn assistant, query routing, explicit form and result context
+        timeout-minutes: 12
         working-directory: private/site
         shell: bash
         run: |
-          node --test --test-reporter=tap scripts/test-learn-t3-reproducibility.mjs >"$RUNNER_TEMP/d01-t3-repro-tests.log" 2>&1 || { echo D01_T3_REPRO_UNIT_FAIL; grep -E '^(not ok|# (tests|pass|fail) )' "$RUNNER_TEMP/d01-t3-repro-tests.log" | cut -c1-180; exit 1; }
-          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d01-t3-repro-tests.log"
-      - name: Two isolated ordinary builds with original checkouts unavailable
-        working-directory: private/site
-        timeout-minutes: 25
-        shell: bash
-        run: |
-          set -eu
-          # A private mount namespace masks the original source trees and
-          # prepared temporary Host; the network namespace has loopback only.
-          # The tested site keeps its own retained, verified inputs.
-          sudo -n unshare --mount --net --propagation private -- bash -euc '
-            ip link set lo up
-            empty=$(mktemp -d)
-            chmod 755 "$empty"
-            trap "rmdir \"$empty\"" EXIT
-            for p in "$3/original" "$3/private/assistant" "$3/private/t2" "$3/private/domain" "$4/d01-t3-host"; do
-              test -d "$p" || exit 1
-              mount --bind "$empty" "$p"
-            done
-            runuser -u "$1" -- "$2" scripts/verify-learn-t3-reproducibility.mjs
-          ' _ "$(id -un)" "$(command -v node)" "$GITHUB_WORKSPACE" "$RUNNER_TEMP" >"$RUNNER_TEMP/d01-t3-repro.log" 2>&1 || {
-            echo D01_T3_REPRO_FAIL
-            grep -Eo '(D01_|T3_|ERR_)[A-Z0-9_]+(:[A-Z0-9_]+)*|AssertionError|TypeError|ReferenceError|SyntaxError|ENOENT|EACCES|MODULE_NOT_FOUND|Operation not permitted' "$RUNNER_TEMP/d01-t3-repro.log" | sort -u | head -80 || true
-            grep -Eo 'D01_T3_REPRO_DIST_MISMATCH:\{"added":[0-9]+,"removed":[0-9]+,"changed":[0-9]+\}' "$RUNNER_TEMP/d01-t3-repro.log" | head -5 || true
-            exit 1
-          }
-          grep '^D01_T3_REPRODUCTION=' "$RUNNER_TEMP/d01-t3-repro.log"
+          set +e
+          node qa/d01-product-witness-2026-10-26/t3-assistant-environment-witness.mjs >"$RUNNER_TEMP/d01-assistant-browser.log" 2>&1
+          code=$?
+          set -e
+          grep -E '^D01_T3_ASSISTANT_' "$RUNNER_TEMP/d01-assistant-browser.log" | cut -c1-1000 || true
+          exit "$code"
