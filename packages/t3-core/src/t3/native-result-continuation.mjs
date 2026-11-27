@@ -215,7 +215,7 @@ export function createTrustedNativeContinuation({
       rethrowDefiniteNativeRefusal(error);
       // Only an unavailable native receipt is an uncertain native outcome.
       // A changed Workspace or denied original D1 read must still reject.
-      await state.unchanged();
+      await state.readSource();
       return Object.freeze({status:"OUTCOME_UNKNOWN",operationId});
     }
     await state.unchanged();
@@ -252,6 +252,9 @@ export function createTrustedNativeContinuation({
       try{
         const prior=await probePrior(state,operationId);
         if(prior!==null)return prior;
+        // Do not prompt for a stale Result if the original receipt lookup
+        // overlapped a new source revision or revocation.
+        await state.readSource();
         const approval=await confirmHuman({
           recipientId:recipientId,
           operationId,reference:copy(state.reference,
@@ -261,13 +264,17 @@ export function createTrustedNativeContinuation({
         if(approval!==true)return Object.freeze({status:"USER_CANCELLED"});
         // The reference may have advanced while a human reviewed the proposal.
         // Repeat ORIGINAL signed Kernel readback before the only native write.
-        const current=await state.readSource();
+        await state.readSource();
         await state.unchanged();
         // An independent native process could have committed during Human
         // confirmation. One final durable read before dispatch protects the
         // installed product even when this Host has never seen the Result.
         const committedDuringConsent=await probePrior(state,operationId);
         if(committedDuringConsent!==null)return committedDuringConsent;
+        // The final recipient receipt is asynchronous too. Re-read the
+        // exact signed source AFTER it, immediately before native dispatch.
+        // The installed owner remains responsible for its own atomic check.
+        const current=await state.readSource();
         // Set before invoking the original native owner: failure may mean
         // that its durable write committed but the acknowledgement was lost.
         dispatched.add(operationId);

@@ -366,7 +366,7 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
   const ref={workspace_id:"w",object_id:source.object_id,schema_id:"iwxa.agent.accepted-result" as const,revision:1};
   const makeInspection=(stepId:string):WorkspaceMethodStageInspection=>({
     state:"NO_PREDECESSOR_RESULTS_REQUIRED",stageInput:{state:"INPUT_REFERENCES_VERIFIED",basis:{workspaceId:"w",projectId:"research",stepId,stageRef:stepId==="analyse"?a:b},
-      inputBasisDigest:"a".repeat(64)},results:[],executionAuthority:false,writeAuthorized:false,resultReuseProven:false,exactInputBindingProven:false,atomicSnapshot:false});
+      inputBasisDigest:(stepId==="analyse"?"a":"b").repeat(64)},results:[],executionAuthority:false,writeAuthorized:false,resultReuseProven:false,exactInputBindingProven:false,atomicSnapshot:false});
   function fixture(){
     const overview=vi.fn(async()=>report);
     const previewHandoff=vi.fn(async(input:Parameters<WorkspaceMethodStageReader["previewHandoff"]>[0]):Promise<WorkspaceMethodHandoffPreview>=>({
@@ -437,4 +437,53 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     expect(screen.queryByText(/Работ: 2/)).toBeNull();
     expect(f.previewHandoff).not.toHaveBeenCalled();
   });
+  it("invalidates verified overview on an observed material revision change, not an unrelated catalog edit",async()=>{
+    const f=fixture(),material={...objects[0],object_id:"material",revision:1},other={...objects[0],object_id:"unrelated"};
+    f.overview.mockResolvedValue({...report,materials:[{object_id:"material",revision:1,state:"CURRENT",current:null}]});
+    const ui=render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[material,other]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    await screen.findByText(/Работ: 2/);
+    ui.rerender(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[material,{...other,revision:2}]} selectedObjectIds={[]}/>);
+    expect(screen.getByText(/Работ: 2/)).toBeTruthy();
+    ui.rerender(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[{...material,revision:2},other]} selectedObjectIds={[]}/>);
+    expect(screen.queryByText(/Работ: 2/)).toBeNull();
+    await screen.findByText("Материалы изменились. Проверьте входы заново.");
+    ui.rerender(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[material,other]} selectedObjectIds={[]}/>);
+    expect(screen.queryByText(/Работ: 2/)).toBeNull();
+  });
+  it("does not resurrect a late native receipt after the externally selected Result disappears and returns",async()=>{
+    const f=fixture();let release:(v:WorkspaceMethodNativeInspection)=>void=()=>{};
+    const saved=await f.recoverContinuation();f.recoverContinuation.mockClear();
+    f.recoverContinuation.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
+    const ui=render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[source]} selectedObjectIds={[source.object_id]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:/Проверка результатов/}));
+    fireEvent.change(screen.getByLabelText("Результат: Анализ материалов"),{target:{value:JSON.stringify([source.object_id,1])}});
+    fireEvent.change(screen.getByLabelText("Предшественник для проверки передачи"),{target:{value:"analyse"}});
+    fireEvent.click(screen.getByRole("button",{name:"Проверить квитанцию"}));
+    expect(f.recoverContinuation).toHaveBeenCalledTimes(1);
+    ui.rerender(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[source]} selectedObjectIds={[]}/>);
+    ui.rerender(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[source]} selectedObjectIds={[source.object_id]}/>);
+    fireEvent.change(screen.getByLabelText("Результат: Анализ материалов"),{target:{value:JSON.stringify([source.object_id,1])}});
+    fireEvent.change(screen.getByLabelText("Предшественник для проверки передачи"),{target:{value:"analyse"}});
+    release(saved);
+    await waitFor(()=>expect(screen.queryByTestId("workflow-native-receipt")).toBeNull());
+    expect(f.recoverContinuation).toHaveBeenCalledTimes(1);
+  });
+  it("refuses a recipient receipt that names a different original Result reference",async()=>{
+    const f=fixture(),saved=await f.recoverContinuation();f.recoverContinuation.mockClear();
+    f.recoverContinuation.mockResolvedValueOnce({...saved,nativeContinuation:{...saved.nativeContinuation!,
+      preview:{...saved.nativeContinuation!.preview,reference:{...ref,revision:2}}}});
+    render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[source]} selectedObjectIds={[source.object_id]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:/Проверка результатов/}));
+    fireEvent.change(screen.getByLabelText("Результат: Анализ материалов"),{target:{value:JSON.stringify([source.object_id,1])}});
+    fireEvent.change(screen.getByLabelText("Предшественник для проверки передачи"),{target:{value:"analyse"}});
+    fireEvent.click(screen.getByRole("button",{name:"Проверить квитанцию"}));
+    await screen.findByRole("alert");
+    expect(screen.queryByTestId("workflow-native-receipt")).toBeNull();
+  });
+
 });

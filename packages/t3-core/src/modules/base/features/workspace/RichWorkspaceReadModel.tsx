@@ -719,7 +719,7 @@ export function RichWorkspaceReadModel(props: {
         </div>
       )}
 
-      {props.methodWorkflow && props.catalogReady !== false && props.methodWorkflow.workspaceId === workspace.workspace_id && (
+      {props.methodWorkflow && props.methodWorkflow.workspaceId === workspace.workspace_id && (
         <WorkspaceMethodWorkflowPanel binding={props.methodWorkflow} objects={objects}
           selectedObjectIds={restorationNeedsReview ? [] : selectedObjectIds} />
       )}

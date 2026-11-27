@@ -51,6 +51,15 @@ function message(error:unknown){
   return /CHANGED|STALE|MISMATCH/.test(code)?"Исходные данные изменились. Проверьте методику и материалы заново.":
     /DENIED|PERMITTED|PERMISSION|OWNER_REQUIRED/.test(code)?"Оригинальный владелец или доступ недоступен.": "Не удалось подтвердить исходные данные.";
 }
+// The catalog is a presentation signal only, never proof of a current
+// material or permission. A change to an observed material invalidates a
+// previously verified screen; the original reader must verify it again.
+function materialCatalogKey(report:WorkspaceMethodInputOverview,objects:readonly ObjectRecord[]){
+  const wanted=new Set(report.materials.map(row=>row.object_id));
+  return JSON.stringify(objects.filter(row=>row.workspace_id===report.workspaceId&&wanted.has(row.object_id))
+    .map(row=>[row.object_id,row.schema_id,row.schema_version,row.revision,!!row.deleted,row.deleted_at??null])
+    .sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
+}
 type Detail = {kind:"handoff";value:WorkspaceMethodHandoffPreview}|{kind:"native";value:WorkspaceMethodNativeInspection};
 function bindingKey(binding:WorkspaceMethodWorkflowBinding){
   return JSON.stringify([binding.contextEpoch,binding.workspaceId,binding.projectId,binding.expected.projectRef,
@@ -67,18 +76,25 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
   binding:WorkspaceMethodWorkflowBinding;objects:readonly ObjectRecord[];selectedObjectIds:readonly string[];
 }){
   const reader=binding.reader;
-  const [overview,setOverview]=useState<{reader:WorkspaceMethodStageReader;value:WorkspaceMethodInputOverview}|null>(null);
+  const [overview,setOverview]=useState<{reader:WorkspaceMethodStageReader;value:WorkspaceMethodInputOverview;materialKey:string}|null>(null);
   const [focus,setFocus]=useState("");
   const [selections,setSelections]=useState<Record<string,string>>({});
   const [nativeStep,setNativeStep]=useState("");
   const [detail,setDetail]=useState<{reader:WorkspaceMethodStageReader;key:string;report:Detail}|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
-  const sequence=useRef(0),liveReader=useRef(reader);
-  liveReader.current=reader;
+  const sequence=useRef(0),liveReader=useRef(reader),liveObjects=useRef(objects);
+  liveReader.current=reader;liveObjects.current=objects;
   useEffect(()=>{sequence.current++;setOverview(null);setDetail(null);setSelections({});setFocus("");setNativeStep("");setBusy(false);setError("");
     return ()=>{sequence.current++;};},[reader]);
-  const visible=overview?.reader===reader?overview.value:null;
+  const materialKey=useMemo(()=>overview?materialCatalogKey(overview.value,objects):null,[overview,objects]);
+  const overviewStale=overview!==null&&materialKey!==overview.materialKey;
+  useEffect(()=>{
+    if(!overviewStale)return;
+    sequence.current++;setOverview(null);setDetail(null);setSelections({});setNativeStep("");setFocus("");setBusy(false);
+    setError("Материалы изменились. Проверьте входы заново.");
+  },[overviewStale]);
+  const visible=overview?.reader===reader&&!overviewStale?overview.value:null;
   const stage=visible?.stages.find(row=>row.stepId===focus)??visible?.stages[0];
   const candidates=useMemo(()=>{
     const byId=new Map(objects.map(row=>[row.object_id,row]));
@@ -98,7 +114,13 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     const reference=candidates.get(selections[stepId]??"");return reference?[{stepId,reference}]:[];
   });
   const duplicateResults=new Set(resultSelections.map(row=>row.reference.object_id)).size!==resultSelections.length;
-  const detailKey=JSON.stringify([stage?.stepId??null,resultSelections,nativeStep,[...candidates.keys()]]);
+  const candidateKey=JSON.stringify([...candidates.keys()].sort());
+  useEffect(()=>{
+    // Even an externally removed selection that later returns cannot
+    // resurrect a pending or completed preview for the earlier selection.
+    sequence.current++;setDetail(null);setSelections({});setNativeStep("");setBusy(false);
+  },[candidateKey]);
+  const detailKey=JSON.stringify([stage?.stepId??null,resultSelections,nativeStep,candidateKey]);
   const liveDetailKey=useRef(detailKey);liveDetailKey.current=detailKey;
   const visibleDetail=detail?.reader===reader&&detail.key===detailKey?detail.report:null;
   const request:WorkspaceMethodReaderSelection={workspaceId:binding.workspaceId,projectId:binding.projectId,expected:binding.expected};
@@ -106,12 +128,16 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     sequence.current++;setDetail(null);setBusy(false);setError("");
   }
   const checkOverview=async()=>{
-    const epoch=++sequence.current;setBusy(true);setError("");setDetail(null);setOverview(null);setSelections({});setNativeStep("");
+    const epoch=++sequence.current,startObjects=objects;
+    setBusy(true);setError("");setDetail(null);setOverview(null);setSelections({});setNativeStep("");
     try{
       const report=await reader.overview(request);
       if(sequence.current!==epoch||liveReader.current!==reader)return;
       if(!exactOverview(report,binding))throw Object.assign(Error("invalid"),{code:"METHOD_SOURCE_MISMATCH"});
-      setOverview({reader,value:report});setFocus(report.stages[0]?.stepId??"");
+      const materialKey=materialCatalogKey(report,startObjects);
+      if(materialKey!==materialCatalogKey(report,liveObjects.current))
+        throw Object.assign(Error("changed"),{code:"METHOD_MATERIAL_CHANGED"});
+      setOverview({reader,value:report,materialKey});setFocus(report.stages[0]?.stepId??"");
     }catch(err){if(sequence.current===epoch&&liveReader.current===reader)setError(message(err));}
     finally{if(sequence.current===epoch&&liveReader.current===reader)setBusy(false);}
   };
@@ -131,7 +157,17 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
       const basis=value.stageInput.basis;
       if(basis.workspaceId!==binding.workspaceId||basis.projectId!==binding.projectId||basis.stepId!==stage.stepId
           ||!sameRef(basis.stageRef,stage.workRef)||value.executionAuthority!==false||value.writeAuthorized!==false
-          ||report.value.dispatchAuthorized!==false)throw Object.assign(Error("invalid"),{code:"METHOD_SOURCE_MISMATCH"});
+          ||report.value.dispatchAuthorized!==false||value.stageInput.inputBasisDigest!==stage.inputBasisDigest)
+        throw Object.assign(Error("invalid"),{code:"METHOD_SOURCE_MISMATCH"});
+      if(report.kind==="native"&&report.value.nativeContinuation){
+        const native=report.value.nativeContinuation;
+        const selected=resultSelections.find(row=>row.stepId===nativeStep)?.reference;
+        const ref=native.preview.reference;
+        if(native.predecessorStepId!==nativeStep||!selected||ref.workspace_id!==selected.workspace_id
+            ||ref.object_id!==selected.object_id||ref.schema_id!==selected.schema_id||ref.revision!==selected.revision
+            ||(native.receipt&&native.receipt.operationId!==native.preview.operationId)||report.value.targetWorkBound!==false)
+          throw Object.assign(Error("invalid"),{code:"METHOD_NATIVE_RECEIPT_MISMATCH"});
+      }
       setDetail({reader,key,report});
     }catch(err){if(stillCurrent())setError(message(err));}
     finally{if(sequence.current===epoch&&liveReader.current===reader)setBusy(false);}
@@ -145,6 +181,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     {busy&&<p role="status" className="text-xs text-slate-300">Проверка оригинальных данных…</p>}
     {error&&<p role="alert" className="text-xs text-amber-200">{error}</p>}
     {visible&&<div className="space-y-3">
+      <p className="text-xs text-slate-400">Снимок последней проверки. Не является разрешением на запуск.</p>
       <p className="text-xs text-slate-300">Работ: {visible.counts.total}. Входы подтверждены: {visible.counts.inputReferencesVerified}. Материалы требуют проверки: {visible.counts.materialReviewRequired}.</p>
       <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="space-y-1 max-h-80 overflow-y-auto" aria-label="Работы методики">
