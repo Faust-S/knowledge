@@ -1,0 +1,21 @@
+{
+  "preparedSha": "c24bf2256af8a0efaf95decb4d65a41dc2e01701",
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-rc6-publish",
+  "source": "3e8c40fc5a80866f32f4547f1780ebef525c964c",
+  "platformRun": 46048628242,
+  "platformArtifact": 15222879527,
+  "deliveryRun": 46050260479,
+  "deliveryArtifact": 15224800571,
+  "evidenceArtifact": 15224970481,
+  "tag": "t3-platform-v0.3.1-rc.6",
+  "assets": {
+    "platform-inputs.zip": "bc52020b421acd334b7c5a8db8672e153933c767159609db06239f784e6ee13e",
+    "candidate-receipt.json": "07c5e5509a9d3fdeca24850f7882f7c589dc3c7da63111036f044d2b7cfab6cd",
+    "t3-platform-inputs.json": "9a39448eefb9ceffd8e898a6faa395fc993df7481e01fe9228ff5e10c7e4f290",
+    "t3-platform-inputs.sha256": "de6abbe006acc86426e134092d60a869dd89037c4641e61c89fc9d4c1cc67490",
+    "acceptance-host-loopback-windows-x64.zip": "1950e47423d0878ed979192c66c831cdcbdc0e7da06aa332b73c7ae6db66d069",
+    "acceptance-host-loopback-receipt.json": "11891cf3b087b569e3f325eb70b41cdc80f61b5ca6cfbfd89bbe251b66ab1ecf",
+    "result.json": "5fade7991bca5cd805efd7d8c40cf745677e51580c35a05cde2c860b29917b73"
+  }
+}
