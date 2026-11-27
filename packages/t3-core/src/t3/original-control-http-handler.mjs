@@ -146,7 +146,7 @@ export function createOriginalControlHttpHandler({
   // is eligible; ordinary domain routes always remain parent-less.
   installedParentOrigin=null,
   reconciliationPortFor=null,nativeD7PortFor=null,nativeD6PortFor=null,
-  originalKernelRelayFor=null,installedNetworkScope=null,
+  originalKernelRelayFor=null,installedNetworkScope=null,originalRegistryExportWorkspaceId=null,
 }={}){
   requireThat(typeof origin==="string"&&LOCAL.test(origin)&&
     new URL(origin).origin===origin,"T3_D1_CONTROL_ORIGIN_REQUIRED");
@@ -161,6 +161,10 @@ export function createOriginalControlHttpHandler({
   const installedScope=installedNetworkScope===null?null:normalizeOriginalInstalledNetworkScope(installedNetworkScope);
   requireThat(installedScope===null||(splitOrigin&&typeof originalKernelRelayFor==="function"),
     "T3_ORIGINAL_INSTALLED_NETWORK_SCOPE_INVALID");
+  requireThat(originalRegistryExportWorkspaceId===null||
+    (installedScope===null&&splitOrigin&&serviceId==="iwxa.admin-center.workspace"&&
+      /^workspace:registry:[a-f0-9]{64}$/.test(originalRegistryExportWorkspaceId)&&
+      typeof originalKernelRelayFor==="function"),"T3_ORIGINAL_REGISTRY_EXPORT_SCOPE_INVALID");
   if(splitOrigin)requireThat(
     typeof uiOrigin==="string"&&/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(uiOrigin)&&
     new URL(uiOrigin).origin===uiOrigin&&uiOrigin!==origin&&
@@ -391,6 +395,7 @@ export function createOriginalControlHttpHandler({
         }:{
           schema:"IWXA_T3_TRUSTED_KERNEL_REALM/1",
           ui_origin:uiOrigin,service_id:serviceId,
+          ...(originalRegistryExportWorkspaceId===null?{}:{registry_export_workspace_id:originalRegistryExportWorkspaceId}),
           ...(installedScope===null?{}:{installed_network_scope:installedScope,
             ...(installedScope.role==="SOURCE"?{local_source_capture:{schema:"IWXA_T4_ORIGINAL_LOCAL_SOURCE_CAPTURE/1",
               workspace_id:installedScope.sourceWorkspaceId}}:{})}),

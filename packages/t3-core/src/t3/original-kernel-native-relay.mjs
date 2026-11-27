@@ -86,6 +86,7 @@ function normalizeNetworkOwner(networkOwner){
 export function createOriginalKernelNativeRelay({
   currentEpoch,onAttach,onDetach=()=>{},timeoutMs=20000,
   idleLeaseMs=30000,networkOwner=null,originalRegistryScope=null,networkActivation=null,
+  originalRegistryExportWorkspaceId=null,
 }={}){
   check(typeof currentEpoch==="function"&&typeof onAttach==="function"&&
     typeof onDetach==="function"&&Number.isSafeInteger(timeoutMs)&&
@@ -113,6 +114,13 @@ export function createOriginalKernelNativeRelay({
   check(originalRegistryScope===null||(ID(originalRegistryScope.workspaceId)&&ID(originalRegistryScope.objectId)&&
     originalRegistryScope.workspaceId!==network?.localSource?.workspaceId),"T3_ORIGINAL_REGISTRY_RELAY_SCOPE_INVALID");
   const registryScope=originalRegistryScope===null?null:Object.freeze({workspaceId:originalRegistryScope.workspaceId,objectId:originalRegistryScope.objectId});
+  // First-use Admin prepares the signed invitation with the ordinary local
+  // T3 Host, before either peer is connected. The existing private T2
+  // Exchange is available ONLY for that independently selected Registry.
+  check(originalRegistryExportWorkspaceId===null||
+    (networkOwner===null&&activation===null&&registryScope===null&&
+      /^workspace:registry:[a-f0-9]{64}$/.test(originalRegistryExportWorkspaceId)),
+    "T3_ORIGINAL_REGISTRY_EXPORT_SCOPE_INVALID");
   const registryContext=registryScope?new AsyncLocalStorage():null;
   let live=null,pending=null,closed=false,nextId=1,attaching=null;
   let reservation=null,wakeTask=null,localSourceTask=null,historyTask=null;
@@ -197,7 +205,12 @@ export function createOriginalKernelNativeRelay({
       service_id:grants.service_id,mode:grants.mode??"unknown",
     }),
     hasOperation:id=>Object.values(METHODS).includes(id)&&
-      grants.granted_operations.includes(id),
+      grants.granted_operations.includes(id)||
+      id==="t2.exportPackage"&&originalRegistryExportWorkspaceId!==null&&
+        live?.sessionId===sessionId&&live.registryExchangeOperations.includes(id),
+    ...(originalRegistryExportWorkspaceId===null?{}:{exportPackage:options=>{
+      same(sessionId,epoch);return registryExchangeDispatch(live,"exportPackage",[options]);
+    }}),
     commitObjectGraph:input=>dispatch("commitObjectGraph",[input],epoch,sessionId),
     getWorkspace:ws=>dispatch("getWorkspace",[ws],epoch,sessionId),
     createWorkspace:input=>dispatch("createWorkspace",[input],epoch,sessionId),
@@ -332,10 +345,12 @@ export function createOriginalKernelNativeRelay({
   // connection. SOURCE may import only during the original activation
   // lease; RECIPIENT may export only its exact management partition.
   const registryExchangeDispatch=async(state,method,args)=>{
-    const scope=registryScope,lease=registryContext?.getStore(),op=REGISTRY_EXCHANGE_METHODS[method];
-    check(scope&&activation?.installedScope&&liveState(state)&&state.registryExchangeOperations.includes(op),
+    const scope=registryScope??(originalRegistryExportWorkspaceId===null?null:
+      {workspaceId:originalRegistryExportWorkspaceId,objectId:"t3.access.signed-registry"});
+    const lease=registryContext?.getStore(),op=REGISTRY_EXCHANGE_METHODS[method];
+    check(scope&&(activation?.installedScope||originalRegistryExportWorkspaceId!==null)&&liveState(state)&&state.registryExchangeOperations.includes(op),
       "T3_ORIGINAL_REGISTRY_EXCHANGE_NOT_CONNECTED");
-    const source=activation.role==="SOURCE";
+    const source=activation?.role==="SOURCE";
     const active=()=>liveState(state)&&(source?
       !state.networkReady&&lease?.state===state&&lease.active()&&activationTask?.state===state:
       !lease&&reservation===null&&wakeTask===null&&localSourceTask===null&&historyTask===null&&activationTask===null&&
@@ -639,7 +654,8 @@ export function createOriginalKernelNativeRelay({
         const grants=clone(payload.sessionInfo);
         const registryExchangeOperations=payload.registryExchangeOperations??[];
         check(Array.isArray(registryExchangeOperations)&&new Set(registryExchangeOperations).size===registryExchangeOperations.length&&
-          registryExchangeOperations.every(op=>activation?.installedScope&&originalRegistryExchangeOperations(activation.role).includes(op)),
+          registryExchangeOperations.every(op=>activation?.installedScope&&originalRegistryExchangeOperations(activation.role).includes(op)||
+            originalRegistryExportWorkspaceId!==null&&grants.service_id==="iwxa.admin-center.workspace"&&op==="t2.exportPackage"),
           "T3_ORIGINAL_REGISTRY_EXCHANGE_OPERATIONS_INVALID");
         // Read-only Workspace preflight is part of the SAME native D3
         // apply transaction. Never advertise an APPLY-capable binding that

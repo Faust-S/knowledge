@@ -25,6 +25,7 @@ const reject=(code:string)=>Object.assign(new Error(code),{code});
 type RealmConfig={schema:"IWXA_T3_TRUSTED_KERNEL_REALM/1";
   ui_origin:string;service_id:string;
   installed_network_scope?:OriginalInstalledNetworkScope;
+  registry_export_workspace_id?:string;
   local_source_capture?:{schema:"IWXA_T4_ORIGINAL_LOCAL_SOURCE_CAPTURE/1";workspace_id:string}};
 
 async function trustedConfig():Promise<RealmConfig>{
@@ -42,6 +43,10 @@ async function trustedConfig():Promise<RealmConfig>{
      typeof obj.service_id!=="string"||
      !/^[A-Za-z0-9][A-Za-z0-9._-]{1,159}$/.test(obj.service_id))
     throw reject("T3_D1_TRUSTED_REALM_CONFIG_INVALID");
+  if(obj.registry_export_workspace_id!==undefined&&
+    (obj.installed_network_scope!==undefined||obj.service_id!=="iwxa.admin-center.workspace"||
+      !/^workspace:registry:[a-f0-9]{64}$/.test(obj.registry_export_workspace_id)))
+    throw reject("T3_ORIGINAL_REGISTRY_EXPORT_SCOPE_INVALID");
   const capture=obj.local_source_capture;
   if(capture!==undefined&&(!capture||capture.schema!=="IWXA_T4_ORIGINAL_LOCAL_SOURCE_CAPTURE/1"||
       typeof capture.workspace_id!=="string"||capture.workspace_id.length===0||capture.workspace_id.length>256))
@@ -73,13 +78,14 @@ async function attachOriginalNativeKernelRelay(
   sourceRoute?:OriginalLocalSourceMutationRoute,
   installedScope?:OriginalInstalledNetworkScope,
   registryExchange?:ReturnType<typeof createKernelFacade>,
+  registryExportWorkspaceId?:string,
 ):Promise<void>{
   const originalMethods=new Set([
     "commitObjectGraph","getWorkspace","getObject","listEventsSince","createWorkspace",
   ]);
-  const registryExchangeOperations=installedScope&&registryExchange?
-    originalRegistryExchangeOperations(installedScope.role).filter(op=>registryExchange.grantedOperations.includes(
-      op as (typeof registryExchange.grantedOperations)[number])):[];
+  const registryExchangeOperations=registryExchange?
+    (installedScope?originalRegistryExchangeOperations(installedScope.role):registryExportWorkspaceId?["t2.exportPackage"]:[])
+      .filter(op=>registryExchange.grantedOperations.includes(op as (typeof registryExchange.grantedOperations)[number])):[];
   const registryExchangeMethods=new Set(Object.entries(ORIGINAL_REGISTRY_EXCHANGE_METHODS)
     .filter(([,op])=>registryExchangeOperations.includes(op)).map(([name])=>name));
   for(const name of registryExchangeMethods)originalMethods.add(name);
@@ -98,7 +104,7 @@ async function attachOriginalNativeKernelRelay(
     localSourceWorkspaceId?:string;localSourceMutationMethods?:string[]}|null=null;
   try{
     connected=await owner.originalKernelRelay("attach",{sessionInfo:info,networkRelayVersion:1,networkActivationVersion:1,
-      ...(installedScope?{installedNetworkScope:installedScope,registryExchangeOperations}:{}),
+      ...(installedScope?{installedNetworkScope:installedScope,registryExchangeOperations}:registryExportWorkspaceId?{registryExchangeOperations}:{}),
       ...(sourceRoute?{localSourceMutationVersion:1,localSourceGraphVersion:1}:{})});
   }catch(error){
     const code=(error as {code?:string}|null)?.code;
@@ -346,7 +352,8 @@ async function attach(event:MessageEvent){
     // UI-facing T2 interface even when this independent binding is absent.
     void attachOriginalNativeKernelRelay(
       owner,createKernelFacade({session:originalSession}),originalSession,sourceRoute,cfg.installed_network_scope,
-      cfg.installed_network_scope&&privateExchange?createKernelFacade({session:privateExchange}):undefined,
+      (cfg.installed_network_scope||cfg.registry_export_workspace_id)&&privateExchange?createKernelFacade({session:privateExchange}):undefined,
+      cfg.registry_export_workspace_id,
     ).catch(()=>{
       // No false APPLY availability: native relay clears an incomplete
       // binding itself and never replays a possibly written graph.
