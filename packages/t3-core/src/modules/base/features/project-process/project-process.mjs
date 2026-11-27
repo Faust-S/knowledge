@@ -183,8 +183,36 @@ function methodCreationRecordId(value) {
   return value;
 }
 
+// Optional immutable origin of an independently created alternative. This
+// references original source revisions, never a current-head alias or grant.
+function normalizeMethodAlternativeOrigin(value,projectId){
+  methodRecord(value,['version','workspaceId','projectId','projectRef','workRefs'],'alternative origin');
+  if(value.version!==1||typeof value.workspaceId!=='string'||!value.workspaceId||value.workspaceId.length>128
+      ||value.workspaceId.trim()!==value.workspaceId||/[\u0000-\u001f]/u.test(value.workspaceId)
+      ||!METHOD_STAGE_ID.test(value.projectId)||value.projectId===projectId)methodError('alternative origin scope');
+  const workspace=encodeURIComponent(value.workspaceId),originProject=value.projectId;
+  const ids=new Set(),records=new Set();
+  const normalizeRef=(ref,kind)=>{
+    methodRecord(ref,['family','objectId','recordId','revision'],'alternative origin ref');
+    const prefix=kind+':'+workspace+':'+originProject;
+    const correctObject=kind==='project'?ref.objectId===prefix
+      :typeof ref.objectId==='string'&&ref.objectId.startsWith(prefix+'.')&&METHOD_STAGE_ID.test(ref.objectId.slice(prefix.length+1));
+    const recordId=methodCreationRecordId(ref.recordId);
+    if(ref.family!=='iwxa.'+kind||!correctObject||!Number.isSafeInteger(ref.revision)||ref.revision<1
+        ||ids.has(ref.objectId)||records.has(recordId))methodError('alternative origin identity');
+    ids.add(ref.objectId);records.add(recordId);
+    return Object.freeze({family:ref.family,objectId:ref.objectId,recordId,revision:ref.revision});
+  };
+  const projectRef=normalizeRef(value.projectRef,'project');
+  const workRefs=methodDenseArray(value.workRefs,64,'alternative origin works',1).map(ref=>normalizeRef(ref,'work'));
+  workRefs.sort((a,b)=>a.objectId<b.objectId?-1:a.objectId>b.objectId?1:0);
+  return Object.freeze({version:1,workspaceId:value.workspaceId,projectId:originProject,projectRef,workRefs:Object.freeze(workRefs)});
+}
+
 function normalizeMethodCreation(value,projectId){
-  methodRecord(value,['version','projectRecordId','steps'],'creation');
+  const keys=['version','projectRecordId','steps'];
+  if(value&&Object.hasOwn(value,'origin'))keys.push('origin');
+  methodRecord(value,keys,'creation');
   if(value.version!==1) methodError('creation version');
   const projectRecordId=methodCreationRecordId(value.projectRecordId);
   const prefix=projectId+'.';
@@ -211,7 +239,8 @@ function normalizeMethodCreation(value,projectId){
     }
     if(!progress) methodError('creation dependency cycle');
   }
-  return Object.freeze({version:1,projectRecordId,steps:Object.freeze(steps)});
+  return Object.freeze({version:1,projectRecordId,steps:Object.freeze(steps),
+    ...(Object.hasOwn(value,'origin')?{origin:normalizeMethodAlternativeOrigin(value.origin,projectId)}:{})});
 }
 
 function normalizeProjectMethodology(value, projectId, templateRef) {
@@ -262,6 +291,7 @@ export function assertProjectMethodologyCreation(project,recordId){
   if(!creation)return true;
   const {workIds,materialRefs}=project.methodology;
   const pins=new Map(materialRefs.map(ref=>[ref.object_id,ref.revision]));
+  if(creation.origin&&creation.origin.workspaceId!==project.workspaceId)methodError('alternative origin workspace');
   if(project.status!=='planned'||creation.projectRecordId!==recordId||creation.steps.length!==workIds.length
       || creation.steps.some((step,i)=>step.workId!==workIds[i]
         || step.materialRefs.some(ref=>pins.get(ref.object_id)!==ref.revision))) methodError('creation Project binding');

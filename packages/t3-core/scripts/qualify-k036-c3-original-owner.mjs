@@ -4,6 +4,7 @@ import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/own
 import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from '../src/modules/base/owners/project-process-method-readback.mjs';
 import { applyWorkspaceMethodRevision,inspectWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
 import { openK036C3QualificationOwner } from './k036-c3-owner-qualification-adapter.mjs';
+import { previewWorkspaceMethodAlternative,createWorkspaceMethodAlternativeThroughSourceOwner,readWorkspaceMethodAlternativeOrigin } from '../src/modules/base/owners/project-process-method-alternative.mjs';
 
 const ws='qualification-c3-owner-source',copyWs='qualification-c3-owner-copy',projectId='research-project';
 const time='2026-11-27T12:00:00.000000123Z',time2='2026-11-27T12:01:00.000000456Z',time3='2026-11-27T12:02:00.000000789Z';
@@ -105,6 +106,7 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   let count=restored.metrics.addressedReads;
   await liveRead();
   const beforeReads=restored.metrics.addressedReads-count;
+  check('current-method read does not repeat already observed physical revision lookup',beforeReads<=30);
   const catalogBefore=(await restoredClient.t1.listObjects({workspace_id:ws})).length;
   const unrelated={workspaceId:ws,projectId:'unrelated-project',name:'Unrelated project',domainApplicability:['generic']};
   await restored.owner.create('project',{...unrelated,recordId:'unrelated-1',knowledgeAt:time});
@@ -118,6 +120,17 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   same('addressed current method read is independent of unrelated 64 revision history',afterReads,beforeReads);
   const catalogAfter=(await restoredClient.t1.listObjects({workspace_id:ws})).length;
   same('unfiltered owner catalog grows by anchor plus all 64 unrelated revisions',catalogAfter-catalogBefore,65);
+  // The alternative has its own original Project/Work identities and exact
+  // historical origin stored in the original first Project plan.
+  const alternativeId='research-option-b';
+  const alternativeRequest={owner:restored.owner,workspaceId:ws,projectId,targetProjectId:alternativeId,
+    selected:base,objects:restoredObjects,operationId:'fixture-alternative',knowledgeAt:time3};
+  const preview=await previewWorkspaceMethodAlternative(alternativeRequest);
+  same('original K036 owner admits exact historical alternative',preview.state,'ALTERNATIVE_READY');
+  const fork=await createWorkspaceMethodAlternativeThroughSourceOwner({...alternativeRequest,confirmationDigest:preview.confirmationDigest});
+  same('original K036 owner creates independent five-record alternative',fork.createdCount,5);
+  same('alternative stores exact historical origin in original Project',exact(fork.method.originalCreation.origin),exact(preview.origin));
+  same('creating alternative leaves source method unchanged',exact((await liveRead()).draft),exact(thirdDraft));
   // Independent copy cannot be represented as an unchanged original owner
   // record. Refuse, rather than read from the source or report unused IDs.
   const completeArtifact=await exportAll(restoredClient,ws);
@@ -128,8 +141,14 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   await expectReject('copied identity is not silently reported as unused',
     ()=>target.owner.sourceIdentityExists('project',copyWs,projectId),['C3_FIXTURE_SCOPE_MISMATCH']);
   same('source owner remains unchanged after independent copy',exact((await liveRead()).draft),exact(thirdDraft));
+  const reopenedClient=await openEmpty();
+  await importAll(reopenedClient,completeArtifact.bytes,{mode:'full'});
+  const reopened=await open(reopenedClient,ws);
+  const lineage=await readWorkspaceMethodAlternativeOrigin({owner:reopened.owner,workspaceId:ws,projectId:alternativeId});
+  same('same-ID Exchange preserves explicit original alternative lineage',lineage.state,'ORIGIN_VERIFIED');
+  same('restored alternative resolves exact original historical source',exact(lineage.source.draft),exact(draft));
   same('fixture owner and Exchange use only original database',(await indexedDB.databases()).map(d=>d.name),['iwxa-local']);
   return {status:'PASS_ORIGINAL_OWNER_FIXTURE_ONLY',recordCount:9,restoredPartial:true,copyBinding:'BLOCKED_AS_DESIGNED',
     currentMethodAddressedReads:{before:beforeReads,after:afterReads},unfilteredCatalog:{before:catalogBefore,after:catalogAfter},
-    additionalHistoryRevisions:64,physicalBrowser:false,productionAdapterApproved:false};
+    additionalHistoryRevisions:64,alternativeLineageRestored:true,physicalBrowser:false,productionAdapterApproved:false};
 }

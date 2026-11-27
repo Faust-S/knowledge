@@ -5,6 +5,7 @@ import { prepareWorkspaceMethodSourceInputs, reconstructWorkspaceMethodDraft, in
 import { projectProcessSourceObjectId,hasProjectProcessSourceIdentity } from './project-process-source-owner.mjs';
 import { projectProcessSourceBinding } from './project-process-source-contract.mjs';
 import { readWorkspaceMethodFromSourceOwner } from './project-process-method-readback.mjs';
+import { verifyProjectMethodAlternativeOrigin } from './project-process-method-origin.mjs';
 
 function fail(code,message,cause){
   throw Object.assign(new Error(message,cause===undefined?undefined:{cause}),{code});
@@ -46,7 +47,7 @@ function bindExpectedRefs(workspaceId,entries){
  * on an ambiguous outcome. The first Project retains the full initial plan,
  * in existing source history, not a second journal, Store or grant.
  */
-function prepareEntries({workspaceId,objects,draft,recordIds,knowledgeAt}){
+function prepareEntries({workspaceId,objects,draft,recordIds,knowledgeAt,alternativeOrigin}){
   const plan=prepareWorkspaceMethodSourceInputs({workspaceId,objects,draft});
   if(!sameKeys(recordIds,['project','works']) || !sameKeys(recordIds.works,plan.writeOrder)){
     fail('METHOD_SOURCE_RECORD_ID_INVALID','Exactly one record ID per declared Project and Work is required');
@@ -63,7 +64,7 @@ function prepareEntries({workspaceId,objects,draft,recordIds,knowledgeAt}){
     workId:input.workId,recordId:recordId(recordIds.works[input.workId]),name:input.name,
     intendedActor:input.methodology.intendedActor,instruction:input.methodology.instruction,
     materialRefs:input.methodology.materialRefs,predecessorWorkIds:Object.freeze(input.dependencies.map(dep=>dep.predecessorWorkId)),
-  })))});
+  }))),...(alternativeOrigin===undefined?{}:{origin:alternativeOrigin})});
   const projectInput=Object.freeze({...plan.projectInput,methodology:Object.freeze({...plan.projectInput.methodology,creation})});
   const p=entry('project',projectInput.projectId,projectInput,projectRecordId);
   assertProjectMethodologyCreation(p.payload,p.recordId);
@@ -96,11 +97,14 @@ async function readExact(owner,workspaceId,item,instant){
  * Individual writes are not an atomic batch. A partial outcome is retained
  * in original history; exact readback is required to resume.
  */
-export async function createWorkspaceMethodThroughSourceOwner({owner,workspaceId,objects,draft,recordIds,knowledgeAt}){
+export async function createWorkspaceMethodThroughSourceOwner({owner,workspaceId,objects,draft,recordIds,knowledgeAt,alternativeOrigin}){
   if(!owner || ['create','load','history'].some(name=>typeof owner[name]!=='function')){
     fail('METHOD_SOURCE_OWNER_REQUIRED','Original Project/Process source owner port required');
   }
-  const {entries,instant,projectId}=prepareEntries({workspaceId,objects,draft,recordIds,knowledgeAt});
+  const {entries,instant,projectId}=prepareEntries({workspaceId,objects,draft,recordIds,knowledgeAt,alternativeOrigin});
+  // Recovery of a previously saved Project also verifies its exact origin
+  // using present owner access. Normal method creation has no history read.
+  if(entries[0].payload.methodology.creation.origin)await verifyProjectMethodAlternativeOrigin(owner,entries[0].payload);
   const preflight=new Set();
   // Refuse conflicts anywhere in the declared method BEFORE adding more
   // records; a tombstoned logical ID is not an unused identity.
@@ -176,13 +180,13 @@ async function readCreationPlan({owner,workspaceId,projectId}){
   const draft=reconstructWorkspaceMethodDraft({workspaceId,project,works});
   const recordIds=Object.freeze({project:creation.projectRecordId,
     works:Object.freeze(Object.fromEntries(creation.steps.map(step=>[step.workId,step.recordId])))});
-  return {draft,recordIds,knowledgeAt:row.knowledgeAt,project,works};
+  return {draft,recordIds,knowledgeAt:row.knowledgeAt,project,works,alternativeOrigin:creation.origin};
 }
 
 /** Historical creation intention, even when no Work has been saved. */
 export async function readWorkspaceMethodCreationIntent(input){
-  const {draft,recordIds,knowledgeAt}=await readCreationPlan(input);
-  return Object.freeze({draft,recordIds,knowledgeAt,executionAuthority:false,writeAuthorized:false});
+  const {draft,recordIds,knowledgeAt,alternativeOrigin}=await readCreationPlan(input);
+  return Object.freeze({draft,recordIds,knowledgeAt,...(alternativeOrigin?{alternativeOrigin}:{}),executionAuthority:false,writeAuthorized:false});
 }
 
 /** Read-only progress for the exact original attempt. Never represents
@@ -192,7 +196,8 @@ export async function readWorkspaceMethodCreationIntent(input){
  */
 export async function inspectWorkspaceMethodCreation({owner,workspaceId,projectId,objects}){
   if(!owner || typeof owner.history!=='function') fail('METHOD_SOURCE_OWNER_REQUIRED','Original source history port required');
-  const {draft,recordIds,knowledgeAt,project,works}=await readCreationPlan({owner,workspaceId,projectId});
+  const {draft,recordIds,knowledgeAt,project,works,alternativeOrigin}=await readCreationPlan({owner,workspaceId,projectId});
+  if(alternativeOrigin)await verifyProjectMethodAlternativeOrigin(owner,project);
   const entries=bindExpectedRefs(workspaceId,[
     makeEntry(workspaceId,'project',projectId,project,recordIds.project),
     ...works.map(work=>makeEntry(workspaceId,'work',work.workId,work,recordIds.works[work.workId])),
@@ -235,6 +240,7 @@ export async function inspectWorkspaceMethodCreation({owner,workspaceId,projectI
   const materialReviewRequired=materials.some(item=>item.state!=='CURRENT');
   const state=conflictCount?'CONFLICT':missingCount?'PARTIAL':'COMPLETE';
   return Object.freeze({state,draft,records,materials,confirmedCount,missingCount,conflictCount,materialReviewRequired,
+    ...(alternativeOrigin?{alternativeOrigin}:{}),
     resumeCandidate:state==='PARTIAL'&&!materialReviewRequired,atomicSnapshot:false,writeAuthorized:false,executionAuthority:false});
 }
 
@@ -244,5 +250,6 @@ export async function inspectWorkspaceMethodCreation({owner,workspaceId,projectI
 export async function resumeWorkspaceMethodThroughSourceOwner({owner,workspaceId,projectId,objects}){
   const attempt=await readWorkspaceMethodCreationIntent({owner,workspaceId,projectId});
   return createWorkspaceMethodThroughSourceOwner({owner,workspaceId,objects,
-    draft:attempt.draft,recordIds:attempt.recordIds,knowledgeAt:attempt.knowledgeAt});
+    draft:attempt.draft,recordIds:attempt.recordIds,knowledgeAt:attempt.knowledgeAt,
+    alternativeOrigin:attempt.alternativeOrigin});
 }

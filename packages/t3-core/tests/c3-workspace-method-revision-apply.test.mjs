@@ -3,7 +3,9 @@ import test from 'node:test';
 import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { MemoryCanonicalAdapter,OwnerWriteGateway } from '../src/persistence/canonical-persistence.mjs';
 import { canonicalStringify,decodeCanonicalValue,encodeCanonicalValue } from '../src/persistence/canonical-codec.mjs';
-import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
+import { createWorkspaceMethodThroughSourceOwner,inspectWorkspaceMethodCreation,resumeWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
+import { previewWorkspaceMethodAlternative,createWorkspaceMethodAlternativeThroughSourceOwner,readWorkspaceMethodAlternativeOrigin } from '../src/modules/base/owners/project-process-method-alternative.mjs';
+import { qualifyProjectProcessSameWorkspaceHistory } from '../src/modules/base/owners/project-process-history.mjs';
 import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from '../src/modules/base/owners/project-process-method-readback.mjs';
 import { previewWorkspaceMethodRevision,applyWorkspaceMethodRevision,inspectWorkspaceMethodRevision,
   previewWorkspaceMethodRestore,applyWorkspaceMethodRestore,inspectWorkspaceMethodRestore } from '../src/modules/base/owners/project-process-method-revision.mjs';
@@ -557,4 +559,113 @@ test('historical return captures original refs and material catalog before async
   assert.equal(result.state,'RESTORE_READY');
   assert.deepEqual(result.selectedRevisionSet.projectRef,base.projectRef);
   assert.equal((await owner.audit()).length,7);
+});
+
+
+const alternativeRequest=(owner,selected,extra={})=>({owner,workspaceId,projectId,targetProjectId:'method-option-b',
+  selected,objects,operationId:'independent-alternative',knowledgeAt:'2026-11-27T12:08:00Z',...extra});
+async function fork(owner,selected,extra={}){
+  const args=alternativeRequest(owner,selected,extra),p=await previewWorkspaceMethodAlternative(args);
+  assert.equal(p.state,'ALTERNATIVE_READY');
+  return {args,p,result:await createWorkspaceMethodAlternativeThroughSourceOwner({...args,confirmationDigest:p.confirmationDigest})};
+}
+test('independent alternative is created from exact historical selection and retains immutable original lineage',async()=>{
+  const {owner,base}=await setup();
+  const second=(await applyWorkspaceMethodRevision(request(owner,base))).method;
+  const {args,p,result}=await fork(owner,base);
+  assert.equal(result.createdCount,5);assert.equal(result.independentProject,true);
+  assert.deepEqual(result.method.draft,{...draft(),projectId:args.targetProjectId});
+  assert.equal(result.method.originalCreation.origin.projectId,projectId);
+  assert.deepEqual(result.method.originalCreation.origin.projectRef,base.projectRef);
+  assert.notEqual(result.method.projectRef.objectId,base.projectRef.objectId);
+  assert.deepEqual((await read(owner)).draft,second.draft);
+  const lineage=await readWorkspaceMethodAlternativeOrigin({owner,workspaceId,projectId:args.targetProjectId});
+  assert.equal(lineage.state,'ORIGIN_VERIFIED');assert.deepEqual(lineage.source.draft,draft());
+  const replay=await createWorkspaceMethodAlternativeThroughSourceOwner({...args,confirmationDigest:p.confirmationDigest});
+  assert.equal(replay.alreadyPresentCount,5);assert.equal(replay.createdCount,0);
+  assert.equal((await owner.audit()).length,12);
+});
+test('alternative can evolve separately without changing source or immutable creation origin',async()=>{
+  const {owner,base}=await setup();
+  const {args,result}=await fork(owner,base);
+  const next={...result.method.draft,steps:result.method.draft.steps.map(s=>s.id==='analyse'?{...s,instruction:'Independent variant'}:s)};
+  const edited=await applyWorkspaceMethodRevision({owner,workspaceId,projectId:args.targetProjectId,expected:result.method,
+    draft:next,objects,operationId:'independent-edit',knowledgeAt:'2026-11-27T12:09:00Z'});
+  assert.equal(edited.revisedCount,2);assert.deepEqual(edited.method.originalCreation.origin,result.method.originalCreation.origin);
+  assert.deepEqual((await read(owner)).draft,draft());
+  const lineage=await readWorkspaceMethodAlternativeOrigin({owner,workspaceId,projectId:args.targetProjectId});
+  assert.deepEqual(lineage.source.draft,draft());
+  const originalProject=(await owner.load('project',workspaceId,args.targetProjectId));
+  const bad={...originalProject.value,methodology:{...originalProject.value.methodology,
+    creation:{...originalProject.value.methodology.creation,origin:{...originalProject.value.methodology.creation.origin,projectRef:{...base.projectRef,recordId:'other'}}}}};
+  await assert.rejects(owner.revise('project',{...bad,recordId:'bad-origin-revision',
+    baseRevisionId:originalProject.baseRevisionId,knowledgeAt:nextTime}),code('PROJECT_PROCESS_METHOD_CREATION_IMMUTABLE'));
+  assert.equal((await owner.audit()).length,12);
+});
+test('forged alternative content or missing exact origin is refused before any write',async()=>{
+  const {owner,base}=await setup();
+  const target='forged-alternative',p=await previewWorkspaceMethodAlternative(alternativeRequest(owner,base,{targetProjectId:target}));
+  const altered={...p.draft,steps:p.draft.steps.map(s=>s.id==='analyse'?{...s,instruction:'Forged source'}:s)};
+  const ids={project:'forged-project',works:Object.fromEntries(altered.steps.map(s=>[target+'.'+s.id,'forged-'+s.id]))};
+  await assert.rejects(createWorkspaceMethodThroughSourceOwner({owner,workspaceId,objects,draft:altered,recordIds:ids,
+    knowledgeAt,alternativeOrigin:p.origin}),code('METHOD_ALTERNATIVE_ORIGIN_MISMATCH'));
+  const fakeOrigin={...p.origin,projectRef:{...p.origin.projectRef,recordId:'not-found'}};
+  await assert.rejects(createWorkspaceMethodThroughSourceOwner({owner,workspaceId,objects,draft:p.draft,recordIds:ids,
+    knowledgeAt,alternativeOrigin:fakeOrigin}),e=>e.code==='METHOD_HISTORY_INCOMPLETE'||e.code==='METHOD_HISTORY_REF_INVALID');
+  assert.equal((await owner.audit()).length,5);
+});
+test('direct original Project owner cannot forge exact origin by bypassing alternative operation',async()=>{
+  const {owner,base}=await setup();
+  const target='direct-forged',preview=await previewWorkspaceMethodAlternative(alternativeRequest(owner,base,{targetProjectId:target}));
+  const plan=prepareWorkspaceMethodSourceInputs({workspaceId,objects,draft:preview.draft});
+  const creation={version:1,projectRecordId:'direct-forged-project',origin:preview.origin,
+    steps:plan.workInputs.map(w=>({workId:w.workId,recordId:'direct-'+w.workId,name:w.name,
+      intendedActor:w.methodology.intendedActor,instruction:w.methodology.instruction,materialRefs:w.methodology.materialRefs,
+      predecessorWorkIds:w.dependencies.map(dep=>dep.predecessorWorkId)}))};
+  await assert.rejects(owner.create('project',{...plan.projectInput,name:'Forged Project',recordId:creation.projectRecordId,
+    knowledgeAt,methodology:{...plan.projectInput.methodology,creation}}),code('METHOD_ALTERNATIVE_ORIGIN_MISMATCH'));
+  assert.equal((await owner.audit()).length,5);
+});
+test('interrupted alternative resumes through saved original creation plan including origin',async()=>{
+  const {owner,base}=await setup();
+  const args=alternativeRequest(owner,base),p=await previewWorkspaceMethodAlternative(args);
+  const stopped=port(owner,{create:async(kind,input)=>{
+    if(kind==='work'&&input.workId===args.targetProjectId+'.analyse')throw Object.assign(new Error('interrupted alternative'),{code:'ALTERNATIVE_INTERRUPTED'});
+    return owner.create(kind,input);
+  }});
+  await assert.rejects(createWorkspaceMethodAlternativeThroughSourceOwner({...args,owner:stopped,confirmationDigest:p.confirmationDigest}),code('ALTERNATIVE_INTERRUPTED'));
+  const progress=await inspectWorkspaceMethodCreation({owner,workspaceId,projectId:args.targetProjectId,objects});
+  assert.equal(progress.state,'PARTIAL');assert.equal(progress.confirmedCount,2);
+  assert.deepEqual(progress.alternativeOrigin.projectRef,base.projectRef);
+  const resumed=await resumeWorkspaceMethodThroughSourceOwner({owner,workspaceId,projectId:args.targetProjectId,objects});
+  assert.equal(resumed.alreadyPresentCount,2);assert.equal(resumed.createdCount,3);
+  assert.deepEqual(resumed.method.originalCreation.origin,p.origin);
+  assert.equal((await owner.audit()).length,10);
+});
+test('alternative requires current exact materials, explicit unique target and exact confirmation',async()=>{
+  const {owner,base}=await setup();
+  const args=alternativeRequest(owner,base),p=await previewWorkspaceMethodAlternative(args);
+  const stale={...args,objects:objects.map(o=>o.object_id==='model'?{...o,revision:99}:o)};
+  assert.equal((await previewWorkspaceMethodAlternative(stale)).state,'MATERIAL_REVIEW_REQUIRED');
+  await assert.rejects(createWorkspaceMethodAlternativeThroughSourceOwner({...stale,confirmationDigest:p.confirmationDigest}),code('METHOD_MATERIAL_REVIEW_REQUIRED'));
+  await assert.rejects(createWorkspaceMethodAlternativeThroughSourceOwner({...args,targetProjectId:'other-target',confirmationDigest:p.confirmationDigest}),code('METHOD_ALTERNATIVE_CONFIRMATION_MISMATCH'));
+  await assert.rejects(previewWorkspaceMethodAlternative({...args,targetProjectId:projectId}),code('METHOD_ALTERNATIVE_IDENTITY_INVALID'));
+  await createWorkspaceMethodAlternativeThroughSourceOwner({...args,confirmationDigest:p.confirmationDigest});
+  const reserved=await previewWorkspaceMethodAlternative(args);
+  assert.equal(reserved.state,'TARGET_ID_RESERVED');assert.equal(reserved.reservedIds.length,5);
+  assert.equal((await owner.audit()).length,10);
+});
+test('complete owner history qualification requires closure over exact alternative origin revisions',async()=>{
+  const {owner,base}=await setup();
+  const {args,result}=await fork(owner,base);
+  const histories=async readback=>[
+    ...await owner.history('project',workspaceId,readback.draft.projectId),
+    ...(await Promise.all(readback.draft.steps.map(s=>owner.history('work',workspaceId,readback.draft.projectId+'.'+s.id)))).flat(),
+  ];
+  const targetRows=await histories(result.method);
+  assert.throws(()=>qualifyProjectProcessSameWorkspaceHistory({workspaceId,records:targetRows}),code('PROJECT_PROCESS_HISTORY_REFERENCED_HEAD_MISSING'));
+  const all=[...await histories(base),...targetRows];
+  assert.equal(qualifyProjectProcessSameWorkspaceHistory({workspaceId,records:all}).referencedHeadsClosed,true);
+  const lineage=await readWorkspaceMethodAlternativeOrigin({owner,workspaceId,projectId:args.targetProjectId,expected:result.method});
+  assert.equal(lineage.state,'ORIGIN_VERIFIED');assert.deepEqual(lineage.source.projectRef,base.projectRef);
 });

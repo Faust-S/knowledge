@@ -74,8 +74,8 @@ export async function openK036C3QualificationOwner({client,workspaceId,anchorSch
       &&row.object.schema_id===schema&&row.object.schema_version===schemaVersion
       &&row.object.revision===1&&!row.object.deleted,'physical immutable object mismatch');
   }
-  async function readRecord(recordId){
-    const physical=physicalRecordId(recordId),row=await getObject(physical);
+  async function readRecord(recordId,observedRow){
+    const physical=physicalRecordId(recordId),row=observedRow??await getObject(physical);
     if(!row)return null;
     validateObject(row,physical,revisionSchema);
     const wire=row.object.data?.record;
@@ -102,7 +102,7 @@ export async function openK036C3QualificationOwner({client,workspaceId,anchorSch
     const recordId=target.object.data.record.recordId;
     invariant(heads[0].from_object_id===id.anchorId&&heads[0].to_object_id===physicalRecordId(recordId),
       'physical current-head target mismatch');
-    const wire=await readRecord(recordId);
+    const wire=await readRecord(recordId,target);
     invariant(wire&&wire.family===id.family&&wire.objectId===id.objectId,'canonical current-head identity mismatch');
     if(wire.revision===1)invariant(origins[0].to_object_id===heads[0].to_object_id,'first revision mismatch');
     return {row,head:derivedHead(wire),relation:heads[0]};

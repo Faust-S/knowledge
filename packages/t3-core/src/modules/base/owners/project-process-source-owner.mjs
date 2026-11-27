@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { canonicalStringify } from '../../../persistence/canonical-codec.mjs';
+import { verifyProjectMethodAlternativeOrigin } from './project-process-method-origin.mjs';
 import {
   PROJECT_PROCESS_NORMALIZERS,
   assertProjectMethodologyWork,
@@ -337,7 +338,10 @@ class ProjectProcessSourceOwnerCore {
     const binding=projectProcessSourceBinding(kind);
     const commands=commandsFor(kind);
     const exactRecordId=requireText(recordId,'recordId');
-    if(kind==='project') assertProjectMethodologyCreation(payload,exactRecordId);
+    if(kind==='project'){
+      assertProjectMethodologyCreation(payload,exactRecordId);
+      if(payload.methodology?.creation?.origin)await verifyProjectMethodAlternativeOrigin(this,payload);
+    }
     const refs=await this.#resolveRefs(kind,payload,{recordId:exactRecordId,knowledgeAt});
     assertExpectedMethodRefs(expectedRefs,refs);
     return this.#gateway.execute({
