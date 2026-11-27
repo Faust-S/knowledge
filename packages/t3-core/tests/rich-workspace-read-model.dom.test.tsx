@@ -5,7 +5,7 @@ import type { EventRecord, ObjectRecord, WorkspaceRecord } from "../src/kernel-c
 import type { WorkspaceProfileDefinition } from "../src/profiles/definition";
 import { RichWorkspaceReadModel } from "../src/modules/base/features/workspace/RichWorkspaceReadModel";
 import { WorkspaceMethodWorkflowPanel,type WorkspaceMethodWorkflowBinding } from "../src/modules/base/features/workspace/WorkspaceMethodWorkflowPanel";
-import type { WorkspaceMethodInputOverview,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,WorkspaceMethodStageInspection,WorkspaceMethodStageReader,WorkspaceMethodMaterialEvidence } from "../src/t3/workspace-method-stage-reader.mjs";
+import type { WorkspaceMethodInputOverview,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,WorkspaceMethodStageInspection,WorkspaceMethodStageReader,WorkspaceMethodMaterialEvidence,WorkspaceMethodCorporateTaskReferenceInspection } from "../src/t3/workspace-method-stage-reader.mjs";
 
 const profile: WorkspaceProfileDefinition = {
   id: "generic",
@@ -774,6 +774,78 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     expect(f.previewHandoff).toHaveBeenCalledExactlyOnceWith({workspaceId:"w",projectId:"research",expected:binding.expected,
       stepId:"finish",resultSelections:[],personalResultSelections:direct,includeMaterialEvidence:true});
     expect(f.createPersonalDraft).not.toHaveBeenCalled();
+  });
+
+  function corporateFixture(){
+    const f=fixture(),digest="e".repeat(64),materialDigest="d".repeat(64),taskId="task:workflow";
+    const inspection=makeInspection("analyse");
+    const materialEvidence:WorkspaceMethodMaterialEvidence={
+      schema:"IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1",state:"VISIBLE_MATERIAL_CONTENT_OBSERVED",
+      stageInput:inspection.stageInput,materialEvidenceDigest:materialDigest,
+      observation:{materials:[],counts:{materials:0,assets:0,assetBytes:0,canonicalBytes:0}},
+      atomicSnapshot:false,allAssetsProven:false,contentBindingProven:false,exactInputBindingProven:false,
+      writeAuthorized:false,executionAuthority:false,resultReuseProven:false,dispatchAuthorized:false};
+    const preview:WorkspaceMethodHandoffPreview={
+      schema:"IWXA_T2_WORKSPACE_METHOD_STAGE_HANDOFF_PREVIEW_V1",state:"INPUTS_PREPARED_OWNER_SELECTION_REQUIRED",
+      subjectKind:"CORP",inspection,candidateDigest:digest,materialEvidenceRequested:true,materialEvidence,
+      requiredOriginalOwnerChecks:["ORIGINAL_SIGNED_TASK_BINDING"],signedTaskIssued:false,taskCreated:false,
+      contentBindingProven:false,exactInputBindingProven:false,dispatchAuthorized:false,executionAuthority:false,writeAuthorized:false,resultReuseProven:false};
+    f.previewHandoff.mockResolvedValue(preview);
+    const receipt:WorkspaceMethodCorporateTaskReferenceInspection={
+      state:"SIGNED_CORPORATE_TASK_CURRENT_REFERENCE_MATCHED",taskId,taskRevisionId:"b".repeat(64),packageSha256:"c".repeat(64),
+      recipientId:"person:worker",workflowInput:{schema:"IWXA_T3_WORKFLOW_INPUT_REFERENCE/1",workspaceId:"w",projectId:"research",
+        stepId:"analyse",projectRef,workRef:a,inputBasisDigest:inspection.stageInput.inputBasisDigest!,
+        materialEvidenceDigest:materialDigest,candidateDigest:digest,taskTextSha256:"f".repeat(64)},
+      declaredReferenceMatched:true,exactInputBindingProven:false,allAssetsProven:false,workCompleted:false,executionAuthority:false,writeAuthorized:false,resultReuseProven:false};
+    const inspectCorporateTaskReference=vi.fn(async():Promise<WorkspaceMethodCorporateTaskReferenceInspection>=>receipt);
+    const binding:WorkspaceMethodWorkflowBinding={...f.binding,corporateTaskId:taskId,
+      reader:{...f.binding.reader,inspectMaterialEvidence:vi.fn(async()=>materialEvidence),inspectCorporateTaskReference}};
+    return {...f,binding,preview,digest,receipt,inspectCorporateTaskReference};
+  }
+  async function prepareCorporatePanel(){
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));
+    await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:"Подготовить передачу"}));
+    return screen.findByRole("button",{name:"Сопоставить подписанное задание"});
+  }
+  it("matches a trusted selected corporate Task only through the original signed reader and shows no execution claim",async()=>{
+    const f=corporateFixture();
+    render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[]} selectedObjectIds={[]}/>);
+    expect(f.inspectCorporateTaskReference).not.toHaveBeenCalled();
+    fireEvent.click(await prepareCorporatePanel());
+    await screen.findByTestId("workflow-corporate-reference-match");
+    expect(f.inspectCorporateTaskReference).toHaveBeenCalledExactlyOnceWith({workspaceId:"w",projectId:"research",
+      expected:f.binding.expected,stepId:"analyse",resultSelections:[],taskId:f.receipt.taskId,expectedCandidateDigest:f.digest});
+    expect(screen.getByText("Работа не засчитана выполненной. Фактические входы исполнителя ещё требуют проверки.")).toBeTruthy();
+    expect(screen.queryByTestId("workflow-personal-draft")).toBeNull();
+    expect(f.recoverContinuation).not.toHaveBeenCalled();
+  });
+  it("rejects a signed reference for different material or work revision even when the reader reports a match",async()=>{
+    const f=corporateFixture();
+    f.inspectCorporateTaskReference.mockResolvedValue({...f.receipt,workflowInput:{...f.receipt.workflowInput,workRef:{...a,revision:2}}});
+    render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(await prepareCorporatePanel());
+    await screen.findByRole("alert");
+    expect(screen.queryByTestId("workflow-corporate-reference-match")).toBeNull();
+  });
+  it("clears a corporate reference when the original selected Task changes during readback",async()=>{
+    const f=corporateFixture();let release:(r:WorkspaceMethodCorporateTaskReferenceInspection)=>void=()=>{};
+    f.inspectCorporateTaskReference.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
+    const ui=render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(await prepareCorporatePanel());
+    expect(f.inspectCorporateTaskReference).toHaveBeenCalledTimes(1);
+    ui.rerender(<WorkspaceMethodWorkflowPanel binding={{...f.binding,corporateTaskId:"task:other"}} objects={[]} selectedObjectIds={[]}/>);
+    release(f.receipt);
+    await waitFor(()=>expect(screen.queryByTestId("workflow-corporate-reference-match")).toBeNull());
+    expect(screen.queryByRole("button",{name:"Сопоставить подписанное задание"})).toBeNull();
+  });
+  it("does not offer a corporate comparison for a personal handoff",async()=>{
+    const f=corporateFixture();f.previewHandoff.mockResolvedValue({...f.preview,subjectKind:"PERSONAL"});
+    render(<WorkspaceMethodWorkflowPanel binding={f.binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:"Подготовить передачу"}));await screen.findByTestId("workflow-handoff-preview");
+    expect(screen.queryByRole("button",{name:"Сопоставить подписанное задание"})).toBeNull();
+    expect(f.inspectCorporateTaskReference).not.toHaveBeenCalled();
   });
 
 });
