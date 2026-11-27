@@ -205,7 +205,7 @@ function originalCreationAnchor(event,workspaceId){
 // corporate Exchange Event, not a caller-provided receipt or network flag.
 const SOURCE_CREATION_SERVICE='iwxa.personal-agent.workspace';
 const RECIPIENT_CREATION_SERVICE='iwxa.admin-center.workspace';
-const RECIPIENT_EXCHANGE_SERVICE='iwxa.admin-center.exchange.workspace';
+const ORIGINAL_IMPORT_EVENT_SERVICE='iwxa.kernel';
 const IMPORT_APPLIED='iwxa.import.applied';
 const EMPTY_IMPORT_COUNTS=Object.freeze({workspaces:0,objects_inserted:0,objects_updated:0,
   objects_skipped:0,events:1,relations:0,assets:0,schemas_inserted:0,schemas_reused:0,schemas_rejected:0});
@@ -217,7 +217,7 @@ function originalEmptyExchangeEvidence(events,workspaceId){
   };
   const source=unique('workspace.created',SOURCE_CREATION_SERVICE),
     local=unique('workspace.created',RECIPIENT_CREATION_SERVICE),
-    receipt=unique(IMPORT_APPLIED,RECIPIENT_EXCHANGE_SERVICE);
+    receipt=unique(IMPORT_APPLIED,ORIGINAL_IMPORT_EVENT_SERVICE);
   originalCreationAnchor(source,workspaceId);originalCreationAnchor(local,workspaceId);
   const p=receipt.payload;
   if(!same(source.payload,local.payload)||receipt.workspace_id!==workspaceId||
@@ -283,7 +283,7 @@ export function createT4OriginalFreshWorkspaceBaseline({selection,role,workspace
         // source cursor. SOURCE always projects its own unfiltered history.
         if(role==='RECIPIENT'&&count===1&&events.some(e=>
           (e?.event_type==='workspace.created'&&e.service_id===RECIPIENT_CREATION_SERVICE&&e.event_id!==selected.eventId)||
-          (e?.event_type===IMPORT_APPLIED&&e.service_id===RECIPIENT_EXCHANGE_SERVICE))){
+          (e?.event_type===IMPORT_APPLIED&&e.service_id===ORIGINAL_IMPORT_EVENT_SERVICE))){
           const evidence=originalEmptyExchangeEvidence(events,workspaceId);
           sourceEvents=[evidence.source];initialCount=3;localEvidenceDigest=evidence.localEvidenceDigest;
         }

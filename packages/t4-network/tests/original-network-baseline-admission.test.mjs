@@ -245,7 +245,7 @@ function emptyExchangeFixture(){
   r.events.splice(0,1,clone(s.creation),{...clone(s.creation),event_id:'event:admin:created',
     service_id:'iwxa.admin-center.workspace',occurred_at:'2026-11-27T12:00:01.000Z'},
   {event_id:'event:import:applied',event_type:'iwxa.import.applied',workspace_id:identity.sourceWorkspaceId,
-    service_id:'iwxa.admin-center.exchange.workspace',occurred_at:'2026-11-27T12:00:02.000Z',
+    service_id:'iwxa.kernel',occurred_at:'2026-11-27T12:00:02.000Z',
     payload:{import_id:'import:1',package_digest:'a'.repeat(64),semantic_digest:'b'.repeat(64),mode:'merge',
       applied:{workspaces:0,objects_inserted:0,objects_updated:0,objects_skipped:0,events:1,relations:0,assets:0,
         schemas_inserted:0,schemas_reused:0,schemas_rejected:0}}});

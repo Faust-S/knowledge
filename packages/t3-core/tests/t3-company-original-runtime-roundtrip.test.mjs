@@ -548,7 +548,7 @@ test('original empty Workspace Exchange admits identical SOURCE cursor on both p
     assertHistoryContains(merged,[...sourceInitial,...recipientInitial]);
     assert.deepEqual(merged.map(e=>[e.event_type,e.service_id]).sort(),[
       ['workspace.created',source.serviceId],['workspace.created',recipient.serviceId],
-      ['iwxa.import.applied',companyExchangeServiceId(recipient.serviceId)]].sort());
+      ['iwxa.import.applied','iwxa.kernel']].sort());
     const proposal=readT4OriginalFreshWorkspaceBaselineSelection({workspaceId:ws,originalEvents:merged});
     assert.equal(proposal.confirmed,false);assert.equal(proposal.eventId,sourceInitial[0].event_id);
     const selection={...proposal,confirmed:true};
