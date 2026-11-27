@@ -151,7 +151,11 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     const stillCurrent=()=>sequence.current===epoch&&liveReader.current===reader&&liveDetailKey.current===key;
     const args={...request,stepId:stage.stepId,resultSelections};
     try{
-      const report:Detail=mode==="handoff"?{kind:"handoff",value:await reader.previewHandoff(args)}:
+      // Existing capability advertises original content evidence. A
+      // combined handoff uses one read, not a separate cached digest.
+      const contentRequested=mode==="handoff"&&typeof reader.inspectMaterialEvidence==="function";
+      const report:Detail=mode==="handoff"?{kind:"handoff",value:await reader.previewHandoff(
+          contentRequested?{...args,includeMaterialEvidence:true}:args)}:
         mode==="material"?{kind:"material",value:await reader.inspectMaterialEvidence!({...args,resultSelections:[]})}:
         {kind:"native",value:await (mode==="preview"?reader.previewContinuation({...args,predecessorStepId:nativeStep}):
           reader.recoverContinuation({...args,predecessorStepId:nativeStep}))};
@@ -162,6 +166,15 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
           ||!sameRef(basis.stageRef,stage.workRef)||value.executionAuthority!==false||value.writeAuthorized!==false
           ||report.value.dispatchAuthorized!==false||value.stageInput.inputBasisDigest!==stage.inputBasisDigest)
         throw Object.assign(Error("invalid"),{code:"METHOD_SOURCE_MISMATCH"});
+      if(report.kind==="handoff"&&contentRequested){
+        const evidence=report.value.materialEvidence;
+        if(report.value.materialEvidenceRequested!==true||(report.value.candidateDigest!==null
+            &&(!evidence||evidence.state!=="VISIBLE_MATERIAL_CONTENT_OBSERVED"||!evidence.observation
+              ||!evidence.materialEvidenceDigest||evidence.stageInput.inputBasisDigest!==value.stageInput.inputBasisDigest
+              ||evidence.contentBindingProven!==false||evidence.allAssetsProven!==false
+              ||evidence.dispatchAuthorized!==false||evidence.atomicSnapshot!==false)))
+          throw Object.assign(Error("invalid"),{code:"METHOD_MATERIAL_EVIDENCE_MISMATCH"});
+      }
       if(report.kind==="material"&&(report.value.schema!=="IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1"
           ||report.value.allAssetsProven!==false||report.value.contentBindingProven!==false
           ||report.value.exactInputBindingProven!==false||report.value.atomicSnapshot!==false
@@ -249,6 +262,11 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
       {visibleDetail?.kind==="handoff"&&<div className="space-y-1 rounded border border-slate-800 p-2 text-xs" data-testid="workflow-handoff-preview">
         <p className="text-slate-200">{handoffStates[visibleDetail.value.state]??"Требуется проверка оригинального владельца."}</p>
         {visibleDetail.value.candidateDigest&&<p className="text-slate-400">Состав передачи зафиксирован для проверки.</p>}
+        {visibleDetail.value.materialEvidence?.observation&&<p className="text-slate-300">
+          Проверено доступное содержимое: материалов {visibleDetail.value.materialEvidence.observation.counts.materials}, вложений {visibleDetail.value.materialEvidence.observation.counts.assets}.
+        </p>}
+        {visibleDetail.value.materialEvidenceRequested&&!visibleDetail.value.materialEvidence&&
+          <p className="text-slate-400">Проверка содержимого ожидает подтверждения входных ссылок и результатов предшественников.</p>}
         <p className="text-slate-300">До запуска необходимо:</p>
         <ul className="list-disc pl-4 text-slate-400">{visibleDetail.value.requiredOriginalOwnerChecks.map(key=><li key={key}>{checkLabels[key]??"Проверка оригинального владельца"}</li>)}</ul>
         <p className="text-slate-300">Задача не создана. Запуск не выполнялся.</p>

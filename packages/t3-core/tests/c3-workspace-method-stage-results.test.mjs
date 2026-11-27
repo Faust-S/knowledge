@@ -302,3 +302,76 @@ test('trusted original Host fences signed context throughout visible Asset obser
   await assert.rejects(h.reader.inspectMaterialEvidence({...hostInput(f),stepId:'analyse',resultSelections:[]}),
     e=>['T3_SUBJECT_CONTEXT_CHANGED','T3_METHOD_STAGE_SIGNED_CONTEXT_CHANGED','T3_SUBJECT_RESULT_STALE_AFTER_KERNEL'].includes(e.code));
 });
+
+
+// W05.9: combined content + accepted predecessor evidence, shared original
+// source observation. No second store, task or cached UI evidence.
+function contentPort(){
+  const bytes=new Uint8Array([1,2,3]),calls=[];
+  const asset={workspace_id:ws,object_id:'source',asset_id:'attachment',revision:1,mime:'application/octet-stream',
+    size:3,service_id:'svc',created_at:time,updated_at:time,updated_by_service:'svc'};
+  return {asset,bytes,calls,listAssets:async query=>{calls.push(['list',query]);return query.object_id==='source'?[asset]:[];},
+    getAsset:async(w,id)=>{calls.push(['get',w,id]);return {asset,bytes};}};
+}
+function contentArgs(f,port,extra={}){
+  return args(f,{includeMaterialEvidence:true,listAssets:port.listAssets,getAsset:port.getAsset,
+    readObject:async(w,id)=>{const row=await f.readObject(w,id);return row?{object:{...row.object,extensions:{}}}:null;},...extra});
+}
+test('combined handoff uses one original selected source closure and binds visible content plus explicit accepted Result',async()=>{
+  const f=await setup(),p=contentPort();let loads=0;
+  const owner={load:async(...a)=>{loads++;return f.owner.load(...a);}};
+  const refOnly=await previewWorkspaceMethodStageHandoff(args(f,{owner})),referenceLoads=loads;loads=0;f.nativeCalls.length=0;
+  const combined=await previewWorkspaceMethodStageHandoff(contentArgs(f,p,{owner}));
+  assert.equal(loads,referenceLoads);
+  assert.equal(combined.materialEvidenceRequested,true);
+  assert.equal(combined.materialEvidence.state,'VISIBLE_MATERIAL_CONTENT_OBSERVED');
+  assert.equal(combined.materialEvidence.observation.counts.assets,1);
+  assert.equal(combined.binding.materialEvidenceDigest,combined.materialEvidence.materialEvidenceDigest);
+  assert.equal(combined.binding.inputBasisDigest,refOnly.binding.inputBasisDigest);
+  assert.deepEqual(combined.binding.predecessorResults,refOnly.binding.predecessorResults);
+  assert.notEqual(combined.candidateDigest,refOnly.candidateDigest);
+  assert.equal(f.nativeCalls.length,2);assert.equal(p.calls.length,4);
+  assert.equal(combined.exactInputBindingProven,false);assert.equal(combined.contentBindingProven,false);
+  assert.equal(combined.taskCreated,false);assert.equal(combined.dispatchAuthorized,false);
+  assert.equal(JSON.stringify(combined).includes('source body'),false);
+  const repeat=await previewWorkspaceMethodStageHandoff(contentArgs(f,p));
+  assert.equal(repeat.candidateDigest,combined.candidateDigest);
+  const changed=await previewWorkspaceMethodStageHandoff(contentArgs(f,p,{getAsset:async()=>({asset:p.asset,bytes:new Uint8Array([1,2,4])})}));
+  assert.notEqual(changed.candidateDigest,combined.candidateDigest);
+  assert.equal(changed.binding.inputBasisDigest,combined.binding.inputBasisDigest);
+  assert.equal((await f.owner.audit()).length,3);
+});
+test('combined handoff does not read attachment bytes while required predecessor is missing or stale',async()=>{
+  const f=await setup(),p=contentPort();
+  for(const x of [{resultSelections:[]},{resultSelections:selection}]){
+    if(x.resultSelections.length)f.changeResult({...resultObject,revision:2});
+    const r=await previewWorkspaceMethodStageHandoff(contentArgs(f,p,x));
+    assert.equal(r.candidateDigest,null);assert.equal(r.binding,null);assert.equal(r.materialEvidence,null);
+    assert.equal(r.materialEvidenceRequested,true);assert.equal(p.calls.length,0);
+  }
+  await assert.rejects(previewWorkspaceMethodStageHandoff(contentArgs(f,p,{getAsset:undefined})),code('METHOD_MATERIAL_ASSET_OWNER_REQUIRED'));
+  await assert.rejects(previewWorkspaceMethodStageHandoff(args(f,{includeMaterialEvidence:'true'})),code('METHOD_MATERIAL_EVIDENCE_REQUEST_INVALID'));
+});
+test('combined handoff rejects changes in actual visible bytes and original accepted owner evidence between reads',async()=>{
+  const f=await setup(),p=contentPort();let calls=0;
+  await assert.rejects(previewWorkspaceMethodStageHandoff(contentArgs(f,p,{getAsset:async()=>({asset:p.asset,
+    bytes:++calls===1?p.bytes:new Uint8Array([1,2,4])})})),code('METHOD_MATERIAL_CONTENT_CHANGED'));
+  await assert.rejects(previewWorkspaceMethodStageHandoff(contentArgs(f,p,{getAsset:async()=>{f.changeAccepted({...accepted,archiveSha256:'c'.repeat(64)});
+    return {asset:p.asset,bytes:p.bytes};}})),code('METHOD_STAGE_RESULT_CHANGED'));
+});
+test('combined root handoff works without an Agent Result owner and uses original content evidence',async()=>{
+  const f=await setup(),p=contentPort();
+  const r=await previewWorkspaceMethodStageHandoff(contentArgs(f,p,{stepId:'analyse',resultSelections:[],readAccepted:undefined}));
+  assert.equal(r.state,'INPUTS_PREPARED_OWNER_SELECTION_REQUIRED');assert.ok(r.candidateDigest);
+  assert.equal(r.materialEvidence.observation.counts.assets,1);assert.deepEqual(r.binding.predecessorResults,[]);
+  assert.equal(f.nativeCalls.length,0);assert.equal(r.signedTaskIssued,false);
+});
+test('trusted Host combined handoff obtains original Asset permissions and ignores caller evidence or read ports',async()=>{
+  const f=await setup(),calls=[],h=trusted(f,{withAssets:true,assetHook:(kind,query)=>calls.push([kind,query])});
+  const r=await h.reader.previewHandoff({...hostInput(f),includeMaterialEvidence:true,
+    materialEvidence:{materialEvidenceDigest:'e'.repeat(64)},listAssets:()=>{throw Error('caller');},getAsset:()=>{throw Error('caller');}});
+  assert.equal(r.materialEvidenceRequested,true);assert.equal(r.materialEvidence.observation.counts.assets,1);
+  assert.notEqual(r.materialEvidence.materialEvidenceDigest,'e'.repeat(64));assert.equal(calls.length,4);
+  assert.equal(h.receives(),0);
+  await assert.rejects(trusted(f).reader.previewHandoff({...hostInput(f),includeMaterialEvidence:true}),code('T3_METHOD_STAGE_ASSET_READ_REQUIRED'));
+});

@@ -508,4 +508,34 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     expect(f.previewHandoff).not.toHaveBeenCalled();expect(f.recoverContinuation).not.toHaveBeenCalled();
   });
 
+  it("prepares one combined handoff when original material capability is available, without reading a cached digest",async()=>{
+    const f=fixture();
+    const materialEvidence:WorkspaceMethodMaterialEvidence={
+      schema:"IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1",state:"VISIBLE_MATERIAL_CONTENT_OBSERVED",
+      stageInput:makeInspection("analyse").stageInput,materialEvidenceDigest:"d".repeat(64),
+      observation:{materials:[],counts:{materials:1,assets:2,assetBytes:5,canonicalBytes:9}},
+      atomicSnapshot:false,allAssetsProven:false,contentBindingProven:false,exactInputBindingProven:false,
+      writeAuthorized:false,executionAuthority:false,resultReuseProven:false,dispatchAuthorized:false};
+    const standalone=vi.fn(async()=>materialEvidence),original=await f.previewHandoff({workspaceId:"w",projectId:"research",expected:f.binding.expected,stepId:"analyse"});
+    f.previewHandoff.mockClear();
+    f.previewHandoff.mockResolvedValueOnce({...original,materialEvidenceRequested:true,materialEvidence});
+    const binding={...f.binding,reader:{...f.binding.reader,inspectMaterialEvidence:standalone}};
+    render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:"Подготовить передачу"}));
+    await screen.findByTestId("workflow-handoff-preview");
+    expect(screen.getByText(/Проверено доступное содержимое: материалов 1, вложений 2/)).toBeTruthy();
+    expect(f.previewHandoff).toHaveBeenCalledWith({workspaceId:"w",projectId:"research",expected:f.binding.expected,
+      stepId:"analyse",resultSelections:[],includeMaterialEvidence:true});
+    expect(standalone).not.toHaveBeenCalled();expect(f.recoverContinuation).not.toHaveBeenCalled();
+  });
+  it("does not accept a reference-only response as a content-evidenced handoff",async()=>{
+    const f=fixture();
+    const binding={...f.binding,reader:{...f.binding.reader,inspectMaterialEvidence:vi.fn(async()=>{throw Error("not called");})}};
+    render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:"Подготовить передачу"}));await screen.findByRole("alert");
+    expect(screen.queryByTestId("workflow-handoff-preview")).toBeNull();
+  });
+
 });

@@ -27,6 +27,7 @@ export type WorkspaceMethodStageInspection = Readonly<{
 export type WorkspaceMethodHandoffPreview = Readonly<{
   schema:'IWXA_T2_WORKSPACE_METHOD_STAGE_HANDOFF_PREVIEW_V1';state:string;inspection:WorkspaceMethodStageInspection;
   candidateDigest:string|null;requiredOriginalOwnerChecks:readonly string[];
+  materialEvidenceRequested?:true;materialEvidence?:WorkspaceMethodMaterialEvidence|null;
   signedTaskIssued:false;taskCreated:false;contentBindingProven:false;exactInputBindingProven:false;
   dispatchAuthorized:false;executionAuthority:false;writeAuthorized:false;resultReuseProven:false;
 }>;
@@ -48,7 +49,7 @@ export type WorkspaceMethodMaterialEvidence=Readonly<{
 export interface WorkspaceMethodStageReader {
   overview(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodInputOverview>;
   inspect(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodStageInspection>;
-  previewHandoff(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodHandoffPreview>;
+  previewHandoff(input:WorkspaceMethodStageRequest&Readonly<{includeMaterialEvidence?:boolean}>):Promise<WorkspaceMethodHandoffPreview>;
   inspectMaterialEvidence?(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodMaterialEvidence>;
   previewContinuation(input:WorkspaceMethodStageRequest&Readonly<{predecessorStepId:string}>):Promise<WorkspaceMethodNativeInspection>;
   recoverContinuation(input:WorkspaceMethodStageRequest&Readonly<{predecessorStepId:string}>):Promise<WorkspaceMethodNativeInspection>;

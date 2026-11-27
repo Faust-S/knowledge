@@ -144,6 +144,12 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   same('original K036 material evidence retains exact stage input digest',materialEvidence.stageInput.inputBasisDigest,selectedCompute.inputBasisDigest);
   same('original K036 repeated content evidence is stable',(await inspectWorkspaceMethodMaterialEvidence(contentArgs)).materialEvidenceDigest,materialEvidence.materialEvidenceDigest);
   check('original K036 material evidence remains non-authorizing',materialEvidence.executionAuthority===false&&materialEvidence.allAssetsProven===false);
+  const rootContentArgs={...contentArgs,stepId:'prepare',includeMaterialEvidence:true};
+  const combinedHandoff=await previewWorkspaceMethodStageHandoff(rootContentArgs);
+  same('original K036 combined root handoff observes visible attached material',combinedHandoff.materialEvidence.observation.counts.assets,1);
+  same('original K036 combined handoff digest binds its original content evidence',combinedHandoff.binding.materialEvidenceDigest,combinedHandoff.materialEvidence.materialEvidenceDigest);
+  check('original K036 combined handoff is not a signed or created Task',!!combinedHandoff.candidateDigest&&!combinedHandoff.taskCreated&&!combinedHandoff.signedTaskIssued&&!combinedHandoff.dispatchAuthorized);
+  same('original K036 repeat combined handoff is deterministic',(await previewWorkspaceMethodStageHandoff(rootContentArgs)).candidateDigest,combinedHandoff.candidateDigest);
   // Avoid exporting this new synthetic Asset into the old copy-isolation
   // witness: its independent copy behavior is already measured elsewhere.
   await restoredClient.t1.deleteAsset({workspace_id:ws,asset_id:attachmentId,base_revision:1,event:{event_type:'qualification.material.attachment.removed',idempotency_key:'qualification-material-attachment-remove'}});

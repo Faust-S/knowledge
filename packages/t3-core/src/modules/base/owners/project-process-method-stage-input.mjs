@@ -224,22 +224,23 @@ export async function inspectWorkspaceMethodMaterialEvidence(input={}){
     fail('METHOD_MATERIAL_ASSET_OWNER_REQUIRED','Original addressed Asset read ports required');
   const {readObject,listAssets,getAsset,workspaceId}=input;
   const observation=await openStageInputObservation(input),stageInput=observation.report;
-  const flags={atomicSnapshot:false,allAssetsProven:false,contentBindingProven:false,
-    exactInputBindingProven:false,writeAuthorized:false,executionAuthority:false,resultReuseProven:false,dispatchAuthorized:false};
-  if(stageInput.inputBasisDigest===null){
-    return Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1',state:'MATERIAL_REVIEW_REQUIRED',
-      stageInput,materialEvidenceDigest:null,observation:null,...flags});
-  }
+  if(stageInput.inputBasisDigest===null)return materialEvidenceReport(stageInput,null);
   const args={readObject,listAssets,getAsset,workspaceId,materials:stageInput.materials};
   const first=await readVisibleMaterialEvidence(args);
   await observation.revalidate('METHOD_MATERIAL_CONTENT_CHANGED');
   const second=await readVisibleMaterialEvidence(args);
   await observation.revalidate('METHOD_MATERIAL_CONTENT_CHANGED');
   if(!equal(first,second))fail('METHOD_MATERIAL_CONTENT_CHANGED','Material content or visible Assets changed during observation');
-  const materialEvidenceDigest=createHash('sha256').update(canonicalStringify({
-    inputBasisDigest:stageInput.inputBasisDigest,observation:first})).digest('hex');
-  return Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1',state:'VISIBLE_MATERIAL_CONTENT_OBSERVED',
-    stageInput,materialEvidenceDigest,observation:first,...flags});
+  return materialEvidenceReport(stageInput,first);
+}
+function materialEvidenceReport(stageInput,observation){
+  const materialEvidenceDigest=observation?createHash('sha256').update(canonicalStringify({
+    inputBasisDigest:stageInput.inputBasisDigest,observation})).digest('hex'):null;
+  return Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_MATERIAL_EVIDENCE_V1',
+    state:observation?'VISIBLE_MATERIAL_CONTENT_OBSERVED':'MATERIAL_REVIEW_REQUIRED',
+    stageInput,materialEvidenceDigest,observation,atomicSnapshot:false,allAssetsProven:false,
+    contentBindingProven:false,exactInputBindingProven:false,writeAuthorized:false,
+    executionAuthority:false,resultReuseProven:false,dispatchAuthorized:false});
 }
 
 // W05.2: the existing installed original Agent accepted-result owner
@@ -337,7 +338,7 @@ export async function inspectWorkspaceMethodAgentPredecessorResults(input={}){
 }
 async function inspectStageResults({
   owner,readObject,readAccepted,workspaceId,projectId,expected,stepId,resultSelections=[]
-},nativeRequest){
+},nativeRequest,materialRequest=null){
   const selected=selection(expected),selections=captureResultSelections(resultSelections,workspaceId);
   if(selections.length&&typeof readAccepted!=='function')fail('METHOD_STAGE_RESULT_OWNER_REQUIRED','Original installed Agent accepted Result read port required');
   const args={owner,readObject,workspaceId,projectId,expected:selected,stepId};
@@ -353,6 +354,7 @@ async function inspectStageResults({
     exactInputBindingProven:false,originalExecutionOwnerRequired:true};
   if(initial.state!=='INPUT_REFERENCES_VERIFIED'){
     return Object.freeze({state:'MATERIAL_REVIEW_REQUIRED',stageInput:initial,results:Object.freeze([]),...flags,
+      ...(materialRequest?{materialEvidence:null}:{}),
       ...(nativeRequest?{nativeContinuation:null,nativeContinuationState:'MATERIAL_REVIEW_REQUIRED',targetWorkBound:false,dispatchAuthorized:false}:{})});
   }
   const bySelection=new Map(selections.map(row=>[row.stepId,row.reference]));
@@ -372,7 +374,20 @@ async function inspectStageResults({
       nativeObservation=await observeNativeContinuation(nativeRequest,source);
     }
   }
+  // W05.9: one selected source observation for the combined handoff.
+  // Do not read attachment bytes for a Work with unresolved predecessors.
+  // Both Result observations surround the two complete material reads.
+  // This is a bounded, non-atomic observation, never a signed Task.
+  let materialEvidence=null,materialFirst=null;
+  const canObserveContent=materialRequest&&results.every(row=>row.state==='ACCEPTED_WORK_NUMBER_MATCHED_INPUT_BINDING_UNPROVEN');
+  const materialArgs=canObserveContent?{readObject,workspaceId,materials:initial.materials,...materialRequest}:null;
+  if(materialArgs)materialFirst=await readVisibleMaterialEvidence(materialArgs);
   await observation.revalidate('METHOD_STAGE_RESULT_BASIS_CHANGED');
+  if(materialArgs){
+    const second=await readVisibleMaterialEvidence(materialArgs);
+    if(!equal(materialFirst,second))fail('METHOD_MATERIAL_CONTENT_CHANGED','Material content or visible Assets changed during combined handoff observation');
+    materialEvidence=materialEvidenceReport(initial,materialFirst);
+  }
   const confirmed=await observe();
   if(!equal(results,confirmed))fail('METHOD_STAGE_RESULT_CHANGED','Original accepted Result observation changed during inspection');
   await observation.revalidate('METHOD_STAGE_RESULT_BASIS_CHANGED');
@@ -380,6 +395,7 @@ async function inspectStageResults({
     ?'PREDECESSOR_RESULT_REVIEW_REQUIRED':results.some(r=>r.state==='ORIGINAL_RESULT_OWNER_REQUIRED')
       ?'PREDECESSOR_RESULTS_REQUIRED':results.length?'ACCEPTED_RESULTS_OBSERVED_INPUT_BINDING_UNPROVEN':'NO_PREDECESSOR_RESULTS_REQUIRED';
   return Object.freeze({state,stageInput:initial,results:Object.freeze(results),...flags,
+    ...(materialRequest?{materialEvidence}:{}),
     ...(nativeRequest?{nativeContinuation:nativeObservation,
       nativeContinuationState:nativeObservation?'ORIGINAL_RECIPIENT_OBSERVED_TARGET_WORK_BINDING_UNPROVEN':'PREDECESSOR_RESULT_NOT_AVAILABLE',
       targetWorkBound:false,dispatchAuthorized:false}:{})});
@@ -390,7 +406,15 @@ async function inspectStageResults({
 // The original executor must later sign/validate the exact input binding,
 // including actual content/assets and its native execution identity.
 export async function previewWorkspaceMethodStageHandoff(input={}){
-  const inspection=await inspectWorkspaceMethodAgentPredecessorResults(input);
+  const {includeMaterialEvidence=false,listAssets,getAsset}=input;
+  if(typeof includeMaterialEvidence!=='boolean')
+    fail('METHOD_MATERIAL_EVIDENCE_REQUEST_INVALID','Explicit content evidence selection required');
+  if(includeMaterialEvidence&&(typeof listAssets!=='function'||typeof getAsset!=='function'))
+    fail('METHOD_MATERIAL_ASSET_OWNER_REQUIRED','Original addressed Asset read ports required');
+  const inspection=includeMaterialEvidence?
+    await inspectStageResults(input,null,Object.freeze({listAssets,getAsset})):
+    await inspectWorkspaceMethodAgentPredecessorResults(input);
+  const materialEvidence=inspection.materialEvidence??null;
   const {stageInput,results}=inspection,basis=stageInput.basis;
   const actor=basis.intendedActor;
   const needs=Object.freeze([
@@ -401,12 +425,14 @@ export async function previewWorkspaceMethodStageHandoff(input={}){
         ['HUMAN_REVIEW_AND_ORIGINAL_RESULT_OWNER'])
   ]);
   const complete=stageInput.inputBasisDigest!==null&&results.length===stageInput.predecessors.length
-    &&results.every(row=>row.state==='ACCEPTED_WORK_NUMBER_MATCHED_INPUT_BINDING_UNPROVEN');
+    &&results.every(row=>row.state==='ACCEPTED_WORK_NUMBER_MATCHED_INPUT_BINDING_UNPROVEN')
+    &&(!includeMaterialEvidence||materialEvidence?.materialEvidenceDigest!=null);
   const binding=complete?Object.freeze({
     schema:'IWXA_T2_WORKSPACE_METHOD_HANDOFF_PREVIEW_V1',
     workspaceId:basis.workspaceId,projectId:basis.projectId,stepId:basis.stepId,
     projectRef:basis.projectRef,workRef:basis.stageRef,intendedActor:actor,
     inputBasisDigest:stageInput.inputBasisDigest,
+    ...(includeMaterialEvidence?{materialEvidenceDigest:materialEvidence.materialEvidenceDigest}:{}),
     predecessorResults:Object.freeze(results.map(row=>Object.freeze({stepId:row.stepId,
       canonicalWorkRef:row.workRef,accepted:row.accepted}))),
   }):null;
@@ -415,6 +441,7 @@ export async function previewWorkspaceMethodStageHandoff(input={}){
     'PRIOR_RESULTS_OBSERVED_EXACT_BINDING_REQUIRED':'INPUTS_PREPARED_OWNER_SELECTION_REQUIRED';
   return Object.freeze({schema:'IWXA_T2_WORKSPACE_METHOD_STAGE_HANDOFF_PREVIEW_V1',state,
     inspection,binding,candidateDigest,requiredOriginalOwnerChecks:needs,
+    ...(includeMaterialEvidence?{materialEvidenceRequested:true,materialEvidence}:{}),
     signedTaskIssued:false,taskCreated:false,contentBindingProven:false,exactInputBindingProven:false,
     dispatchAuthorized:false,executionAuthority:false,writeAuthorized:false,resultReuseProven:false,atomicSnapshot:false});
 }

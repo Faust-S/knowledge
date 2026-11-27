@@ -26,7 +26,8 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       &&(mode==='overview'||typeof input.stepId==='string')&&Array.isArray(input.expected?.workRefs)
       &&input.expected.workRefs.length>0&&input.expected.workRefs.length<=64
       &&(mode==='overview'||input.resultSelections==null||(Array.isArray(input.resultSelections)&&input.resultSelections.length<=64))
-      &&(!['native-preview','native-recover'].includes(mode)||typeof input.predecessorStepId==='string'),
+      &&(!['native-preview','native-recover'].includes(mode)||typeof input.predecessorStepId==='string')
+      &&(mode!=='handoff'||input.includeMaterialEvidence===undefined||typeof input.includeMaterialEvidence==='boolean'),
       'T3_METHOD_STAGE_SELECTION_REQUIRED');
     const ref=value=>({family:value?.family,objectId:value?.objectId,recordId:value?.recordId,revision:value?.revision});
     const request=canonicalClone({workspaceId:input.workspaceId,projectId:input.projectId,
@@ -35,7 +36,8 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
         resultSelections:(input.resultSelections??[]).map(row=>({stepId:row.stepId,reference:{
           workspace_id:row.reference?.workspace_id,object_id:row.reference?.object_id,
           schema_id:row.reference?.schema_id,revision:row.reference?.revision}}))}),
-      ...(['native-preview','native-recover'].includes(mode)?{predecessorStepId:input.predecessorStepId}:{})});
+      ...(['native-preview','native-recover'].includes(mode)?{predecessorStepId:input.predecessorStepId}:{}),
+      ...(mode==='handoff'&&input.includeMaterialEvidence===true?{includeMaterialEvidence:true}:{})});
     check(isHostActive()===true,'T3_HOST_DISPOSED');
     const selected=currentWorkspace.get();
     check(selected?.workspace_id===request.workspaceId&&selected.deleted_at==null,'T3_METHOD_STAGE_WORKSPACE_REQUIRED');
@@ -81,8 +83,8 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       const args={...request,owner,readObject,readAccepted};
       let report;
       if(mode==='overview')report=await readWorkspaceMethodInputOverview(args);
-      else if(mode==='handoff')report=await previewWorkspaceMethodStageHandoff(args);
-      else if(mode==='material-evidence'){
+      else if(mode==='handoff'&&!request.includeMaterialEvidence)report=await previewWorkspaceMethodStageHandoff(args);
+      else if(mode==='material-evidence'||mode==='handoff'){
         // Resolve the ORIGINAL owner for each Asset operation, then fence
         // its complete signed context against the already selected method.
         // Each individual read still receives a fresh D1 authorization.
@@ -97,9 +99,10 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
           return fn=>guarded(async()=>{await matches();const value=await fn(binding);await matches();return value;});
         };
         const list=await assetPort('t1.listAssets'),get=await assetPort('t1.getAsset');
-        report=await inspectWorkspaceMethodMaterialEvidence({...args,
-          listAssets:query=>list(binding=>binding.listAssets(query)),
-          getAsset:(workspaceId,id)=>get(binding=>binding.getAsset(workspaceId,id))});
+        const evidenceArgs={...args,listAssets:query=>list(binding=>binding.listAssets(query)),
+          getAsset:(workspaceId,id)=>get(binding=>binding.getAsset(workspaceId,id))};
+        report=mode==='handoff'?await previewWorkspaceMethodStageHandoff(evidenceArgs):
+          await inspectWorkspaceMethodMaterialEvidence(evidenceArgs);
       }
       else if(['native-preview','native-recover'].includes(mode)){
         check(nativeContinuation!==null,'T3_METHOD_STAGE_NATIVE_OWNER_REQUIRED');
