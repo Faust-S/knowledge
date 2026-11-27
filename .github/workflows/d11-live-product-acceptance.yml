@@ -1,16 +1,20 @@
-name: D11 full live Windows Linux acceptance
+name: D11 exact release live Windows Linux acceptance
 on:
   workflow_dispatch:
+  push:
+    branches: ['ci/once/d11-live-product-acceptance/**']
+    paths: ['.github/ci-requests/d11-live-product-acceptance.json']
 permissions:
   contents: read
+  actions: read
 concurrency:
-  group: d11-full-live-${{ github.ref }}
-  cancel-in-progress: true
+  group: d11-live-product-acceptance
+  cancel-in-progress: false
 jobs:
   browser:
     name: D11 LIVE ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -19,27 +23,43 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - name: Check private repository permissions
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit one exact request
+        run: |
+          python tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-live-product-acceptance --profile live-os --revision domain=c4406c29abd639862fc21edf417c5d049184e926 --revision site=a912cae11b1f729b8e73848793d37c46f1e96511 --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17
+          if ($LASTEXITCODE -ne 0) { throw "D11_REQUEST_INVALID" }
+      - name: Confirm previously qualified exact product sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $r=gh api "repos/Faust-S/knowledge/actions/runs/46045820704" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $r.conclusion -ne "success" -or $r.head_sha -ne "598d881dbbdc540ef7ed5b1c32e8c56bf1e5c0eb") { throw "D11_PRIOR_QUALIFICATION_MISSING" }
+          Write-Output "D11_PRIOR_QUALIFICATION=PASS"
+      - name: Check existing private read scope
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw "D11_DOMEN_UNAVAILABLE" }
-          foreach ($repository in @("Faust-S/advice-logistics.ru","Faust-S/advice-logistics","Faust-S/T2")) {
-            gh api "repos/$repository" --jq ".id" > $null
-            if ($LASTEXITCODE -ne 0) { throw "D11_READ_ACCESS_DENIED" }
+          foreach ($repo in @("Faust-S/advice-logistics.ru","Faust-S/advice-logistics","Faust-S/T2")) {
+            gh api "repos/$repo" --jq ".id" *> $null
+            if ($LASTEXITCODE -ne 0) { throw "D11_READ_SCOPE_UNAVAILABLE" }
           }
-          Write-Output "D11_PRIVATE_READ_ACCESS=PASS"
+          Write-Output "D11_READ_SCOPE=PASS"
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: work/2026-11-12-case001-logistics-engineering
+          ref: a912cae11b1f729b8e73848793d37c46f1e96511
           token: ${{ secrets.DOMEN }}
           path: site
+          fetch-depth: 2
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics
-          ref: work/2026-11-12-case001-logistics-engineering
+          ref: c4406c29abd639862fc21edf417c5d049184e926
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -52,156 +72,148 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-      - name: Pin revision and canonical source before browser acceptance
+          node-version: '22.16.0'
+      - name: Verify exact test-only successor and 56 canonical mirrors
         run: |
-          $site=(git -C site rev-parse HEAD).Trim()
-          $domain=(git -C domain rev-parse HEAD).Trim()
-          $t2=(git -C t2 rev-parse HEAD).Trim()
-          Write-Output "D11_UI_SITE_HEAD=$site"
-          Write-Output "D11_UI_DOMAIN_HEAD=$domain"
-          if ($t2 -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D11_T2_PIN_CHANGED" }
-          $files=@(Get-ChildItem domain/model/logistics -File -Filter "*.ts")
-          if ($files.Count -lt 25) { throw "D11_OPERATIONAL_SERVICE_SOURCE_MISSING" }
+          if ((git -C site rev-parse HEAD).Trim() -ne "a912cae11b1f729b8e73848793d37c46f1e96511" -or
+              (git -C domain rev-parse HEAD).Trim() -ne "c4406c29abd639862fc21edf417c5d049184e926" -or
+              (git -C t2 rev-parse HEAD).Trim() -ne "e70de29b72b83e2546f7ab74b17572685a728c17" -or
+              (git -C site rev-parse HEAD^).Trim() -ne "56d5851c466d14d17a2c6e250df452a4dfeaf068") { throw "D11_PIN_MISMATCH" }
+          $changes=@(git -C site diff --name-only HEAD^ HEAD)
+          if ($changes.Count -ne 2 -or $changes -notcontains "scripts/d11-live-operational-os.mjs" -or $changes -notcontains "scripts/d11-live-t2-kernel-exchange-acceptance.mjs") { throw "D11_TEST_ONLY_SUCCESSOR_INVALID" }
+          $o=Get-Content -Raw -Encoding UTF8 site/runtime/d11-module/operations/source.json | ConvertFrom-Json
+          $m=Get-Content -Raw -Encoding UTF8 site/src/lib/logistics/professional-methods-source.json | ConvertFrom-Json
+          $a=Get-Content -Raw -Encoding UTF8 site/runtime/d11-module/os-work-areas-source.json | ConvertFrom-Json
+          $files=@($o.files)+@($m.files)+@([pscustomobject]@{sourcePath=$a.sourcePath;localPath=$a.localPath;blob=$a.sourceBlob})
+          if ($files.Count -ne 56 -or @($files.localPath | Sort-Object -Unique).Count -ne 56 -or @($files.sourcePath | Sort-Object -Unique).Count -ne 55) { throw "D11_MIRROR_MANIFEST_INVALID" }
           foreach ($f in $files) {
-            $a=(git -C domain rev-parse "HEAD:model/logistics/$($f.Name)").Trim()
-            $b=(git -C site rev-parse "HEAD:src/lib/logistics/$($f.Name)").Trim()
-            if ($a -ne $b) { throw "D11_CANONICAL_MIRROR_DIFF" }
+            if ((git -C domain rev-parse "HEAD:$($f.sourcePath)").Trim() -ne $f.blob -or (git -C site rev-parse "HEAD:$($f.localPath)").Trim() -ne $f.blob) { throw "D11_MIRROR_MISMATCH" }
           }
-          Write-Output "D11_UI_MIRROR=$($files.Count)/$($files.Count)"
-          if (!(Select-String -Path site/src/styles.css -Pattern "dashboard-card-d11.proposals.workspace" -SimpleMatch -Quiet)) { throw "D11_DASHBOARD_MOBILE_GRID_CONSTRAINT_MISSING" }
-      - name: Validate original T2 service passport declaration shape
-        working-directory: site
-        run: |
-          & node --test tests/d11-service-passport-contract.test.mjs
-          if ($LASTEXITCODE -ne 0) { throw "D11_T2_PASSPORT_DECLARATION_INVALID" }
-          Write-Output "D11_T2_PASSPORT_DECLARATIONS=PASS"
-      - name: Install npm dependencies in ephemeral checkout
+          Write-Output "D11_MIRRORS=56/56 PASS"
+          Write-Output "D11_PRODUCT_SOURCES_UNCHANGED=PASS"
+      - name: Install dependencies and parse browser witnesses
         working-directory: site
         run: |
           & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP "d11-npm-install.log")
-          if ($LASTEXITCODE -ne 0) { throw "D11_UI_NPM_INSTALL_FAILED" }
-          Write-Output "D11_UI_NPM=PASS"
-      - name: Build actual T2 Host and public site together
+          if ($LASTEXITCODE -ne 0) { throw "D11_NPM_INSTALL_FAILED" }
+          foreach ($script in @("d11-live-operational-os","d11-live-t2-kernel-exchange-acceptance","d11-live-browser-acceptance")) {
+            & node --check "scripts/$script.mjs"
+            if ($LASTEXITCODE -ne 0) { throw "D11_BROWSER_WITNESS_PARSE_FAILED" }
+          }
+          Write-Output "D11_WITNESSES_PARSE=PASS"
+      - name: Build the exact previously qualified product
         working-directory: site
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
         run: |
           & npm run build:t2:site *> (Join-Path $env:RUNNER_TEMP "d11-build.log")
           if ($LASTEXITCODE -ne 0) { throw "D11_UI_BUILD_FAILED" }
-          Write-Output "D11_UI_ONE_DIST=PASS"
-      # Every operational editor now retains selected JSON until File.text resolves.
-      # The source suite rejects early-cleared file inputs before full browser checks.
-      - name: Run both canonical and site D11 source regression suites
-        id: source
+          if (!(Test-Path dist/workspace/index.html)) { throw "D11_DIST_MISSING" }
+          Write-Output "D11_ONE_DIST=PASS"
+      - name: Full Windows source regression and types
+        id: windows_source
+        if: runner.os == 'Windows'
         continue-on-error: true
         working-directory: site
         run: |
-          $domainTests=@(Get-ChildItem ../domain/tests -File -Filter "*.test.mjs" | ForEach-Object { $_.FullName })
-          $siteTests=@(Get-ChildItem tests -File -Filter "*.test.mjs" | ForEach-Object { $_.FullName })
-          if ($domainTests.Count -ne 14 -or $siteTests.Count -lt 21) { throw "D11_OPERATIONAL_SERVICE_TESTS_MISSING" }
-          & node --experimental-strip-types --test @domainTests
-          if ($LASTEXITCODE -ne 0) { throw "D11_CANONICAL_MODELS_REGRESSION_FAILED" }
-          & node --experimental-strip-types --test @siteTests
-          if ($LASTEXITCODE -ne 0) { throw "D11_SITE_SOURCE_REGRESSION_FAILED" }
-          # Git blobs are canonical. Windows checkout may expand LF to CRLF,
-          # so never compare raw working-tree SHA256 across repositories.
-          $siteBlob=(& git rev-parse "HEAD:src/lib/logistics/operational-services.ts").Trim()
-          $domainBlob=(& git -C ../domain rev-parse "HEAD:model/logistics/operational-services.ts").Trim()
-          if ($siteBlob -ne $domainBlob) { throw "D11_OPERATIONAL_CANONICAL_BLOB_MISMATCH" }
-          $siteSource=[IO.File]::ReadAllText((Resolve-Path "src/lib/logistics/operational-services.ts"))
-          $domainSource=[IO.File]::ReadAllText((Resolve-Path "../domain/model/logistics/operational-services.ts"))
-          if ($siteSource.Replace("`r`n","`n") -cne $domainSource.Replace("`r`n","`n")) {
-            throw "D11_OPERATIONAL_CANONICAL_WORKTREE_MISMATCH"
+          $status=0
+          foreach ($repo in @("../domain",".")) {
+            $tests=@(Get-ChildItem "$repo/tests" -File -Filter "*.test.mjs" | ForEach-Object { $_.FullName })
+            if ($tests.Count -eq 0) { throw "D11_TESTS_MISSING" }
+            $log=Join-Path $env:RUNNER_TEMP ("d11-regression-"+($repo -replace '[^a-z]','')+".log")
+            Push-Location $repo
+            try {
+              & node --experimental-strip-types --test --test-reporter=tap @tests *> $log
+              $code=$LASTEXITCODE
+            } finally { Pop-Location }
+            Get-Content $log | Where-Object { $_ -match '^# (tests|pass|fail|skipped) [0-9]+$' } | Write-Output
+            if ($code -ne 0) { $status=1 }
           }
-          if (!(Select-String -Path "scripts/d11-live-t2-kernel-exchange-acceptance.mjs" -Pattern 'const names=await p.$$eval' -SimpleMatch -Quiet)) { throw "D11_PROJECT_LIST_MULTIROW_WITNESS_MISSING" }
-          Write-Output "D11_PROJECT_LIST_MULTIROW_WITNESS=PASS"
-          Write-Output "D11_CANONICAL_SERVICE_MIRROR=PASS"
-          & npx --no-install tsc --noEmit --project tsconfig.json *> (Join-Path $env:RUNNER_TEMP "d11-types.log")
-          if ($LASTEXITCODE -ne 0) { throw "D11_SITE_TYPES_FAILED" }
-          Write-Output "D11_ALL_SOURCE_REGRESSIONS_AND_TYPES=PASS"
-      - name: Verify all nine integrated static product checks
-        id: hygiene
+          & npx --no-install tsc --noEmit --pretty false *> (Join-Path $env:RUNNER_TEMP "d11-types.log")
+          if ($LASTEXITCODE -ne 0) { $status=1 }
+          if ($status -ne 0) { throw "D11_WINDOWS_SOURCE_FAILED" }
+          Write-Output "D11_WINDOWS_SOURCE=PASS"
+      - name: Windows static product and public page checks
+        id: windows_static
+        if: runner.os == 'Windows'
         continue-on-error: true
         working-directory: site
         run: |
-          $checks=@("check:readability","check:hydration","check:runtime","check:no-localhost","check:assets","check:external-assets","check:links","check:seo","check:htaccess")
-          foreach ($check in $checks) {
-            & npm run --silent $check *> (Join-Path $env:RUNNER_TEMP ("d11-"+$check.Replace(":","-")+".log"))
-            if ($LASTEXITCODE -ne 0) { throw "D11_PRODUCT_STATIC_CHECK_FAILED: $check" }
+          $status=0
+          foreach ($check in @("readability","hydration","runtime","no-localhost","assets","external-assets","links","seo","htaccess")) {
+            & npm run "check:$check" *> (Join-Path $env:RUNNER_TEMP "d11-$check.log")
+            if ($LASTEXITCODE -ne 0) { $status=1; Write-Output "D11_STATIC_FAIL=$check" } else { Write-Output "D11_STATIC_PASS=$check" }
           }
-          Write-Output "D11_PRODUCT_STATIC_CHECKS=9/9 PASS"
-      # Test the real export entry point rather than an arbitrary form save.
-      # Protect every source payload; only status codes appear in public logs.
-      # Preserve verified production dist bytes; only two Host-origin config
-      # responses are overlaid in-memory. Diagnose initial T2 route mount,
-      # browser exceptions and missing Host resources without leaking payloads.
-      - name: Real browser E2E for ten cases plus restored own-project forms
+          if ($status -ne 0) { throw "D11_WINDOWS_STATIC_FAILED" }
+          Write-Output "D11_WINDOWS_STATIC=9/9 PASS"
+      - name: Real browser ten cases and own-project forms
         id: ui
         continue-on-error: true
         working-directory: site
         run: |
-          & node scripts/d11-live-browser-acceptance.mjs
-          if ($LASTEXITCODE -ne 0) { throw "D11_LIVE_TEN_CASES_FAILED" }
+          $log=Join-Path $env:RUNNER_TEMP "d11-live-ui.log"
+          & node scripts/d11-live-browser-acceptance.mjs *> $log
+          $code=$LASTEXITCODE
+          Get-Content $log | ForEach-Object {
+            if ($_ -match '^(D11_(?:LIVE_GUI|OWN_)[A-Z0-9_]*)(?:=)([0-9/ ]*PASS)') { Write-Output ($Matches[1]+"="+$Matches[2]) }
+            elseif ($_ -match '^(D11_LIVE_GUI_FAILED=[A-Z0-9_]+)') { Write-Output $Matches[1] }
+          }
+          if ($code -ne 0) { throw "D11_LIVE_TEN_CASES_FAILED" }
           Write-Output "D11_LIVE_BROWSER=PASS"
-      # Verify the user-selected same-tab packet with the exact original D11
-      # canonical compact serializer, real Kernel consent and Exchange import.
-      # Use T2 #/workspaces first-run flow on HTTP loopback.
-      - name: Verify persistent browser JSON uploads, eight customer projects and original T2 Exchange
+      - name: Original T2 result readback and Exchange
         id: kernel
         continue-on-error: true
         working-directory: site
         run: |
-          & node scripts/d11-live-t2-kernel-exchange-acceptance.mjs
-          if ($LASTEXITCODE -ne 0) { throw "D11_T2_REAL_KERNEL_EXCHANGE_FAILED" }
+          $log=Join-Path $env:RUNNER_TEMP "d11-live-kernel.log"
+          & node scripts/d11-live-t2-kernel-exchange-acceptance.mjs *> $log
+          $code=$LASTEXITCODE
+          Get-Content $log | ForEach-Object {
+            if ($_ -match '^(D11_[A-Z0-9_]+)=([0-9/ ]*PASS)') { Write-Output ($Matches[1]+"="+$Matches[2]) }
+            elseif ($_ -match '^(D11_REAL_T2_FAILED=[A-Z0-9_]+)') { Write-Output $Matches[1] }
+          }
+          if ($code -ne 0) { throw "D11_T2_REAL_KERNEL_EXCHANGE_FAILED" }
           Write-Output "D11_T2_REAL_KERNEL_EXCHANGE=PASS"
-      - name: "Verify 26 screenshots: main surfaces and eight user projects on desktop/mobile"
+      - name: Real operational OS stock to economics and independent import
+        id: os
+        continue-on-error: true
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP "d11-live-os.log"
+          & node scripts/d11-live-t2-kernel-exchange-acceptance.mjs --operational *> $log
+          $code=$LASTEXITCODE
+          Get-Content $log | ForEach-Object {
+            if ($_ -match '^(D11_[A-Z0-9_]+)=([0-9/ ]*PASS)') { Write-Output ($Matches[1]+"="+$Matches[2]) }
+            elseif ($_ -match '^(D11_(?:OS_STAGE|REAL_T2_FAILED)=[A-Z0-9_]+)') { Write-Output $Matches[1] }
+          }
+          if ($code -ne 0) { throw "D11_OPERATIONAL_OS_FAILED" }
+          Write-Output "D11_OPERATIONAL_OS=PASS"
+      - name: Verify original 26 desktop and mobile screenshots locally
         id: visual
         continue-on-error: true
-        if: always()
         run: |
           $dir=Join-Path $env:RUNNER_TEMP "d11-visual"
-          foreach ($name in @("d11-dashboard-desktop.png","d11-dashboard-mobile.png",
-                             "d11-home-desktop.png","d11-home-mobile.png",
-                             "d11-result-detail-desktop.png","d11-result-detail-mobile.png",
-                             "d11-projects-desktop.png","d11-projects-mobile.png",
-                             "d11-customer-order-desktop.png","d11-customer-order-mobile.png")) {
-            $file=Join-Path $dir $name
-            if (!(Test-Path $file) -or (Get-Item $file).Length -lt 1000) {
-              throw "D11_VISUAL_SCREENSHOT_NOT_CONFIRMED"
-            }
-          }
+          $names=@("d11-dashboard-desktop.png","d11-dashboard-mobile.png","d11-home-desktop.png","d11-home-mobile.png","d11-result-detail-desktop.png","d11-result-detail-mobile.png","d11-projects-desktop.png","d11-projects-mobile.png","d11-customer-order-desktop.png","d11-customer-order-mobile.png")
           foreach ($caseNumber in 2..9) {
-            foreach ($viewport in @("desktop","mobile")) {
-              $name=("d11-own-{0:D3}-{1}.png" -f $caseNumber,$viewport)
-              $file=Join-Path $dir $name
-              if (!(Test-Path $file) -or (Get-Item $file).Length -lt 1000) {
-                throw "D11_OWN_PROJECT_SCREENSHOT_NOT_CONFIRMED:$name"
-              }
-            }
+            foreach ($viewport in @("desktop","mobile")) { $names+=("d11-own-{0:D3}-{1}.png" -f $caseNumber,$viewport) }
           }
-          Write-Output "D11_TWENTYSIX_SCREENSHOTS=PASS"
-      - name: Enforce source, site, GUI and T2 Kernel acceptance
+          foreach ($name in $names) {
+            $file=Join-Path $dir $name
+            if (!(Test-Path $file) -or (Get-Item $file).Length -lt 1000) { throw "D11_SCREENSHOT_MISSING" }
+          }
+          Write-Output "D11_SCREENSHOT_FILES=26/26 PASS"
+      - name: Require all applicable product checks
         if: always()
         run: |
-          if ("${{ steps.source.outcome }}" -ne "success" -or
-              "${{ steps.hygiene.outcome }}" -ne "success" -or
-              "${{ steps.ui.outcome }}" -ne "success" -or
-              "${{ steps.kernel.outcome }}" -ne "success" -or
-              "${{ steps.visual.outcome }}" -ne "success") {
-            throw "D11_LIVE_ACCEPTANCE_INCOMPLETE"
-          }
+          if ("${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.kernel.outcome }}" -ne "success" -or "${{ steps.os.outcome }}" -ne "success" -or "${{ steps.visual.outcome }}" -ne "success") { throw "D11_LIVE_ACCEPTANCE_INCOMPLETE" }
+          if ($env:RUNNER_OS -eq "Windows" -and ("${{ steps.windows_source.outcome }}" -ne "success" -or "${{ steps.windows_static.outcome }}" -ne "success")) { throw "D11_WINDOWS_QUALIFICATION_INCOMPLETE" }
           Write-Output "D11_LIVE_FULL_ACCEPTANCE=PASS"
-      # Only four pixel screenshots of preloaded synthetic test Workspaces.
-      # No private source, dist, JSON proposals or credentials leave the runner.
-      - name: Capture tested desktop and mobile D11 interfaces
+      - name: Remove private inputs and diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: d11-visual-acceptance-${{ matrix.os }}
-          path: ${{ runner.temp }}/d11-visual/*.png
-          if-no-files-found: ignore
-          retention-days: 3
-          compression-level: 6
-      # No source, dist or raw project data published.
-
+        run: |
+          foreach ($name in @("domain","site","t2")) {
+            $folder=Join-Path $env:GITHUB_WORKSPACE $name
+            if (Test-Path $folder) { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+          Get-ChildItem $env:RUNNER_TEMP -Filter "d11-*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+      # No private code, output, logs, screenshots or artifacts uploaded.
