@@ -472,6 +472,7 @@ export function createOriginalKernelNativeRelay({
           await requireCurrent();
           check(profile?.schema==='IWXA_T4_ORIGINAL_NATIVE_HOST_NETWORK_PROFILE_V1'&&profile.role===activation.role&&
             typeof profile.close==='function'&&typeof profile.bindOriginalPeerHistoryReceiver==='function'&&
+            (profile.activateOriginalPeerHistoryReceiver===undefined||typeof profile.activateOriginalPeerHistoryReceiver==='function')&&
             typeof profile.networkOwner?.resolveOriginalAccess==='function'&&profile.networkOwner.role===activation.role&&
             profile.networkOwner.identity?.sourceWorkspaceId===activation.sourceWorkspaceId&&
             profile.networkOwner.identity?.technicalWorkspaceId===activation.technicalWorkspaceId,"T3_ORIGINAL_NETWORK_ACTIVATION_PROFILE_REQUIRED");
@@ -516,6 +517,16 @@ export function createOriginalKernelNativeRelay({
     if(!announcement)return null;
     state.activationAnnouncement=null;
     state.networkReady=announcement.activation.state==='READY';
+    if(state.networkReady){
+      // The admission task has now finished and the original command slot
+      // is available. A held peer socket may begin reading ONLY here.
+      try{state.profile?.activateOriginalPeerHistoryReceiver?.();}
+      catch{
+        networkCleanup(state);
+        return {kind:"NETWORK_ACTIVATION",activation:{networkActivationVersion:1,
+          state:"DENIED",...negotiated(state,false)}};
+      }
+    }
     return announcement;
   };
   const relay=Object.freeze({

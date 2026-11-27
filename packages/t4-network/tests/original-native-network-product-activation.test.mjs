@@ -345,3 +345,30 @@ test('legacy unscoped native attach keeps its existing one-argument contract',as
     assert.equal(count,1);assert.equal(relay.nativeRegistryKernel,null);
   }finally{relay.close();}
 });
+
+
+test('original native peer receiver is released exactly at the READY announcement, not at binding',async()=>{
+  let bound=false,released=0,historyRead=null;
+  const f=fixture({bindHook:async receiver=>{
+    bound=true;assert.equal(f.relay.networkAttached,false);assert.equal(released,0);
+    await tick();assert.equal(released,0);
+    return ()=>{f.counts.stop++;};
+  },profilePatch:{activateOriginalPeerHistoryReceiver(){
+    assert.equal(bound,true);assert.equal(f.relay.networkAttached,true);released++;
+    historyRead=f.relay.readOriginalReplacementOwnerHistory({request:'early-peer'});
+    historyRead.catch(()=>{});
+  }}});
+  try{const session=await f.attach();await f.activate(session);
+    assert.equal(released,1);await f.command(session,'getObject',[REG,OBJ]);
+    assert.deepEqual(await historyRead,{ok:true});
+  }finally{f.relay.close();}
+});
+test('failed peer release denies activation instead of advertising a broken READY session',async()=>{
+  const f=fixture({profilePatch:{activateOriginalPeerHistoryReceiver(){throw Error('PEER_CLOSED');}}});
+  try{const session=await f.attach();await f.command(session,'getObject',[REG,OBJ]);await f.command(session,'listEventsSince',[REG]);
+    const reply=await f.next(session);
+    assert.equal(reply.kind,'NETWORK_ACTIVATION');assert.equal(reply.activation.state,'DENIED');
+    assert.equal(reply.activation.networkMethods,undefined);assert.equal(reply.activation.localSourceMutationVersion,undefined);
+    assert.equal(f.relay.networkAttached,false);assert.equal(f.counts.stop,1);assert.equal(f.counts.close,1);assert.equal(f.counts.detach,1);
+  }finally{f.relay.close();}
+});

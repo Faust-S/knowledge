@@ -55,7 +55,7 @@ export function createT4OriginalProductProfileFactory({scope,registryObjectId='t
       !Number.isSafeInteger(lifetime.contextEpoch)||lifetime.contextEpoch<0||
       (lifetime.activationSignal!==undefined&&!(lifetime.activationSignal instanceof AbortSignal)))
       fail('T4_INSTALLED_PRODUCT_ORIGINAL_HOST_REQUIRED');
-    let closed=false,authority=null,profile=null,peerConnection=null;
+    let closed=false,authority=null,profile=null,peerConnection=null,receiverBound=false,receiverActive=false;
     const peerStartupAbort=new AbortController();
     const signal=lifetime.activationSignal===undefined?peerStartupAbort.signal:AbortSignal.any([peerStartupAbort.signal,lifetime.activationSignal]);
     const active=()=>!closed&&!signal.aborted&&lifetime.isHostActive()===true;
@@ -119,9 +119,18 @@ export function createT4OriginalProductProfileFactory({scope,registryObjectId='t
       requireActive();
       return Object.freeze({...profile,close,bindOriginalPeerHistoryReceiver(relay){
         requireActive();
+        if(receiverBound)fail('T4_INSTALLED_PRODUCT_PEER_RECEIVER_ALREADY_BOUND');
         const receiver=profile.bindOriginalPeerHistoryReceiver(relay);
-        if(peerConnection!==null)releaseT4OriginalNativePeerStartup(peerConnection);
+        receiverBound=true;
         return receiver;
+      },activateOriginalPeerHistoryReceiver(){
+        // Binding the native receiver is not the READY transition. Wait for
+        // the original relay to release its activation reservation and
+        // publish the accepted Host session on its existing next/result loop.
+        requireActive();
+        if(!receiverBound||receiverActive)fail('T4_INSTALLED_PRODUCT_PEER_RECEIVER_NOT_PENDING');
+        if(peerConnection!==null)releaseT4OriginalNativePeerStartup(peerConnection);
+        receiverActive=true;
       }});
     }catch(error){close();throw error;}
   };
