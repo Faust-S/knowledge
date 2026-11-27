@@ -1,0 +1,32 @@
+name: T4 original Registry relay qualification
+on:
+  push:
+    branches:
+      - 'ci/once/t4-registry-relay/826d65917e05'
+permissions:
+  contents: read
+jobs:
+  registry-relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 826d65917e05f3048e367427ca371910abe227db
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact original Registry and native relay
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "826d65917e05f3048e367427ca371910abe227db"
+          test "$(git rev-parse HEAD^{tree})" = "76320aab510fbcd38c0a05fb645371d75a8bfe61"
+          node --check packages/t3-core/src/t3/original-kernel-native-relay.mjs
+          node --check packages/t3-core/src/t3/original-kernel-native-relay-codec.mjs
+          node --test packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs packages/t4-network/tests/original-native-network-product-activation.test.mjs packages/t4-network/tests/original-installed-control-factories.test.mjs
+      - name: Install existing locked Core dependencies
+        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Typecheck original trusted browser realm
+        working-directory: packages/t3-core
+        run: npx --no-install tsc --noEmit
