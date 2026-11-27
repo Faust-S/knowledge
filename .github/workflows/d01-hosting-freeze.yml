@@ -1,4 +1,4 @@
-name: D01 stable Host release witness source regression
+name: D01 final Host observation source regression
 on:
   push:
     branches:
@@ -20,11 +20,11 @@ jobs:
           fetch-depth: 2
       - name: Verify exact single request before private checkout
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d01-hosting-freeze --profile stable-host-release-witness-source --revision site=a6622dd7f9008a142193d1481f902d61efbe12f6
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d01-hosting-freeze --profile final-host-observation-source-regression --revision site=d189a9e3c82234ed778efab6fbc6e60080a8f988
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: a6622dd7f9008a142193d1481f902d61efbe12f6
+          ref: d189a9e3c82234ed778efab6fbc6e60080a8f988
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -35,7 +35,7 @@ jobs:
         working-directory: private/site
         run: |
           set -eu
-          test "$(git rev-parse HEAD)" = 'a6622dd7f9008a142193d1481f902d61efbe12f6'
+          test "$(git rev-parse HEAD)" = 'd189a9e3c82234ed778efab6fbc6e60080a8f988'
           for file in scripts/browser-product-origin.mjs scripts/test-browser-product-origin.mjs scripts/audit-browser-navigation.mjs scripts/browser-audit-budget.mjs; do
             node --check "$file"
           done
