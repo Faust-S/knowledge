@@ -1,0 +1,15 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-032-rc2-hardware",
+  "preparedSha": "0a2cd84af5d56e148e003326bada030da8fb62e2",
+  "originalAssistant": "8b5a62fcaf2ac2cd714dc8af4468d5ac4e4f5922",
+  "cehovodSite": "004b90f1f50b19ca402e3846b36aa1af3df7ec9b",
+  "canonicalSubject": "6852d55ae8e7100b480b2d5c0a10b92de1c7d467",
+  "qualifiedDomainRun": 46060488224,
+  "retainedPriorPlatformArtifact": 15227050568,
+  "priorSoftwareRun": 46058573231,
+  "scope": "REPACKAGE_ONLY_METADATA_AND_EXISTING_HARDWARE_FREE_CONSULTATION",
+  "hardwareRequired": true,
+  "groundedAdvice": false,
+  "domainAccepted": false
+}
