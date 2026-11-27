@@ -1,4 +1,4 @@
-name: D09 HOP T3 0.3.2 artwork performance and genuine model command
+name: D09 HOP T3 0.3.2 canonical macOS path and genuine model qualification
 on:
   push:
     branches: ['ci/once/d09-hop-t3-integration/**']
@@ -17,20 +17,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - lane: browser
-            runner: ubuntu-24.04
-            origin: https://hop.iwxa.ru:9443
-            preview: '1'
-          - lane: production
-            runner: ubuntu-24.04
-            origin: https://hop.iwxa.ru
-            preview: '0'
           - lane: hardware
             runner: macos-latest
             origin: https://hop.iwxa.ru:9443
             preview: '1'
     env:
-      SITE_PIN: acafd120ef1144a6cc17ec6e9085aa6abd46dbb0
+      SITE_PIN: deb2c2b7641972331a9144edc2a757236443c29a
       SUBJECT_PIN: fc1c9ab095a6eaed05e6b42d63ce1c3388103507
       T3_PIN: 8e26076ce66f0c26693a647e061fcd568e055b77
       ASSISTANT_PIN: 2c247482306f218a7d5be668de11e98f168862d4
@@ -47,7 +39,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable domain request
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=acafd120ef1144a6cc17ec6e9085aa6abd46dbb0 --revision subject=fc1c9ab095a6eaed05e6b42d63ce1c3388103507 --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=deb2c2b7641972331a9144edc2a757236443c29a --revision subject=fc1c9ab095a6eaed05e6b42d63ce1c3388103507 --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
       - name: Checkout HOP site
         uses: actions/checkout@v4
         with:
@@ -81,7 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for spec in "private-site $SITE_PIN 74e4b5c112385557a519c2966a02587e06069660" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
+          for spec in "private-site $SITE_PIN 46276d3a3c56a8dc419cd09adb4680a60b8c5869" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
             read -r dir sha tree <<< "$spec"
             test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
             test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
@@ -101,10 +93,10 @@ jobs:
             echo "npm_config_cache=$RUNNER_TEMP/d09-t3/npm-cache"
           } >> "$GITHUB_ENV"
           echo D09_T3_RELEASE_ARCHIVE=PASS
-      - name: Node 24
+      - name: Node 22 (qualified T3 macOS environment)
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '22'
       - name: Locked HOP dependencies
         id: dependencies
         working-directory: private-site
@@ -145,8 +137,10 @@ jobs:
             echo D09_T3_PREPARE=PASS
           else
             echo D09_T3_PREPARE=FAIL
+            grep -E '^D09_T3_PREPARE_PHASE_[A-Z_]+=FAIL$' "$RUNNER_TEMP/d09-t3/prepare.log" | tail -5 || true
             grep -oE '(D09_[A-Z0-9_]+|T3_[A-Z0-9_]+|T2_[A-Z0-9_]+|ERR_[A-Z0-9_]+|error TS[0-9]+)' "$RUNNER_TEMP/d09-t3/prepare.log" | sort -u | head -50 || true
-            grep -E '^([[:alnum:]_./-]+\.(tsx?|mjs)\([0-9]+,[0-9]+\): error TS[0-9]+:|error during build:)' "$RUNNER_TEMP/d09-t3/prepare.log" | cut -c1-200 | head -20 || true
+            # Only fixed diagnostic classes; no private source or raw paths.
+            grep -oEi 'Cannot find module|Cannot find package|Cannot find native binding|EBADPLATFORM|EBADENGINE|EINTEGRITY|ERESOLVE|EACCES|ENOSPC|EEXIST|ENOENT|ETIMEDOUT|out of memory|Unsupported engine|npm ci can only install|Failed to resolve import|Invalid base in dist|Missing Vite entry' "$RUNNER_TEMP/d09-t3/prepare.log" | sort -u | head -20 || true
             exit 1
           fi
       - name: Build from local prepared T3 inputs only
