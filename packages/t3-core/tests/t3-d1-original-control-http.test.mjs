@@ -20,7 +20,7 @@ import {createTemporaryOriginalPersonalAuthority}
 
 async function fixture({reconciliationPortFor=null,nativeD7PortFor=null,
   nativeD6PortFor=null,originalKernelRelayFor=null,
-  installedParentOrigin=null,assetForPath=null}={}){
+  installedParentOrigin=null,assetForPath=null,serviceId="iwxa.workspace.integration",originalRegistryExportWorkspaceId=null}={}){
   const token=randomBytes(32).toString("base64url");
   let origin=null,handle=null,epoch=1;
   const listeners=new Set(),calls=[];
@@ -39,7 +39,7 @@ async function fixture({reconciliationPortFor=null,nativeD7PortFor=null,
   handle=createOriginalControlHttpHandler({
     origin,token,
     uiOrigin:"http://127.0.0.1:"+(Number(new URL(origin).port)+1),
-    serviceId:"iwxa.workspace.integration",
+    serviceId,originalRegistryExportWorkspaceId,
     currentEpoch:()=>epoch,
     subscribeInvalidation:listener=>{
       listeners.add(listener);
@@ -1646,4 +1646,58 @@ test("K150 original Control HTTP accepts the bounded large native Asset relay in
     assert.equal(context.isHostActive(),false);
     await assert.rejects(context.kernel.putAsset({}),{code:"T3_ORIGINAL_NETWORK_RELAY_NOT_CONNECTED"});
   }finally{stop();relay.close();await f.close();}
+});
+
+const pilotRegistry="workspace:registry:"+"a".repeat(64);
+const exportOptions={workspaces:[pilotRegistry],include_history:true,include_assets:false,
+  include_relations:false,include_schemas:false,scope:{mode:"workspace"}};
+const adminInfo={contract_version:"1.3.0",runtime_version:"0.3.6",
+  service_id:"iwxa.admin-center.workspace",mode:"ready",
+  granted_operations:["t1.commitObjectGraph","t1.getWorkspace","t1.getObject","t1.listEventsSince","t1.createWorkspace"]};
+test("local original Admin prepares Registry archive without any peer or network activation",async()=>{
+  let native;
+  const relay=createOriginalKernelNativeRelay({currentEpoch:()=>1,
+    originalRegistryExportWorkspaceId:pilotRegistry,onAttach(kernel,binding){
+      assert.equal(binding,undefined);native=kernel;return true;
+    }});
+  const f=await fixture({serviceId:adminInfo.service_id,originalRegistryExportWorkspaceId:pilotRegistry,
+    originalKernelRelayFor:()=>relay});
+  try{
+    const cfg=await (await fetch(f.origin+"/workspace/t3-kernel-realm.json")).json();
+    assert.equal(cfg.registry_export_workspace_id,pilotRegistry);
+    assert.equal(cfg.installed_network_scope,undefined);
+    const attached=await f.browser.originalKernelRelay("attach",{sessionInfo:adminInfo,
+      networkRelayVersion:1,networkActivationVersion:1,registryExchangeOperations:["t2.exportPackage"]});
+    assert.equal(attached.networkActivationPending,undefined);
+    assert.equal(relay.networkAttached,false);
+    assert.equal(native.hasOperation("t2.exportPackage"),true);
+    assert.equal(native.hasOperation("t2.importCommit"),false);
+    assert.equal(relay.nativeRegistryKernel,null);
+    await assert.rejects(native.exportPackage({...exportOptions,workspaces:["ws:other"]}),
+      {code:"T3_ORIGINAL_REGISTRY_EXCHANGE_SCOPE_DENIED"});
+    const bytes=Uint8Array.from([80,75,3,4,0,255]),result=native.exportPackage(exportOptions);
+    const call=await f.browser.originalKernelRelay("next",{sessionId:attached.sessionId});
+    assert.equal(call.kind,"COMMAND");assert.equal(call.method,"exportPackage");
+    assert.deepEqual(call.args,[exportOptions]);
+    await f.browser.originalKernelRelay("result",{sessionId:attached.sessionId,id:call.id,ok:true,
+      result:encodeOriginalNetworkRelayResult("exportPackage",{bytes,size:bytes.length})});
+    assert.deepEqual(await result,{bytes,size:bytes.length});
+    await f.browser.originalKernelRelay("detach",{sessionId:attached.sessionId});
+    assert.equal(native.hasOperation("t2.exportPackage"),false);
+  }finally{relay.close();await f.close();}
+});
+test("preparation export is confined to an explicit Admin scope and is not a general Exchange grant",async()=>{
+  for(const [scope,service,operations] of [
+    [null,adminInfo.service_id,["t2.exportPackage"]],
+    [pilotRegistry,"iwxa.personal-agent.workspace",["t2.exportPackage"]],
+    [pilotRegistry,adminInfo.service_id,["t2.exportPackage","t2.importCommit"]]]){
+    const relay=createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,
+      originalRegistryExportWorkspaceId:scope});
+    try{await assert.rejects(relay.exchange({verb:"attach",payload:{
+      sessionInfo:{...adminInfo,service_id:service},registryExchangeOperations:operations}},1),
+      {code:"T3_ORIGINAL_REGISTRY_EXCHANGE_OPERATIONS_INVALID"});
+    }finally{relay.close();}
+  }
+  assert.throws(()=>createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,
+    originalRegistryExportWorkspaceId:"ws:business"}),{code:"T3_ORIGINAL_REGISTRY_EXPORT_SCOPE_INVALID"});
 });
