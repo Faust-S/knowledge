@@ -29,7 +29,7 @@ jobs:
           persist-credentials: false
       - name: Admit one exact T3 request
         run: |
-          python tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-live-product-acceptance --profile t3-stable-os --revision domain=251f3e5d4f4333624c3e0bf8d3aad30003f6751f --revision site=356910547f5ebdc778b162daa17dcb30303e9a28 --revision t3=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
+          python tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-live-product-acceptance --profile t3-stable-os --revision domain=8ecf7de95a70b04b8d4f51190bdf5cbaa8c98cb8 --revision site=eeb11033533db3feb16575838aeaa30b7c8e20f9 --revision t3=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
           if ($LASTEXITCODE -ne 0) { throw "D11_REQUEST_INVALID" }
       - name: Verify published stable T3 engineering release
         env:
@@ -55,14 +55,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 356910547f5ebdc778b162daa17dcb30303e9a28
+          ref: eeb11033533db3feb16575838aeaa30b7c8e20f9
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics
-          ref: 251f3e5d4f4333624c3e0bf8d3aad30003f6751f
+          ref: 8ecf7de95a70b04b8d4f51190bdf5cbaa8c98cb8
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -92,8 +92,8 @@ jobs:
           node-version: '22.16.0'
       - name: Verify exact T3 source and 56 D11 canonical mirrors
         run: |
-          if ((git -C site rev-parse HEAD).Trim() -ne "356910547f5ebdc778b162daa17dcb30303e9a28" -or
-              (git -C domain rev-parse HEAD).Trim() -ne "251f3e5d4f4333624c3e0bf8d3aad30003f6751f" -or
+          if ((git -C site rev-parse HEAD).Trim() -ne "eeb11033533db3feb16575838aeaa30b7c8e20f9" -or
+              (git -C domain rev-parse HEAD).Trim() -ne "8ecf7de95a70b04b8d4f51190bdf5cbaa8c98cb8" -or
               (git -C t3 rev-parse HEAD).Trim() -ne "8e26076ce66f0c26693a647e061fcd568e055b77" -or
               (git -C t3 rev-parse "HEAD^{tree}").Trim() -ne "6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" -or
               (git -C t3 rev-parse "HEAD:packages/t3-core/src").Trim() -ne "81294420eff40500ecd04a43b4c253cb4bcd67c7" -or
@@ -114,7 +114,7 @@ jobs:
             if ((git -C assistant rev-parse "HEAD:$($p.sourceRoot)/$($f.path)").Trim() -ne $f.blob) { throw "D11_ASSISTANT_BLOB_MISMATCH" }
           }
           $s=Get-Content -Raw -Encoding UTF8 site/runtime/t3-platform/0.3.2/domain-skills.json | ConvertFrom-Json
-          if ($s.sourceCommit -ne "251f3e5d4f4333624c3e0bf8d3aad30003f6751f" -or (git -C domain rev-parse "HEAD:$($s.sourcePath)").Trim() -ne $s.sourceBlob -or (git -C site rev-parse "HEAD:$($s.publishedPath)").Trim() -ne $s.sourceBlob) { throw "D11_SKILL_MIRROR_MISMATCH" }
+          if ($s.sourceCommit -ne "8ecf7de95a70b04b8d4f51190bdf5cbaa8c98cb8" -or (git -C domain rev-parse "HEAD:$($s.sourcePath)").Trim() -ne $s.sourceBlob -or (git -C site rev-parse "HEAD:$($s.publishedPath)").Trim() -ne $s.sourceBlob) { throw "D11_SKILL_MIRROR_MISMATCH" }
           Write-Output "D11_T3_ASSISTANT_FILES=4/4 PASS"
           Write-Output "D11_T3_CANONICAL_SKILLS=PASS"
           $archive=Join-Path $env:RUNNER_TEMP "d11-t3-platform-input/platform-inputs.zip"
@@ -154,10 +154,34 @@ jobs:
           import {pathToFileURL} from "node:url";
           const {validateSkillPack,rankSkills,routeSkill}=await import(pathToFileURL(resolve(process.env.D11_ASSISTANT_SOURCE,"skill-runtime.mjs")).href);
           const p=validateSkillPack(JSON.parse(readFileSync("public/assets/d11-assistant-skills.json","utf8")));
-          if(p.skills.length!==17||p.formHints.length!==4||p.resultHints.length!==4||p.formHints.flatMap(h=>h.fields).length!==22||p.formHints.flatMap(h=>h.fields).filter(f=>f.kind==="omit").length!==5)throw Error("D11_SKILL_SCOPE");
+          if(p.skills.length!==17||p.formHints.length!==9||p.resultHints.length!==10||p.formHints.flatMap(h=>h.fields).length!==49||p.formHints.flatMap(h=>h.fields).filter(f=>f.kind==="omit").length!==12)throw Error("D11_SKILL_SCOPE");
           for(const s of p.skills)if(routeSkill(p,s.route)!==s||!rankSkills(p,s.triggers[0]).some(x=>x.id===s.id))throw Error("D11_SKILL_ROUTE");
           console.log("D11_T3_SKILLS=17/17 PASS");
-          console.log("D11_T3_NATIVE_CONTEXT_CONTRACTS=4/4 PASS");
+          if(p.formHints.some(h=>h.skillId==="logistics-order-execution")||p.resultHints.flatMap(h=>h.advice||[]).length!==30)throw Error("D11_SKILL_SCOPE");
+          const {splitFormProposals}=await import(pathToFileURL(resolve(process.env.D11_ASSISTANT_SOURCE,"field-policy.mjs")).href);
+          const cases=[
+            ["inbound-yard-crossdock","docks",["2","3","4","6"],"доступные доки: 4","4"],
+            ["returnable-transport-packaging","fleet",["4","6","8"],"автомобилей доставки: 6","6"],
+            ["carrier-sla-invoices","fleetMode",["all","reduced"],"ограниченный парк подрядчиков","reduced"],
+            ["multimodal-container-control","trafficPercent",["100","120","150"],"трафик на дорогах: 120%","120"],
+            ["warehouse-peak-shifts","peakPercent",["80","100","120"],"сезонный спрос: 120%","120"],
+            ["warehouse-peak-shifts","peakPercent",["80","100","120"],"сезонный спрос: 999%",null],
+            ["multimodal-container-control","railCapacityTeu",["2","4","6"],"вместимость поезда: 6 TEU",null],
+            ["returnable-transport-packaging","returnDays",["1","2","3","4"],"возврат через 2 рабочих дня",null],
+            ["carrier-sla-invoices","fleetMode",["all","reduced"],"все согласованные автомобили или ограниченный парк подрядчиков",null],
+            ["inbound-yard-crossdock","inspection",["10","20","40"],"время входной проверки: 20 минут","20"]
+          ];
+          for(const [id,name,values,request,expected] of cases){
+            const hint=p.formHints.find(h=>h.skillId===id);
+            const row={input:{name,tagName:"SELECT",options:values.map(value=>({value,disabled:false}))}};
+            const observed=splitFormProposals([row],request,hint);
+            if(observed.remaining.length||observed.controlled!==1||
+               (expected===null?(observed.known.length!==0||observed.unresolved.length!==1):
+                 (observed.known.length!==1||observed.known[0].proposed!==expected||observed.unresolved.length!==0)))throw Error("D11_T3_FIELD_POLICY_CASE");
+          }
+          console.log("D11_T3_NATIVE_CONTEXT_FORMS=9/9 PASS");
+          console.log("D11_T3_NATIVE_CONTEXT_RESULTS=10/10 PASS");
+          console.log("D11_T3_NATIVE_FIELD_POLICY=10/10 PASS");
           '@
           & node --input-type=module -e $js
           if ($LASTEXITCODE -ne 0) { throw "D11_T3_SKILL_VALIDATION_FAILED" }
@@ -220,9 +244,18 @@ jobs:
         working-directory: site
         run: |
           $status=0
+          $env:D11_STATIC_SAFE_DIAGNOSTICS="1"
           foreach ($check in @("readability","hydration","runtime","no-localhost","assets","external-assets","links","seo","htaccess")) {
-            & npm run "check:$check" *> (Join-Path $env:RUNNER_TEMP "d11-$check.log")
-            if ($LASTEXITCODE -ne 0) { $status=1; Write-Output "D11_STATIC_FAIL=$check" } else { Write-Output "D11_STATIC_PASS=$check" }
+            $checkLog=Join-Path $env:RUNNER_TEMP "d11-$check.log"
+            & npm run "check:$check" *> $checkLog
+            $code=$LASTEXITCODE
+            if ($code -ne 0) {
+              $status=1
+              Write-Output "D11_STATIC_FAIL=$check"
+              $diagnostics=@(Get-Content $checkLog | Where-Object { $_ -match '^D11_STATIC_(?:LOCAL_REFERENCE|MISSING_ASSET)=[A-Z0-9a-f_:]+$' })
+              Write-Output ("D11_STATIC_DIAGNOSTICS_COUNT="+$diagnostics.Count)
+              $diagnostics | Select-Object -First 80 | ForEach-Object { Write-Output $_ }
+            } else { Write-Output "D11_STATIC_PASS=$check" }
           }
           if ($status -ne 0) { throw "D11_STATIC_FAILED" }
           Write-Output "D11_STATIC=9/9 PASS"
@@ -250,7 +283,7 @@ jobs:
           $code=$LASTEXITCODE
           Get-Content $log | ForEach-Object {
             if ($_ -match '^(D11_[A-Z0-9_]+=([0-9/ ]*PASS))') { Write-Output $Matches[1] }
-            elseif ($_ -match '^(D11_(?:REAL_T2_FAILED|LIVE_FAILURE_KIND)=[A-Z0-9_]+)') { Write-Output $Matches[1] }
+            elseif ($_ -match '^(D11_(?:REAL_T2_FAILED|LIVE_FAILURE_KIND|EXCHANGE_STAGE)=[A-Z0-9_]+)') { Write-Output $Matches[1] }
           }
           if ($code -ne 0) { throw "D11_T3_ONLINE_EXCHANGE_FAILED" }
           Write-Output "D11_T3_ONLINE_EXCHANGE=PASS"
@@ -264,7 +297,7 @@ jobs:
           $code=$LASTEXITCODE
           Get-Content $log | ForEach-Object {
             if ($_ -match '^(D11_[A-Z0-9_]+=([0-9/ ]*PASS))') { Write-Output $Matches[1] }
-            elseif ($_ -match '^(D11_(?:OS_STAGE|REAL_T2_FAILED|LIVE_FAILURE_KIND|OS_DISPATCH_NOTICE|OS_FORM_INVALID_KIND)=[A-Z0-9_,]+)$') { Write-Output $Matches[1] }
+            elseif ($_ -match '^(D11_(?:OS_STAGE|EXCHANGE_STAGE|REAL_T2_FAILED|LIVE_FAILURE_KIND|OS_DISPATCH_NOTICE|OS_FORM_INVALID_KIND)=[A-Z0-9_,]+)$') { Write-Output $Matches[1] }
             elseif ($_ -match '^(D11_OS_FORM_INVALID_COUNT=[0-9]+)$') { Write-Output $Matches[1] }
           }
           if ($code -ne 0) { throw "D11_T3_ONLINE_OS_FAILED" }
