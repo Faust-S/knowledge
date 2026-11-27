@@ -242,9 +242,9 @@ jobs:
         shell: bash
         run: |
           set -eu
-          node --test qa/d01-product-witness-2026-10-26/qualification-build-proof.test.mjs >"$RUNNER_TEMP/d01-proof.log" 2>&1 || { echo D01_PROOF_TEST_FAIL; exit 1; }
-          npm run test:navigation >"$RUNNER_TEMP/d01-navigation.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-navigation.log" | cut -c1-160; exit 1; }
-          grep -E '^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-navigation.log"
+          node --test --test-reporter=tap qa/d01-product-witness-2026-10-26/qualification-build-proof.test.mjs >"$RUNNER_TEMP/d01-proof.log" 2>&1 || { echo D01_PROOF_TEST_FAIL; exit 1; }
+          npm run test:navigation >"$RUNNER_TEMP/d01-navigation.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-navigation.log" | cut -c1-160 || true; echo D01_SOURCE_TEST_FAIL; exit 1; }
+          grep -E '^(# |ℹ )(tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-navigation.log" || true
           npm run check:editorial >"$RUNNER_TEMP/d01-editorial.log" 2>&1 || { echo D01_EDITORIAL_FAIL; exit 1; }
           echo D01_ALL_SOURCE_GATES_PASS
       - name: T2 exact complete hosting build
@@ -375,13 +375,13 @@ jobs:
         shell: bash
         run: |
           set -eu
-          node --test original/core/packages/t3-core/tests/t3-domain-offline.test.mjs >"$RUNNER_TEMP/d01-t3-core.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-core.log" | cut -c1-160; exit 1; }
-          grep -E '^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-core.log"
+          node --test --test-reporter=tap original/core/packages/t3-core/tests/t3-domain-offline.test.mjs >"$RUNNER_TEMP/d01-t3-core.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-core.log" | cut -c1-160 || true; echo D01_SOURCE_TEST_FAIL; exit 1; }
+          grep -E '^(# |ℹ )(tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-core.log" || true
           cd private/site
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/d01-t3-deps.log" 2>&1 || { echo D01_T3_DEPENDENCY_FAIL; exit 1; }
-          npm run test:learn-t3-assembly >"$RUNNER_TEMP/d01-t3-tests.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-tests.log" | cut -c1-160; exit 1; }
+          npm run test:learn-t3-assembly >"$RUNNER_TEMP/d01-t3-tests.log" 2>&1 || { grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-tests.log" | cut -c1-160 || true; echo D01_SOURCE_TEST_FAIL; exit 1; }
           npm run t3:skills:check >"$RUNNER_TEMP/d01-t3-skills.log" 2>&1 || { echo D01_T3_SKILLS_FAIL; exit 1; }
-          grep -E '^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-tests.log"
+          grep -E '^(# |ℹ )(tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-t3-tests.log" || true
       - name: T3 prepare one compiled original Host and retained inputs
         id: prepare
         timeout-minutes: 45
