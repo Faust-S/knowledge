@@ -880,6 +880,83 @@
       "actualTwoNode": "NOT_RUN",
       "T4_READY": false,
       "FEATURE_FREEZE": true
+    },
+    "latestSelfHostedNativeTransport": {
+      "date": "2026-11-27",
+      "state": "NATIVE_TRANSPORT_COMPONENTS_QUALIFIED_INSTALLED_ACTIVATION_PENDING",
+      "core": {
+        "commit": "529f035663b1b5582253180c384f881bab63095f",
+        "tree": "c13a662c867db0ca09594c2a88cffba0dc03b276",
+        "componentTests": 80,
+        "apacheTests": 68,
+        "failed": 0,
+        "realTls": true,
+        "coldReadback": true,
+        "untrustedTlsRejected": true,
+        "independentCredentials": 2,
+        "competingIndexPairs": 8,
+        "installedIndexedImportWithoutXmlDependency": true,
+        "run": 46041699125
+      },
+      "owner": {
+        "commit": "f3610f62e686e80c09bfd690898e107b23a913f3",
+        "tree": "4ed2cb2bd3bfecdc4adbd8592b14a1f027377ed7",
+        "moduleBlob": "45e43398bb7c360d056e4413e155510f4730456e",
+        "testBlob": "e886e43ea72bd207c496ef3bfe15e63deb4ca7f3",
+        "localNode": "22.16.0",
+        "localTests": 7,
+        "failed": 0,
+        "realGeneratedCertificates": true,
+        "windowsDPAPI": "NOT_RUN",
+        "fullNativeRuntime": "NOT_RUN"
+      },
+      "agent": {
+        "commit": "1dc05024df7c20d8d2135ca68d9f9ef2b3a66267",
+        "configuration": "PRIVATE_EMPLOYEE_IPC",
+        "build": "NOT_RUN"
+      },
+      "center": {
+        "commit": "7a8a6701d016ebcc6f72b8d97fd84de83dea52a2",
+        "qualification": "NOT_RUN"
+      },
+      "diagnostics": [
+        {
+          "run": 46040675432,
+          "result": "FAIL",
+          "cause": "Existing XML dependency absent in component CI setup"
+        },
+        {
+          "run": 46040790533,
+          "result": "80/80 component; 66/67 Apache",
+          "cause": "New test wrote non-frame bytes into shared legacy discovery collection; four new route tests passed"
+        },
+        {
+          "run": 46041021799,
+          "result": "80/80 component; 66/67 Apache",
+          "cause": "Concurrent files changed shared discovery listing; corrected by serial test-file isolation, not disabling explicit CAS competition"
+        }
+      ],
+      "implementation": [
+        "Existing indexed topology derives from confirmed HTTPS endpoint",
+        "Native TLS uses explicit CA, exact leaf fingerprint and hostname validation",
+        "Existing signed route access independently gates every request",
+        "Legacy XML parser loaded only for discovery, indexed profile starts without it",
+        "Private native owner config binds role, organization, workspace, Windows user/device and certificate material; DPAPI persistence uses existing custody",
+        "Agent private IPC and Admin native command configure transport; no desktop UI activation implied"
+      ],
+      "remaining": [
+        "Real owner evidence provider for baseline, phase and dependencies",
+        "Full SOURCE/RECIPIENT native activation, original K036 ZIP/IndexedDB, actual Registry exchange, Windows installers",
+        "Physical two-device pilot on owner server and independent final acceptance"
+      ],
+      "publicActions": 4,
+      "privateActions": 0,
+      "codexUsed": false,
+      "kernelChanged": false,
+      "networkWireChanged": false,
+      "productionReady": false,
+      "T4_READY": false,
+      "FEATURE_FREEZE": true
     }
   }
 }
