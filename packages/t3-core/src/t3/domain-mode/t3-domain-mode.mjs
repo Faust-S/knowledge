@@ -35,6 +35,7 @@ function style() {
     "#iwxa-t3-domain-controls [hidden]{display:none!important}",
     "#iwxa-t3-domain-controls p{margin:0;font-size:.875em;line-height:1.5}",
     "#iwxa-t3-update-offer{border-inline-start:3px solid var(--iwxa-assistant-accent,#174c74);padding-inline-start:10px}",
+    "#iwxa-t3-weekly-offer{box-sizing:border-box;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--iwxa-assistant-border,#cbd8e4)}#iwxa-t3-weekly-offer[hidden]{display:none}#iwxa-t3-weekly-offer p{margin:0;flex:1 1 12rem}#iwxa-t3-weekly-offer button{font:inherit;min-height:44px;cursor:pointer}",
     "details[data-iwxa-update-available]:not([open])>summary::after{content:' · Доступна проверка обновления';font-weight:400}"
   ].join("");
   document.head.append(el);
@@ -67,8 +68,16 @@ function createControl() {
   state.textContent = "Проверяем установку…";
   box.append(installOffline,installApp,installHint,offer,updateCheck,updateInstall,later,reloadWindow,state);
   if (mount) mount.append(box);else document.body.prepend(box);
+  const noticeSlot=document.querySelector("[data-iwxa-update-offer-slot]");
+  let weekly=null,weeklyCheck=null,weeklyLater=null;
+  if(noticeSlot){
+    weekly=document.createElement("section");weekly.id="iwxa-t3-weekly-offer";weekly.hidden=true;
+    const question=document.createElement("p");question.textContent="Хотите обновить автономную версию?";question.setAttribute("role","status");
+    weeklyCheck=button("iwxa-t3-weekly-check","Проверить обновление");weeklyLater=button("iwxa-t3-weekly-later","Позже");
+    weekly.append(question,weeklyCheck,weeklyLater);noticeSlot.append(weekly);
+  }
   style();
-  return {box,installOffline,state,installApp,installHint,offer,updateCheck,updateInstall,later,reloadWindow,
+  return {box,installOffline,state,installApp,installHint,offer,updateCheck,updateInstall,later,reloadWindow,weekly,weeklyCheck,weeklyLater,
     active:false,complete:false,blocked:true,busy:false,appInstalled:false,pendingUpdate:null};
 }
 function tell(ui, text) { ui.state.textContent = text; }
@@ -133,6 +142,7 @@ function syncControls(ui) {
   ui.updateInstall.disabled = ui.busy || ui.blocked;
   ui.later.hidden = ui.offer.hidden && !ui.pendingUpdate;
   ui.later.disabled = ui.busy;
+  if(ui.weekly)ui.weekly.hidden=ui.offer.hidden||ui.busy;
 }
 function render(ui, active, complete=active) {
   ui.active = active;ui.complete = complete;ui.blocked = false;
@@ -284,6 +294,12 @@ async function main() {
   const ui=createControl();
   ui.installApp.addEventListener("click",()=>void installApplication(ui));
   ui.later.addEventListener("click",()=>dismissOffer(ui));
+  ui.weeklyLater?.addEventListener("click",()=>dismissOffer(ui));
+  ui.weeklyCheck?.addEventListener("click",()=>{
+    const disclosure=ui.box.closest("details");if(disclosure)disclosure.open=true;
+    ui.box.scrollIntoView?.({block:"center",behavior:"auto"});
+    void checkForUpdate(ui);
+  });
   ui.updateCheck.addEventListener("click",()=>void checkForUpdate(ui));
   ui.updateInstall.addEventListener("click",()=>void applyUpdate(ui));
   const refreshStatus=async()=>{

@@ -162,9 +162,7 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     assert.equal(await page.locator("#iwxa-t3-update-offer").isVisible(),false);
 
     // Rejecting the explicit installation must leave ordinary site unaffected.
-    // A checkbox "check()" waits for a permanently checked state, but a
-    // dismissed consent intentionally and immediately reverts the switch.
-    // Trigger a real click, then assert the resulting cancelled state.
+    // Cancel the real installation action and verify the ordinary site.
     page.once("dialog",dialog=>dialog.dismiss());
     await toggle.click();
     await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-install-offline").disabled);
@@ -209,6 +207,7 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     assert.equal(await page.locator("#sum").textContent(),"13","domain JavaScript works without network");
     await page.goto(base+"/workspace/");
     assert.match(await page.locator("main h1").textContent(),/Исходный Workspace/);
+    await page.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous"));
     assert.equal(await page.evaluate(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),true);
 
     // Reopen an actual persistent browser profile while the network is down.
