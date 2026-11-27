@@ -60,12 +60,12 @@ it("preserves initial focus, focuses main on the first real route change, and ca
   registry.register({ routeRef: first, ownerModuleId: owner, mode: "static",
     staticBase: "/workspace/", allowedParams: [], opaqueIdParams: [] });
   registry.register({ routeRef: next, ownerModuleId: owner, mode: "static",
-    staticBase: "/exchange/", allowedParams: [], opaqueIdParams: [] });
+    staticBase: "/workspace/exchange/", allowedParams: [], opaqueIdParams: [] });
   expect(registry.activateOwnerRoutes(owner, [first, next]).ok).toBe(true);
   let location: HostLocation = { pathname: "/workspace/", hash: "" };
   const listeners = new Set<(value: HostLocation) => void>();
   const router = new HostRouter({
-    registry, enforceActive: true, reservedStaticBases: ["/exchange/"],
+    registry, enforceActive: true, reservedStaticBases: ["/workspace/exchange/"],
     driver: {
       current: () => location,
       navigate(target) { location = target; for (const notify of listeners) notify(location); },

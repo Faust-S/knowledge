@@ -7,6 +7,9 @@ on:
       - .github/workflows/t3-mobile-portable-candidate.yml
       - packages/t3-core/package.json
       - packages/t3-core/package-lock.json
+concurrency:
+  group: t3-portable-candidate-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
