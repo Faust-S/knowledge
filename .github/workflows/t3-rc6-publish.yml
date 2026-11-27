@@ -1,0 +1,109 @@
+name: Publish exact engineering-qualified T3 rc.6
+on:
+  push:
+    branches: ['ci/once/t3-rc6-publish/**']
+    paths: ['.github/ci-requests/t3-rc6-publish.json']
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: t3-rc6-publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BEFORE: ${{ github.event.before }}
+      SOURCE: '3e8c40fc5a80866f32f4547f1780ebef525c964c'
+      TAG: 't3-platform-v0.3.1-rc.6'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify deliberate publication and actual completed engineering evidence
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Faust-S/knowledge
+          test "$GITHUB_REF_NAME" = "ci/once/t3-rc6-publish/$BEFORE"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $BEFORE"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = "$(printf 'A\t.github/ci-requests/t3-rc6-publish.json')"
+          git merge-base --is-ancestor "$SOURCE" "$BEFORE"
+          test "$(git rev-parse HEAD:packages/t3-core/src)" = ddfe22f54e622d89522146c40aa726577edaae95
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=json.loads(Path('.github/ci-requests/t3-rc6-publish.json').read_text())
+          assert r.pop('preparedSha')==os.environ['BEFORE']
+          assert r==json.loads('{"schema":"iwxa.ci.once/1","workflow":"t3-rc6-publish","source":"3e8c40fc5a80866f32f4547f1780ebef525c964c","platformRun":46048628242,"platformArtifact":15222879527,"deliveryRun":46050260479,"deliveryArtifact":15224800571,"evidenceArtifact":15224970481,"tag":"t3-platform-v0.3.1-rc.6","assets":{"platform-inputs.zip":"bc52020b421acd334b7c5a8db8672e153933c767159609db06239f784e6ee13e","candidate-receipt.json":"07c5e5509a9d3fdeca24850f7882f7c589dc3c7da63111036f044d2b7cfab6cd","t3-platform-inputs.json":"9a39448eefb9ceffd8e898a6faa395fc993df7481e01fe9228ff5e10c7e4f290","t3-platform-inputs.sha256":"de6abbe006acc86426e134092d60a869dd89037c4641e61c89fc9d4c1cc67490","acceptance-host-loopback-windows-x64.zip":"1950e47423d0878ed979192c66c831cdcbdc0e7da06aa332b73c7ae6db66d069","acceptance-host-loopback-receipt.json":"11891cf3b087b569e3f325eb70b41cdc80f61b5ca6cfbfd89bbe251b66ab1ecf","result.json":"5fade7991bca5cd805efd7d8c40cf745677e51580c35a05cde2c860b29917b73"}}')
+          PY
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/46048628242/jobs" > "$RUNNER_TEMP/platform-jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/46050260479" > "$RUNNER_TEMP/delivery-run.json"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          t=Path(os.environ['RUNNER_TEMP'])
+          j=json.loads((t/'platform-jobs.json').read_text())['jobs']
+          assert any(x['id']==140674094131 and x['name']=='package' and x['conclusion']=='success' for x in j)
+          r=json.loads((t/'delivery-run.json').read_text())
+          assert r['status']=='completed' and r['conclusion']=='success' and r['head_sha']=='3c8c27db1972d651102aec6f58a8404cf68ab5db'
+          print('T3_RC6_PUBLICATION_EVIDENCE_PASS')
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          name: t3-rc6-exact-platform
+          run-id: 46048628242
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/release
+      - uses: actions/download-artifact@v4
+        with:
+          name: t3-rc6-qualified-loopback-delivery
+          run-id: 46050260479
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/release
+      - uses: actions/download-artifact@v4
+        with:
+          name: t3-rc6-final-user-routes-evidence
+          run-id: 46050260479
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/evidence
+      - name: Verify and publish original tested assets without any rebuild
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/evidence/result.json" "$RUNNER_TEMP/release/result.json"
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'release'
+          expected=json.loads('{"platform-inputs.zip":"bc52020b421acd334b7c5a8db8672e153933c767159609db06239f784e6ee13e","candidate-receipt.json":"07c5e5509a9d3fdeca24850f7882f7c589dc3c7da63111036f044d2b7cfab6cd","t3-platform-inputs.json":"9a39448eefb9ceffd8e898a6faa395fc993df7481e01fe9228ff5e10c7e4f290","t3-platform-inputs.sha256":"de6abbe006acc86426e134092d60a869dd89037c4641e61c89fc9d4c1cc67490","acceptance-host-loopback-windows-x64.zip":"1950e47423d0878ed979192c66c831cdcbdc0e7da06aa332b73c7ae6db66d069","acceptance-host-loopback-receipt.json":"11891cf3b087b569e3f325eb70b41cdc80f61b5ca6cfbfd89bbe251b66ab1ecf","result.json":"5fade7991bca5cd805efd7d8c40cf745677e51580c35a05cde2c860b29917b73"}')
+          assert set(expected)=={x.name for x in p.iterdir()}
+          for n,d in expected.items():
+              assert hashlib.sha256((p/n).read_bytes()).hexdigest()==d,n
+          r=json.loads((p/'candidate-receipt.json').read_text())
+          d=json.loads((p/'acceptance-host-loopback-receipt.json').read_text())
+          e=json.loads((p/'result.json').read_text())
+          assert r['sourceCommit']==d['sourceCommit']==e['source']==os.environ['SOURCE']
+          assert r['version']==d['version']=='0.3.1-rc.6'
+          assert r['archiveSha256']==d['archiveSha256']==expected['platform-inputs.zip']
+          assert d['deliveryArchiveSha256']==expected['acceptance-host-loopback-windows-x64.zip']
+          assert e['status']=='PASS' and e['phase']=='COLD_OFFLINE' and len(e['passed'])==7
+          print('T3_RC6_EXACT_PUBLICATION_BYTES_PASS')
+          PY
+          test -z "$(git ls-remote --tags origin "refs/tags/$TAG")"
+          gh release create "$TAG" "$RUNNER_TEMP/release/"* --repo "$GITHUB_REPOSITORY" --target "$SOURCE" --title "IWXA T3 portable platform 0.3.1-rc.6" --prerelease --draft --notes "Engineering-qualified generic T3 candidate. Corrected in-flow T3 controls; all compiled Host/BLI and original K036 bytes unchanged from rc.5. Platform packaging: https://github.com/Faust-S/knowledge/actions/runs/46048628242 (package PASS; initial restricted-profile restore correctly denied). Final universal Workspace delivery: https://github.com/Faust-S/knowledge/actions/runs/46050260479 SUCCESS: real import, repeat import, full download/confirm, all 7 events restored in independent profile, cold offline with server stopped PASS. Partial independent Windows Codex evidence on rc.5 and owner-directed engineering completion; rc.6 hardware evidence inherited from unchanged rc.5 BLI, not rerun. Local Windows kit is localhost-only with original universal Workspace passport; not a production domain passport. No model weights, private signer or private domain. Corporate installed A-B-A and other product acceptance remain separate. Stable 0.3.0 unchanged."
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name=="t3-platform-v0.3.1-rc.6")' > "$RUNNER_TEMP/draft.json"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=json.loads((Path(os.environ['RUNNER_TEMP'])/'draft.json').read_text())
+          expected=json.loads('{"platform-inputs.zip":"bc52020b421acd334b7c5a8db8672e153933c767159609db06239f784e6ee13e","candidate-receipt.json":"07c5e5509a9d3fdeca24850f7882f7c589dc3c7da63111036f044d2b7cfab6cd","t3-platform-inputs.json":"9a39448eefb9ceffd8e898a6faa395fc993df7481e01fe9228ff5e10c7e4f290","t3-platform-inputs.sha256":"de6abbe006acc86426e134092d60a869dd89037c4641e61c89fc9d4c1cc67490","acceptance-host-loopback-windows-x64.zip":"1950e47423d0878ed979192c66c831cdcbdc0e7da06aa332b73c7ae6db66d069","acceptance-host-loopback-receipt.json":"11891cf3b087b569e3f325eb70b41cdc80f61b5ca6cfbfd89bbe251b66ab1ecf","result.json":"5fade7991bca5cd805efd7d8c40cf745677e51580c35a05cde2c860b29917b73"}')
+          assert r['draft'] and r['prerelease'] and r['target_commitish']==os.environ['SOURCE']
+          assert {a['name']:a['digest'] for a in r['assets']}=={n:'sha256:'+h for n,h in expected.items()}
+          PY
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha')" = "$SOURCE"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '{tag_name,target_commitish,draft,prerelease,html_url,assets:[.assets[]|{name,size,digest}]}'
+          echo T3_RC6_EXACT_RELEASE_PUBLISHED
