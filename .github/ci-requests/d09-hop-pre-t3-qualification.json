@@ -1,0 +1,11 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d09-hop-pre-t3-qualification",
+  "prepared_sha": "e5bfc0005cb17176bc6a34b3c07e494728d58b07",
+  "profile": "hop-integrated-pre-t3",
+  "revisions": {
+    "site": "f5ee7d26cf1dc40d2cea31b0be93e7eeceef7694",
+    "subject": "5fbfe9210b1c9369f828d469e52380f31918a4e6",
+    "t2": "9c64951cd78411283e8a416641c36d71e169fc1d"
+  }
+}
