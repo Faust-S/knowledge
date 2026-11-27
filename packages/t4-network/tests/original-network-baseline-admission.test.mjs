@@ -201,3 +201,37 @@ test('preparation returns a candidate from original creation history, never conf
   assert.throws(()=>readT4OriginalFreshWorkspaceBaselineSelection({workspaceId:identity.sourceWorkspaceId,
     originalEvents:[{...f.creation,event_type:'business.created'}]}),{code:'BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH'});
 });
+
+
+test('signed same-Workspace merge roundtrip admits the exact shared two-creation prefix in both roles',async()=>{
+  const s=freshFixture(),r=freshFixture('RECIPIENT');
+  const second={...clone(s.creation),event_id:'event:local:creation',service_id:'iwxa.personal-agent.workspace',
+    occurred_at:'2026-11-27T12:00:01.000Z'};
+  for(const f of [s,r]){
+    f.events.push(clone(second));
+    const candidate=readT4OriginalFreshWorkspaceBaselineSelection({workspaceId:identity.sourceWorkspaceId,originalEvents:f.events});
+    assert.equal(candidate.confirmed,false);assert.equal(candidate.creationAnchors.length,2);
+    Object.assign(f.selection,candidate,{confirmed:true});
+  }
+  const input=await s.create().readOriginalBaselineAdmissionInput();
+  assert.deepEqual(await r.create().readOriginalBaselineAdmissionInput(),input);
+  assert.equal(input.sourceCursor.seenEventCount,2);assert.equal(input.sourceCursor.lastEventId,second.event_id);
+  const later={...clone(second),event_id:'event:later',event_type:'business.created',
+    occurred_at:'2026-11-27T12:00:02.000Z',object_id:'object:later',revision:1};
+  r.events.push(later);r.objects.push({object_id:later.object_id});
+  assert.equal(await r.create().verifyOriginalBaselineEvidence(r.proof(input,false)),true);
+  await assert.rejects(r.create().readOriginalBaselineAdmissionInput(),{code:'BASELINE_FRESH_WORKSPACE_NOT_EMPTY'});
+  for(const change of [
+    f=>f.events.reverse(),f=>f.events.shift(),f=>{f.events[0].payload.capabilities.push('different');},
+    f=>{f.events[0].event_type='business.created';}
+  ]){
+    const f=freshFixture('RECIPIENT');f.events.push(clone(second));Object.assign(f.selection,s.selection);
+    change(f);
+    await assert.rejects(f.create().readOriginalBaselineAdmissionInput(),{code:'BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH'});
+  }
+  const f=freshFixture();f.events.push(clone(second));Object.assign(f.selection,s.selection);
+  f.afterAssets(()=>f.events.push({...clone(second),event_id:'event:third'}));
+  await assert.rejects(f.create().readOriginalBaselineAdmissionInput(),{code:'BASELINE_FRESH_WORKSPACE_CHANGED'});
+  assert.throws(()=>readT4OriginalFreshWorkspaceBaselineSelection({workspaceId:identity.sourceWorkspaceId,originalEvents:f.events}),
+    {code:'BASELINE_FRESH_WORKSPACE_NOT_EMPTY'});
+});

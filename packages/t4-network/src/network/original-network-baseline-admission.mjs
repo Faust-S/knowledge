@@ -172,15 +172,26 @@ export function createT4OriginalNetworkBaselineAdmissionPort({
 
 
 // RC.1 first-use of an EMPTY business Workspace copied through original
-// T2 Exchange. Both devices must have the SAME original creation Event,
-// not two independently created Workspaces. Selection is native consent,
-// not a permission. The existing baseline port persists the admission.
+// T2 Exchange. The signed corporate merge route can require a locally
+// created target. After the original archive is returned, both devices
+// must retain the SAME ordered creation prefix (one or two original Events).
+// Independent local creation alone is not a common baseline. No new Event,
+// cursor format, authority or package type is introduced.
 export function normalizeT4OriginalFreshWorkspaceBaseline(selection){
+  const two=Object.hasOwn(selection??{},'creationAnchors');
+  const validAnchor=a=>a&&typeof a==='object'&&!Array.isArray(a)&&
+    same(Object.keys(a).sort(),['eventDigest','eventId'])&&ID(a.eventId)&&DIG(a.eventDigest);
   if(!selection||typeof selection!=='object'||Array.isArray(selection)||
-    !same(Object.keys(selection).sort(),['confirmed','eventDigest','eventId'])||
-    selection.confirmed!==true||!ID(selection.eventId)||!DIG(selection.eventDigest))
+    !same(Object.keys(selection).sort(),two?['confirmed','creationAnchors','eventDigest','eventId']:['confirmed','eventDigest','eventId'])||
+    selection.confirmed!==true||!ID(selection.eventId)||!DIG(selection.eventDigest)||
+    (two&&(!Array.isArray(selection.creationAnchors)||selection.creationAnchors.length!==2||
+      !selection.creationAnchors.every(validAnchor)||
+      selection.creationAnchors[0].eventId===selection.creationAnchors[1].eventId||
+      selection.creationAnchors[1].eventId!==selection.eventId||
+      selection.creationAnchors[1].eventDigest!==selection.eventDigest)))
     fail('BASELINE_FRESH_ORIGINAL_SELECTION_REQUIRED');
-  return Object.freeze({confirmed:true,eventId:selection.eventId,eventDigest:selection.eventDigest});
+  return freeze(clone({confirmed:true,eventId:selection.eventId,eventDigest:selection.eventDigest,
+    ...(two?{creationAnchors:selection.creationAnchors}:{})}));
 }
 function originalCreationAnchor(event,workspaceId){
   if(!event||event.workspace_id!==workspaceId||event.event_type!=='workspace.created'||
@@ -192,13 +203,18 @@ function originalCreationAnchor(event,workspaceId){
 // Native preparation can derive the configuration candidate from the
 // original Admin business history. A candidate is explicitly NOT consent.
 export function readT4OriginalFreshWorkspaceBaselineSelection({workspaceId,originalEvents}={}){
-  if(!ID(workspaceId)||!Array.isArray(originalEvents)||originalEvents.length!==1)
+  if(!ID(workspaceId)||!Array.isArray(originalEvents)||![1,2].includes(originalEvents.length))
     fail('BASELINE_FRESH_WORKSPACE_NOT_EMPTY');
-  return Object.freeze({confirmed:false,...originalCreationAnchor(originalEvents[0],workspaceId)});
+  const anchors=originalEvents.map(event=>originalCreationAnchor(event,workspaceId));
+  if(anchors.length===2&&anchors[0].eventId===anchors[1].eventId)
+    fail('BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH');
+  return freeze({confirmed:false,...anchors.at(-1),...(anchors.length===2?{creationAnchors:anchors}:{})});
 }
 export function createT4OriginalFreshWorkspaceBaseline({selection,role,workspaceId,originalWriteOwnerRef,
   originalKernel,getMode,authorizeOriginalRead,requireCurrent}={}){
   const selected=normalizeT4OriginalFreshWorkspaceBaseline(selection);
+  const anchors=selected.creationAnchors??[{eventId:selected.eventId,eventDigest:selected.eventDigest}];
+  const count=anchors.length;
   if(!['SOURCE','RECIPIENT'].includes(role)||![workspaceId,originalWriteOwnerRef].every(ID)||
     ![getMode,authorizeOriginalRead,requireCurrent].every(f=>typeof f==='function')||
     !['listEventsSince','listObjects','listAssets'].every(k=>originalKernel?.hasOperation?.('t1.'+k)===true&&
@@ -217,12 +233,14 @@ export function createT4OriginalFreshWorkspaceBaseline({selection,role,workspace
   }
   async function history(){
     let events;
-    const projected=await readT4OriginalEventWindow({workspaceId,originalWriteOwnerRef,maxEvents:1,
+    const projected=await readT4OriginalEventWindow({workspaceId,originalWriteOwnerRef,maxEvents:count,
       authorizeOriginalRead:p=>guard(p.operation),
       readOriginalEvents:async()=>{events=clone(await originalKernel.listEventsSince(workspaceId));return events;}});
-    const anchor=events.find(e=>e.event_id===projected.nextCursor?.lastEventId);
-    const actual=originalCreationAnchor(anchor,workspaceId);
-    if(actual.eventId!==selected.eventId||actual.eventDigest!==selected.eventDigest)
+    // Preserve the original Kernel's Event order. Both owners must see
+    // the exact confirmed prefix, including every locally created anchor
+    // from the same-Workspace roundtrip; never sort or skip a local Event.
+    if(projected.window.count!==count||projected.nextCursor?.lastEventId!==selected.eventId||
+      !same(events.slice(0,count).map(event=>originalCreationAnchor(event,workspaceId)),anchors))
       fail('BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH');
     await current();
     return {count:events.length,input:{originalBaselineRef:selected.eventId,
@@ -232,9 +250,9 @@ export function createT4OriginalFreshWorkspaceBaseline({selection,role,workspace
     const observed=await history();
     if(requireEmpty){
       // The installed passport grants workspace-wide Event read. Require
-      // the creation Event alone, PLUS empty subject/asset readback. A
-      // nonempty Workspace needs original materialization evidence.
-      if(observed.count!==1)fail('BASELINE_FRESH_WORKSPACE_NOT_EMPTY');
+      // only the confirmed shared creation prefix, PLUS empty subject and
+      // asset readback. Any other Event needs a materialization witness.
+      if(observed.count!==count)fail('BASELINE_FRESH_WORKSPACE_NOT_EMPTY');
       await guard('t1.listObjects');
       const objects=await originalKernel.listObjects({workspace_id:workspaceId,include_deleted:true});
       await guard('t1.listObjects');await guard('t1.listAssets');
@@ -243,7 +261,7 @@ export function createT4OriginalFreshWorkspaceBaseline({selection,role,workspace
       if(!Array.isArray(objects)||objects.length!==0||!Array.isArray(assets)||assets.length!==0)
         fail('BASELINE_FRESH_WORKSPACE_NOT_EMPTY');
       const again=await history();
-      if(again.count!==1||!same(again.input,observed.input))fail('BASELINE_FRESH_WORKSPACE_CHANGED');
+      if(again.count!==count||!same(again.input,observed.input))fail('BASELINE_FRESH_WORKSPACE_CHANGED');
     }
     await current();return freeze(clone(observed.input));
   }

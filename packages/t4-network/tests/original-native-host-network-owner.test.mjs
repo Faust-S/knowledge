@@ -1072,15 +1072,18 @@ test('fixed installed profile cannot start replacement multipart or accept a non
 });
 
 
-test('both native roles admit the same original fresh Workspace through the signed Kernel relay without external baseline callbacks',async()=>{
+for(const merged of [false,true])test(merged?'both native roles admit the exact common two-creation prefix after original same-Workspace merge':'both native roles admit the same original fresh Workspace through the signed Kernel relay without external baseline callbacks',async()=>{
   const creation={workspace_id:WS,event_id:'event:pilot:creation',event_type:'workspace.created',
     service_id:'iwxa.admin-center.workspace',occurred_at:'2026-11-27T12:00:00.000Z',
     payload:{profile:'generic',capabilities:[],read_only:false}};
-  const selection={confirmed:true,eventId:creation.event_id,eventDigest:digestT4OriginalEventRecord(creation,WS)};
+  const second={...clone(creation),event_id:'event:pilot:local-creation',service_id:'iwxa.personal-agent.workspace',
+    occurred_at:'2026-11-27T12:00:01.000Z'};
+  const anchors=(merged?[creation,second]:[creation]).map(e=>({eventId:e.event_id,eventDigest:digestT4OriginalEventRecord(e,WS)}));
+  const selection={confirmed:true,...anchors.at(-1),...(merged?{creationAnchors:anchors}:{})};
   let shared;
   for(const role of ['SOURCE','RECIPIENT']){
     const store=kernelFixture('fresh-'+role);store.technicalWorkspaceId='ws:pilot:technical:'+role;
-    store.events.push(clone(creation));
+    store.events.push(clone(creation));if(merged)store.events.push(clone(second));
     const wire=wireFixture(true),f=nativeFixture({role,store,wire,freshBaseline:selection});
     try{
       const session=await f.attach();await f.drive(session,'ADMITTED');
@@ -1091,10 +1094,11 @@ test('both native roles admit the same original fresh Workspace through the sign
         o.workspace_id===store.technicalWorkspaceId&&o.data?.schema==='IWXA_T4_ORIGINAL_NETWORK_BASELINE_ADMISSION_RECORD_V1');
       assert.equal(admitted.length,1);
       const admission=admitted[0].data.baseline;
-      assert.equal(admission.originalBaselineRef,creation.event_id);
+      assert.equal(admission.originalBaselineRef,selection.eventId);
       assert.equal(admission.originalBaselineDigest,selection.eventDigest);
       if(shared)assert.deepEqual(admission.sourceCursor,shared);else shared=admission.sourceCursor;
-      assert.equal(store.events.filter(e=>e.workspace_id===WS).length,1);
+      assert.equal(admission.sourceCursor.seenEventCount,anchors.length);
+      assert.equal(store.events.filter(e=>e.workspace_id===WS).length,anchors.length);
       assert.equal(store.events.filter(e=>e.event_type==='t4.network.original.baseline.admitted').length,1);
       assert.ok(f.local.proofCount>0&&f.technical.proofCount>0);
       assert.equal(wire.puts,0);assert.equal(wire.gets,0);
