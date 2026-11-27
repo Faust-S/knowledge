@@ -1,0 +1,10 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d09-hop-regression-triage",
+  "prepared_sha": "0f638014dcbf56b0c43be0daa65bbcbf6e27e6fe",
+  "profile": "hop-regression-node24",
+  "revisions": {
+    "site": "fd644c1b7cce1724d09d604de70b8c42a10b1f91",
+    "subject": "0236cd93fa220ba11ab669d1b7eaa11b35762892"
+  }
+}
