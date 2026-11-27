@@ -4,7 +4,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,rmSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {buildOriginalAgentOneDist,requireOriginalAgentT2Product,
-  materializeOriginalAgentT2Product}
+  materializeOriginalAgentT2Product,buildOriginalAgentOneDistFromQualifiedKernel}
   from '../scripts/build-original-agent-one-dist.mjs';
 
 test('original qualified T2 One Dist product builder cannot package a signed test Host as Personal Agent',()=>{
@@ -79,4 +79,14 @@ test('G4 universal Agent One Dist rejects preauthorized Atlas or any default rec
     // The full positive test is the real original T2 browser/One Dist
     // qualification. This unit test MUST NOT fake a qualified T2 runtime.
   }finally{rmSync(temp,{recursive:true,force:true});}
+});
+
+// Invalid role must fail even before reading the qualified artifact.
+test('native SOURCE selection cannot silently fall back to local or recipient assembly',async()=>{
+  for(const opts of [{installedNetworkPilotRole:'SOURCE'},
+    {desktopAgentControlOnly:true,installedNetworkPilotRole:'RECIPIENT'},
+    {desktopAgentControlOnly:true,installedNetworkPilotRole:'LOCAL_T3'}]){
+    await assert.rejects(()=>buildOriginalAgentOneDistFromQualifiedKernel(opts),
+      /INSTALLED_T4_PILOT_PROFILE_REQUIRED/);
+  }
 });

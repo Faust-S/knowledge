@@ -10,7 +10,7 @@ import {tmpdir} from 'node:os';
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 import {materializeOriginalAdminT2Product} from '../scripts/materialize-original-admin-t2-product.mjs';
-import {materializeOriginalAgentT2Product,buildOriginalAgentOneDist} from '../scripts/build-original-agent-one-dist.mjs';
+import {materializeOriginalAgentT2Product,buildOriginalAgentOneDist,buildOriginalAgentOneDistFromQualifiedKernel} from '../scripts/build-original-agent-one-dist.mjs';
 import {assembleSignedControlDist} from '../scripts/assemble-signed-control-dist.mjs';
 import {assertQualifiedKernelArtifact} from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
 import {CANDIDATE_KERNEL_ARTIFACT,selectQualificationKernelCandidate}
@@ -169,8 +169,13 @@ async function withOriginalRuntime(execute){
       let assembled;
       if(agent){
         const receiptPath=join(tmp,name+'-assembled-receipt.json');
-        const built=buildOriginalAgentOneDist({t2Dist:source,t3Build:compiled,outputDir:dist,
-          receiptPath,desktopAgentControlOnly:true,qualificationKernelCandidate,installedNetworkPilotRole:pilotRole});
+        const options={t3Build:compiled,outputDir:dist,receiptPath,desktopAgentControlOnly:true,
+          qualificationKernelCandidate,installedNetworkPilotRole:pilotRole};
+        // Exercise the actual convenience path used by installed SOURCE builds.
+        // The independently materialized product still supplies the artifact witness.
+        const built=pilotRole==='SOURCE'
+          ?await buildOriginalAgentOneDistFromQualifiedKernel({...options,qualifiedKernelDist:input,agentProfile:profilePath})
+          :buildOriginalAgentOneDist({...options,t2Dist:source});
         assembled=JSON.parse(readFileSync(receiptPath,'utf8'));
         assert.equal(built.productId,'iwxa.personal-agent');
         assert.equal(built.original_qualified_artifact,assembled.original_qualified_artifact);

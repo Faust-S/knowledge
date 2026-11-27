@@ -213,8 +213,10 @@ export async function materializeOriginalAgentT2Product({
  */
 export async function buildOriginalAgentOneDistFromQualifiedKernel({
   qualifiedKernelDist,agentProfile,t3Build,outputDir,receiptPath,
-  desktopAgentControlOnly=false,qualificationKernelCandidate,
+  desktopAgentControlOnly=false,qualificationKernelCandidate,installedNetworkPilotRole=null,
 }={}){
+  if(installedNetworkPilotRole!==null&&(installedNetworkPilotRole!=='SOURCE'||desktopAgentControlOnly!==true))
+    fail('INSTALLED_T4_PILOT_PROFILE_REQUIRED');
   const staged=mkdtempSync(join(tmpdir(),'iwxa-agent-original-t2-'));
   try{
     const source=resolve(staged,'agent-original-dist');
@@ -222,7 +224,7 @@ export async function buildOriginalAgentOneDistFromQualifiedKernel({
       qualifiedKernelDist,agentProfile,outputRoot:source,qualificationKernelCandidate});
     const built=buildOriginalAgentOneDist({
       t2Dist:source,t3Build,outputDir,receiptPath,
-      desktopAgentControlOnly,qualificationKernelCandidate});
+      desktopAgentControlOnly,qualificationKernelCandidate,installedNetworkPilotRole});
     return Object.freeze({...built,origin:product.origin,
       originalProductId:product.productId,verifiedOriginalT2:true});
   }finally{rmSync(staged,{recursive:true,force:true});}
@@ -291,8 +293,8 @@ if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const desktopAgentControlOnly=args.at(-1)==='--desktop-agent-control';
   if(desktopAgentControlOnly)args.pop();
   const valid=['--t2-dist','--t3-build','--output','--receipt',
-    '--qualified-kernel-dist','--agent-profile'];
-  if(![8,10].includes(args.length)||
+    '--qualified-kernel-dist','--agent-profile','--installed-network-pilot-role'];
+  if(![8,10,12].includes(args.length)||
      args.some((v,i)=>i%2===0&&!valid.includes(v))||
      new Set(args.filter((_,i)=>i%2===0)).size!==args.length/2)
     fail('USAGE_T2_DIST_OR_QUALIFIED_KERNEL_WITH_AGENT_PROFILE');
@@ -304,9 +306,12 @@ if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
      (qualified===Object.hasOwn(opts,'--t2-dist'))||
      !['--t3-build','--output','--receipt'].every(k=>Object.hasOwn(opts,k)))
     fail('PRODUCT_INPUT_MODE_INVALID');
+  const installedNetworkPilotRole=opts['--installed-network-pilot-role']??null;
+  if(installedNetworkPilotRole!==null&&(installedNetworkPilotRole!=='SOURCE'||!desktopAgentControlOnly))
+    fail('INSTALLED_T4_PILOT_PROFILE_REQUIRED');
   const argsCommon={t3Build:opts['--t3-build'],
     outputDir:opts['--output'],receiptPath:opts['--receipt'],
-    desktopAgentControlOnly,qualificationKernelCandidate};
+    desktopAgentControlOnly,qualificationKernelCandidate,installedNetworkPilotRole};
   const result=qualified
     ?await buildOriginalAgentOneDistFromQualifiedKernel({
       ...argsCommon,qualifiedKernelDist:opts['--qualified-kernel-dist'],
