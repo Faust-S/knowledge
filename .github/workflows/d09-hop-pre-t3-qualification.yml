@@ -1,0 +1,190 @@
+# D09 domain CI: authorized public knowledge, private checkouts are temporary.
+name: D09 HOP integrated pre-T3 qualification
+on:
+  workflow_dispatch:
+  push:
+    branches: ['ci/once/d09-hop-pre-t3-qualification/**']
+    paths: ['.github/ci-requests/d09-hop-pre-t3-qualification.json']
+concurrency:
+  group: d09-hop-pre-t3-qualification
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  qualification:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    env:
+      SITE_PIN: f5ee7d26cf1dc40d2cea31b0be93e7eeceef7694
+      SITE_TREE: 946d2801ce9bc28921508eb42d657469a2391151
+      SUBJECT_PIN: 5fbfe9210b1c9369f828d469e52380f31918a4e6
+      T2_PIN: 9c64951cd78411283e8a416641c36d71e169fc1d
+      T2_TREE: 56e55a9458aeb3ce540ef87dbc2dd9549ae2fcb2
+      D09_ORIGIN: https://hop.iwxa.ru:9443
+      D09_PREVIEW_PRODUCTION_LOOPBACK: '1'
+      D09_ASSEMBLY_ONLY: '0'
+      D09_ASSEMBLY_ONLY_CONSENT: ''
+    steps:
+      - name: Checkout public request guard
+        uses: actions/checkout@v4
+        with:
+          path: ci-harness
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit the explicit immutable request
+        working-directory: ci-harness
+        run: |
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-pre-t3-qualification --profile hop-integrated-pre-t3 --revision site=f5ee7d26cf1dc40d2cea31b0be93e7eeceef7694 --revision subject=5fbfe9210b1c9369f828d469e52380f31918a4e6 --revision t2=9c64951cd78411283e8a416641c36d71e169fc1d
+      - name: Checkout exact HOP site using existing domain credential
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/hop.iwxa.ru
+          ref: ${{ env.SITE_PIN }}
+          token: ${{ secrets.DOMEN }}
+          path: private-site
+          persist-credentials: false
+          show-progress: false
+      - name: Checkout exact original T2 and qualified Kernel
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_PIN }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          show-progress: false
+          sparse-checkout: |
+            t2/current/final-successor/canonical-source
+            t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019
+          path: original-t2
+      - name: Verify pinned input trees and accepted Kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "private-site $SITE_PIN $SITE_TREE" "original-t2 $T2_PIN $T2_TREE"; do
+            read -r dir sha tree <<< "$spec"
+            test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
+            test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
+            echo "D09_INPUT $dir PASS"
+          done
+          archive="$GITHUB_WORKSPACE/original-t2/t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip"
+          printf '%s  %s\n' '7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68' "$archive" | sha256sum -c - >/dev/null
+          mkdir -p "$RUNNER_TEMP/d09-kernel" "$RUNNER_TEMP/d09-tls"
+          unzip -q "$archive" -d "$RUNNER_TEMP/d09-kernel"
+          printf '%s  %s\n' 'e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78' "$RUNNER_TEMP/d09-kernel/_iwxa/runtime/0.3.6/runtime.js" | sha256sum -c - >/dev/null
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=hop.iwxa.ru' -keyout "$RUNNER_TEMP/d09-tls/key.pem" -out "$RUNNER_TEMP/d09-tls/cert.pem" >/dev/null 2>&1
+          {
+            echo "D09_T2_CANONICAL_SOURCE=$GITHUB_WORKSPACE/original-t2/t2/current/final-successor/canonical-source"
+            echo "D09_QUALIFIED_KERNEL_DIST=$RUNNER_TEMP/d09-kernel"
+            echo "D09_PREVIEW_CERT_PATH=$RUNNER_TEMP/d09-tls/cert.pem"
+            echo "D09_PREVIEW_KEY_PATH=$RUNNER_TEMP/d09-tls/key.pem"
+            echo "npm_config_cache=$RUNNER_TEMP/d09-npm-cache"
+          } >> "$GITHUB_ENV"
+          echo D09_ORIGINAL_KERNEL_HASH=PASS
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked dependencies
+        id: install
+        working-directory: private-site
+        shell: bash
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-install.log" 2>&1 || {
+            echo D09_SITE_NPM=FAIL
+            exit 1
+          }
+          if command -v google-chrome >/dev/null 2>&1; then
+            echo "PUPPETEER_EXECUTABLE_PATH=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          else
+            npx --no-install puppeteer browsers install chrome > "$RUNNER_TEMP/d09-chrome.log" 2>&1 || { echo D09_BROWSER_INSTALL=FAIL; exit 1; }
+          fi
+          echo D09_SITE_NPM=PASS
+      - name: Existing public authoring and player witness
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -eu
+          failed=0
+          check() {
+            local id="$1"; shift
+            if "$@" > "$RUNNER_TEMP/d09-$id.log" 2>&1; then
+              echo "D09_$id=PASS"
+              return 0
+            else
+              echo "D09_$id=FAIL"
+              grep -oE '(D09_[A-Z0-9_]+|error TS[0-9]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-$id.log" | sort -u | head -20 || true
+              failed=1
+              return 1
+            fi
+          }
+          if check PUBLIC_STAGE npm run build:public-stage; then
+            check PUBLIC_ROUTES node tests/d09-public-rebuild.browser.mjs || true
+            check FEATURED_WORKS node tests/d09-featured-works.browser.mjs || true
+            check PIXEL_MOTION node tests/d09-pixel-motion-user.browser.mjs || true
+            check E2E npm run test:e2e || true
+          else
+            echo D09_PUBLIC_BROWSER=NOT_RUN
+          fi
+          rm -rf dist
+          exit "$failed"
+      - name: Full existing verification and native HOP product
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -eu
+          failed=0
+          check() {
+            local id="$1"; shift
+            if "$@" > "$RUNNER_TEMP/d09-$id.log" 2>&1; then
+              echo "D09_$id=PASS"
+            else
+              echo "D09_$id=FAIL"
+              grep -oE '(D09_[A-Z0-9_]+|error TS[0-9]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-$id.log" | sort -u | head -24 || true
+              # Diagnostics only: test names/locations, not private source.
+              grep -E '^([[:alnum:]_./-]+\.(tsx?|mjs)\([0-9]+,[0-9]+\): error TS[0-9]+:|not ok [0-9]+ - |[[:space:]]*FAIL[[:space:]]+src/)' "$RUNNER_TEMP/d09-$id.log" | cut -c1-200 | head -20 || true
+              failed=1
+            fi
+          }
+          check VERIFY npm run verify
+          if [ ! -f dist/_iwxa/domain.json ]; then
+            if ! grep -q 'node scripts/build-d09-site-only.mjs' "$RUNNER_TEMP/d09-VERIFY.log" || {
+              grep -Eq '^>.*check:(readability|hydration|runtime|network-privacy)' "$RUNNER_TEMP/d09-VERIFY.log" &&
+              ! grep -q '^D09_PUBLIC_STAGE_VERIFY=PASS$' "$RUNNER_TEMP/d09-VERIFY.log"
+            }; then
+              check INTEGRATED_BUILD npm run build
+            fi
+          fi
+          check PIXEL_AVATAR_PACKAGE npx --no-install tsx scripts/qualify-pixel-avatar-iwxa.ts
+          check SEED_PACKAGES npx --no-install tsx scripts/d09-seed-package-diagnostic.ts
+          if node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { readFileSync, existsSync } from "node:fs";
+            const d = JSON.parse(readFileSync("dist/_iwxa/domain.json", "utf8"));
+            assert.equal(d.origin, process.env.D09_ORIGIN);
+            assert.equal(d.runtime.artifactId, "iwxa-kernel-k036-same-store-history-20261019-qualified.1");
+            for (const p of ["workspace/index.html","workspace/exchange/index.html","workspace/lifecycle/index.html","_iwxa/runtime/0.3.6/runtime.js"]) assert.ok(existsSync("dist/"+p));
+            assert.ok(!existsSync("dist/workspace/studio/index.html"));
+          ' > "$RUNNER_TEMP/d09-dist-identity.log" 2>&1; then
+            echo D09_INTEGRATED_DIST=PASS
+            check USER_ROUTES npm run test:d09:user-routes
+            check AVATAR_USER node tests/d09-pixel-avatar-user.browser.mjs
+            check FIRST_WORKSPACE node tests/d09-original-t2-production-first-run.browser.mjs
+            check PROJECT_RESULT_EXCHANGE node tests/d09-original-t2-project-save.browser.mjs
+            for id in USER_ROUTES FIRST_WORKSPACE PROJECT_RESULT_EXCHANGE; do
+              grep -E '^D09_[A-Z0-9_]+=PASS$' "$RUNNER_TEMP/d09-$id.log" | tail -35 || true
+            done
+          else
+            echo D09_INTEGRATED_DIST=FAIL
+            echo D09_INTEGRATED_BROWSER=NOT_RUN
+            failed=1
+          fi
+          exit "$failed"
+      - name: Remove private checkouts and build evidence
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/private-site" "$GITHUB_WORKSPACE/original-t2" "$RUNNER_TEMP/d09-kernel" "$RUNNER_TEMP/d09-tls" "$RUNNER_TEMP/d09-npm-cache"
+          rm -f "$RUNNER_TEMP"/d09-*.log
+          echo D09_PRIVATE_ARTIFACT_UPLOADS=NONE
