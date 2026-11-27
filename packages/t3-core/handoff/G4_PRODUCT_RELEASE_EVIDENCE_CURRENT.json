@@ -2693,14 +2693,14 @@
         "scope": "LIGHT_QWEN_MODEL_GENERATION_AND_COLD_OFFLINE_SECOND_GENERATION_NOT_MODEL_QUALITY_OR_PHYSICAL_PHONE_ACCEPTANCE"
       },
       "independent_acceptance_delivery": {
-        "state": "DELIVERY_QUALIFICATION_CANCELLED_BEFORE_BROWSER",
+        "state": "DELIVERY_QUALIFICATION_IN_PROGRESS",
         "scope": "LOCAL_READY_ORIGINAL_GENERIC_HOST_NO_REBUILD",
         "origin": "https://localhost:18443",
         "independent_acceptance": "PENDING",
         "remote_browser_access": "REQUIRES_SAME_MACHINE_OR_EXPLICITLY_PROVIDED_ROOT_HTTPS_ORIGIN",
-        "run": 46020529707,
-        "request_commit": "c4e833664755b8f7ef781733aba314a307c8a552",
-        "prepared_commit": "8f89a1f77936a0dee9f1a517ee70b35ed4fd126d",
+        "run": 46028119092,
+        "request_commit": "5f18ea14b065e3ec5e73ec30bb5543ab6257d979",
+        "prepared_commit": "9e79c3036de486b760fc439bfd35e63d546d8eef",
         "prior_attempt": {
           "run": 46020529707,
           "conclusion": "CANCELLED_AT_WINDOWS_CERTIFICATE_TRUST_BEFORE_BROWSER",
@@ -2712,7 +2712,8 @@
             "LAUNCHER_SYNTAX"
           ]
         },
-        "next": "RETRY_DELIVERY_ONLY_WITH_DISPOSABLE_CI_MACHINE_CERTIFICATE_TRUST; USER_LAUNCHER_UNCHANGED"
+        "next": "RETRY_DELIVERY_ONLY_WITH_DISPOSABLE_CI_MACHINE_CERTIFICATE_TRUST; USER_LAUNCHER_UNCHANGED",
+        "latest_windows_job": 140604669318
       },
       "independent_end_user_acceptance": "PENDING_NOT_CODEX_ACCEPTED",
       "corporate_aba": "SEPARATE_OPEN_ACCEPTED_KERNEL_EVENT_COLLISION",
