@@ -1,0 +1,70 @@
+name: Workspace Workflow source qualification
+on:
+  push:
+    branches:
+      - work/2026-11-26-workspace-workflow-development
+    paths:
+      - 'packages/t3-core/src/**'
+      - 'packages/t3-core/tests/**'
+      - 'packages/t3-core/scripts/**'
+      - 'packages/t3-core/package*.json'
+      - 'packages/t3-core/tsconfig.json'
+      - 'packages/t3-core/vitest*.mjs'
+      - '.github/workflows/workspace-workflow-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workspace-workflow-source-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  canonical-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: packages/t3-core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact clean source qualification using the original C3 owner
+        shell: bash
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node scripts/run-c3-project-process-qualification.mjs --exact-git-head "$GITHUB_SHA" "$RUNNER_TEMP/workspace-c3-source.json"
+          node --test tests/single-canonical-store-source-gate.test.mjs tests/c3-workspace-project-method.test.mjs
+          cat "$RUNNER_TEMP/workspace-c3-source.json"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: workspace-c3-source-${{ github.sha }}
+          path: ${{ runner.temp }}/workspace-c3-source.json
+          if-no-files-found: error
+  workspace-product-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/t3-core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run typecheck
+      - name: Targeted original model and DOM regressions
+        run: |
+          npm run test:product:workspace -- tests/workspace-content.dom.test.tsx tests/workspace-view-profile-sections.dom.test.tsx tests/workspace-relation-index-model.test.ts tests/workspace-relation-index.dom.test.tsx tests/project-process-traversal.dom.test.tsx tests/rich-workspace-read-model.test.ts tests/rich-workspace-read-model.dom.test.tsx
+      - name: Vite production build
+        run: npm run build
