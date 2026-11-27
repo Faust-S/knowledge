@@ -211,80 +211,8 @@ jobs:
           Get-Content $log | ForEach-Object {
             if ($_ -match '^(D11_[A-Z0-9_]+)=([0-9/ ]*PASS)') { Write-Output ($Matches[1]+"="+$Matches[2]) }
             elseif ($_ -match '^(D11_(?:OS_STAGE|REAL_T2_FAILED)=[A-Z0-9_]+)') { Write-Output $Matches[1] }
-            elseif ($_ -match '^(D11_(?:LIVE_FAILURE_KIND|OS_DISPATCH_NOTICE|OS_FORM_INVALID_KIND)=[A-Z0-9_,]+)
-          }
-          if ($code -ne 0) { throw "D11_OPERATIONAL_OS_FAILED" }
-          Write-Output "D11_OPERATIONAL_OS=PASS"
-      - name: Verify original 26 desktop and mobile screenshots locally
-        id: visual
-        if: runner.os == 'Windows'
-        continue-on-error: true
-        run: |
-          $dir=Join-Path $env:RUNNER_TEMP "d11-visual"
-          $names=@("d11-dashboard-desktop.png","d11-dashboard-mobile.png","d11-home-desktop.png","d11-home-mobile.png","d11-result-detail-desktop.png","d11-result-detail-mobile.png","d11-projects-desktop.png","d11-projects-mobile.png","d11-customer-order-desktop.png","d11-customer-order-mobile.png")
-          foreach ($caseNumber in 2..9) {
-            foreach ($viewport in @("desktop","mobile")) { $names+=("d11-own-{0:D3}-{1}.png" -f $caseNumber,$viewport) }
-          }
-          foreach ($name in $names) {
-            $file=Join-Path $dir $name
-            if (!(Test-Path $file) -or (Get-Item $file).Length -lt 1000) { throw "D11_SCREENSHOT_MISSING" }
-          }
-          Write-Output "D11_SCREENSHOT_FILES=26/26 PASS"
-      - name: Require all applicable product checks
-        if: always()
-        run: |
-          if ("${{ steps.build.outcome }}" -ne "success" -or "${{ steps.os.outcome }}" -ne "success") { throw "D11_LIVE_ACCEPTANCE_INCOMPLETE" }
-          if ($env:RUNNER_OS -eq "Windows") {
-            if ("${{ steps.windows_source.outcome }}" -ne "success" -or "${{ steps.windows_static.outcome }}" -ne "success" -or "${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.kernel.outcome }}" -ne "success" -or "${{ steps.visual.outcome }}" -ne "success") { throw "D11_WINDOWS_QUALIFICATION_INCOMPLETE" }
-          } elseif ("${{ steps.linux_previous.outcome }}" -ne "success") { throw "D11_LINUX_PRIOR_QUALIFICATION_INCOMPLETE" }
-          Write-Output "D11_LIVE_FULL_ACCEPTANCE=PASS"
-      - name: Remove private inputs and diagnostics
-        if: always()
-        run: |
-          foreach ($name in @("domain","site","t2")) {
-            $folder=Join-Path $env:GITHUB_WORKSPACE $name
-            if (Test-Path $folder) { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue }
-          }
-          Get-ChildItem $env:RUNNER_TEMP -Filter "d11-*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-      # No private code, output, logs, screenshots or artifacts uploaded.
-) { Write-Output $Matches[1] }
-            elseif ($_ -match '^(D11_OS_FORM_INVALID_COUNT=[0-9]+)
-          }
-          if ($code -ne 0) { throw "D11_OPERATIONAL_OS_FAILED" }
-          Write-Output "D11_OPERATIONAL_OS=PASS"
-      - name: Verify original 26 desktop and mobile screenshots locally
-        id: visual
-        if: runner.os == 'Windows'
-        continue-on-error: true
-        run: |
-          $dir=Join-Path $env:RUNNER_TEMP "d11-visual"
-          $names=@("d11-dashboard-desktop.png","d11-dashboard-mobile.png","d11-home-desktop.png","d11-home-mobile.png","d11-result-detail-desktop.png","d11-result-detail-mobile.png","d11-projects-desktop.png","d11-projects-mobile.png","d11-customer-order-desktop.png","d11-customer-order-mobile.png")
-          foreach ($caseNumber in 2..9) {
-            foreach ($viewport in @("desktop","mobile")) { $names+=("d11-own-{0:D3}-{1}.png" -f $caseNumber,$viewport) }
-          }
-          foreach ($name in $names) {
-            $file=Join-Path $dir $name
-            if (!(Test-Path $file) -or (Get-Item $file).Length -lt 1000) { throw "D11_SCREENSHOT_MISSING" }
-          }
-          Write-Output "D11_SCREENSHOT_FILES=26/26 PASS"
-      - name: Require all applicable product checks
-        if: always()
-        run: |
-          if ("${{ steps.build.outcome }}" -ne "success" -or "${{ steps.os.outcome }}" -ne "success") { throw "D11_LIVE_ACCEPTANCE_INCOMPLETE" }
-          if ($env:RUNNER_OS -eq "Windows") {
-            if ("${{ steps.windows_source.outcome }}" -ne "success" -or "${{ steps.windows_static.outcome }}" -ne "success" -or "${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.kernel.outcome }}" -ne "success" -or "${{ steps.visual.outcome }}" -ne "success") { throw "D11_WINDOWS_QUALIFICATION_INCOMPLETE" }
-          } elseif ("${{ steps.linux_previous.outcome }}" -ne "success") { throw "D11_LINUX_PRIOR_QUALIFICATION_INCOMPLETE" }
-          Write-Output "D11_LIVE_FULL_ACCEPTANCE=PASS"
-      - name: Remove private inputs and diagnostics
-        if: always()
-        run: |
-          foreach ($name in @("domain","site","t2")) {
-            $folder=Join-Path $env:GITHUB_WORKSPACE $name
-            if (Test-Path $folder) { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue }
-          }
-          Get-ChildItem $env:RUNNER_TEMP -Filter "d11-*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-      # No private code, output, logs, screenshots or artifacts uploaded.
-) { Write-Output $Matches[1] }
+            elseif ($_ -match '^(D11_(?:LIVE_FAILURE_KIND|OS_DISPATCH_NOTICE|OS_FORM_INVALID_KIND)=[A-Z0-9_,]+)$') { Write-Output $Matches[1] }
+            elseif ($_ -match '^(D11_OS_FORM_INVALID_COUNT=[0-9]+)$') { Write-Output $Matches[1] }
           }
           if ($code -ne 0) { throw "D11_OPERATIONAL_OS_FAILED" }
           Write-Output "D11_OPERATIONAL_OS=PASS"
