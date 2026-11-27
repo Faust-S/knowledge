@@ -42,7 +42,7 @@ jobs:
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-hosting-freeze \
             --profile learn-final-real-local-generation \
-            --revision site=7c36a4cdcd01f924090601bf5001c2aa6d7de58e \
+            --revision site=245337261c9cad7810be9bce527a83a5005d6b22 \
             --revision subject=77336a8a481005dda0c10c0df9a9f56655fb3fc6 \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1 \
             --revision core=8f55367b3c8f310aad4e3217fe0b53b6950ce220 \
@@ -50,7 +50,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 7c36a4cdcd01f924090601bf5001c2aa6d7de58e
+          ref: 245337261c9cad7810be9bce527a83a5005d6b22
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -88,7 +88,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 7c36a4cdcd01f924090601bf5001c2aa6d7de58e
+          test "$(git -C private/site rev-parse HEAD)" = 245337261c9cad7810be9bce527a83a5005d6b22
           test "$(git -C private/domain rev-parse HEAD)" = 77336a8a481005dda0c10c0df9a9f56655fb3fc6
           test "$(git -C original/core rev-parse HEAD)" = 8f55367b3c8f310aad4e3217fe0b53b6950ce220
           test "$(git -C private/assistant rev-parse HEAD)" = 5419dacf855d81ec089acc23bae0c7aa11713a54
@@ -216,7 +216,7 @@ jobs:
         working-directory: private/site
         env:
           D01_SITE_TOKEN: ${{ secrets.DOMEN }}
-          D01_SITE_REVISION: '7c36a4cdcd01f924090601bf5001c2aa6d7de58e'
+          D01_SITE_REVISION: '245337261c9cad7810be9bce527a83a5005d6b22'
         shell: bash
         run: python3 "$GITHUB_WORKSPACE/ci-harness/tools/ci/retain-d01-private-inputs.py"
       - name: Browser prerequisites for exact Learn runtime
@@ -299,9 +299,9 @@ jobs:
         shell: bash
         run: |
           set +e
-          node qa/d01-product-witness-2026-10-26/t3-real-model-witness.mjs >"$RUNNER_TEMP/d01-real-model.log" 2>&1
+          node --check qa/d01-product-witness-2026-10-26/t3-real-model-witness.mjs || exit 1
+          set -o pipefail
+          node qa/d01-product-witness-2026-10-26/t3-real-model-witness.mjs 2>&1 | tee "$RUNNER_TEMP/d01-real-model.log" | awk '/^D01_T3_(REAL_MODEL_[A-Z_]+|MODEL_DEVICE|MODEL_FIRST_TOKEN|MODEL_ANSWER_STATE)=/ {print substr($0,1,400); fflush()}'
           code=$?
           set -e
-          grep -E '^D01_T3_(MODEL_DEVICE|REAL_MODEL_|CONSULTATION_GENERATED|CONSULTATION_QUALITY)=' "$RUNNER_TEMP/d01-real-model.log" | cut -c1-240 || true
-          grep -E '^D01_T3_(REAL_MODEL_[A-Z_]+|MODEL_DEVICE|MODEL_ANSWER_STATE|CONSULTATION_[A-Z_]+)=' "$RUNNER_TEMP/d01-real-model.log" | cut -c1-240 || true
           exit "$code"
