@@ -1,0 +1,26 @@
+name: T4 original shared creation prefix
+on:
+  push:
+    branches:
+      - 'ci/once/t4-shared-creation-prefix/69aedbe3885f'
+permissions:
+  contents: read
+jobs:
+  shared-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 69aedbe3885fc98d5e8e06830e462c42f433b1d4
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Shared original creation prefix and installed profile regression
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "69aedbe3885fc98d5e8e06830e462c42f433b1d4"
+          test "$(git rev-parse HEAD^{tree})" = "7664bd490bacec358b0b4cdf18d375d2720c060e"
+          node --test packages/t4-network/tests/original-network-baseline-admission.test.mjs packages/t4-network/tests/original-installed-fixed-profile.test.mjs packages/t4-network/tests/original-native-network-product-activation.test.mjs packages/t4-network/tests/original-installed-control-factories.test.mjs
+          timeout 120s node --test --test-name-pattern='both native roles admit' packages/t4-network/tests/original-native-host-network-owner.test.mjs
