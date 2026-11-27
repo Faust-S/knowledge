@@ -1,4 +1,4 @@
-name: D09 HOP imported root and current template regression
+name: D09 HOP read-only snapshot and semantic collection regression
 on:
   push:
     branches: ['ci/once/d09-hop-regression-triage/**']
@@ -18,8 +18,8 @@ jobs:
       matrix:
         include:
           - lane: corrected
-            sha: d96e5cae7c771aae8d5cb792e1c73eb526557a64
-            tree: 80373c916a3aca6fa69d1aefce59651352671f4f
+            sha: acafd120ef1144a6cc17ec6e9085aa6abd46dbb0
+            tree: 74e4b5c112385557a519c2966a02587e06069660
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
     steps:
@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable source comparison
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-regression-triage --profile hop-regression-node24 --revision site=d96e5cae7c771aae8d5cb792e1c73eb526557a64 --revision subject=6f5fd6592a7678a77767635635758fe1d74e1e73
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-regression-triage --profile hop-regression-node24 --revision site=acafd120ef1144a6cc17ec6e9085aa6abd46dbb0 --revision subject=fc1c9ab095a6eaed05e6b42d63ce1c3388103507
       - name: Checkout exact site source
         uses: actions/checkout@v4
         with:
@@ -125,7 +125,16 @@ jobs:
               ["PNG_METHOD",/ImageData|createImageBitmap|\.toBlob is not a function/i],
               ["MISSING_EXPORT",/No "[^"]+" export is defined on the .*mock/i]
             ];
+            tags.push(["TEST_BUDGET",/timed? out|timeout|exceeded.*\bms\b|test took longer/i],["FROZEN_MUTATION",/read.only property|object is not extensible|Cannot assign to read only/i],["PIXEL_DOCUMENT_LIMIT",/Исходники движений слишком велики|Слишком много кадров|Размеры.*кадр/i],["PIXEL_INVALID_INDEX",/Неверный цвет|Неверные индексы|Повреждены пиксели/i],["PIXEL_INVALID_FIGURE",/Не найден герой|Неверная поза|Неверное движение|Движения требуют/i]);
             const signature=tags.find(([,re])=>re.test(first))?.[0]??(primitive?"PRIMITIVE_ASSERTION":"UNCLASSIFIED");
+            if(file==="featured-works.test.ts"){
+              const detail=message.match(/(\d{1,7})\s*ms/);
+              console.log("D09_FEATURED_DIAGNOSTIC="+JSON.stringify({id,category,signature,reportedMs:detail?Number(detail[1]):null,durationMs:typeof a.duration==="number"?Math.round(a.duration):null}));
+            }
+            if(file==="templates.test.ts"){
+              const known=first.match(/\b(interactive-card|branching-comic|branching-story|quiz-score|step-instruction|tiny-story-world|timed-challenge|collection-quest):([a-z0-9_]{1,40}): expected /i);
+              if(known)console.log("D09_TEMPLATE_CHOICE="+known[1]+":"+known[2]);
+            }
             console.log("D09_REGRESSION_CASE "+file+" "+id+" "+category+" "+(loc?loc[1]+":"+loc[2]:"no-loc")+" "+signature+(primitive?" "+primitive[1]+"->"+primitive[2]:""));
            }
            if(!Object.keys(categories).length){
