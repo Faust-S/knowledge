@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { MemoryCanonicalAdapter,OwnerWriteGateway } from '../src/persistence/canonical-persistence.mjs';
-import { canonicalStringify } from '../src/persistence/canonical-codec.mjs';
+import { canonicalStringify,decodeCanonicalValue,encodeCanonicalValue } from '../src/persistence/canonical-codec.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod } from '../src/modules/base/owners/project-process-method-readback.mjs';
 import { previewWorkspaceMethodRevision,applyWorkspaceMethodRevision,inspectWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
@@ -23,8 +23,7 @@ function draft(){
 }
 function changed(){const d=draft();d.steps.find(s=>s.id==='analyse').instruction='Revised analysis';return d;}
 const read=owner=>readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId});
-async function setup(){
-  const adapter=new MemoryCanonicalAdapter();
+async function setup(adapter=new MemoryCanonicalAdapter()){
   const owner=(await createProjectProcessSourceOwnerQualificationHarness({gateway:new OwnerWriteGateway({adapter})})).owner;
   const d=draft(),recordIds={project:'initial-project',works:Object.fromEntries(d.steps.map(step=>[projectId+'.'+step.id,'initial-'+step.id]))};
   await createWorkspaceMethodThroughSourceOwner({owner,workspaceId,objects,draft:d,recordIds,knowledgeAt:time});
@@ -32,7 +31,7 @@ async function setup(){
 }
 const request=(owner,base,d=changed(),extra={})=>({owner,workspaceId,projectId,expected:base,draft:d,objects,
   operationId:'attempt-1',knowledgeAt:nextTime,...extra});
-const port=(owner,overrides={})=>({...Object.fromEntries(['create','revise','release','load','history','audit'].map(name=>[name,owner[name].bind(owner)])),...overrides});
+const port=(owner,overrides={})=>({...Object.fromEntries(['create','revise','release','load','history','historyThrough','audit'].map(name=>[name,owner[name].bind(owner)])),...overrides});
 const ref=(readback,id)=>readback.workRefs.find(row=>row.objectId.endsWith('.'+id));
 async function interrupted(owner,base){
   const stopped=port(owner,{revise:async(kind,input)=>{
@@ -248,4 +247,144 @@ test('a stale no-change attempt cannot disguise another saved revision as an unc
   assert.equal((await inspectWorkspaceMethodRevision(stale)).state,'CONFLICT');
   await assert.rejects(applyWorkspaceMethodRevision(stale),code('METHOD_REVISION_CONFLICT'));
   assert.equal((await owner.audit()).length,7);
+});
+
+
+// W04.17: the live source owner path does not enumerate unrelated history.
+class CountingAdapter extends MemoryCanonicalAdapter {
+  historyScans=0;
+  recordReads=0;
+  async listRecords(){this.historyScans++;return super.listRecords();}
+  async getRecord(id){this.recordReads++;return super.getRecord(id);}
+}
+test('fresh selective save and inspection use live heads without any history reads',async()=>{
+  const adapter=new CountingAdapter(),{owner,base}=await setup(adapter);
+  adapter.historyScans=0;adapter.recordReads=0;
+  let historyCalls=0;
+  const noHistory=port(owner,{history:async()=>{historyCalls++;throw new Error('unexpected full history');},
+    historyThrough:async()=>{historyCalls++;throw new Error('unexpected addressed history');}});
+  const args=request(noHistory,base);
+  const pre=await inspectWorkspaceMethodRevision(args);
+  assert.equal(pre.basisSource,'CURRENT_HEADS');assert.equal(pre.state,'NOT_STARTED');
+  const result=await applyWorkspaceMethodRevision(args);
+  assert.equal(result.basisSource,'CURRENT_HEADS');assert.equal(result.revisedCount,2);
+  assert.equal(historyCalls,0);assert.equal(adapter.historyScans,0);
+});
+test('explicit replay uses the selected original prefix, not a full Store scan',async()=>{
+  const adapter=new CountingAdapter(),{owner,base}=await setup(adapter);adapter.historyScans=0;
+  const first=await applyWorkspaceMethodRevision(request(owner,base));
+  const again=await applyWorkspaceMethodRevision(request(owner,base));
+  assert.equal(first.basisSource,'CURRENT_HEADS');assert.equal(again.basisSource,'HISTORICAL_REVISIONS');
+  assert.equal(again.attemptDigest,first.attemptDigest);assert.equal(again.alreadyPresentCount,2);
+  assert.equal(adapter.historyScans,0);
+});
+test('a live owner read failure is not silently bypassed through old history',async()=>{
+  const {owner,base}=await setup();let historyCalls=0;
+  const denied=port(owner,{load:async()=>{throw Object.assign(new Error('read failed'),{code:'TEST_LIVE_READ_FAILURE'});},
+    history:async()=>{historyCalls++;return [];},historyThrough:async()=>{historyCalls++;return [];}});
+  await assert.rejects(applyWorkspaceMethodRevision(request(denied,base)),code('TEST_LIVE_READ_FAILURE'));
+  assert.equal(historyCalls,0);assert.equal((await owner.audit()).length,5);
+});
+test('addressed historical method reads only five original records even with 1000 unrelated records',async()=>{
+  const adapter=new CountingAdapter(),{owner,base}=await setup(adapter);
+  for(let i=0;i<1000;i++)await owner.create('project',{workspaceId:'unrelated',projectId:'noise-'+i,
+    name:'Unrelated '+i,domainApplicability:['generic'],recordId:'noise-record-'+i,knowledgeAt:time});
+  adapter.historyScans=0;adapter.recordReads=0;
+  const result=await readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected:base});
+  assert.deepEqual(result.draft,draft());assert.equal(adapter.historyScans,0);assert.equal(adapter.recordReads,5);
+  const legacy=await readHistoricalWorkspaceMethod({owner:{history:owner.history.bind(owner)},workspaceId,projectId,expected:base});
+  assert.deepEqual(legacy.draft,result.draft);assert.equal(adapter.historyScans,5);
+  assert.equal((await owner.audit()).length,1005);
+});
+test('addressed history walks the exact selected prefix, excluding later revisions and tombstones',async()=>{
+  const adapter=new CountingAdapter(),{owner,base}=await setup(adapter);
+  let row=await owner.create('project',{workspaceId,projectId:'long-history',name:'Version 1',
+    domainApplicability:['generic'],recordId:'long-1',knowledgeAt:time});
+  for(let i=2;i<=20;i++)row=await owner.revise('project',{...row.payload,name:'Version '+i,
+    baseRevisionId:row.recordId,recordId:'long-'+i,knowledgeAt:nextTime});
+  await owner.release('project',{workspaceId,objectId:'long-history',recordId:'long-tombstone',
+    baseRevisionId:row.recordId,knowledgeAt:nextTime});
+  adapter.historyScans=0;adapter.recordReads=0;
+  const rows=await owner.historyThrough('project',workspaceId,'long-history','long-15',15);
+  assert.equal(rows.length,15);assert.equal(rows.at(-1).recordId,'long-15');assert.equal(rows.at(-1).payload.name,'Version 15');
+  assert.equal(adapter.recordReads,15);assert.equal(adapter.historyScans,0);
+  await assert.rejects(owner.historyThrough('project',workspaceId,'long-history','long-15',16),code('CANONICAL_HISTORY_PREFIX_INCOMPLETE'));
+  await assert.rejects(owner.historyThrough('project',workspaceId,projectId,'long-15',15),code('CANONICAL_HISTORY_PREFIX_INVALID'));
+  assert.equal(adapter.historyScans,0);
+});
+test('addressed prefix rejects a missing predecessor and a cyclic predecessor instead of falling back to the store scan',async()=>{
+  const adapter=new CountingAdapter(),{owner,base}=await setup(adapter);
+  const result=await applyWorkspaceMethodRevision(request(owner,base));
+  const selected=ref(result.method,'analyse');
+  const original=adapter.getRecord.bind(adapter);
+  adapter.historyScans=0;
+  for(const previousRevisionId of ['missing-record',selected.recordId]){
+    adapter.getRecord=async id=>{
+      const wire=await original(id);
+      if(id!==selected.recordId||!wire)return wire;
+      const row=decodeCanonicalValue(wire);
+      return encodeCanonicalValue({...row,previousRevisionId});
+    };
+    await assert.rejects(readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected:result.method}),code('METHOD_HISTORY_INCOMPLETE'));
+  }
+  assert.equal(adapter.historyScans,0);
+});
+function withoutAnalysis(){
+  const next=draft();next.steps=next.steps.filter(step=>step.id!=='analyse');
+  next.steps.find(step=>step.id==='review').dependsOn=['compute'];return next;
+}
+test('explicit exclusion updates Project membership and preserves the removed original Work and history',async()=>{
+  const {owner,base}=await setup();const next=withoutAnalysis(),id=projectId+'.analyse';
+  const args=request(owner,base,next,{excludeWorkIds:[id]});
+  const before=await inspectWorkspaceMethodRevision(args);
+  assert.equal(before.excludedCount,1);assert.equal(before.pendingCount,4);
+  const result=await applyWorkspaceMethodRevision(args);
+  assert.equal(result.revisedCount,4);assert.equal(result.excludedCount,1);
+  assert.deepEqual(result.method.draft,next);assert.equal(result.method.workRefs.length,3);
+  const excluded=await owner.load('work',workspaceId,id);
+  assert.equal(excluded.baseRevisionId,ref(base,'analyse').recordId);
+  assert.equal((await owner.history('work',workspaceId,id)).length,1);
+  assert.deepEqual((await readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected:base})).draft,draft());
+  const replay=await applyWorkspaceMethodRevision(args);
+  assert.equal(replay.alreadyPresentCount,4);assert.equal(replay.excludedCount,1);
+  assert.equal((await owner.audit()).length,9);
+});
+test('exclusion decision must name exactly the removed Work identities, with no extra or duplicate',async()=>{
+  const {owner,base}=await setup();const id=projectId+'.analyse';
+  for(const excludeWorkIds of [[],[projectId+'.compute'],[id,id],[id,projectId+'.compute'],null,'analyse']){
+    await assert.rejects(applyWorkspaceMethodRevision(request(owner,base,withoutAnalysis(),{excludeWorkIds})),code('METHOD_REVISION_EXCLUSION_DECISION_INVALID'));
+  }
+  await assert.rejects(applyWorkspaceMethodRevision(request(owner,base,draft(),{excludeWorkIds:[id]})),code('METHOD_REVISION_EXCLUSION_DECISION_INVALID'));
+  assert.equal((await owner.audit()).length,5);
+});
+test('partial exclusion resumes the exact membership change without releasing the excluded Work',async()=>{
+  const {owner,base}=await setup(),next=withoutAnalysis(),id=projectId+'.analyse';
+  const stopped=port(owner,{revise:async(kind,input)=>{
+    if(kind==='work'&&input.workId===projectId+'.review')throw Object.assign(new Error('stop'),{code:'TEST_EXCLUDE_PARTIAL'});
+    return owner.revise(kind,input);
+  },release:async()=>{throw new Error('unexpected release');}});
+  const extra={excludeWorkIds:[id]};
+  await assert.rejects(applyWorkspaceMethodRevision(request(stopped,base,next,extra)),code('TEST_EXCLUDE_PARTIAL'));
+  const args=request(owner,base,next,extra),progress=await inspectWorkspaceMethodRevision(args);
+  assert.equal(progress.state,'PARTIAL');assert.equal(progress.excludedCount,1);
+  assert.equal(progress.confirmedCount,3);assert.equal(progress.pendingCount,1);
+  const done=await applyWorkspaceMethodRevision(args);
+  assert.equal(done.alreadyPresentCount,3);assert.equal(done.revisedCount,1);assert.equal(done.excludedCount,1);
+  assert.equal((await owner.load('work',workspaceId,id)).baseRevisionId,ref(base,'analyse').recordId);
+  assert.equal((await owner.audit()).length,9);
+});
+test('excluded work cannot be silently recreated with the same historical identity',async()=>{
+  const {owner,base}=await setup(),id=projectId+'.analyse';
+  const done=await applyWorkspaceMethodRevision(request(owner,base,withoutAnalysis(),{excludeWorkIds:[id]}));
+  await assert.rejects(previewWorkspaceMethodRevision(request(owner,done.method,draft(),{operationId:'restore'})),code('METHOD_REVISION_STAGE_ID_USED'));
+  await assert.rejects(applyWorkspaceMethodRevision(request(owner,done.method,draft(),{operationId:'restore'})),code('METHOD_REVISION_CONFLICT'));
+  assert.equal((await owner.audit()).length,9);
+});
+test('concurrent change of the excluded Work is detected before rewriting Project membership',async()=>{
+  const {owner,base}=await setup(),id=projectId+'.analyse',row=await owner.load('work',workspaceId,id);
+  await owner.revise('work',{...row.value,recordId:'changed-exclusion',baseRevisionId:row.baseRevisionId,knowledgeAt:nextTime});
+  const args=request(owner,base,withoutAnalysis(),{excludeWorkIds:[id]});
+  assert.equal((await inspectWorkspaceMethodRevision(args)).state,'CONFLICT');
+  await assert.rejects(applyWorkspaceMethodRevision(args),code('METHOD_REVISION_CONFLICT'));
+  assert.equal((await owner.audit()).length,6);
 });

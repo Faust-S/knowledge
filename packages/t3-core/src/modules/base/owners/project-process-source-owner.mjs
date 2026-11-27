@@ -429,6 +429,19 @@ class ProjectProcessSourceOwnerCore {
     );
   }
 
+  async historyThrough(kind,workspaceId,objectId,recordId,revision) {
+    const binding=projectProcessSourceBinding(kind);
+    const rows=await this.#gateway.historyThrough(binding.family,
+      projectProcessSourceObjectId(kind,workspaceId,objectId),recordId,revision);
+    // Keep this owner-scoped address operation within its original family
+    // and Workspace identity; it is not a generic record lookup.
+    if(rows.some(row=>row.ownerId!==OWNER_ID||row.headKind!=='source'||row.refs?.workspaceId!==workspaceId)){
+      throw new ProjectProcessSourceOwnerError('Historical record is outside original source scope',
+        'PROJECT_PROCESS_SOURCE_HEAD_MISMATCH');
+    }
+    return rows;
+  }
+
   async audit() {
     return this.#gateway.audit();
   }
@@ -590,6 +603,9 @@ export class ProjectProcessSourceOwner {
   async release(kind,input) { return this.#core.release(kind,input); }
   async load(kind,workspaceId,objectId) { return this.#core.load(kind,workspaceId,objectId); }
   async history(kind,workspaceId,objectId) { return this.#core.history(kind,workspaceId,objectId); }
+  async historyThrough(kind,workspaceId,objectId,recordId,revision) {
+    return this.#core.historyThrough(kind,workspaceId,objectId,recordId,revision);
+  }
   async audit() { return this.#core.audit(); }
 }
 

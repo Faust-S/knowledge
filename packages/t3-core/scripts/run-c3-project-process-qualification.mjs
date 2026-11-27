@@ -56,7 +56,7 @@ function runCurrentNativeSourceTests(){
     if(rows.length!==1)throw new Error('C3_NATIVE_TEST_SUMMARY_INVALID:'+name);
     counts[name]=Number(rows[0][1]);
   }
-  if(counts.tests<130||counts.pass!==counts.tests||counts.fail||counts.cancelled||counts.skipped||counts.todo){
+  if(counts.tests<141||counts.pass!==counts.tests||counts.fail||counts.cancelled||counts.skipped||counts.todo){
     throw new Error('C3_NATIVE_SOURCE_TEST_COUNTS_INVALID');
   }
   return Object.freeze(counts);

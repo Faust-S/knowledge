@@ -112,12 +112,27 @@ function historyRef(kind,workspaceId,id,value){
 }
 
 async function historicalRevision(owner,kind,workspaceId,id,ref){
-  const history=await owner.history(kind,workspaceId,id);
+  const addressed=typeof owner.historyThrough==='function';
+  let history;
+  try{
+    history=addressed?await owner.historyThrough(kind,workspaceId,id,ref.recordId,ref.revision)
+      :await owner.history(kind,workspaceId,id);
+  }catch(error){
+    if(error?.code==='CANONICAL_HISTORY_PREFIX_INCOMPLETE'){
+      fail('METHOD_HISTORY_INCOMPLETE','Exact selected source history prefix is unavailable');
+    }
+    if(error?.code==='CANONICAL_HISTORY_PREFIX_INVALID'||error?.code==='PROJECT_PROCESS_SOURCE_HEAD_MISMATCH'){
+      fail('METHOD_HISTORY_REF_INVALID','Original historical source identity mismatch');
+    }
+    throw error;
+  }
   if(!Array.isArray(history)) fail('METHOD_HISTORY_INCOMPLETE','Original history is unavailable');
   // Require a contiguous prefix through the selected immutable revision.
   // Later tombstones or revisions must not substitute for the selection.
   const prefix=history.filter(row=>row?.revision<=ref.revision);
-  if(prefix.length!==ref.revision) fail('METHOD_HISTORY_INCOMPLETE','Exact source history prefix is incomplete');
+  if(prefix.length!==ref.revision||(addressed&&history.length!==prefix.length)){
+    fail('METHOD_HISTORY_INCOMPLETE','Exact source history prefix is incomplete');
+  }
   for(const row of prefix){
     const command=row.revision===1?'create':row.operation==='tombstone'?'release':'revise';
     if(row.schema!=='IWXA_T2_CANONICAL_RECORD_V1' || row.family!==ref.family || row.objectId!==ref.objectId
@@ -142,7 +157,9 @@ async function historicalRevision(owner,kind,workspaceId,id,ref){
  * Current permissions and suitability of materials must be checked separately.
  */
 export async function readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected}){
-  if(!owner || typeof owner.history!=='function') fail('METHOD_HISTORY_INCOMPLETE','Original source owner history port required');
+  if(!owner || (typeof owner.historyThrough!=='function'&&typeof owner.history!=='function')){
+    fail('METHOD_HISTORY_INCOMPLETE','Original source owner history port required');
+  }
   const projectRef=historyRef('project',workspaceId,projectId,expected?.projectRef);
   if(!Array.isArray(expected?.workRefs) || !expected.workRefs.length || expected.workRefs.length>64){
     fail('METHOD_HISTORY_REF_INVALID','Complete Work revision references required');

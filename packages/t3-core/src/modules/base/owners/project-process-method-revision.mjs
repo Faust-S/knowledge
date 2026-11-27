@@ -104,7 +104,8 @@ function planRevision({workspaceId,projectId,current,after}){
     projectOperation:Object.freeze({operation:projectChanged?'REVISE':'KEEP',baseRef:current.projectRef,
       input:projectChanged?projectInput:null}),
     workOperations,removed,counts,unassignedMaterialChanges,
-    requiresReleaseReview:removed.length>0,atomicSnapshot:false,writeAuthorized:false,
+    requiresReleaseReview:removed.length>0,requiresExclusionDecision:removed.length>0,
+    atomicSnapshot:false,writeAuthorized:false,
     executionAuthority:false,resultReuseProven:false,
   });
 }
@@ -173,13 +174,43 @@ function bindTargetRefs(workspaceId,entries){
   })}));
 }
 
-/** Derive the exact whole-operation identity from the original selected
- * history, the normalized target, caller operation identity and time.
+// The ordinary save path validates current original heads only; it must
+// not read every historical revision of every Work to confirm a live basis.
+// Explicit replay or partial/mixed live state can use the exact old prefix.
+const HISTORICAL_FALLBACK_CODES=new Set(['METHOD_SOURCE_INCOMPLETE','METHOD_SOURCE_REFERENCE_CHANGED',
+  'METHOD_SOURCE_INCOMPATIBLE','INVALID_PROJECT_PROCESS_METHODOLOGY','METHOD_REVISION_BASE_CHANGED']);
+async function readAttemptBasis(owner,workspaceId,projectId,basis){
+  try{
+    const current=await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId});
+    assertExpectedRevisionSet(basis,current);
+    return {current,basisSource:'CURRENT_HEADS'};
+  }catch(error){
+    // A transport/owner read failure is not an invitation to bypass it.
+    if(!HISTORICAL_FALLBACK_CODES.has(error?.code))throw error;
+  }
+  const current=await readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected:basis});
+  return {current,basisSource:'HISTORICAL_REVISIONS'};
+}
+function exactExclusionSelection(value,removed){
+  const required=removed.map(item=>item.workId).sort();
+  if(value===undefined&&required.length){
+    fail('METHOD_REVISION_RELEASE_REVIEW_REQUIRED','Removed stages need explicit exclusion review');
+  }
+  const actual=value??[];
+  if(actual.length!==required.length||new Set(actual).size!==actual.length||
+      actual.some(id=>typeof id!=='string')||actual.slice().sort().some((id,index)=>id!==required[index])){
+    fail('METHOD_REVISION_EXCLUSION_DECISION_INVALID','Explicit exclusion must match every removed Work, and no other Work');
+  }
+  return required;
+}
+
+/** Derive the exact whole-operation identity from original selected
+ * revisions, the normalized target, caller operation identity and time.
  * Even a change to a not-yet-written stage changes every target record ID.
  * No second journal or extra record is stored. The caller must retain the
  * original request to resume; an arbitrary partial head is not an intent.
  */
-async function prepareAttempt({owner,workspaceId,projectId,expected,draft,objects,operationId,knowledgeAt}={}){
+async function prepareAttempt({owner,workspaceId,projectId,expected,draft,objects,operationId,knowledgeAt,excludeWorkIds}={}){
   if(!owner||['load','history'].some(name=>typeof owner[name]!=='function')){
     fail('METHOD_SOURCE_OWNER_REQUIRED','Original Project/Process read and history ports required');
   }
@@ -188,6 +219,10 @@ async function prepareAttempt({owner,workspaceId,projectId,expected,draft,object
     fail('METHOD_REVISION_OPERATION_ID_INVALID','Stable explicit operation identity required');
   }
   const basis=selectedBasis(expected);
+  if(excludeWorkIds!==undefined&&!Array.isArray(excludeWorkIds)){
+    fail('METHOD_REVISION_EXCLUSION_DECISION_INVALID','Explicit exclusion must be a list of original Work IDs');
+  }
+  const exclusions=excludeWorkIds===undefined?undefined:[...excludeWorkIds];
   const instant=knowledgeAt instanceof CanonicalInstant?knowledgeAt:CanonicalInstant.parse(knowledgeAt);
   // Capture normalized target and current material admission synchronously,
   // before any original-owner read. Never copy material contents into intent.
@@ -196,15 +231,17 @@ async function prepareAttempt({owner,workspaceId,projectId,expected,draft,object
     works:after.workInputs.map(normalizeWork)});
   const materials=inspectWorkspaceMethodMaterials({workspaceId,objects,materials:target.materials});
   const materialReviewRequired=materials.some(item=>item.state!=='CURRENT');
-  const current=await readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected:basis});
+  const {current,basisSource}=await readAttemptBasis(owner,workspaceId,projectId,basis);
   const plan=planRevision({workspaceId,projectId,current,after});
-  if(plan.requiresReleaseReview){
-    fail('METHOD_REVISION_RELEASE_REVIEW_REQUIRED','Removed stages need an explicit original owner release decision');
-  }
+  // Exclusion is not release: preserve the removed Work's exact live head
+  // and history for other original consumers. Only Project membership changes.
+  // Actual tombstone/release remains a separate original owner decision.
+  const approvedExclusions=exactExclusionSelection(exclusions,plan.removed);
   const digest=createHash('sha256').update(canonicalStringify({
     schema:'IWXA_T2_WORKSPACE_METHOD_REVISION_ATTEMPT_V1',
     workspaceId,projectId,operationId,knowledgeAt:instant,
     basis:plan.baseRevisionSet,target,
+    ...(approvedExclusions.length?{excludeWorkIds:approvedExclusions}:{}),
   })).digest('hex');
   const projectInput=plan.projectOperation.input??Object.freeze({...after.projectInput,methodology:Object.freeze({
     ...after.projectInput.methodology,...(current.originalCreation?{creation:current.originalCreation}:{}),
@@ -216,7 +253,14 @@ async function prepareAttempt({owner,workspaceId,projectId,expected,draft,object
     ...plan.workOperations.map((op,index)=>buildEntry({kind:'work',id:op.workId,input:works.get(op.workId),
       operation:op.operation,baseRef:op.baseRef,workspaceId,digest,index:'work-'+index})),
   ]);
-  return {owner,workspaceId,projectId,instant,digest,target,plan,entries,materials,materialReviewRequired};
+  const excluded=plan.removed.map(item=>Object.freeze({
+    kind:'work',id:item.workId,operation:'EXCLUDE_KEEP',baseRef:item.baseRef,ref:item.baseRef,
+    // Deliberately no payload write and no current dependency-closure claim.
+    // This source remains available under its own exact historical binding.
+    input:null,payload:null,refs:null,
+  }));
+  return {owner,workspaceId,projectId,instant,digest,target,plan,basisSource,
+    entries:[...entries,...excluded],materials,materialReviewRequired};
 }
 function exactTarget(row,entry,instant){
   return rowMatchesRef(row,entry.ref)&&equal(row.value,entry.payload)&&equal(row.refs,entry.refs)
@@ -225,6 +269,9 @@ function exactTarget(row,entry,instant){
 async function observeEntry(attempt,entry){
   const {owner,workspaceId,instant}=attempt;
   const row=await owner.load(entry.kind,workspaceId,entry.id);
+  if(entry.operation==='EXCLUDE_KEEP'){
+    return rowMatchesRef(row,entry.baseRef)?'EXCLUDED_RETAINED':'CONFLICT';
+  }
   if(exactTarget(row,entry,instant))return entry.operation==='KEEP'?'KEPT':'CONFIRMED';
   if(entry.operation==='KEEP')return 'CONFLICT';
   if(entry.operation==='REVISE')return rowMatchesRef(row,entry.baseRef)?'PENDING':'CONFLICT';
@@ -258,10 +305,11 @@ async function observeAttempt(attempt){
     baseRef:entry.baseRef,targetRef:entry.ref,state:states.get(entry.ref.recordId),
   })));
   const count=state=>records.filter(row=>row.state===state).length;
-  const confirmedCount=count('CONFIRMED'),pendingCount=count('PENDING'),conflictCount=count('CONFLICT'),keptCount=count('KEPT');
+  const confirmedCount=count('CONFIRMED'),pendingCount=count('PENDING'),conflictCount=count('CONFLICT'),
+    keptCount=count('KEPT'),excludedCount=count('EXCLUDED_RETAINED');
   return Object.freeze({state:conflictCount?'CONFLICT':pendingCount?(confirmedCount?'PARTIAL':'NOT_STARTED')
-      :confirmedCount?'COMPLETE':'UNCHANGED',attemptDigest:attempt.digest,
-    records,confirmedCount,pendingCount,conflictCount,keptCount,
+      :confirmedCount?'COMPLETE':'UNCHANGED',attemptDigest:attempt.digest,basisSource:attempt.basisSource,
+    records,confirmedCount,pendingCount,conflictCount,keptCount,excludedCount,
     materials:attempt.materials,materialReviewRequired:attempt.materialReviewRequired,
     resumeCandidate:pendingCount>0&&conflictCount===0&&!attempt.materialReviewRequired,
     atomicSnapshot:false,writeAuthorized:false,executionAuthority:false,resultReuseProven:false});
@@ -298,8 +346,9 @@ export async function applyWorkspaceMethodRevision(input){
   const receipts=[];
   for(const entry of entries){
     const state=await observeEntry(attempt,entry);
-    if(state==='KEPT'||state==='CONFIRMED'){
-      receipts.push(Object.freeze({recordId:entry.ref.recordId,state:state==='KEPT'?'KEPT':'ALREADY_PRESENT'}));
+    if(state==='KEPT'||state==='CONFIRMED'||state==='EXCLUDED_RETAINED'){
+      receipts.push(Object.freeze({recordId:entry.ref.recordId,
+        state:state==='CONFIRMED'?'ALREADY_PRESENT':state}));
       continue;
     }
     if(state!=='PENDING')fail('METHOD_REVISION_CONFLICT','Source changed before the next write');
@@ -328,14 +377,22 @@ export async function applyWorkspaceMethodRevision(input){
   }
   const result=await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId});
   const actual=[result.projectRef,...result.workRefs];
-  const targets=new Map(entries.map(entry=>[entry.ref.objectId,entry.ref]));
-  if(actual.length!==entries.length||actual.some(ref=>!sameRef(ref,targets.get(ref.objectId)))
+  const included=entries.filter(entry=>entry.operation!=='EXCLUDE_KEEP');
+  const targets=new Map(included.map(entry=>[entry.ref.objectId,entry.ref]));
+  if(actual.length!==included.length||actual.some(ref=>!sameRef(ref,targets.get(ref.objectId)))
       ||!equal(result.draft,attempt.target)){
     fail('METHOD_REVISION_CONFLICT','Completed source set does not match the exact revision attempt');
   }
+  // Excluded Works are not silently deleted or rebound to the new Project.
+  for(const entry of entries.filter(item=>item.operation==='EXCLUDE_KEEP')){
+    if(await observeEntry(attempt,entry)!=='EXCLUDED_RETAINED'){
+      fail('METHOD_REVISION_CONFLICT','Excluded source changed during revision; review its original history');
+    }
+  }
   const count=state=>receipts.filter(receipt=>receipt.state===state).length;
-  return Object.freeze({method:result,attemptDigest:attempt.digest,receipts:Object.freeze(receipts),
-    keptCount:count('KEPT'),createdCount:count('CREATED'),revisedCount:count('REVISED'),
+  return Object.freeze({method:result,attemptDigest:attempt.digest,basisSource:attempt.basisSource,receipts:Object.freeze(receipts),
+    keptCount:count('KEPT'),excludedCount:count('EXCLUDED_RETAINED'),
+    createdCount:count('CREATED'),revisedCount:count('REVISED'),
     alreadyPresentCount:count('ALREADY_PRESENT'),recoveredAckCount:count('ACK_RECOVERED'),
     atomicBatch:false,newAuthorityGranted:false,executionAuthority:false,resultReuseProven:false});
 }
