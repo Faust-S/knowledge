@@ -106,7 +106,10 @@ function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=(
     purpose:'work',workspace_id:ws,organization_id:subjectKind==='CORP'?'org:fixture':null,scope_revision:1};
   const sha=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
   const access={currentContext:()=>context,actionFor:()=> 'object.read',operationDigest:sha,
-    authorize:request=>({schema:'IWXA_T3_AUTHORIZATION_DECISION/1',allowed,outcome:allowed?'PERMITTED':'DENIED',
+    authorize:request=>({schema:subjectKind==='CORP'?'IWXA_T3_ORGANIZATION_OPERATION_DECISION/1':'IWXA_T3_AUTHORIZATION_DECISION/1',allowed,outcome:allowed?'PERMITTED':'DENIED',
+      ...(subjectKind==='CORP'?{organizationId:context.organization_id,workspaceId:context.workspace_id,grantId:context.grant_id,
+        operationDigest:request.operationDigest,evidenceDigest:sha('corporate-evidence'),productionActivation:false,
+        doesNotTransferData:true,doesNotAcceptCorporateCopy:true}:{}),
       evidenceOnly:true,requestDigest:sha(request),policyDigest:sha('policy'),statusSequence:1,
       validUntil:new Date(Date.now()+60000).toISOString(),statusObservedAt:new Date().toISOString(),
       evaluatedAt:new Date().toISOString(),authorityPath:[{grantId:context.grant_id}]}),
@@ -877,7 +880,6 @@ test('corporate signed carrier owner readback must match current exact original 
   stored.workflowReference.workflowInput={...p.workflowInput,materialEvidenceDigest:'d'.repeat(64)};
   await assert.rejects(h.reader.inspectCorporateTaskReference(request),code('T3_METHOD_CORPORATE_TASK_REFERENCE_MISMATCH'));
   stored.workflowReference.workflowInput=p.workflowInput;
-  hook=()=>{if(++reads%2===0)stored.packageSha256='e'.repeat(64);};
   // Force an observed revision/carrier change on the second observation.
   let n=0;hook=()=>{if(++n===2)stored.packageSha256='f'.repeat(64);};
   await assert.rejects(h.reader.inspectCorporateTaskReference(request),code('T3_METHOD_CORPORATE_TASK_REVISION_CHANGED'));
