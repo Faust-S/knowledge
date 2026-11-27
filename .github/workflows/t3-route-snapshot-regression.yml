@@ -38,15 +38,23 @@ jobs:
           for name in src/workspace-host/router/use-host-route-match.ts src/workspace-host/rendering/ModuleRouteOutlet.tsx; do
             git show "$ORIGINAL:packages/t3-core/$name" > "$name"
           done
+          # Use the exact reporter path declared by the original config.
+          # Remove the positive-control report so it cannot be mistaken for
+          # negative-control evidence, and expose diagnostics if no new report.
+          report=artifacts/t3-product-test-report.json
+          rm -f "$report"
           set +e
-          node node_modules/vitest/vitest.mjs run --config vitest.t3-product.config.mjs --project t3-product-dom --reporter=json --outputFile="$RUNNER_TEMP/t3-route-negative.json" tests/host-route-snapshot.dom.test.tsx > "$RUNNER_TEMP/t3-route-negative.log" 2>&1
+          node node_modules/vitest/vitest.mjs run --config vitest.t3-product.config.mjs --project t3-product-dom tests/host-route-snapshot.dom.test.tsx > "$RUNNER_TEMP/t3-route-negative.log" 2>&1
           code=$?
           set -e
-          test "$code" -ne 0
-          node --input-type=module - "$RUNNER_TEMP/t3-route-negative.json" <<'NODE'
+          cat "$RUNNER_TEMP/t3-route-negative.log"
+          test "$code" -eq 1
+          test -s "$report"
+          node --input-type=module - "$report" <<'NODE'
           import fs from 'node:fs';
           import assert from 'node:assert/strict';
           const report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          assert.equal(report.success, false);
           const tests = report.testResults.flatMap(row => row.assertionResults);
           const expected = [
             "never commits a false unavailable route when the runtime first becomes ready",
