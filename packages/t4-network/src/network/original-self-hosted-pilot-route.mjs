@@ -5,13 +5,37 @@ import {request as httpsRequest} from 'node:https';
 import {checkServerIdentity} from 'node:tls';
 import {createHash} from 'node:crypto';
 import {Readable} from 'node:stream';
-import {validateT4NetworkTopology,planT4NetworkRoute} from './network-topology.mjs';
+import {createT4NetworkTopology,validateT4NetworkTopology,planT4NetworkRoute} from './network-topology.mjs';
 const HEX=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const fail=code=>Object.assign(Error(code),{code});
 const check=(ok,code)=>{if(!ok)throw fail(code);};
 const CAPS=Object.freeze(['network.frame.read','network.frame.publish','network.frame.index.read','network.frame.index.publish']);
 const certDigest=cert=>Buffer.isBuffer(cert?.raw)?createHash('sha256').update(cert.raw).digest('hex'):null;
+const sha=value=>createHash('sha256').update(value).digest('hex');
+function endpoint(value){
+  let url;try{url=new URL(value);}catch{throw fail('T4_PILOT_NATIVE_ROUTE_SELECTION_REQUIRED');}
+  check(url.protocol==='https:'&&!url.username&&!url.password&&!url.search&&!url.hash&&
+    url.pathname.endsWith('/'),'T4_PILOT_NATIVE_ROUTE_SELECTION_REQUIRED');
+  return url.href;
+}
+function pilotTopology({endpointUrl,workspaceId,objectFamily,serverNodeRef,localNodeRef,originalWriteOwnerRef,authorityRoot}){
+  const routeHash=sha(endpointUrl),localLocation='location:device:'+sha(localNodeRef),
+    location='location:server:'+routeHash,profileRef='profile:server:'+routeHash;
+  return createT4NetworkTopology({topologyRef:'topology:pilot:'+sha(JSON.stringify([workspaceId,localNodeRef,endpointUrl])),
+    revision:1,localNodeRef,
+    nodes:[{nodeRef:localNodeRef,kind:'LOCAL_DEVICE',subjectRef:authorityRoot,operatorRef:authorityRoot,
+      locationRef:localLocation,availability:'AVAILABLE',advertisedCapabilities:[]},
+      {nodeRef:serverNodeRef,kind:'ORGANIZATION_SERVER',subjectRef:authorityRoot,operatorRef:authorityRoot,
+        locationRef:location,profileRef,availability:'AVAILABLE',advertisedCapabilities:CAPS}],
+    profiles:[{profileRef,mode:'SELF_HOSTED',operatorRef:authorityRoot,locationRef:location,endpointUrl}],
+    connections:[{connectionRef:'connection:pilot:'+routeHash,sourceNodeRef:localNodeRef,targetNodeRef:serverNodeRef,
+      profileRef,state:'READY',capabilities:CAPS,objectFamilies:[objectFamily]}],
+    placements:[{policy:{workspaceId,objectFamily,authorityRoot,writeOwnerRef:originalWriteOwnerRef,
+      primaryPlacement:'LOCAL_PRIMARY_HOSTED_REPLICA',allowedLocations:[localLocation,location],
+      retentionClass:'original-owner',recoveryClass:'original-owner',universalCloudMaster:false,subjectActionAuthority:false},
+      primaryNodeRef:localNodeRef,replicaNodeRefs:[serverNodeRef]}]});
+}
 
 // Do not change global process trust or follow redirects. Node's existing
 // HTTPS client validates CA, validity and host before any HTTP credentials
@@ -69,11 +93,11 @@ function pinnedFetch({base,ca,certificateSha256,assertCurrent}){
 }
 
 export function createT4OriginalSelfHostedPilotRoute({
-  workspaceId,objectFamily,serverNodeRef,localNodeRef,originalWriteOwnerRef,authorityRoot,
+  workspaceId,objectFamily='iwxa.t4.network.frame',serverNodeRef=null,localNodeRef,originalWriteOwnerRef,authorityRoot,
   getMode,isOriginalHostActive,readOriginalSelection,readOriginalAuthorization,
 }={}){
-  check([workspaceId,objectFamily,serverNodeRef,localNodeRef,originalWriteOwnerRef,authorityRoot].every(ID)&&
-    localNodeRef!==serverNodeRef&&[getMode,isOriginalHostActive,readOriginalSelection,readOriginalAuthorization].every(f=>typeof f==='function'),
+  check([workspaceId,objectFamily,localNodeRef,originalWriteOwnerRef,authorityRoot].every(ID)&&
+    (serverNodeRef===null||ID(serverNodeRef))&&localNodeRef!==serverNodeRef&&[getMode,isOriginalHostActive,readOriginalSelection,readOriginalAuthorization].every(f=>typeof f==='function'),
     'T4_PILOT_NATIVE_ROUTE_REQUIRED');
   const active=()=>{if(getMode()!=='T4_NETWORK'||isOriginalHostActive()!==true)throw fail('T4_PILOT_NATIVE_ROUTE_INACTIVE');};
   function selection(){
@@ -81,7 +105,16 @@ export function createT4OriginalSelfHostedPilotRoute({
     const s=readOriginalSelection();
     check(s&&s.confirmed===true&&HEX(s.certificateSha256)&&typeof s.ca==='string'&&s.ca.length>0&&s.ca.length<=256*1024,
       'T4_PILOT_NATIVE_ROUTE_SELECTION_REQUIRED');
-    const topology=validateT4NetworkTopology(s.topology);
+    // Installed pilot settings may select just the existing HTTPS endpoint.
+    // The original topology constructor derives its two nodes and placement;
+    // no UI topology editor or second routing configuration is necessary.
+    if(s.topology===undefined){
+      const endpointUrl=endpoint(s.endpointUrl),derived='server:pilot:'+sha(endpointUrl);
+      if(serverNodeRef===null)serverNodeRef=derived;
+      check(serverNodeRef===derived&&localNodeRef!==derived,'T4_PILOT_NATIVE_ROUTE_SCOPE_DENIED');
+    }else check(serverNodeRef!==null&&s.endpointUrl===undefined,'T4_PILOT_NATIVE_ROUTE_SCOPE_DENIED');
+    const topology=s.topology===undefined?pilotTopology({endpointUrl:endpoint(s.endpointUrl),workspaceId,
+      objectFamily,serverNodeRef,localNodeRef,originalWriteOwnerRef,authorityRoot}):validateT4NetworkTopology(s.topology);
     const route=CAPS.map(capability=>planT4NetworkRoute({topology,workspaceId,objectFamily,targetNodeRef:serverNodeRef,capability}));
     const place=topology.placements.find(x=>x.policy.workspaceId===workspaceId&&x.policy.objectFamily===objectFamily);
     check(topology.localNodeRef===localNodeRef&&place?.policy.authorityRoot===authorityRoot&&
