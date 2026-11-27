@@ -182,6 +182,20 @@ export function normalizeT4OriginalFreshWorkspaceBaseline(selection){
     fail('BASELINE_FRESH_ORIGINAL_SELECTION_REQUIRED');
   return Object.freeze({confirmed:true,eventId:selection.eventId,eventDigest:selection.eventDigest});
 }
+function originalCreationAnchor(event,workspaceId){
+  if(!event||event.workspace_id!==workspaceId||event.event_type!=='workspace.created'||
+    event.object_id!=null||event.revision!=null||typeof event.payload?.profile!=='string'||
+    !Array.isArray(event.payload.capabilities)||event.payload.read_only!==false)
+    fail('BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH');
+  return Object.freeze({eventId:event.event_id,eventDigest:digestT4OriginalEventRecord(event,workspaceId)});
+}
+// Native preparation can derive the configuration candidate from the
+// original Admin business history. A candidate is explicitly NOT consent.
+export function readT4OriginalFreshWorkspaceBaselineSelection({workspaceId,originalEvents}={}){
+  if(!ID(workspaceId)||!Array.isArray(originalEvents)||originalEvents.length!==1)
+    fail('BASELINE_FRESH_WORKSPACE_NOT_EMPTY');
+  return Object.freeze({confirmed:false,...originalCreationAnchor(originalEvents[0],workspaceId)});
+}
 export function createT4OriginalFreshWorkspaceBaseline({selection,role,workspaceId,originalWriteOwnerRef,
   originalKernel,getMode,authorizeOriginalRead,requireCurrent}={}){
   const selected=normalizeT4OriginalFreshWorkspaceBaseline(selection);
@@ -207,10 +221,8 @@ export function createT4OriginalFreshWorkspaceBaseline({selection,role,workspace
       authorizeOriginalRead:p=>guard(p.operation),
       readOriginalEvents:async()=>{events=clone(await originalKernel.listEventsSince(workspaceId));return events;}});
     const anchor=events.find(e=>e.event_id===projected.nextCursor?.lastEventId);
-    if(!anchor||anchor.event_id!==selected.eventId||anchor.event_type!=='workspace.created'||
-      anchor.object_id!=null||anchor.revision!=null||typeof anchor.payload?.profile!=='string'||
-      !Array.isArray(anchor.payload.capabilities)||anchor.payload.read_only!==false||
-      digestT4OriginalEventRecord(anchor,workspaceId)!==selected.eventDigest)
+    const actual=originalCreationAnchor(anchor,workspaceId);
+    if(actual.eventId!==selected.eventId||actual.eventDigest!==selected.eventDigest)
       fail('BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH');
     await current();
     return {count:events.length,input:{originalBaselineRef:selected.eventId,

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {createT4OriginalFreshWorkspaceBaseline,createT4OriginalNetworkBaselineAdmissionPort} from '../src/network/original-network-baseline-admission.mjs';
+import {createT4OriginalFreshWorkspaceBaseline,createT4OriginalNetworkBaselineAdmissionPort,readT4OriginalFreshWorkspaceBaselineSelection} from '../src/network/original-network-baseline-admission.mjs';
 
 import {digestT4OriginalEventRecord} from '../src/network/original-event-window.mjs';
 
@@ -189,4 +189,15 @@ test('explicit original read permission and native lifetime remain required for 
   const g=freshFixture(),p=g.create();g.disable();
   await assert.rejects(p.readOriginalBaselineAdmissionInput(),{code:'BASELINE_ADMISSION_NETWORK_MODE_OFF'});
   const h=freshFixture(),q=h.create();h.close();await assert.rejects(q.readOriginalBaselineAdmissionInput(),/HOST_CLOSED/);
+});
+
+
+test('preparation returns a candidate from original creation history, never confirmation',()=>{
+  const f=freshFixture();
+  assert.deepEqual(readT4OriginalFreshWorkspaceBaselineSelection({workspaceId:identity.sourceWorkspaceId,originalEvents:f.events}),
+    {...f.selection,confirmed:false});
+  assert.throws(()=>readT4OriginalFreshWorkspaceBaselineSelection({workspaceId:identity.sourceWorkspaceId,originalEvents:[]}),
+    {code:'BASELINE_FRESH_WORKSPACE_NOT_EMPTY'});
+  assert.throws(()=>readT4OriginalFreshWorkspaceBaselineSelection({workspaceId:identity.sourceWorkspaceId,
+    originalEvents:[{...f.creation,event_type:'business.created'}]}),{code:'BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH'});
 });
