@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { applyWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
-import { inspectWorkspaceMethodAgentPredecessorResults,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
+import { inspectWorkspaceMethodAgentPredecessorResults,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation,buildWorkspaceMethodPersonalTaskDraft } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
 import { createTrustedWorkspaceMethodStageReader } from '../src/t3/workspace-method-stage-reader.mjs';
 import { createTrustedNativeContinuation } from '../src/t3/native-result-continuation.mjs';
 
@@ -95,7 +95,7 @@ test('accepted owner or exact material changed during observation cannot confirm
       const r=await f.readObject(w,id);return changed&&id==='source'?{object:{...r.object,revision:2}}:r;
     }})),code('METHOD_STAGE_RESULT_BASIS_CHANGED'));
 });
-function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=()=>{}}={}){
+function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=()=>{},personalComposer=null,confirmPersonalDraft=null}={}){
   const workspace={workspace_id:ws,deleted_at:null};
   let chosen=workspace,active=true,allowed=true;const listeners=new Set();
   const currentWorkspace={get:()=>chosen,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);}};
@@ -127,7 +127,7 @@ function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=(
     confirmHuman:async()=>{confirmations++;return true;},isHostActive:()=>active}):null;
   const reader=createTrustedWorkspaceMethodStageReader({kernel,accessForRead:async()=>access,currentWorkspace,sourceOwner:f.owner,
     originalAgentResultOwner:withAgent?{readAccepted:async ref=>{if(hook)await hook();return f.readAccepted(ref);}}:null,
-    nativeContinuation,nativeRecipientId:withNative?recipientId:null,isHostActive:()=>active});
+    nativeContinuation,nativeRecipientId:withNative?recipientId:null,personalComposer,confirmPersonalDraft,isHostActive:()=>active});
   const changeSelection=()=>{chosen={...workspace};for(const notify of listeners)notify();};
   return {reader,context,deny:()=>{allowed=false;},changeSelection,dispose:()=>{active=false;},hook:fn=>{hook=fn;},
     nativeHook:fn=>{nativeHook=fn;},nativeContinuation,inspections:()=>inspections,receives:()=>receives,confirmations:()=>confirmations};
@@ -374,4 +374,111 @@ test('trusted Host combined handoff obtains original Asset permissions and ignor
   assert.notEqual(r.materialEvidence.materialEvidenceDigest,'e'.repeat(64));assert.equal(calls.length,4);
   assert.equal(h.receives(),0);
   await assert.rejects(trusted(f).reader.previewHandoff({...hostInput(f),includeMaterialEvidence:true}),code('T3_METHOD_STAGE_ASSET_READ_REQUIRED'));
+});
+
+
+function personalTextPort(){
+  const p=contentPort(),bytes=new TextEncoder().encode('actual text');
+  const asset={...p.asset,mime:'text/plain',size:bytes.length};
+  return {...p,asset,bytes,listAssets:async q=>q.object_id==='source'?[asset]:[],
+    getAsset:async()=>({asset,bytes})};
+}
+const personalArgs=(f,p,extra={})=>contentArgs(f,p,{stepId:'analyse',resultSelections:[],subjectKind:'PERSONAL',...extra});
+test('root personal Agent draft materializes exact original text and canonical input metadata, never a Task',async()=>{
+  const f=await setup(),p=personalTextPort(),input=personalArgs(f,p);
+  const preview=await previewWorkspaceMethodStageHandoff(input);
+  assert.ok(preview.requiredOriginalOwnerChecks.includes('ORIGINAL_PERSONAL_TASK_AND_CONTEXT_BINDING'));
+  assert.ok(!preview.requiredOriginalOwnerChecks.includes('ORIGINAL_SIGNED_TASK_BINDING'));
+  const r=await buildWorkspaceMethodPersonalTaskDraft({...input,expectedCandidateDigest:preview.candidateDigest});
+  assert.equal(r.candidateDigest,preview.candidateDigest);assert.equal(r.draft.text,'Review original result\n\nAnalyse original');
+  assert.deepEqual(r.draft.attachments.map(a=>a.name),['material-001.json','attachment-001.txt','workflow-inputs.json']);
+  assert.equal(r.draft.attachments[1].text,'actual text');
+  assert.equal(JSON.parse(r.draft.attachments[0].text).data.private,'source body');
+  const manifest=JSON.parse(r.draft.attachments[2].text);
+  assert.equal(manifest.candidateDigest,preview.candidateDigest);
+  assert.equal(manifest.materialEvidence.materials[0].visibleAssets[0].sha256,createHash('sha256').update(p.bytes).digest('hex'));
+  assert.equal(manifest.allAssetsProven,false);
+  assert.equal(JSON.stringify(preview).includes('actual text'),false);
+  assert.equal((await f.owner.audit()).length,3);
+});
+test('personal draft does not silently truncate, substitute or omit unsupported content',async()=>{
+  const f=await setup(),p=personalTextPort(),input=personalArgs(f,p);
+  const preview=await previewWorkspaceMethodStageHandoff(input);
+  await assert.rejects(buildWorkspaceMethodPersonalTaskDraft({...input,expectedCandidateDigest:'e'.repeat(64)}),code('METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED'));
+  await assert.rejects(buildWorkspaceMethodPersonalTaskDraft({...contentArgs(f,p),expectedCandidateDigest:preview.candidateDigest}),code('METHOD_PERSONAL_DRAFT_ROOT_AGENT_REQUIRED'));
+  const unsupported=contentPort(),u=personalArgs(f,unsupported),up=await previewWorkspaceMethodStageHandoff(u);
+  await assert.rejects(buildWorkspaceMethodPersonalTaskDraft({...u,expectedCandidateDigest:up.candidateDigest}),code('METHOD_PERSONAL_DRAFT_ATTACHMENT_UNSUPPORTED'));
+  const bytes=new Uint8Array(48000).fill(65),asset={...p.asset,size:bytes.length};
+  const big=personalArgs(f,{...p,listAssets:async()=>[asset],getAsset:async()=>({asset,bytes})});
+  const bp=await previewWorkspaceMethodStageHandoff(big);
+  await assert.rejects(buildWorkspaceMethodPersonalTaskDraft({...big,expectedCandidateDigest:bp.candidateDigest}),code('METHOD_PERSONAL_DRAFT_CONTENT_LIMIT'));
+});
+function composerFixture(){
+  const hash=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
+  let binding={subjectKind:'PERSONAL',sourceWorkspaceId:ws,agentWorkspaceId:'personal',contextEpoch:'native-1'};
+  let state={workspace_id:'personal',state:'EMPTY_OR_UNREADABLE',text:'',knowledge_sources:[],attachments:[],local_model:null,pending_submission:null};
+  let reads=0,writes=0,lose=false,hook=null;
+  const view=()=>({...structuredClone(state),draft_digest:hash(state)});
+  const port={currentBinding:async()=>({...binding}),composerDraft:async input=>{
+    if(!Object.hasOwn(input,'text')){reads++;return view();}
+    writes++;if(hook)await hook();
+    if(input.expected_draft_digest!==view().draft_digest)throw Error('composer_draft_changed');
+    state={...state,state:'SAVED',text:input.text,knowledge_sources:structuredClone(input.knowledge_sources),attachments:structuredClone(input.attachments)};
+    if(lose)throw Error('lost ACK');return view();
+  }};
+  return {port,view,reads:()=>reads,writes:()=>writes,lose:()=>{lose=true;},hook:fn=>{hook=fn;},
+    edit:patch=>{state={...state,...patch};},binding:patch=>{binding={...binding,...patch};}};
+}
+async function personalHost(f,composer,confirm=()=>true){
+  const h=trusted(f,{withAssets:true,withAgent:false,personalComposer:composer.port,confirmPersonalDraft:confirm});
+  const input={...hostInput(f),stepId:'analyse',resultSelections:[],includeMaterialEvidence:true};
+  const preview=await h.reader.previewHandoff(input);
+  return {h,input:{...input,expectedCandidateDigest:preview.candidateDigest},preview};
+}
+test('trusted personal Workflow saves actual editable draft through original composer CAS and recovers a lost ACK without resend',async()=>{
+  const f=await setup(),c=composerFixture();let confirms=0;c.lose();
+  const {h,input}=await personalHost(f,c,()=>{confirms++;return true;});
+  const first=await h.reader.createPersonalDraft(input);
+  assert.equal(first.state,'DRAFT_CONFIRMED');assert.equal(first.draftSaved,true);
+  assert.equal(first.taskCreated,false);assert.equal(first.executionPerformed,false);assert.equal(first.modelInvoked,false);
+  assert.equal(c.writes(),1);assert.equal(confirms,1);
+  assert.equal(c.view().attachments[1].text,'*');assert.equal(c.view().attachments.length,3);
+  assert.equal(JSON.stringify(first).includes('source body'),false);
+  const repeat=await h.reader.createPersonalDraft(input);assert.equal(repeat.state,'DRAFT_ALREADY_PRESENT');
+  const recovered=await h.reader.recoverPersonalDraft(input);assert.equal(recovered.state,'DRAFT_ALREADY_PRESENT');
+  assert.equal(c.writes(),1);assert.equal(confirms,1);
+});
+test('existing draft, pending submission and human cancellation never overwrite original Agent composer',async()=>{
+  const f=await setup(),c=composerFixture();let confirms=0;
+  const {h,input}=await personalHost(f,c,()=>{confirms++;return false;});
+  c.edit({state:'SAVED',text:'Existing user work'});
+  assert.equal((await h.reader.createPersonalDraft(input)).state,'DRAFT_OCCUPIED');
+  c.edit({text:'',pending_submission:{submission_id:'fixture'}});
+  assert.equal((await h.reader.createPersonalDraft(input)).state,'DRAFT_OCCUPIED');
+  c.edit({pending_submission:null});assert.equal((await h.reader.createPersonalDraft(input)).state,'USER_CANCELLED');
+  assert.equal(c.writes(),0);assert.equal(confirms,1);
+});
+test('personal draft checks original context and native area mapping across consent and refuses stale candidate digest',async()=>{
+  const f=await setup(),c=composerFixture();let h;
+  const x=await personalHost(f,c,()=>{c.binding({contextEpoch:'new'});return true;});h=x.h;
+  await assert.rejects(h.reader.createPersonalDraft(x.input),code('T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED'));
+  assert.equal(c.writes(),0);
+  c.binding({contextEpoch:'native-1'});await assert.rejects(h.reader.createPersonalDraft({...x.input,expectedCandidateDigest:'f'.repeat(64)}),code('METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED'));
+  h.context.kind='CORP';await assert.rejects(h.reader.createPersonalDraft(x.input),code('T3_METHOD_PERSONAL_DRAFT_PERSONAL_OWNER_REQUIRED'));
+  assert.equal(c.writes(),0);
+});
+test('native composer edit after consent is kept; original visible input change after consent aborts before save',async()=>{
+  const f=await setup(),c=composerFixture();const x=await personalHost(f,c,()=>{c.edit({state:'SAVED',text:'User just typed'});return true;});
+  assert.equal((await x.h.reader.createPersonalDraft(x.input)).state,'DRAFT_CHANGED');assert.equal(c.view().text,'User just typed');assert.equal(c.writes(),0);
+  const g=await setup(),d=composerFixture();let changed=false;
+  const ownerRead=g.readObject;g.readObject=async(...a)=>{const row=await ownerRead(...a);return changed&&a[1]==='source'?{object:{...row.object,data:{changed:true}}}:row;};
+  const y=await personalHost(g,d,()=>{changed=true;return true;});
+  await assert.rejects(y.h.reader.createPersonalDraft(y.input),code('METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED'));
+  assert.equal(d.writes(),0);
+});
+test('personal draft recovery of absent or different content only reads, never creates or resubmits a Task',async()=>{
+  const f=await setup(),c=composerFixture(),x=await personalHost(f,c,()=>{throw Error('unexpected consent');});
+  assert.equal((await x.h.reader.recoverPersonalDraft(x.input)).state,'OUTCOME_UNKNOWN');
+  c.edit({state:'SAVED',text:'Different'});assert.equal((await x.h.reader.recoverPersonalDraft(x.input)).state,'OUTCOME_UNKNOWN');
+  assert.equal(c.writes(),0);
 });

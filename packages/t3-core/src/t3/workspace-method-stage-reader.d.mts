@@ -46,16 +46,24 @@ export type WorkspaceMethodMaterialEvidence=Readonly<{
   atomicSnapshot:false;allAssetsProven:false;contentBindingProven:false;exactInputBindingProven:false;
   writeAuthorized:false;executionAuthority:false;resultReuseProven:false;dispatchAuthorized:false;
 }>;
+export type WorkspaceMethodPersonalDraftReceipt=Readonly<{
+  state:'DRAFT_CONFIRMED'|'DRAFT_ALREADY_PRESENT'|'DRAFT_OCCUPIED'|'DRAFT_CHANGED'|'USER_CANCELLED'|'OUTCOME_UNKNOWN';
+  candidateDigest:string;workspaceId:string;projectId:string;stepId:string;agentWorkspaceId:string;draftDigest:string|null;
+  draftSaved:boolean;taskCreated:false;executionPerformed:false;modelInvoked:false;allAssetsProven:false;exactInputBindingProven:false;
+}>;
 export interface WorkspaceMethodStageReader {
   overview(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodInputOverview>;
   inspect(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodStageInspection>;
   previewHandoff(input:WorkspaceMethodStageRequest&Readonly<{includeMaterialEvidence?:boolean}>):Promise<WorkspaceMethodHandoffPreview>;
   inspectMaterialEvidence?(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodMaterialEvidence>;
+  createPersonalDraft?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string}>):Promise<WorkspaceMethodPersonalDraftReceipt>;
+  recoverPersonalDraft?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string}>):Promise<WorkspaceMethodPersonalDraftReceipt>;
   previewContinuation(input:WorkspaceMethodStageRequest&Readonly<{predecessorStepId:string}>):Promise<WorkspaceMethodNativeInspection>;
   recoverContinuation(input:WorkspaceMethodStageRequest&Readonly<{predecessorStepId:string}>):Promise<WorkspaceMethodNativeInspection>;
 }
 export function createTrustedWorkspaceMethodStageReader(input:{
   kernel:unknown;accessForRead:(operation:string)=>unknown;currentWorkspace:unknown;
   sourceOwner:unknown;originalAgentResultOwner?:unknown;nativeContinuation?:unknown;nativeRecipientId?:string|null;
+  personalComposer?:unknown;confirmPersonalDraft?:(preview:unknown)=>boolean|Promise<boolean>;
   isHostActive:()=>boolean;
 }):WorkspaceMethodStageReader;

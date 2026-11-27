@@ -5,12 +5,16 @@
 import { canonicalClone,canonicalStringify } from '../persistence/canonical-codec.mjs';
 import { createSubjectKernelBinding } from './subject-access-binding.mjs';
 import { inspectWorkspaceMethodAgentPredecessorResults,readWorkspaceMethodInputOverview,
-  previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation,inspectWorkspaceMethodMaterialEvidence } from '../modules/base/owners/project-process-method-stage-input.mjs';
+  previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation,inspectWorkspaceMethodMaterialEvidence,
+  buildWorkspaceMethodPersonalTaskDraft } from '../modules/base/owners/project-process-method-stage-input.mjs';
+
+import {saveOriginalPersonalWorkflowDraft} from './workspace-method-personal-draft.mjs';
 
 function deny(code){throw Object.assign(new Error(code),{code,outcome:'DENIED'});}
 function check(ok,code){if(!ok)deny(code);}
 export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,currentWorkspace,
-  sourceOwner,originalAgentResultOwner=null,nativeContinuation=null,nativeRecipientId=null,isHostActive}={}){
+  sourceOwner,originalAgentResultOwner=null,nativeContinuation=null,nativeRecipientId=null,
+  personalComposer=null,confirmPersonalDraft=null,isHostActive}={}){
   check(kernel?.sessionInfo?.contract_version==='1.3.0'&&typeof kernel.hasOperation==='function'
     &&kernel.hasOperation('t1.getObject')===true&&typeof accessForRead==='function'
     &&typeof currentWorkspace?.get==='function'&&typeof currentWorkspace?.subscribe==='function'
@@ -18,6 +22,8 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
     &&(originalAgentResultOwner===null||typeof originalAgentResultOwner?.readAccepted==='function')
     &&(nativeContinuation===null||(typeof nativeContinuation?.preview==='function'&&typeof nativeContinuation?.recover==='function'
       &&typeof nativeRecipientId==='string'&&nativeRecipientId.length>0))
+    &&(personalComposer===null||(typeof personalComposer.currentBinding==='function'
+      &&typeof personalComposer.composerDraft==='function'&&typeof confirmPersonalDraft==='function'))
     &&typeof isHostActive==='function','T3_METHOD_STAGE_TRUSTED_HOST_REQUIRED');
   async function read(input,mode){
     // Snapshot selections before any original owner await. No caller port,
@@ -27,7 +33,8 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       &&input.expected.workRefs.length>0&&input.expected.workRefs.length<=64
       &&(mode==='overview'||input.resultSelections==null||(Array.isArray(input.resultSelections)&&input.resultSelections.length<=64))
       &&(!['native-preview','native-recover'].includes(mode)||typeof input.predecessorStepId==='string')
-      &&(mode!=='handoff'||input.includeMaterialEvidence===undefined||typeof input.includeMaterialEvidence==='boolean'),
+      &&(mode!=='handoff'||input.includeMaterialEvidence===undefined||typeof input.includeMaterialEvidence==='boolean')
+      &&(!['personal-draft','personal-draft-recover'].includes(mode)||/^[a-f0-9]{64}$/.test(input.expectedCandidateDigest??'')),
       'T3_METHOD_STAGE_SELECTION_REQUIRED');
     const ref=value=>({family:value?.family,objectId:value?.objectId,recordId:value?.recordId,revision:value?.revision});
     const request=canonicalClone({workspaceId:input.workspaceId,projectId:input.projectId,
@@ -37,7 +44,8 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
           workspace_id:row.reference?.workspace_id,object_id:row.reference?.object_id,
           schema_id:row.reference?.schema_id,revision:row.reference?.revision}}))}),
       ...(['native-preview','native-recover'].includes(mode)?{predecessorStepId:input.predecessorStepId}:{}),
-      ...(mode==='handoff'&&input.includeMaterialEvidence===true?{includeMaterialEvidence:true}:{})});
+      ...(mode==='handoff'&&input.includeMaterialEvidence===true?{includeMaterialEvidence:true}:{}),
+      ...(['personal-draft','personal-draft-recover'].includes(mode)?{expectedCandidateDigest:input.expectedCandidateDigest}:{})});
     check(isHostActive()===true,'T3_HOST_DISPOSED');
     const selected=currentWorkspace.get();
     check(selected?.workspace_id===request.workspaceId&&selected.deleted_at==null,'T3_METHOD_STAGE_WORKSPACE_REQUIRED');
@@ -53,6 +61,8 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       live();
       check(context?.workspace_id===request.workspaceId&&context.resource===request.workspaceId,
         'T3_METHOD_STAGE_SIGNED_SCOPE_MISMATCH');
+      const personalMode=['personal-draft','personal-draft-recover'].includes(mode);
+      if(personalMode)check(context.kind==='PERSONAL'&&personalComposer!==null,'T3_METHOD_PERSONAL_DRAFT_PERSONAL_OWNER_REQUIRED');
       const identity=canonicalStringify(context);
       const unchanged=async()=>{
         live();
@@ -80,11 +90,11 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       check(kernel.hasOperation('t1.getWorkspace')===true,'T3_METHOD_STAGE_WORKSPACE_READ_REQUIRED');
       const workspace=await guarded(()=>signed.getWorkspace(request.workspaceId));
       check(workspace?.workspace_id===request.workspaceId&&workspace.deleted_at==null,'T3_METHOD_STAGE_WORKSPACE_REQUIRED');
-      const args={...request,owner,readObject,readAccepted};
+      const args={...request,owner,readObject,readAccepted,subjectKind:context.kind};
       let report;
       if(mode==='overview')report=await readWorkspaceMethodInputOverview(args);
       else if(mode==='handoff'&&!request.includeMaterialEvidence)report=await previewWorkspaceMethodStageHandoff(args);
-      else if(mode==='material-evidence'||mode==='handoff'){
+      else if(mode==='material-evidence'||mode==='handoff'||personalMode){
         // Resolve the ORIGINAL owner for each Asset operation, then fence
         // its complete signed context against the already selected method.
         // Each individual read still receives a fresh D1 authorization.
@@ -101,7 +111,17 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
         const list=await assetPort('t1.listAssets'),get=await assetPort('t1.getAsset');
         const evidenceArgs={...args,listAssets:query=>list(binding=>binding.listAssets(query)),
           getAsset:(workspaceId,id)=>get(binding=>binding.getAsset(workspaceId,id))};
-        report=mode==='handoff'?await previewWorkspaceMethodStageHandoff(evidenceArgs):
+        if(personalMode){
+          const build=async()=>{
+            const plan=await buildWorkspaceMethodPersonalTaskDraft(evidenceArgs);
+            const current=await guarded(()=>signed.getWorkspace(request.workspaceId));
+            check(current?.workspace_id===request.workspaceId&&current.deleted_at==null,'T3_METHOD_STAGE_WORKSPACE_REQUIRED');
+            return plan;
+          };
+          const plan=await build();
+          report=await saveOriginalPersonalWorkflowDraft({plan,refreshPlan:build,composer:personalComposer,
+            guarded,confirm:confirmPersonalDraft,recoverOnly:mode==='personal-draft-recover'});
+        }else report=mode==='handoff'?await previewWorkspaceMethodStageHandoff(evidenceArgs):
           await inspectWorkspaceMethodMaterialEvidence(evidenceArgs);
       }
       else if(['native-preview','native-recover'].includes(mode)){
@@ -126,6 +146,10 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
     overview:input=>read(input,'overview'),
     previewHandoff:input=>read(input,'handoff'),
     inspectMaterialEvidence:input=>read(input,'material-evidence'),
+    ...(personalComposer===null?{}:{
+      createPersonalDraft:input=>read(input,'personal-draft'),
+      recoverPersonalDraft:input=>read(input,'personal-draft-recover'),
+    }),
     previewContinuation:input=>read(input,'native-preview'),
     recoverContinuation:input=>read(input,'native-recover'),
   });

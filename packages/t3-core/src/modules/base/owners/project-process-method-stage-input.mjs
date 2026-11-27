@@ -178,9 +178,28 @@ function materialPayloadDigest(object,budget){
   budget.canonicalBytes+=Buffer.byteLength(canonical,'utf8');
   if(budget.canonicalBytes>WORKSPACE_METHOD_MATERIAL_EVIDENCE_LIMITS.canonicalBytes)
     fail('METHOD_MATERIAL_EVIDENCE_BUDGET_EXCEEDED','Explicit material content evidence exceeds its bound');
-  return createHash('sha256').update(canonical).digest('hex');
+  return {sha256:createHash('sha256').update(canonical).digest('hex'),canonical};
 }
-async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,materials}){
+// The existing Agent composer accepts up to eight explicitly chosen text
+// attachments, 48,000 UTF-8 bytes in total. This is NOT a new file format.
+const DRAFT_TEXT_MIME=Object.freeze({'text/plain':'txt','text/markdown':'md','text/csv':'csv','application/json':'json'});
+function appendPersonalDraftAttachment(capture,name,text){
+  const bytes=Buffer.byteLength(text,'utf8');
+  if(!text.trim()||text.includes('\0')||capture.attachments.length>=8||capture.bytes+bytes>48000)
+    fail('METHOD_PERSONAL_DRAFT_CONTENT_LIMIT','Selected content cannot fit the existing original Agent text composer');
+  capture.bytes+=bytes;capture.attachments.push(Object.freeze({name,text}));
+}
+function captureDraftAsset(capture,asset,bytes){
+  const ext=DRAFT_TEXT_MIME[asset.mime.toLowerCase()];
+  if(!ext)fail('METHOD_PERSONAL_DRAFT_ATTACHMENT_UNSUPPORTED','The existing Agent text composer cannot represent this attachment');
+  let text;
+  try{text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);}
+  catch{fail('METHOD_PERSONAL_DRAFT_ATTACHMENT_UNSUPPORTED','The selected attachment is not exact UTF-8 text');}
+  if(!Buffer.from(text,'utf8').equals(Buffer.from(bytes)))
+    fail('METHOD_PERSONAL_DRAFT_ATTACHMENT_UNSUPPORTED','The selected attachment cannot be represented without changing its bytes');
+  appendPersonalDraftAttachment(capture,'attachment-'+String(++capture.assetCount).padStart(3,'0')+'.'+ext,text);
+}
+async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,materials},draftCapture=null){
   const limits=WORKSPACE_METHOD_MATERIAL_EVIDENCE_LIMITS;
   if(materials.length>limits.materials)fail('METHOD_MATERIAL_EVIDENCE_BUDGET_EXCEEDED','Too many materials for one observation');
   const budget={assets:0,assetBytes:0,canonicalBytes:0},seenAssets=new Set(),rows=[];
@@ -192,7 +211,8 @@ async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,works
         ||['workspace_id','object_id','schema_id','schema_version','revision'].some(key=>object[key]!==current[key])){
       fail('METHOD_MATERIAL_CONTENT_CHANGED','Original material reference changed during content observation');
     }
-    const payloadDigest=materialPayloadDigest(object,budget);
+    const payload=materialPayloadDigest(object,budget),payloadDigest=payload.sha256;
+    if(draftCapture)appendPersonalDraftAttachment(draftCapture,'material-'+String(++draftCapture.materialCount).padStart(3,'0')+'.json',payload.canonical);
     const list=await listAssets({workspace_id:workspaceId,object_id:selected.object_id});
     if(!Array.isArray(list))fail('METHOD_MATERIAL_ASSET_IDENTITY_MISMATCH','Original addressed Asset listing required');
     budget.assets+=list.length;
@@ -213,6 +233,7 @@ async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,works
         fail('METHOD_MATERIAL_ASSET_CHANGED','Original Asset readback differs from the addressed listing');
       }
       assets.push(Object.freeze({...asset,sha256:createHash('sha256').update(actual.bytes).digest('hex')}));
+      if(draftCapture)captureDraftAsset(draftCapture,asset,actual.bytes);
     }
     rows.push(Object.freeze({reference:current,payloadDigest,visibleAssets:Object.freeze(assets)}));
   }
@@ -343,6 +364,9 @@ async function inspectStageResults({
   if(selections.length&&typeof readAccepted!=='function')fail('METHOD_STAGE_RESULT_OWNER_REQUIRED','Original installed Agent accepted Result read port required');
   const args={owner,readObject,workspaceId,projectId,expected:selected,stepId};
   const observation=await openStageInputObservation(args),initial=observation.report;
+  if(materialRequest?.draftCapture&&(initial.basis.intendedActor!=='agent'||initial.predecessors.length!==0)){
+    fail('METHOD_PERSONAL_DRAFT_ROOT_AGENT_REQUIRED','This original text composer route requires a root Agent Work; native predecessor content and program execution are separate');
+  }
   const byStep=new Map(initial.predecessors.map(row=>[row.stepId,row]));
   if(selections.some(row=>!byStep.has(row.stepId))){
     fail('METHOD_STAGE_RESULT_SELECTION_INVALID','Only direct declared predecessor Results may be selected');
@@ -380,11 +404,12 @@ async function inspectStageResults({
   // This is a bounded, non-atomic observation, never a signed Task.
   let materialEvidence=null,materialFirst=null;
   const canObserveContent=materialRequest&&results.every(row=>row.state==='ACCEPTED_WORK_NUMBER_MATCHED_INPUT_BINDING_UNPROVEN');
-  const materialArgs=canObserveContent?{readObject,workspaceId,materials:initial.materials,...materialRequest}:null;
+  const materialArgs=canObserveContent?{readObject,workspaceId,materials:initial.materials,
+    listAssets:materialRequest.listAssets,getAsset:materialRequest.getAsset}:null;
   if(materialArgs)materialFirst=await readVisibleMaterialEvidence(materialArgs);
   await observation.revalidate('METHOD_STAGE_RESULT_BASIS_CHANGED');
   if(materialArgs){
-    const second=await readVisibleMaterialEvidence(materialArgs);
+    const second=await readVisibleMaterialEvidence(materialArgs,materialRequest.draftCapture??null);
     if(!equal(materialFirst,second))fail('METHOD_MATERIAL_CONTENT_CHANGED','Material content or visible Assets changed during combined handoff observation');
     materialEvidence=materialEvidenceReport(initial,materialFirst);
   }
@@ -406,7 +431,9 @@ async function inspectStageResults({
 // The original executor must later sign/validate the exact input binding,
 // including actual content/assets and its native execution identity.
 export async function previewWorkspaceMethodStageHandoff(input={}){
-  const {includeMaterialEvidence=false,listAssets,getAsset}=input;
+  const {includeMaterialEvidence=false,listAssets,getAsset,subjectKind=null}=input;
+  if(subjectKind!==null&&!['PERSONAL','CORP'].includes(subjectKind))
+    fail('METHOD_STAGE_SUBJECT_KIND_INVALID','Trusted original subject kind required');
   if(typeof includeMaterialEvidence!=='boolean')
     fail('METHOD_MATERIAL_EVIDENCE_REQUEST_INVALID','Explicit content evidence selection required');
   if(includeMaterialEvidence&&(typeof listAssets!=='function'||typeof getAsset!=='function'))
@@ -414,13 +441,16 @@ export async function previewWorkspaceMethodStageHandoff(input={}){
   const inspection=includeMaterialEvidence?
     await inspectStageResults(input,null,Object.freeze({listAssets,getAsset})):
     await inspectWorkspaceMethodAgentPredecessorResults(input);
+  return handoffReport(inspection,includeMaterialEvidence,subjectKind);
+}
+function handoffReport(inspection,includeMaterialEvidence,subjectKind){
   const materialEvidence=inspection.materialEvidence??null;
   const {stageInput,results}=inspection,basis=stageInput.basis;
   const actor=basis.intendedActor;
   const needs=Object.freeze([
     'EXACT_MATERIAL_CONTENT_AND_ASSET_BINDING',
     ...(stageInput.predecessors.length?['EXACT_PREDECESSOR_RESULT_INPUT_BINDING']:[]),
-    ...(actor==='agent'?['ORIGINAL_SIGNED_TASK_BINDING','CURRENT_MODEL_AND_AUTHORITY']:
+    ...(actor==='agent'?[subjectKind==='PERSONAL'?'ORIGINAL_PERSONAL_TASK_AND_CONTEXT_BINDING':'ORIGINAL_SIGNED_TASK_BINDING','CURRENT_MODEL_AND_AUTHORITY']:
       actor==='program'?['EXPLICIT_PROGRAM_OPERATION_AND_ARGUMENTS','CURRENT_CONNECTION_AND_TOOL_APPROVAL']:
         ['HUMAN_REVIEW_AND_ORIGINAL_RESULT_OWNER'])
   ]);
@@ -431,6 +461,7 @@ export async function previewWorkspaceMethodStageHandoff(input={}){
     schema:'IWXA_T2_WORKSPACE_METHOD_HANDOFF_PREVIEW_V1',
     workspaceId:basis.workspaceId,projectId:basis.projectId,stepId:basis.stepId,
     projectRef:basis.projectRef,workRef:basis.stageRef,intendedActor:actor,
+    ...(subjectKind===null?{}:{subjectKind}),
     inputBasisDigest:stageInput.inputBasisDigest,
     ...(includeMaterialEvidence?{materialEvidenceDigest:materialEvidence.materialEvidenceDigest}:{}),
     predecessorResults:Object.freeze(results.map(row=>Object.freeze({stepId:row.stepId,
@@ -444,6 +475,37 @@ export async function previewWorkspaceMethodStageHandoff(input={}){
     ...(includeMaterialEvidence?{materialEvidenceRequested:true,materialEvidence}:{}),
     signedTaskIssued:false,taskCreated:false,contentBindingProven:false,exactInputBindingProven:false,
     dispatchAuthorized:false,executionAuthority:false,writeAuthorized:false,resultReuseProven:false,atomicSnapshot:false});
+}
+
+// W05.10: materialize only the original Agent text composer payload in
+// trusted native Host memory. Never return its bytes through the UI reader.
+// The original composer owns saving and digest CAS. An editable draft is
+// not a Task, complete Asset selection, signed package, or execution proof.
+export async function buildWorkspaceMethodPersonalTaskDraft(input={}){
+  const {listAssets,getAsset,expectedCandidateDigest}=input;
+  if(!HEX.test(expectedCandidateDigest??''))
+    fail('METHOD_PERSONAL_DRAFT_EXPECTED_EVIDENCE_REQUIRED','Explicit confirmed handoff evidence digest required');
+  if(typeof listAssets!=='function'||typeof getAsset!=='function')
+    fail('METHOD_MATERIAL_ASSET_OWNER_REQUIRED','Original addressed Asset read ports required');
+  const capture={attachments:[],bytes:0,materialCount:0,assetCount:0};
+  const inspection=await inspectStageResults(input,null,Object.freeze({listAssets,getAsset,draftCapture:capture}));
+  const report=handoffReport(inspection,true,'PERSONAL');
+  if(report.candidateDigest!==expectedCandidateDigest||!report.materialEvidence?.observation)
+    fail('METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED','The exact selected handoff content changed; review it again');
+  const basis=inspection.stageInput.basis;
+  // Provenance accompanies the actual selected input text. It does not
+  // authorize a task or claim complete/immutable input binding.
+  const manifest=canonicalStringify({handoff:report.binding,candidateDigest:report.candidateDigest,
+    materialEvidence:report.materialEvidence.observation,allAssetsProven:false,exactInputBindingProven:false});
+  appendPersonalDraftAttachment(capture,'workflow-inputs.json',manifest);
+  const text=basis.objective+'\n\n'+basis.instruction;
+  if(!text.trim()||text.length>65536||text.includes('\0'))
+    fail('METHOD_PERSONAL_DRAFT_CONTENT_LIMIT','Work instruction exceeds the existing Agent composer');
+  return Object.freeze({candidateDigest:report.candidateDigest,
+    workspaceId:basis.workspaceId,projectId:basis.projectId,stepId:basis.stepId,
+    draft:Object.freeze({text,knowledge_sources:Object.freeze([]),attachments:Object.freeze(capture.attachments)}),
+    counts:Object.freeze({materials:capture.materialCount,assets:capture.assetCount,
+      attachments:capture.attachments.length,attachmentBytes:capture.bytes})});
 }
 
 // W07.1. Reuse the existing trusted D6 recipient preview/recovery port.
