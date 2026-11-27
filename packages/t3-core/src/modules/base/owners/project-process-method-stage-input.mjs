@@ -517,6 +517,7 @@ function corporateTaskReference(report,expectedCandidateDigest){
     projectRef:basis.projectRef,workRef:basis.stageRef,inputBasisDigest:binding.inputBasisDigest,
     materialEvidenceDigest:binding.materialEvidenceDigest,candidateDigest:report.candidateDigest,
     taskTextSha256:createHash('sha256').update(task,'utf8').digest('hex'),
+    ...(report.acceptedPredecessors?{acceptedPredecessors:report.acceptedPredecessors}:{}),
   });
   return Object.freeze({state:'CORPORATE_TASK_REFERENCE_PREPARED',task,workflowInput,
     requiredOriginalOwnerChecks:Object.freeze(['ORIGINAL_ASSIGNMENT_ACTION','ORIGINAL_TASK_AND_WORKFLOW_INPUT_DATA_DISCLOSURE',
@@ -742,6 +743,13 @@ export async function prepareWorkspaceMethodPersonalChain(input={}){
 // closure. The recipient owner supplies the accepted original signed Result,
 // its currentness and exact text. The existing Task v2 candidate digest binds
 // this selected lineage. No new signed format, acceptance or dispatch.
+// Existing Task v2 remains metadata-only. Flatten the selected closure:
+// an accepted predecessor's signed package digest already commits its own
+// declaration, so embedding nested predecessor lists would duplicate them.
+function workflowBaseReference(value){
+  const {acceptedPredecessors,...base}=value;
+  return Object.freeze(base);
+}
 function corporateChainReport(stage,materialEvidence,prior){
   const inspection=Object.freeze({state:prior.length?'CORPORATE_PRIOR_RESULTS_OBSERVED_SIGNED_REFERENCES_MATCHED':'NO_PREDECESSOR_RESULTS_REQUIRED',
     stageInput:stage,results:Object.freeze([]),atomicSnapshot:false,executionAuthority:false,resultReuseProven:false,
@@ -760,7 +768,10 @@ function corporateChainReport(stage,materialEvidence,prior){
 }
 export async function prepareWorkspaceMethodCorporateChain(input={}){
   const {stepId,workspaceId,organizationId,subjectKind,corporateResultSelections,listAssets,getAsset,readObject,
-    readCorporateAcceptedResult,expectedCandidateDigest}=input;
+    readCorporateAcceptedResult,expectedCandidateDigest,corporateResultObservation}=input;
+  const signedSnapshot=corporateResultObservation==='SIGNED_ASSIGNMENT_SNAPSHOT';
+  if(corporateResultObservation!==undefined&&!signedSnapshot)
+    fail('METHOD_CORPORATE_CHAIN_ORIGINAL_OWNER_REQUIRED','Original corporate Result observation route required');
   if(subjectKind!=='CORP'||!text(organizationId)||typeof readCorporateAcceptedResult!=='function'
       ||typeof listAssets!=='function'||typeof getAsset!=='function')
     fail('METHOD_CORPORATE_CHAIN_ORIGINAL_OWNER_REQUIRED','Original corporate accepted Result and addressed material owners required');
@@ -792,8 +803,16 @@ export async function prepareWorkspaceMethodCorporateChain(input={}){
     const selected=byStep.get(stage.basis.stepId);
     const row=await readCorporateAcceptedResult(selected);
     const w=row?.workflowInput,result=row?.result;
-    if(row?.state!=='ORIGINAL_CORPORATE_ACCEPTED_WORKFLOW_RESULT'||row.originalRecipientReadback!==true||row.readOnly!==true
-      ||row.acceptanceState!=='ACCEPTED'||row.currentness!=='CURRENT_BOUNDED'
+    // The independent recipient does not own the Admin ledger. Its native
+    // read can prove exact stored bytes and the signed assignment's
+    // declaration, not live recipient currentness. Keep these distinct.
+    const validObservation=signedSnapshot?
+      row?.state==='ORIGINAL_SIGNED_WORKFLOW_PREDECESSOR_OBSERVED'&&row.originalRecipientReadback===false
+        &&row.originalKernelReadback===true&&row.currentness==='ISSUER_ACCEPTANCE_AT_SIGNING'&&row.sourceCurrentnessProven===false:
+      row?.state==='ORIGINAL_CORPORATE_ACCEPTED_WORKFLOW_RESULT'&&row.originalRecipientReadback===true
+        &&row.currentness==='CURRENT_BOUNDED';
+    if(!validObservation||row.readOnly!==true
+      ||row.acceptanceState!=='ACCEPTED'
       ||row.exactInputBindingProven!==false||row.executionAuthorized!==false||row.workCompleted!==false
       ||row.organizationId!==organizationId||row.workspaceId!==workspaceId||!text(row.executorId)
       ||row.acceptanceId!==selected.acceptanceId||row.resultRevisionId!==selected.resultRevisionId
@@ -808,13 +827,18 @@ export async function prepareWorkspaceMethodCorporateChain(input={}){
       fail('METHOD_CORPORATE_CHAIN_RESULT_MISMATCH','Exact original accepted Result, source Work and content must agree');
     if(Buffer.byteLength(result,'utf8')>48000)
       fail('METHOD_PERSONAL_DRAFT_CONTENT_LIMIT','Original accepted Result cannot fit the existing Agent text composer');
+    const shared=row.originalKernelReadback===true;
+    if(shared&&(!/^RES-[A-Za-z0-9_-]{1,150}$/.test(row.artifactId??'')
+        ||!/^company:work:[a-f0-9]{64}$/.test(row.originalCompanyRecordId??'')))
+      fail('METHOD_CORPORATE_CHAIN_RESULT_MISMATCH','Original company Result identity required');
     // Copy stable original evidence only. No volatile ledger generation,
     // payload, status timestamps, grants or currentness proof in the UI.
-    return Object.freeze({summary:result,evidence:Object.freeze({
+    return Object.freeze({summary:result,...(shared?{artifactId:row.artifactId,originalCompanyRecordId:row.originalCompanyRecordId}:{}),
+      evidence:Object.freeze({
       organizationId:row.organizationId,workspaceId:row.workspaceId,executorId:row.executorId,
       acceptanceId:row.acceptanceId,resultRevisionId:row.resultRevisionId,packageSha256:row.packageSha256,
       taskId:row.taskId,taskRevisionId:row.taskRevisionId,taskPackageSha256:row.taskPackageSha256,
-      resultSha256:row.resultSha256,workflowInput:Object.freeze(structuredClone(w)),
+      resultSha256:row.resultSha256,workflowInput:workflowBaseReference(structuredClone(w)),
       exactInputBindingProven:false,workCompleted:false})});
   };
   const observeResults=async()=>{
@@ -842,7 +866,21 @@ export async function prepareWorkspaceMethodCorporateChain(input={}){
       for(const row of prior)appendPersonalDraftAttachment(capture,'result-'+String(++capture.resultCount).padStart(3,'0')+'.txt',row.summary);
       const report=corporateChainReport(stage,materialEvidence,prior);
       const signed=corporateTaskReference(report,report.candidateDigest);
-      if(stage.basis.stepId===stepId)return {report,payload:materializeAgentTextInputs(report,capture)};
+      if(stage.basis.stepId===stepId){
+        const rows=ancestors.map(ancestor=>{
+          const priorRow=observed.get(ancestor.basis.stepId);
+          return {stepId:ancestor.basis.stepId,...priorRow};
+        });
+        const shared=rows.filter(row=>row.artifactId!==undefined);
+        if(shared.length!==0&&shared.length!==rows.length||signedSnapshot&&shared.length!==rows.length)
+          fail('METHOD_CORPORATE_CHAIN_RESULT_MISMATCH','All selected shared Result references must be verified');
+        const acceptedPredecessors=shared.length?Object.freeze(shared.map(row=>Object.freeze({
+          stepId:row.stepId,artifactId:row.artifactId,originalCompanyRecordId:row.originalCompanyRecordId,
+          acceptedResult:row.evidence,
+        }))):null;
+        const extended=acceptedPredecessors?Object.freeze({...report,acceptedPredecessors}):report;
+        return {report:extended,payload:materializeAgentTextInputs(extended,capture)};
+      }
       const row=observed.get(stage.basis.stepId);
       if(!row||!equal(row.evidence.workflowInput,signed.workflowInput))
         fail('METHOD_CORPORATE_CHAIN_SIGNED_REFERENCE_CHANGED','Accepted signed predecessor declaration differs from current exact material and Result lineage');
@@ -854,7 +892,8 @@ export async function prepareWorkspaceMethodCorporateChain(input={}){
   await observation.revalidate('METHOD_CORPORATE_CHAIN_MATERIAL_CHANGED');
   const last=await pass(false);
   await observation.revalidate('METHOD_CORPORATE_CHAIN_MATERIAL_CHANGED');
-  if(first.report.candidateDigest!==last.report.candidateDigest||!equal(first.payload.draft,last.payload.draft))
+  if(first.report.candidateDigest!==last.report.candidateDigest||!equal(first.payload.draft,last.payload.draft)
+      ||!equal(first.report.acceptedPredecessors??null,last.report.acceptedPredecessors??null))
     fail('METHOD_CORPORATE_CHAIN_EVIDENCE_CHANGED','Original accepted Result lineage or actual material content changed');
   if(expectedCandidateDigest!==undefined&&last.report.candidateDigest!==expectedCandidateDigest)
     fail('METHOD_CORPORATE_TASK_EVIDENCE_CHANGED','Current original input reference differs from the signed handoff');
