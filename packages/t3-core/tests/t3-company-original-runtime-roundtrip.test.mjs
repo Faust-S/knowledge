@@ -501,7 +501,7 @@ test('native pilot passports execute original Kernel permission ceiling and pers
 
 // Actual original Kernel and Exchange ZIP, independent IndexedDB emulations.
 // Test access is still a fixture; native enrollment and Windows are separate gates.
-test('original empty Workspace roundtrip admits identical shared T4 creation prefix on both pilot roles',async()=>{
+test('original empty Workspace Exchange admits identical SOURCE cursor on both pilot roles',async()=>{
   await withOriginalRuntime(async({stage,activate})=>{
     const source=await stage('agent','SOURCE'),recipient=await stage('admin','RECIPIENT');
     const history=p=>p.product.t1.listEventsSince(ws);
@@ -546,15 +546,18 @@ test('original empty Workspace roundtrip admits identical shared T4 creation pre
     await importEmpty(b,outbound);
     const merged=await history(b);
     assertHistoryContains(merged,[...sourceInitial,...recipientInitial]);
+    assert.deepEqual(merged.map(e=>[e.event_type,e.service_id]).sort(),[
+      ['workspace.created',source.serviceId],['workspace.created',recipient.serviceId],
+      ['iwxa.import.applied',companyExchangeServiceId(recipient.serviceId)]].sort());
     const proposal=readT4OriginalFreshWorkspaceBaselineSelection({workspaceId:ws,originalEvents:merged});
-    assert.equal(proposal.confirmed,false);assert.equal(proposal.creationAnchors.length,2);
+    assert.equal(proposal.confirmed,false);assert.equal(proposal.eventId,sourceInitial[0].event_id);
     const selection={...proposal,confirmed:true};
-    const inbound=await exportEmpty(b);
     const before=await admission(b,'RECIPIENT',selection).readOriginalBaselineAdmissionInput();
+    assert.equal(before.sourceCursor.seenEventCount,1);
     await recipient.runtime.__resetKernelStoreForTests();
     const ac=await activate(source);
-    await importEmpty(ac,inbound);
-    assertHistoryContains(await history(ac),merged);
+    assertHistoryContains(await history(ac),sourceInitial);
+    assert.equal((await history(ac)).length,1);
     const sourceBaseline=await admission(ac,'SOURCE',selection).readOriginalBaselineAdmissionInput();
     assert.deepEqual(sourceBaseline,before,'ORIGINAL_BASELINE_CURSORS_DIVERGED');
     await source.runtime.__resetKernelStoreForTests();

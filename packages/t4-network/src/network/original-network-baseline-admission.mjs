@@ -172,11 +172,11 @@ export function createT4OriginalNetworkBaselineAdmissionPort({
 
 
 // RC.1 first-use of an EMPTY business Workspace copied through original
-// T2 Exchange. The signed corporate merge route can require a locally
-// created target. After the original archive is returned, both devices
-// must retain the SAME ordered creation prefix (one or two original Events).
-// Independent local creation alone is not a common baseline. No new Event,
-// cursor format, authority or package type is introduced.
+// T2 Exchange. The ordinary signed merge creates a recipient-local creation
+// Event and an original import.applied Event. Neither is a source Event.
+// Retain the source's exact creation cursor and prove the empty import on
+// RECIPIENT; do not require an artificial return import or filter live
+// source history. Existing exact shared creation prefixes remain supported.
 export function normalizeT4OriginalFreshWorkspaceBaseline(selection){
   const two=Object.hasOwn(selection??{},'creationAnchors');
   const validAnchor=a=>a&&typeof a==='object'&&!Array.isArray(a)&&
@@ -200,11 +200,47 @@ function originalCreationAnchor(event,workspaceId){
     fail('BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH');
   return Object.freeze({eventId:event.event_id,eventDigest:digestT4OriginalEventRecord(event,workspaceId)});
 }
+// The first installed pilot has the original Agent SOURCE and Admin
+// RECIPIENT service passports. The import receipt is the existing trusted
+// corporate Exchange Event, not a caller-provided receipt or network flag.
+const SOURCE_CREATION_SERVICE='iwxa.personal-agent.workspace';
+const RECIPIENT_CREATION_SERVICE='iwxa.admin-center.workspace';
+const RECIPIENT_EXCHANGE_SERVICE='iwxa.admin-center.exchange.workspace';
+const IMPORT_APPLIED='iwxa.import.applied';
+const EMPTY_IMPORT_COUNTS=Object.freeze({workspaces:0,objects_inserted:0,objects_updated:0,
+  objects_skipped:0,events:1,relations:0,assets:0,schemas_inserted:0,schemas_reused:0,schemas_rejected:0});
+function originalEmptyExchangeEvidence(events,workspaceId){
+  const unique=(type,service)=>{
+    const found=events.filter(e=>e?.event_type===type&&e.service_id===service);
+    if(found.length!==1)fail('BASELINE_FRESH_ORIGINAL_EXCHANGE_WITNESS_INVALID');
+    return found[0];
+  };
+  const source=unique('workspace.created',SOURCE_CREATION_SERVICE),
+    local=unique('workspace.created',RECIPIENT_CREATION_SERVICE),
+    receipt=unique(IMPORT_APPLIED,RECIPIENT_EXCHANGE_SERVICE);
+  originalCreationAnchor(source,workspaceId);originalCreationAnchor(local,workspaceId);
+  const p=receipt.payload;
+  if(!same(source.payload,local.payload)||receipt.workspace_id!==workspaceId||
+    receipt.object_id!=null||receipt.revision!=null||
+    !p||!same(Object.keys(p).sort(),['applied','import_id','mode','package_digest','semantic_digest'])||
+    !ID(p.import_id)||p.mode!=='merge'||
+    ![p.package_digest,p.semantic_digest].every(d=>typeof d==='string'&&/^[a-f0-9]{64}$/.test(d))||
+    !same(p.applied,EMPTY_IMPORT_COUNTS))
+    fail('BASELINE_FRESH_ORIGINAL_EXCHANGE_WITNESS_INVALID');
+  const originalEvents=[source,local,receipt],digests=originalEvents.map(e=>digestT4OriginalEventRecord(e,workspaceId));
+  if(new Set(originalEvents.map(e=>e.event_id)).size!==3)
+    fail('BASELINE_FRESH_ORIGINAL_EXCHANGE_WITNESS_INVALID');
+  return {source,localEvidenceDigest:hash(digests)};
+}
 // Native preparation can derive the configuration candidate from the
 // original Admin business history. A candidate is explicitly NOT consent.
 export function readT4OriginalFreshWorkspaceBaselineSelection({workspaceId,originalEvents}={}){
-  if(!ID(workspaceId)||!Array.isArray(originalEvents)||![1,2].includes(originalEvents.length))
+  if(!ID(workspaceId)||!Array.isArray(originalEvents)||![1,2,3].includes(originalEvents.length))
     fail('BASELINE_FRESH_WORKSPACE_NOT_EMPTY');
+  if(originalEvents.length===3){
+    const {source}=originalEmptyExchangeEvidence(originalEvents,workspaceId);
+    return freeze({confirmed:false,...originalCreationAnchor(source,workspaceId)});
+  }
   const anchors=originalEvents.map(event=>originalCreationAnchor(event,workspaceId));
   if(anchors.length===2&&anchors[0].eventId===anchors[1].eventId)
     fail('BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH');
@@ -232,18 +268,31 @@ export function createT4OriginalFreshWorkspaceBaseline({selection,role,workspace
     return true;
   }
   async function history(){
-    let events;
+    let events,sourceEvents,initialCount=count,localEvidenceDigest=null;
     const projected=await readT4OriginalEventWindow({workspaceId,originalWriteOwnerRef,maxEvents:count,
       authorizeOriginalRead:p=>guard(p.operation),
-      readOriginalEvents:async()=>{events=clone(await originalKernel.listEventsSince(workspaceId));return events;}});
-    // Preserve the original Kernel's Event order. Both owners must see
-    // the exact confirmed prefix, including every locally created anchor
-    // from the same-Workspace roundtrip; never sort or skip a local Event.
+      readOriginalEvents:async()=>{
+        events=clone(await originalKernel.listEventsSince(workspaceId));
+        if(!Array.isArray(events)||events.length>100000||
+          new Set(events.map(e=>e?.event_id)).size!==events.length)
+          fail('BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH');
+        sourceEvents=events;
+        // Only RECIPIENT may use the exact original empty Exchange witness.
+        // Its local creation and import receipt never extend the remote
+        // source cursor. SOURCE always projects its own unfiltered history.
+        if(role==='RECIPIENT'&&count===1&&events.some(e=>
+          (e?.event_type==='workspace.created'&&e.service_id===RECIPIENT_CREATION_SERVICE&&e.event_id!==selected.eventId)||
+          (e?.event_type===IMPORT_APPLIED&&e.service_id===RECIPIENT_EXCHANGE_SERVICE))){
+          const evidence=originalEmptyExchangeEvidence(events,workspaceId);
+          sourceEvents=[evidence.source];initialCount=3;localEvidenceDigest=evidence.localEvidenceDigest;
+        }
+        return sourceEvents;
+      }});
     if(projected.window.count!==count||projected.nextCursor?.lastEventId!==selected.eventId||
-      !same(events.slice(0,count).map(event=>originalCreationAnchor(event,workspaceId)),anchors))
+      !same(sourceEvents.slice(0,count).map(event=>originalCreationAnchor(event,workspaceId)),anchors))
       fail('BASELINE_FRESH_ORIGINAL_CREATION_EVENT_MISMATCH');
     await current();
-    return {count:events.length,input:{originalBaselineRef:selected.eventId,
+    return {count:events.length,initialCount,localEvidenceDigest,input:{originalBaselineRef:selected.eventId,
       originalBaselineDigest:selected.eventDigest,sourceCursor:projected.nextCursor}};
   }
   async function read(requireEmpty){
@@ -252,7 +301,7 @@ export function createT4OriginalFreshWorkspaceBaseline({selection,role,workspace
       // The installed passport grants workspace-wide Event read. Require
       // only the confirmed shared creation prefix, PLUS empty subject and
       // asset readback. Any other Event needs a materialization witness.
-      if(observed.count!==count)fail('BASELINE_FRESH_WORKSPACE_NOT_EMPTY');
+      if(observed.count!==observed.initialCount)fail('BASELINE_FRESH_WORKSPACE_NOT_EMPTY');
       await guard('t1.listObjects');
       const objects=await originalKernel.listObjects({workspace_id:workspaceId,include_deleted:true});
       await guard('t1.listObjects');await guard('t1.listAssets');
@@ -261,7 +310,9 @@ export function createT4OriginalFreshWorkspaceBaseline({selection,role,workspace
       if(!Array.isArray(objects)||objects.length!==0||!Array.isArray(assets)||assets.length!==0)
         fail('BASELINE_FRESH_WORKSPACE_NOT_EMPTY');
       const again=await history();
-      if(again.count!==count||!same(again.input,observed.input))fail('BASELINE_FRESH_WORKSPACE_CHANGED');
+      if(again.count!==observed.initialCount||again.initialCount!==observed.initialCount||
+        again.localEvidenceDigest!==observed.localEvidenceDigest||!same(again.input,observed.input))
+        fail('BASELINE_FRESH_WORKSPACE_CHANGED');
     }
     await current();return freeze(clone(observed.input));
   }

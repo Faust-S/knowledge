@@ -235,3 +235,51 @@ test('signed same-Workspace merge roundtrip admits the exact shared two-creation
   assert.throws(()=>readT4OriginalFreshWorkspaceBaselineSelection({workspaceId:identity.sourceWorkspaceId,originalEvents:f.events}),
     {code:'BASELINE_FRESH_WORKSPACE_NOT_EMPTY'});
 });
+
+function emptyExchangeFixture(){
+  const s=freshFixture(),r=freshFixture('RECIPIENT');
+  s.creation.service_id='iwxa.personal-agent.workspace';
+  const source={confirmed:true,eventId:s.creation.event_id,
+    eventDigest:digestT4OriginalEventRecord(s.creation,identity.sourceWorkspaceId)};
+  Object.assign(s.selection,source);Object.assign(r.selection,source);
+  r.events.splice(0,1,clone(s.creation),{...clone(s.creation),event_id:'event:admin:created',
+    service_id:'iwxa.admin-center.workspace',occurred_at:'2026-11-27T12:00:01.000Z'},
+  {event_id:'event:import:applied',event_type:'iwxa.import.applied',workspace_id:identity.sourceWorkspaceId,
+    service_id:'iwxa.admin-center.exchange.workspace',occurred_at:'2026-11-27T12:00:02.000Z',
+    payload:{import_id:'import:1',package_digest:'a'.repeat(64),semantic_digest:'b'.repeat(64),mode:'merge',
+      applied:{workspaces:0,objects_inserted:0,objects_updated:0,objects_skipped:0,events:1,relations:0,assets:0,
+        schemas_inserted:0,schemas_reused:0,schemas_rejected:0}}});
+  return {s,r,source};
+}
+test('original empty signed Exchange receipt proves recipient materialization without extending SOURCE history',async()=>{
+  const {s,r,source}=emptyExchangeFixture(),baseline=await s.create().readOriginalBaselineAdmissionInput();
+  assert.deepEqual(readT4OriginalFreshWorkspaceBaselineSelection({workspaceId:identity.sourceWorkspaceId,originalEvents:r.events}),
+    {...source,confirmed:false});
+  assert.equal(baseline.sourceCursor.seenEventCount,1);
+  assert.deepEqual(await r.create().readOriginalBaselineAdmissionInput(),baseline);
+  r.events.push({...clone(s.creation),event_id:'event:later:business',event_type:'business.created',
+    object_id:'object:business',revision:1,occurred_at:'2026-11-27T12:00:03.000Z'});
+  r.objects.push({object_id:'object:business'});
+  assert.equal(await r.create().verifyOriginalBaselineEvidence(r.proof(baseline,false)),true);
+  await assert.rejects(r.create().readOriginalBaselineAdmissionInput(),error('BASELINE_FRESH_WORKSPACE_NOT_EMPTY'));
+});
+test('empty Exchange proof rejects missing/foreign receipt, nonempty import, changed source and unrelated history',async()=>{
+  for(const change of [
+    f=>f.r.events.pop(),
+    f=>{f.r.events[2].service_id='iwxa.personal-agent.workspace'},
+    f=>{f.r.events[2].payload.applied.objects_inserted=1},
+    f=>{f.r.events[2].payload.applied.events=2},
+    f=>{f.r.events[2].payload.mode='new-workspace'},
+    f=>{f.r.events[0].payload.capabilities.push('foreign')},
+    f=>{f.r.events[1].payload.profile='other'},
+    f=>{f.r.events.push({...clone(f.r.events[2]),event_id:'event:duplicate:import'})},
+    f=>{f.r.events.push({...clone(f.r.events[2]),event_id:'event:extra',event_type:'business.created'})},
+    f=>{f.r.assets.push({asset_id:'asset:unexpected'})}
+  ]){
+    const f=emptyExchangeFixture();change(f);
+    await assert.rejects(f.r.create().readOriginalBaselineAdmissionInput(),e=>e?.code?.startsWith('BASELINE_FRESH_'));
+  }
+  const f=emptyExchangeFixture();
+  f.r.afterAssets(()=>{f.r.events[2].payload.package_digest='c'.repeat(64)});
+  await assert.rejects(f.r.create().readOriginalBaselineAdmissionInput(),error('BASELINE_FRESH_WORKSPACE_CHANGED'));
+});
