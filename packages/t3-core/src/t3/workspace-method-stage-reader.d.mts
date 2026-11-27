@@ -92,6 +92,7 @@ export interface WorkspaceMethodStageReader {
   inspectMaterialEvidence?(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodMaterialEvidence>;
   prepareCorporateTaskReference?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string}>):Promise<WorkspaceMethodCorporateTaskReferencePlan>;
   inspectCorporateTaskReference?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string;taskId:string}>):Promise<WorkspaceMethodCorporateTaskReferenceInspection>;
+  recoverCorporateTaskReference?(input:WorkspaceMethodStageRequest&Readonly<{taskId:string}>):Promise<WorkspaceMethodCorporateTaskReferenceInspection&Readonly<{recoveredFromOriginalTask:true}>>;
   createPersonalDraft?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string}>):Promise<WorkspaceMethodPersonalDraftReceipt>;
   recoverPersonalDraft?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string}>):Promise<WorkspaceMethodPersonalDraftReceipt>;
   inspectPersonalTask?(input:WorkspaceMethodStageRequest&Readonly<{expectedCandidateDigest:string;taskId:string}>):Promise<WorkspaceMethodPersonalTaskInspection>;

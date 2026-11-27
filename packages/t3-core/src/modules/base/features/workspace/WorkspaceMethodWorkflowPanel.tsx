@@ -129,7 +129,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
   const [nativeStep,setNativeStep]=useState("");
   const [detail,setDetail]=useState<{reader:WorkspaceMethodStageReader;key:string;report:Detail}|null>(null);
   const [taskInspection,setTaskInspection]=useState<{reader:WorkspaceMethodStageReader;key:string;digest:string;value:WorkspaceMethodPersonalTaskInspection|WorkspaceMethodRecoveredPersonalTask}|null>(null);
-  const [corporateInspection,setCorporateInspection]=useState<{reader:WorkspaceMethodStageReader;key:string;digest:string;value:WorkspaceMethodCorporateTaskReferenceInspection}|null>(null);
+  const [corporateInspection,setCorporateInspection]=useState<{reader:WorkspaceMethodStageReader;key:string;digest:string;value:WorkspaceMethodCorporateTaskReferenceInspection&{recoveredFromOriginalTask?:true}}|null>(null);
   const [draftAttempt,setDraftAttempt]=useState<{reader:WorkspaceMethodStageReader;key:string;digest:string;state:WorkspaceMethodPersonalDraftReceipt['state']|null}|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -191,8 +191,15 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     &&visibleDetail.value.materialEvidence?.observation&&stage?.actor==='agent'
     &&reader.inspectCorporateTaskReference&&typeof binding.corporateTaskId==='string'
     &&/^task:[A-Za-z0-9:-]{1,100}$/.test(binding.corporateTaskId)?visibleDetail.value.candidateDigest:null;
+  const selectedCorporateTask=stage?.actor==='agent'&&!personalChain&&!binding.personalTaskId
+    &&typeof binding.corporateTaskId==='string'&&/^task:[A-Za-z0-9:-]{1,100}$/.test(binding.corporateTaskId)?binding.corporateTaskId:null;
+  const recoverableCorporateTask=selectedCorporateTask&&reader.recoverCorporateTaskReference
+    &&!(visibleDetail?.kind==='handoff'&&visibleDetail.value.subjectKind==='PERSONAL')?selectedCorporateTask:null;
   const visibleCorporate=corporateInspection?.reader===reader&&corporateInspection.key===detailKey
     &&corporateInspection.digest===corporateDigest&&corporateInspection.value.taskId===binding.corporateTaskId?corporateInspection.value:null;
+  const visibleRecoveredCorporate=corporateInspection?.reader===reader&&corporateInspection.key===detailKey
+    &&corporateInspection.value.recoveredFromOriginalTask===true
+    &&corporateInspection.value.taskId===recoverableCorporateTask?corporateInspection.value:null;
   const visibleAttempt=draftAttempt?.reader===reader&&draftAttempt.key===detailKey&&draftAttempt.digest===draftDigest?draftAttempt:null;
   const personalTaskId=binding.personalTaskId;
   const inspectableTask=draftDigest&&reader.inspectPersonalTask&&typeof personalTaskId==='string'
@@ -311,26 +318,33 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
     }catch(err){if(current())setError(message(err));}
     finally{if(current())setBusy(false);}
   };
-  const inspectCorporate=async()=>{
-    if(busy||!stage||!corporateDigest||!binding.corporateTaskId||!reader.inspectCorporateTaskReference||visibleDetail?.kind!=="handoff")return;
-    const epoch=++sequence.current,key=detailKey,digest=corporateDigest,taskId=binding.corporateTaskId;
-    const materialDigest=visibleDetail.value.materialEvidence?.materialEvidenceDigest;
+  const inspectCorporate=async(recoverOnly=false)=>{
+    if(busy||!stage||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED"
+      ||resultSelections.length!==stage.directPredecessorStepIds.length)return;
+    const taskId=recoverOnly?recoverableCorporateTask:selectedCorporateTask;
+    if(!taskId||(recoverOnly?!reader.recoverCorporateTaskReference:
+      !corporateDigest||!reader.inspectCorporateTaskReference||visibleDetail?.kind!=="handoff"))return;
+    const epoch=++sequence.current,key=detailKey,digest=corporateDigest;
+    const materialDigest=visibleDetail?.kind==="handoff"?visibleDetail.value.materialEvidence?.materialEvidenceDigest:null;
     setBusy(true);setError("");setCorporateInspection(null);
     const current=()=>sequence.current===epoch&&liveReader.current===reader&&liveDetailKey.current===key;
     try{
-      const value=await reader.inspectCorporateTaskReference({...request,stepId:stage.stepId,resultSelections,
-        expectedCandidateDigest:digest,taskId});
+      const input={...request,stepId:stage.stepId,resultSelections,taskId};
+      const value:WorkspaceMethodCorporateTaskReferenceInspection&{recoveredFromOriginalTask?:true}=recoverOnly?
+        await reader.recoverCorporateTaskReference!(input):
+        await reader.inspectCorporateTaskReference!({...input,expectedCandidateDigest:digest!});
       if(!current())return;
       const w=value.workflowInput;
       if(value.state!=="SIGNED_CORPORATE_TASK_CURRENT_REFERENCE_MATCHED"||value.taskId!==taskId
           ||value.declaredReferenceMatched!==true||value.exactInputBindingProven!==false||value.allAssetsProven!==false
           ||value.workCompleted!==false||value.resultReuseProven!==false||value.executionAuthority!==false||value.writeAuthorized!==false
-          ||![value.taskRevisionId,value.packageSha256,w?.taskTextSha256,digest].every(h=>typeof h==="string"&&/^[a-f0-9]{64}$/.test(h))
+          ||![value.taskRevisionId,value.packageSha256,w?.taskTextSha256,w?.candidateDigest,w?.materialEvidenceDigest].every(h=>typeof h==="string"&&/^[a-f0-9]{64}$/.test(h))
           ||!w||w.schema!=="IWXA_T3_WORKFLOW_INPUT_REFERENCE/1"||w.workspaceId!==binding.workspaceId||w.projectId!==binding.projectId
           ||w.stepId!==stage.stepId||!sameRef(w.projectRef,binding.expected.projectRef)||!sameRef(w.workRef,stage.workRef)
-          ||w.candidateDigest!==digest||w.inputBasisDigest!==stage.inputBasisDigest||w.materialEvidenceDigest!==materialDigest)
+          ||w.inputBasisDigest!==stage.inputBasisDigest
+          ||(recoverOnly?value.recoveredFromOriginalTask!==true:w.candidateDigest!==digest||w.materialEvidenceDigest!==materialDigest))
         throw Object.assign(Error("invalid"),{code:"METHOD_CORPORATE_TASK_REFERENCE_MISMATCH"});
-      setCorporateInspection({reader,key,digest,value});
+      setCorporateInspection({reader,key,digest:w.candidateDigest,value});
     }catch(err){if(current())setError(message(err));}
     finally{if(current())setBusy(false);}
   };
@@ -426,6 +440,16 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
               <p>Связь с редакцией {visibleRecoveredTask.canonicalWorkRef.revision} работы восстановлена из принятой задачи. Сохранённые входы совпадают.</p>
               {visibleRecoveredTask.personalResultSelections.map(row=><p key={row.stepId} className="break-words">{visible.stages.find(work=>work.stepId===row.stepId)?.name??row.stepId}: {row.taskId}</p>)}
               <p className="text-slate-400">Выполнение работы не засчитано. Данные не изменены.</p>
+            </div>}
+          </div>}
+          {recoverableCorporateTask&&!corporateDigest&&<div className="space-y-1 border-t border-slate-800 pt-2" data-testid="workflow-corporate-recovery">
+            <p className="text-xs text-slate-400 break-words">Выбранное подписанное задание: {recoverableCorporateTask}</p>
+            <button type="button" className={button}
+              disabled={busy||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED"||resultSelections.length!==stage.directPredecessorStepIds.length}
+              onClick={()=>void inspectCorporate(true)}>Восстановить связь с подписанным заданием</button>
+            {visibleRecoveredCorporate&&<div role="status" data-testid="workflow-corporate-reference-recovered" className="text-xs text-slate-200 space-y-1">
+              <p>Подписанная ссылка восстановлена и соответствует текущей редакции работы и проверенному составу входов.</p>
+              <p className="text-slate-400">Работа не засчитана выполненной. Данные не изменены.</p>
             </div>}
           </div>}
           <div className="flex flex-wrap gap-2">

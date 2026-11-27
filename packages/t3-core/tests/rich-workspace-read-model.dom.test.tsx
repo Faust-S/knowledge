@@ -848,4 +848,20 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     expect(f.inspectCorporateTaskReference).not.toHaveBeenCalled();
   });
 
+  it("recovers the original corporate signed reference without a redundant handoff preview",async()=>{
+    const f=corporateFixture();
+    const recoverCorporateTaskReference=vi.fn(async()=>({...f.receipt,recoveredFromOriginalTask:true as const}));
+    render(<WorkspaceMethodWorkflowPanel binding={{...f.binding,reader:{...f.binding.reader,recoverCorporateTaskReference}}}
+      objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));await screen.findByText(/Работ: 2/);
+    fireEvent.click(screen.getByRole("button",{name:"Восстановить связь с подписанным заданием"}));
+    await screen.findByTestId("workflow-corporate-reference-recovered");
+    expect(recoverCorporateTaskReference).toHaveBeenCalledExactlyOnceWith({workspaceId:"w",projectId:"research",
+      expected:f.binding.expected,stepId:"analyse",resultSelections:[],taskId:f.receipt.taskId});
+    expect(f.previewHandoff).not.toHaveBeenCalled();expect(f.inspectCorporateTaskReference).not.toHaveBeenCalled();
+    expect(screen.getByText("Работа не засчитана выполненной. Данные не изменены.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button",{name:/Проверка результатов/}));
+    expect(screen.queryByTestId("workflow-corporate-reference-recovered")).toBeNull();
+  });
+
 });

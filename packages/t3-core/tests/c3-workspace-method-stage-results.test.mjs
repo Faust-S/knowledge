@@ -877,6 +877,15 @@ test('corporate signed carrier owner readback must match current exact original 
   assert.equal(r.state,'SIGNED_CORPORATE_TASK_CURRENT_REFERENCE_MATCHED');assert.equal(r.declaredReferenceMatched,true);
   assert.equal(r.exactInputBindingProven,false);assert.equal(r.executionAuthority,false);assert.equal(reads,2);
   assert.deepEqual(r.workflowInput,p.workflowInput);assert.equal(JSON.stringify(r).includes(p.task),false);
+  const recoveryRequest={...input,taskId:'task:workflow'};
+  const recovered=await h.reader.recoverCorporateTaskReference(recoveryRequest);
+  assert.deepEqual(recovered,{...r,recoveredFromOriginalTask:true});assert.equal(reads,4);
+  await assert.rejects(h.reader.recoverCorporateTaskReference(request),code('T3_METHOD_STAGE_SELECTION_REQUIRED'));
+  await assert.rejects(h.reader.recoverCorporateTaskReference({...recoveryRequest,stepId:'review'}),
+    code('T3_METHOD_CORPORATE_TASK_REFERENCE_SCOPE_MISMATCH'));
+  stored.workflowReference.workflowInput={...p.workflowInput,candidateDigest:'e'.repeat(64)};
+  await assert.rejects(h.reader.recoverCorporateTaskReference(recoveryRequest),code('METHOD_CORPORATE_TASK_EVIDENCE_CHANGED'));
+  stored.workflowReference.workflowInput=p.workflowInput;
   stored.workflowReference.workflowInput={...p.workflowInput,materialEvidenceDigest:'d'.repeat(64)};
   await assert.rejects(h.reader.inspectCorporateTaskReference(request),code('T3_METHOD_CORPORATE_TASK_REFERENCE_MISMATCH'));
   stored.workflowReference.workflowInput=p.workflowInput;
@@ -885,5 +894,24 @@ test('corporate signed carrier owner readback must match current exact original 
   await assert.rejects(h.reader.inspectCorporateTaskReference(request),code('T3_METHOD_CORPORATE_TASK_REVISION_CHANGED'));
   hook=()=>h.changeSelection();
   await assert.rejects(h.reader.inspectCorporateTaskReference(request),code('T3_METHOD_STAGE_WORKSPACE_CHANGED'));
+  assert.equal((await f.owner.audit()).length,3);
+});
+
+test('corporate reference recovery requires explicit current direct Result selection and rejects changed accepted predecessor',async()=>{
+  const d=draft();d.steps[1].actor='agent';
+  const f=await setup(d);let stored=null;
+  const h=trusted(f,{withAssets:true,subjectKind:'CORP',corporateTaskOwner:{readSignedTask:async()=>structuredClone(stored)}});
+  const input=hostInput(f);
+  const preview=await h.reader.previewHandoff({...input,includeMaterialEvidence:true});
+  const p=await h.reader.prepareCorporateTaskReference({...input,expectedCandidateDigest:preview.candidateDigest});
+  stored={found:true,taskId:'task:workflow',taskRevisionId:'b'.repeat(64),packageSha256:'c'.repeat(64),recipientId:'person:worker',
+    workflowReference:{state:'SIGNED_WORKFLOW_REFERENCE_ONLY',taskId:'task:workflow',taskRevisionId:'b'.repeat(64),
+      workflowInput:p.workflowInput,exactInputBindingProven:false,workCompleted:false,resultReuseProven:false,executionAuthorized:false}};
+  const request={...input,taskId:'task:workflow'};
+  const r=await h.reader.recoverCorporateTaskReference(request);
+  assert.equal(r.recoveredFromOriginalTask,true);assert.deepEqual(r.workflowInput,p.workflowInput);assert.equal(r.workCompleted,false);
+  await assert.rejects(h.reader.recoverCorporateTaskReference({...request,resultSelections:[]}),code('METHOD_CORPORATE_TASK_EVIDENCE_CHANGED'));
+  f.changeAccepted({...accepted,archiveSha256:'c'.repeat(64)});
+  await assert.rejects(h.reader.recoverCorporateTaskReference(request),code('METHOD_CORPORATE_TASK_EVIDENCE_CHANGED'));
   assert.equal((await f.owner.audit()).length,3);
 });

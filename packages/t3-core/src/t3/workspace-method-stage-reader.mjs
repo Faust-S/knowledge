@@ -45,8 +45,9 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       &&(!['native-preview','native-recover'].includes(mode)||typeof input.predecessorStepId==='string')
       &&(mode!=='handoff'||input.includeMaterialEvidence===undefined||typeof input.includeMaterialEvidence==='boolean')
       &&(!['personal-draft','personal-draft-recover','personal-task-inspect','corporate-reference','corporate-reference-inspect'].includes(mode)||/^[a-f0-9]{64}$/.test(input.expectedCandidateDigest??''))
-      &&(!['personal-task-inspect','personal-task-recover','corporate-reference-inspect'].includes(mode)||typeof input.taskId==='string')
-      &&(mode!=='corporate-reference-inspect'||/^task:[A-Za-z0-9:-]{1,100}$/.test(input.taskId))
+      &&(!['personal-task-inspect','personal-task-recover','corporate-reference-inspect','corporate-reference-recover'].includes(mode)||typeof input.taskId==='string')
+      &&(!['corporate-reference-inspect','corporate-reference-recover'].includes(mode)||/^task:[A-Za-z0-9:-]{1,100}$/.test(input.taskId))
+      &&(mode!=='corporate-reference-recover'||input.expectedCandidateDigest===undefined)
       &&(mode!=='personal-task-recover'||(input.personalResultSelections===undefined&&(input.resultSelections??[]).length===0))
       &&(input.personalResultSelections===undefined||(['handoff','personal-draft','personal-draft-recover','personal-task-inspect'].includes(mode)
         &&Array.isArray(input.personalResultSelections)&&input.personalResultSelections.length<=63
@@ -62,7 +63,7 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       ...(['native-preview','native-recover'].includes(mode)?{predecessorStepId:input.predecessorStepId}:{}),
       ...(mode==='handoff'&&input.includeMaterialEvidence===true?{includeMaterialEvidence:true}:{}),
       ...(['personal-draft','personal-draft-recover','personal-task-inspect','corporate-reference','corporate-reference-inspect'].includes(mode)?{expectedCandidateDigest:input.expectedCandidateDigest}:{}),
-      ...(['personal-task-inspect','personal-task-recover','corporate-reference-inspect'].includes(mode)?{taskId:input.taskId}:{}),
+      ...(['personal-task-inspect','personal-task-recover','corporate-reference-inspect','corporate-reference-recover'].includes(mode)?{taskId:input.taskId}:{}),
       ...(input.personalResultSelections===undefined?{}:{personalResultSelections:input.personalResultSelections.map(row=>({
         stepId:row?.stepId,taskId:row?.taskId}))})});
     check(isHostActive()===true,'T3_HOST_DISPOSED');
@@ -80,7 +81,7 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
       live();
       check(context?.workspace_id===request.workspaceId&&context.resource===request.workspaceId,
         'T3_METHOD_STAGE_SIGNED_SCOPE_MISMATCH');
-      const corporateMode=['corporate-reference','corporate-reference-inspect'].includes(mode);
+      const corporateMode=['corporate-reference','corporate-reference-inspect','corporate-reference-recover'].includes(mode);
       if(corporateMode)check(context.kind==='CORP','T3_METHOD_CORPORATE_TASK_SCOPE_REQUIRED');
       const personalChain=request.personalResultSelections!==undefined;
       const recoverTask=mode==='personal-task-recover';
@@ -153,11 +154,24 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
               return {taskId:value.taskId,taskRevisionId:value.taskRevisionId,packageSha256:value.packageSha256,
                 recipientId:value.recipientId,workflowInput:reference.workflowInput};
             };
-            const first=await readReference(),prepared=await buildWorkspaceMethodCorporateTaskReference(evidenceArgs),last=await readReference();
+            const first=await readReference();
+            // A signed original Task may supply its own expected reference after restart.
+            // Caller still selects the current Work and actual direct predecessor Results.
+            // Never derive authority or complete material content from carrier metadata.
+            const recovering=mode==='corporate-reference-recover';
+            const w=first.workflowInput;
+            if(recovering)check(w?.schema==='IWXA_T3_WORKFLOW_INPUT_REFERENCE/1'&&w.workspaceId===request.workspaceId
+              &&w.projectId===request.projectId&&w.stepId===request.stepId
+              &&canonicalStringify(w.projectRef)===canonicalStringify(request.expected.projectRef)
+              &&request.expected.workRefs.some(ref=>canonicalStringify(ref)===canonicalStringify(w.workRef))
+              &&/^[a-f0-9]{64}$/.test(w.candidateDigest??''),
+              'T3_METHOD_CORPORATE_TASK_REFERENCE_SCOPE_MISMATCH');
+            const prepared=await buildWorkspaceMethodCorporateTaskReference(recovering?
+              {...evidenceArgs,expectedCandidateDigest:w.candidateDigest}:evidenceArgs),last=await readReference();
             check(canonicalStringify(first)===canonicalStringify(last),'T3_METHOD_CORPORATE_TASK_REVISION_CHANGED');
             check(canonicalStringify(last.workflowInput)===canonicalStringify(prepared.workflowInput),'T3_METHOD_CORPORATE_TASK_REFERENCE_MISMATCH');
             report=Object.freeze({state:'SIGNED_CORPORATE_TASK_CURRENT_REFERENCE_MATCHED',...last,
-              declaredReferenceMatched:true,exactInputBindingProven:false,allAssetsProven:false,workCompleted:false,
+              ...(recovering?{recoveredFromOriginalTask:true}:{}),declaredReferenceMatched:true,exactInputBindingProven:false,allAssetsProven:false,workCompleted:false,
               executionAuthority:false,writeAuthorized:false,resultReuseProven:false});
           }
         }else if(personalMode){
@@ -222,7 +236,8 @@ export function createTrustedWorkspaceMethodStageReader({kernel,accessForRead,cu
     previewHandoff:input=>read(input,'handoff'),
     inspectMaterialEvidence:input=>read(input,'material-evidence'),
     prepareCorporateTaskReference:input=>read(input,'corporate-reference'),
-    ...(corporateTaskOwner===null?{}:{inspectCorporateTaskReference:input=>read(input,'corporate-reference-inspect')}),
+    ...(corporateTaskOwner===null?{}:{inspectCorporateTaskReference:input=>read(input,'corporate-reference-inspect'),
+      recoverCorporateTaskReference:input=>read(input,'corporate-reference-recover')}),
     ...(personalComposer===null?{}:{
       createPersonalDraft:input=>personalDraft(input,'personal-draft'),
       recoverPersonalDraft:input=>personalDraft(input,'personal-draft-recover'),
