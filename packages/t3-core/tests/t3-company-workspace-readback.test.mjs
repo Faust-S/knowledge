@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {companyWorkRecordKeyParts,companyWorkEventPayload,readOriginalCompanyWorkspace,
-  completeCompanyMergePlan,validateCompanyMergeReceipt} from '../src/t3/company-workspace-readback.mjs';
+  readOriginalCompanyTaskRecords,completeCompanyMergePlan,validateCompanyMergeReceipt} from '../src/t3/company-workspace-readback.mjs';
 const ws='ws:company',org='org:one';
 const sha=s=>createHash('sha256').update(s,'utf8').digest('hex');
 const data=(kind,artifactId,text)=>({schema:'IWXA_T3_ORIGINAL_COMPANY_WORK_RECORD/1',
@@ -28,7 +28,8 @@ function fixture(){
       events:2,relations:1,assets:1,schemas_inserted:0,schemas_reused:1,schemas_rejected:0}};
   const kernel={sessionInfo:{contract_version:'1.3.0'},hasOperation:()=>true,
     getWorkspace:async()=>({workspace_id:ws,updated_at:'2026-11-25T00:00:00Z'}),
-    listObjects:async()=>structuredClone(rows),listEventsSince:async()=>structuredClone(events)};
+    listObjects:async()=>structuredClone(rows),listEventsSince:async()=>structuredClone(events),
+    getObject:async(workspace,id)=>({object:structuredClone(rows.find(row=>row.workspace_id===workspace&&row.object_id===id))})};
   return {rows,events,preview,plan,receipt,kernel};
 }
 test('all imported work rows and exact original event payloads are read independently; not signed acceptance',async()=>{
@@ -50,6 +51,40 @@ test('missing imported row, changed content, changed event or mixed snapshot can
     await assert.rejects(readOriginalCompanyWorkspace({kernel:f.kernel,workspaceId:ws,
       expectedRows:f.preview.objects,organizationId:org}));
   }
+});
+test('exact signed Task readback selects its returned Result, uses original Object/Event and excludes other revisions',async()=>{
+  const scope={organizationId:org,workspaceId:ws,executorId:'person:employee',
+    taskId:'task:1',taskRevisionId:'a'.repeat(64),taskPackageSha256:'b'.repeat(64)};
+  const f=fixture();
+  // Unrelated Task history must not cause a native read of another task.
+  const extra=data('RESULT','result:other','Other assignment');
+  extra.taskId='task:2';
+  const objectId='company:work:'+sha(JSON.stringify(companyWorkRecordKeyParts(extra)));
+  f.rows.push({workspace_id:ws,object_id:objectId,schema_id:'iwxa.t3.company-work-record',
+    schema_version:'1.0.0',revision:1,data:extra});
+  f.events.push({workspace_id:ws,object_id:objectId,event_id:'evt:other',revision:1,
+    idempotency_key:objectId.slice('company:work:'.length),event_type:'iwxa.company.work-record.committed',
+    payload:companyWorkEventPayload(extra,objectId)});
+  let reads=0;
+  const lookup=f.kernel.getObject;
+  f.kernel.getObject=async(...args)=>{assert.notEqual(args[1],objectId);reads++;return lookup(...args)};
+  const observed=await readOriginalCompanyTaskRecords({kernel:f.kernel,...scope});
+  assert.equal(reads,2);
+  assert.equal(observed.task.text,'Inspect manufacturing route');
+  assert.deepEqual(observed.results.map(r=>r.text),['Verified route']);
+  assert.equal(observed.signedReceiptVerified,false);
+  assert.deepEqual((await readOriginalCompanyTaskRecords({kernel:f.kernel,...scope,
+    taskRevisionId:'c'.repeat(64)})).results,[]);
+  f.rows[1].data.text='altered';
+  await assert.rejects(readOriginalCompanyTaskRecords({kernel:f.kernel,...scope}),
+    {code:'T3_COMPANY_READBACK_CONTENT_MISMATCH'});
+  const mismatched=fixture();
+  mismatched.events[1].payload.taskPackageSha256='c'.repeat(64);
+  await assert.rejects(readOriginalCompanyTaskRecords({kernel:mismatched.kernel,...scope}),
+    {code:'T3_COMPANY_READBACK_SIGNED_TASK_MISMATCH'});
+  const missing=fixture();missing.rows.shift();missing.events.shift();
+  await assert.rejects(readOriginalCompanyTaskRecords({kernel:missing.kernel,...scope}),
+    {code:'T3_COMPANY_READBACK_SIGNED_TASK_MISMATCH'});
 });
 test('identical replay is complete without a duplicate object/event write; conflicting or partial receipts are not',()=>{
   const f=fixture();
