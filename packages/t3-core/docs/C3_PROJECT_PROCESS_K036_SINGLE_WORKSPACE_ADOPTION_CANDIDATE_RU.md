@@ -4,7 +4,7 @@
 
 ## 1. Decision boundary
 
-The original approved receipt is [C3 Project/Process Owner Approval](https://github.com/Faust-S/T2/blob/39a0b3205ea45a55c3db45b99f5bcf4f0283aef1/t2/current/final-successor/product/approved/C3_PROJECT_PROCESS_OWNER_APPROVAL_RECEIPT_2026-09-18.json), exact source SHA-256/blob identity `e1a57a77ff2368b2d2338d978b490ca529389f99`.
+The original approved receipt is [C3 Project/Process Owner Approval](https://github.com/Faust-S/T2/blob/39a0b3205ea45a55c3db45b99f5bcf4f0283aef1/t2/current/final-successor/product/approved/C3_PROJECT_PROCESS_OWNER_APPROVAL_RECEIPT_2026-09-18.json), exact Git blob SHA-1 identity `e1a57a77ff2368b2d2338d978b490ca529389f99`.
 
 It adopts `iwxa.project-process.owner` for exactly eight source families and create/revise/release commands. It excludes Result and Acceptance writes. It does not authorize production writes until Bridge/D1, producer schemas, migration/recovery, same-Workspace history and exact D4 gates pass. It explicitly excludes Kernel 0.3.6 and requires a new owner decision if the canonical persistence boundary changes.
 
@@ -13,7 +13,7 @@ This document proposes a current-subject persistence mapping for the existing ow
 ## 2. Verified current storage mismatch
 
 - The current original `OwnerWriteGateway` uses `CanonicalPersistence`. Its `IndexedDbCanonicalAdapter` defaults to database `iwxa-t2-canonical` and owns records, heads and audit stores.
-- The qualified K036 runtime uses the single existing IndexedDB database `iwxa-local` (DB_VERSION 7). Its existing stores include Workspace, objects, relations, events, assets, schemas and atomic graph replay receipts.
+- The original atomic-graph source overlay uses `iwxa-local` DB_VERSION 7. The active qualified same-store history artifact `iwxa-kernel-k036-same-store-history-20261019-qualified.1` uses DB_VERSION 8, runtime SHA-256 `e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78`, archive SHA-256 `7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68`. Its original stores include Workspace, objects, relations, events, assets, schemas and atomic graph replay receipts. The [original same-store qualification](https://github.com/Faust-S/T2/blob/39a0b3205ea45a55c3db45b99f5bcf4f0283aef1/t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019/QUALIFICATION.md) reports 36/36 Kernel tests and physical Chromium Workspace roundtrip; it is not qualification of the new methodology records.
 - K036 `t1.commitObjectGraph` writes one object, relation puts/deletes and one event in one read-write transaction. It enforces `base_revision`, idempotency, schema declaration and schema-specific permissions.
 - The original Kernel Exchange exports a Workspace package with configurable history, assets, relations and schemas. It does not export an unrelated `iwxa-t2-canonical` database.
 
@@ -56,9 +56,21 @@ The first-write anchor, revision object identity, relation CAS, tombstone repres
 | Downgrade | Old client cannot silently overwrite or erase method metadata |
 | D4 | Current Kernel 0.3.6 / Runtime Contract 1.3.0 exact release and source evidence, not the old K035 0.3.5 receipt |
 
-The current native source runner is `packages/t3-core/scripts/run-c3-project-process-qualification.mjs`; it validates the exact clean HEAD, active runtime source contract and 97 C3/Workspace test cases. It is not D4 and does not authorize production writes.
+The current native source runner is `packages/t3-core/scripts/run-c3-project-process-qualification.mjs`; it validates the exact clean HEAD, active runtime source contract and the current discovered C3/Workspace test set (97 cases at the earlier W04.10 revision; current full native count not yet qualified). It is not D4 and does not authorize production writes.
 
-## 6. Explicit owner decision requested
+## 6. Current-subject investigation, 27 November 2026
+
+User confirms there are no legacy user records to move. Do not add a migration pipeline from the standalone canonical database. Original recovery and exact release acceptance still apply to newly created records; do not relabel the old migration/recovery gate as PASS.
+
+Evidence from the retained K036 atomic-graph `ScopedWorkspaceApi.ts` (Git blob SHA-1 `2bc34d25d1f8cd8ae018c4e0606ee07a9f97429f`): original `getObject` and `listObjects` apply schema read permissions, whereas `listEventsSince(workspace_id,since?)` applies Workspace read and optionally service scope, not object-schema read. Nine extracted exact-source method checks with controlled LocalStore ports reproduce the boundary. This is not a native transport, IndexedDB or installed Kernel qualification. The same-store successor generator patches database and import keys, not these methods. The existing `by_object` event index is not exposed as a permission-aware revision read API.
+
+- A. Full canonical snapshots in regular Event: rejected as the current unrestricted common mapping. A shared Workspace event reader could receive content of a schema it cannot read via getObject. Service-only events also cannot serve all authorised consumers of a common Workspace; need explicit current-subject proof, not assumption.
+- B. Immutable revision objects and head/predecessor relations in the same existing Kernel: candidate remains technically possible, not implemented/approved. Schema visibility can be preserved, but first-write identity, head CAS, history lookup, tombstone, nested refs remap and catalog growth must be proved. Existing graph commit writes one object only. Do not duplicate current logical business objects in the ordinary catalog or enumerate all revisions on opening Workspace.
+- C. If B cannot meet actual performance and history access requirements without duplication, narrowly extend the original Kernel/contract with addressed, permission-aware historical reads and original Exchange participation. This requires an explicit architecture/contract decision and current-subject qualification, not a second Core/Store or separate format. No Kernel changes made in W04.11–W04.14.
+
+`listObjects(limit)` also forwards limit before the schema visibility filter; naive limited queries may underfill visible results. There is no cursor in this surface. Keep complete current catalog semantics until an authorised indexed page contract is available. W04.12–14 optimize existing Host lazy graph/journal and projection; full catalog payloads still fetched; explicit full history still fetched. The 12/12 native source-gate tests guard direct standalone adapter references in active source, not runtime persistence.
+
+## 7. Explicit owner decision requested
 
 Approve or reject the following bounded change:
 
