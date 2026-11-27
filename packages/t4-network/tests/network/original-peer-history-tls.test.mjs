@@ -6,6 +6,9 @@ import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {createServer,connect} from 'node:tls';
 import {once} from 'node:events';
+import {createServer as reservePort} from 'node:net';
+import {setTimeout as delay} from 'node:timers/promises';
+import {openT4OriginalNativePeerStartup} from '../../src/network/original-native-peer-startup.mjs';
 import {createHash,X509Certificate} from 'node:crypto';
 import {createT4OriginalPeerHistoryTlsBinding,createT4OriginalPeerHistoryTlsConnection,T4_ORIGINAL_PEER_HISTORY_TLS_ALPN}
   from '../../src/network/original-peer-history-tls-connection.mjs';
@@ -227,4 +230,38 @@ test('K100 explicitly replace the admitted TLS connection without replacing the 
     console.log('T4_K100_ORIGINAL_PEER_TLS_REBIND_PASS',JSON.stringify({sameReadOnlyOwnerCallback:true,oldPendingReadRejected:true,
       explicitNewConnection:true,spontaneousTransportLossRecovered:true,oldContextRejected:true,foreignRouteRejected:true,automaticRetry:false,originalSubjectMutationInvoked:false}));
   }finally{hold?.release.resolve();a?.close();b?.close();for(const p of pairs)await p.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('native startup hands two real TLS endpoints to the unchanged original history carrier',{timeout:15000},async()=>{
+  const root=await mkdtemp(join(tmpdir(),'iwxa-t4-native-startup-'));
+  const stop=new AbortController();let a,b;
+  try{
+    const keys=await credentials(root),f=await captureFixture(),reservation=reservePort();
+    await new Promise((resolve,reject)=>{reservation.once('error',reject);reservation.listen(0,'127.0.0.1',resolve);});
+    const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve));
+    const start=(mode,local,peer,localKeys,peerKeys)=>openT4OriginalNativePeerStartup({
+      endpoint:{mode,address:'127.0.0.1',port,...(mode==='CONNECT'?{serverName:'localhost'}:{})},
+      identity:{workspaceId,originalWriteOwnerRef,scopeRef,ownerEpoch,localNodeRef:local,peerNodeRef:peer,contextEpoch:7,
+        localCertificateSha256:localKeys.pin,peerCertificateSha256:peerKeys.pin},
+      readOriginalCredentials:()=>({cert:localKeys.cert,key:localKeys.key,ca:localKeys.ca}),
+      getMode:common.getMode,isOriginalHostActive:()=>!stop.signal.aborted,
+      authorizeOriginalPeerConnection:x=>x.originalTransportGrantsNoSubjectAuthority===true,
+      signal:stop.signal,timeoutMs:5000,alpn:T4_ORIGINAL_PEER_HISTORY_TLS_ALPN,
+      createOriginalConnection:createT4OriginalPeerHistoryTlsConnection});
+    const wait=start('LISTEN',A,B,keys.a,keys.b).then(x=>a=x);wait.catch(()=>{});
+    await delay(50);
+    const dial=start('CONNECT',B,A,keys.b,keys.a).then(x=>b=x);dial.catch(()=>{});
+    await Promise.all([wait,dial]);
+    assert.equal(a.readOriginalPeerContext().originalPeerSessionRef,b.readOriginalPeerContext().originalPeerSessionRef);
+    let reads=0;
+    a.bindReceiver(createT4OriginalReplacementHistoryServer({...route(A,B),
+      readOriginalPeerContext:a.readOriginalPeerContext,readOriginalReplacementOwnerHistory:async({request})=>{
+        reads++;assert.deepEqual(request,f.request);return null;}}));
+    const client=createT4OriginalReplacementHistoryClient({...route(B,A),readOriginalPeerContext:b.readOriginalPeerContext,
+      invokeOriginalPeerHistory:b.invokeOriginalPeerHistory});
+    assert.equal(await client(f.request),null);assert.equal(reads,1);
+    stop.abort();
+    await assert.rejects(client(f.request),{code:'ORIGINAL_PEER_TLS_ADMISSION_DENIED'});
+    assert.equal(reads,1);
+  }finally{stop.abort();a?.close();b?.close();await rm(root,{recursive:true,force:true});}
 });

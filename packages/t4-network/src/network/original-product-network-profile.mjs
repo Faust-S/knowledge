@@ -8,6 +8,9 @@ import {normalizeOriginalInstalledNetworkScope} from '../../../t3-core/src/t3/or
 import {createT4OriginalProductNetworkAccess} from './original-product-network-access.mjs';
 import {createT4OriginalNativeHostNetworkProfile} from './original-native-host-network-profile.mjs';
 import {createT4OriginalInstalledControlFactories} from './original-installed-control-factories.mjs';
+import {openT4OriginalNativePeerStartup} from './original-native-peer-startup.mjs';
+import {createT4OriginalPeerHistoryTlsConnection,isT4OriginalPeerHistoryTlsConnection,T4_ORIGINAL_PEER_HISTORY_TLS_ALPN}
+  from './original-peer-history-tls-connection.mjs';
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const fail=code=>{throw Object.assign(Error(code),{code,outcome:'DENIED'});};
 const obj=x=>x&&typeof x==='object'&&!Array.isArray(x);
@@ -51,13 +54,15 @@ export function createT4OriginalProductProfileFactory({scope,registryObjectId='t
       !/^[A-Za-z0-9_-]{43}$/.test(lifetime.sessionId??'')||
       !Number.isSafeInteger(lifetime.contextEpoch)||lifetime.contextEpoch<0)
       fail('T4_INSTALLED_PRODUCT_ORIGINAL_HOST_REQUIRED');
-    let closed=false,authority=null,profile=null;
+    let closed=false,authority=null,profile=null,peerConnection=null;
+    const peerStartupAbort=new AbortController();
     const active=()=>!closed&&lifetime.isHostActive()===true;
     const requireActive=()=>{if(!active())fail('T4_INSTALLED_PRODUCT_HOST_DISPOSED');};
     const close=()=>{
       if(closed)return;
       closed=true;
-      try{authority?.close();}finally{profile?.close();}
+      peerStartupAbort.abort();
+      try{authority?.close();}finally{try{profile?.close();}finally{peerConnection?.close();}}
     };
     try{
       requireActive();
@@ -84,7 +89,30 @@ export function createT4OriginalProductProfileFactory({scope,registryObjectId='t
         enableRecipientResultRead:options.enableRecipientResultRead??false});
       const resolver=bindT4OriginalProductKernelAccess({registry,scope:selected,lifetime:{...lifetime,isHostActive:active},
         resolveOriginalKernelAccess:input.resolveOriginalKernelAccess});
-      profile=createT4OriginalNativeHostNetworkProfile({...options,getMode,originalAccess:authority.originalAccess,
+      const {originalPeerTls,...nativeOptions}=options;
+      if(originalPeerTls!==undefined){
+        if(!obj(originalPeerTls)||Object.hasOwn(options,'originalPeerHistory')||
+          Object.keys(originalPeerTls).some(k=>!['endpoint','readOriginalCredentials','authorizeOriginalPeerConnection',
+            'localCertificateSha256','peerCertificateSha256','timeoutMs'].includes(k)))
+          fail('T4_INSTALLED_PRODUCT_PEER_STARTUP_INVALID');
+        const source=selected.role==='SOURCE';
+        peerConnection=await openT4OriginalNativePeerStartup({
+          endpoint:originalPeerTls.endpoint,readOriginalCredentials:originalPeerTls.readOriginalCredentials,
+          authorizeOriginalPeerConnection:originalPeerTls.authorizeOriginalPeerConnection,
+          identity:{workspaceId:selected.sourceWorkspaceId,originalWriteOwnerRef:options.originalWriteOwnerRef,
+            scopeRef:options.scopeRef,ownerEpoch:options.ownerEpoch,
+            localNodeRef:source?options.sourceNodeRef:options.recipientNodeRef,
+            peerNodeRef:source?options.recipientNodeRef:options.sourceNodeRef,
+            contextEpoch:lifetime.contextEpoch,localCertificateSha256:originalPeerTls.localCertificateSha256,
+            peerCertificateSha256:originalPeerTls.peerCertificateSha256},
+          getMode,isOriginalHostActive:active,signal:peerStartupAbort.signal,
+          timeoutMs:originalPeerTls.timeoutMs,alpn:T4_ORIGINAL_PEER_HISTORY_TLS_ALPN,
+          createOriginalConnection:createT4OriginalPeerHistoryTlsConnection});
+        requireActive();
+        if(!isT4OriginalPeerHistoryTlsConnection(peerConnection))fail('T4_INSTALLED_PRODUCT_PEER_STARTUP_INVALID');
+        nativeOptions.originalPeerHistory=peerConnection;
+      }
+      profile=createT4OriginalNativeHostNetworkProfile({...nativeOptions,getMode,originalAccess:authority.originalAccess,
         originalPorts:{...options.originalPorts,resolveOriginalAccess:resolver}});
       requireActive();
       return Object.freeze({...profile,close});
