@@ -1026,6 +1026,126 @@
       "releasePinsChanged": false,
       "T4_READY": false,
       "FEATURE_FREEZE": true
+    },
+    "latestOneWayOriginalExchangeBaseline": {
+      "date": "2026-11-27",
+      "state": "ORIGINAL_EMPTY_EXCHANGE_SOURCE_QUALIFIED_INSTALLED_NOT_ACCEPTED",
+      "core": {
+        "commit": "9a23201b7fc21c59abcf1818689bf655937baa0a",
+        "tree": "f34bf5da634a8de2f598541fae5a123c297b55cd",
+        "runtimeQualifiedCommit": "3bb25f61753e35171e314644eb88d4f9b3665456",
+        "runtimeQualifiedTree": "e3114b4bb84214f5277b602a632127dcf70d5655",
+        "deltaAfterQualifiedCommit": "Native three-transfer regression fixture only"
+      },
+      "owner": {
+        "commit": "378a2e8ca6de662b5e28562e334c2a97a00ed331",
+        "tree": "08d3e6e2bbb9101f2b6f26313a74c5551986705f",
+        "configurationTests": {
+          "node": "22.16.0",
+          "pass": 10,
+          "fail": 0,
+          "realTemporaryCertificates": true,
+          "windowsDPAPI": "NOT_RUN"
+        },
+        "compositionTests": {
+          "commit": "9eb084f2b2384d396a3cd5d727e66f6c67dfc498",
+          "pass": 25,
+          "fail": 0,
+          "scope": "Exact private source and tests in isolated V8 with adapted Node test/assert/Buffer/structuredClone; modeled owner ports"
+        }
+      },
+      "agent": {
+        "commit": "e79dc7886d1af07e9146fc3007d4ef9b4b199870",
+        "tree": "2cd26f1150b7fcab7f336984dc1172a5a0ee0fdc",
+        "build": "NOT_RUN"
+      },
+      "center": {
+        "commit": "7daeef88d428c7ca7cee91692b819defac803540",
+        "tree": "c5abd3a6c8fc859ee1a38ab0162252877fed095d",
+        "fullLocalQualification": "NOT_RUN",
+        "fourthOriginalRecipeRequired": true
+      },
+      "qualification": {
+        "nativePhase": {
+          "commit": "fde364744ee575b8fe0a96f57886e60e235392b5",
+          "run": 46050116774,
+          "firstUse": {
+            "pass": 1,
+            "fail": 0,
+            "transfers": 3,
+            "coldRecovery": true,
+            "scope": "Signed relay, actual cryptography, modeled original Kernel and wire ports"
+          },
+          "regression": "CANCELLED"
+        },
+        "sharedCreationPrefix": {
+          "run": 46052168573,
+          "componentPass": 61,
+          "signedRelayPass": 2,
+          "fail": 0
+        },
+        "originalEmptyExchange": {
+          "run": 46053009571,
+          "originalAcceptedKernel": "iwxa-kernel-k036-same-store-history-20261019-qualified.1",
+          "originalRuntimePass": 1,
+          "componentPass": 63,
+          "signedRelayPass": 2,
+          "fail": 0,
+          "physicalZip": true,
+          "independentIndexedDBEmulations": 2,
+          "coldReadbackBothRoles": true,
+          "fixtureAccess": true,
+          "unacceptedCorrectedCandidate": "NOT_RUN",
+          "installedWindows": "NOT_RUN"
+        },
+        "integratedOneWayNativePhases": {
+          "run": 46053120268,
+          "status": "IN_PROGRESS_AT_LAST_OBSERVATION",
+          "scope": "Three original captured changes, exact observed import Event shape, modeled Kernel and transport"
+        }
+      },
+      "diagnostics": [
+        {
+          "run": 46052526871,
+          "result": "FAIL",
+          "cause": "Actual original Kernel appends iwxa.import.applied; two-creation-only assumption rejected original history"
+        },
+        {
+          "run": 46052653517,
+          "result": "FAIL_DIAGNOSTIC",
+          "observed": [
+            "workspace.created from SOURCE",
+            "workspace.created from RECIPIENT",
+            "iwxa.import.applied"
+          ],
+          "importedEvents": 1,
+          "otherChanges": 0
+        },
+        {
+          "run": 46052903534,
+          "result": "63/63 + 2/2 component PASS; original Runtime FAIL",
+          "cause": "Actual import receipt service is iwxa.kernel, not Admin Exchange service; corrected to exact original service"
+        }
+      ],
+      "decisions": [
+        "First pilot uses one-way original empty signed Workspace merge; SOURCE cursor remains its exact original creation Event, RECIPIENT proves original local creation and Kernel import receipt, reads empty Object/Asset sets, and double-checks evidence. No return archive required.",
+        "Existing shared creation-prefix support remains; no cursor, wire, store, IAM or Kernel changes.",
+        "Native compact phase provider uses existing original capture/phase evidence; missing deletion-specific dependency provider is not a first-use gate without an enrolled deletion grant. Explicit deletion still requires actual proof.",
+        "Working candidate pins updated, stable release pins unchanged."
+      ],
+      "blocking": [
+        "Original private signed authority and remaining provider composition; SOURCE installed startup and compiled Admin RECIPIENT launch not wired",
+        "Original corrected unaccepted K036 exact private reconstruction/full local qualification and actual Registry ZIP import",
+        "Windows build and DPAPI, physical server and two installed products, independent final acceptance"
+      ],
+      "publicActions": 7,
+      "privateActions": 0,
+      "codexUsed": false,
+      "kernelChanged": false,
+      "wireChanged": false,
+      "releasePinsChanged": false,
+      "T4_READY": false,
+      "FEATURE_FREEZE": true
     }
   }
 }
