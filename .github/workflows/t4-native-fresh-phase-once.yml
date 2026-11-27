@@ -1,0 +1,43 @@
+name: T4 compact native first-use phase qualification
+on:
+  push:
+    branches:
+      - 'ci/once/t4-native-fresh-phase/fde364744ee5'
+permissions:
+  contents: read
+jobs:
+  first-use:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fde364744ee575b8fe0a96f57886e60e235392b5
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact core identity and fresh compact source-recipient roundtrip
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "fde364744ee575b8fe0a96f57886e60e235392b5"
+          test "$(git rev-parse HEAD^{tree})" = "dac9cb9142f7ac10ecbd4433bc495a7e1a5d2ada"
+          node --test --test-name-pattern='fresh compact native phase evidence' packages/t4-network/tests/original-native-host-network-owner.test.mjs
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fde364744ee575b8fe0a96f57886e60e235392b5
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Baseline, phases, installed profile and external witness regression
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "fde364744ee575b8fe0a96f57886e60e235392b5"
+          test "$(git rev-parse HEAD^{tree})" = "dac9cb9142f7ac10ecbd4433bc495a7e1a5d2ada"
+          node --test packages/t4-network/tests/original-network-baseline-admission.test.mjs packages/t4-network/tests/original-network-session-phases.test.mjs packages/t4-network/tests/original-installed-fixed-profile.test.mjs packages/t4-network/tests/original-native-network-product-activation.test.mjs packages/t4-network/tests/original-installed-control-factories.test.mjs
+          node --test --test-name-pattern='K92 original signed native relays|both native roles admit the same original fresh Workspace' packages/t4-network/tests/original-native-host-network-owner.test.mjs
