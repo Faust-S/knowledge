@@ -29,7 +29,7 @@ jobs:
           persist-credentials: false
       - name: Admit one exact request
         run: |
-          python tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-live-product-acceptance --profile live-os --revision domain=c4406c29abd639862fc21edf417c5d049184e926 --revision site=5a4f811efd42daa903cb10514f349c7c715e0947 --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17
+          python tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-live-product-acceptance --profile live-os --revision domain=c4406c29abd639862fc21edf417c5d049184e926 --revision site=c15e21b94c2079ed744f2397b77fa6e906077812 --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17
           if ($LASTEXITCODE -ne 0) { throw "D11_REQUEST_INVALID" }
       - name: Confirm previously qualified exact product sources
         env:
@@ -38,23 +38,6 @@ jobs:
           $r=gh api "repos/Faust-S/knowledge/actions/runs/46045820704" | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0 -or $r.conclusion -ne "success" -or $r.head_sha -ne "598d881dbbdc540ef7ed5b1c32e8c56bf1e5c0eb") { throw "D11_PRIOR_QUALIFICATION_MISSING" }
           Write-Output "D11_PRIOR_QUALIFICATION=PASS"
-      - name: Verify identity of prior Linux public and exchange evidence
-        id: linux_previous
-        if: runner.os == 'Linux'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $run=gh api "repos/Faust-S/knowledge/actions/runs/46050414465" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or $run.head_sha -ne "2413f8e31d28af7c04f4def5e01088840a3c792e" -or $run.status -ne "completed") { throw "D11_PREVIOUS_LIVE_IDENTITY_MISSING" }
-          $jobs=gh api "repos/Faust-S/knowledge/actions/runs/46050414465/jobs" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) { throw "D11_PREVIOUS_JOB_METADATA_UNAVAILABLE" }
-          $job=@($jobs.jobs | Where-Object { $_.id -eq 140680033183 -and $_.status -eq "completed" })
-          if ($job.Count -ne 1) { throw "D11_PREVIOUS_JOB_IDENTITY_MISSING" }
-          foreach ($name in @("Build the exact previously qualified product","Real browser ten cases and own-project forms","Original T2 result readback and Exchange","Verify original 26 desktop and mobile screenshots locally")) {
-            if (@($job[0].steps | Where-Object { $_.name -eq $name -and $_.conclusion -eq "success" }).Count -ne 1) { throw "D11_PREVIOUS_STEP_METADATA_MISSING" }
-          }
-          Write-Output "D11_LINUX_PRIOR_JOB_METADATA=PASS"
       - name: Check existing private read scope
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
@@ -68,10 +51,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 5a4f811efd42daa903cb10514f349c7c715e0947
+          ref: c15e21b94c2079ed744f2397b77fa6e906077812
           token: ${{ secrets.DOMEN }}
           path: site
-          fetch-depth: 4
+          fetch-depth: 5
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
@@ -92,11 +75,11 @@ jobs:
           node-version: '22.16.0'
       - name: Verify unchanged product sources and 56 canonical mirrors
         run: |
-          if ((git -C site rev-parse HEAD).Trim() -ne "5a4f811efd42daa903cb10514f349c7c715e0947" -or
+          if ((git -C site rev-parse HEAD).Trim() -ne "c15e21b94c2079ed744f2397b77fa6e906077812" -or
               (git -C domain rev-parse HEAD).Trim() -ne "c4406c29abd639862fc21edf417c5d049184e926" -or
               (git -C t2 rev-parse HEAD).Trim() -ne "e70de29b72b83e2546f7ab74b17572685a728c17" -or
-              (git -C site rev-parse HEAD~3).Trim() -ne "56d5851c466d14d17a2c6e250df452a4dfeaf068") { throw "D11_PIN_MISMATCH" }
-          $changes=@(git -C site diff --name-only HEAD~3 HEAD)
+              (git -C site rev-parse HEAD~4).Trim() -ne "56d5851c466d14d17a2c6e250df452a4dfeaf068") { throw "D11_PIN_MISMATCH" }
+          $changes=@(git -C site diff --name-only HEAD~4 HEAD)
           $expected=@("scripts/build-t2-integrated-site.mjs","scripts/d11-live-operational-os.mjs","scripts/d11-live-t2-kernel-exchange-acceptance.mjs","tests/d11-integrated-build.test.mjs")
           if ($changes.Count -ne $expected.Count -or @($changes | Where-Object { $expected -notcontains $_ }).Count -ne 0) { throw "D11_PRODUCT_SOURCE_CHANGED" }
           $o=Get-Content -Raw -Encoding UTF8 site/runtime/d11-module/operations/source.json | ConvertFrom-Json
@@ -158,6 +141,9 @@ jobs:
           }
           if ($code -ne 0) { Write-Output "D11_BUILD_EXIT=$code"; throw "D11_UI_BUILD_FAILED" }
           if (!(Test-Path dist/workspace/index.html)) { throw "D11_DIST_MISSING" }
+          if (!(Select-String -Path $log -SimpleMatch "D11_KERNEL_QUALIFIED_FILES=4/4 PASS" -Quiet)) { throw "D11_QUALIFIED_KERNEL_WITNESS_MISSING" }
+          if (Test-Path dist/_iwxa/diagnostics) { throw "D11_ENGINEERING_DIAGNOSTICS_INCLUDED" }
+          Write-Output "D11_KERNEL_QUALIFIED_FILES=4/4 PASS"
           Write-Output "D11_ONE_DIST=PASS"
       - name: Static product and public page checks
         id: static
@@ -173,7 +159,6 @@ jobs:
           Write-Output "D11_STATIC=9/9 PASS"
       - name: Real browser ten cases and own-project forms
         id: ui
-        if: runner.os == 'Windows'
         continue-on-error: true
         working-directory: site
         run: |
@@ -188,7 +173,6 @@ jobs:
           Write-Output "D11_LIVE_BROWSER=PASS"
       - name: Original T2 result readback and Exchange
         id: kernel
-        if: runner.os == 'Windows'
         continue-on-error: true
         working-directory: site
         run: |
@@ -219,7 +203,6 @@ jobs:
           Write-Output "D11_OPERATIONAL_OS=PASS"
       - name: Verify original 26 desktop and mobile screenshots locally
         id: visual
-        if: runner.os == 'Windows'
         continue-on-error: true
         run: |
           $dir=Join-Path $env:RUNNER_TEMP "d11-visual"
@@ -236,9 +219,7 @@ jobs:
         if: always()
         run: |
           if ("${{ steps.build_regression.outcome }}" -ne "success" -or "${{ steps.build.outcome }}" -ne "success" -or "${{ steps.static.outcome }}" -ne "success" -or "${{ steps.os.outcome }}" -ne "success") { throw "D11_LIVE_ACCEPTANCE_INCOMPLETE" }
-          if ($env:RUNNER_OS -eq "Windows") {
-            if ("${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.kernel.outcome }}" -ne "success" -or "${{ steps.visual.outcome }}" -ne "success") { throw "D11_WINDOWS_QUALIFICATION_INCOMPLETE" }
-          } elseif ("${{ steps.linux_previous.outcome }}" -ne "success") { throw "D11_LINUX_PRIOR_QUALIFICATION_INCOMPLETE" }
+          if ("${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.kernel.outcome }}" -ne "success" -or "${{ steps.visual.outcome }}" -ne "success") { throw "D11_PUBLIC_OR_EXCHANGE_QUALIFICATION_INCOMPLETE" }
           Write-Output "D11_LIVE_FULL_ACCEPTANCE=PASS"
       - name: Remove private inputs and diagnostics
         if: always()
