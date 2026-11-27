@@ -1,0 +1,9 @@
+{
+  "preparedSha": "9e79c3036de486b760fc439bfd35e63d546d8eef",
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-rc5-ready-acceptance",
+  "source": "a50d40dafc2e029fcc7668dece925f7fc38cc510",
+  "releaseTag": "t3-platform-v0.3.1-rc.5",
+  "archiveSha256": "381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4",
+  "reason": "DELIVER_RUNNABLE_ORIGINAL_HOST_FOR_INDEPENDENT_ACCEPTANCE_WITHOUT_REBUILD"
+}
