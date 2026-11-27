@@ -18,6 +18,8 @@ import {CANDIDATE_KERNEL_ARTIFACT,selectQualificationKernelCandidate}
 import {assertInstalledOriginalKernelArtifact} from '../scripts/installed-kernel-selection.mjs';
 import {companyExchangeServiceId} from '../src/t3/company-exchange-profile.mjs';
 import {assertT4OriginalInstalledProductPassport} from '../../t4-network/src/network/original-installed-product-passport.mjs';
+import {createT4OriginalFreshWorkspaceBaseline,readT4OriginalFreshWorkspaceBaselineSelection}
+  from '../../t4-network/src/network/original-network-baseline-admission.mjs';
 import {createSubjectKernelBinding} from '../src/t3/subject-access-binding.mjs';
 import {createTrustedReconciliationKernelApply} from '../src/t3/reconciliation-kernel-apply.mjs';
 import {companyWorkRecordKeyParts,companyWorkEventPayload,readOriginalCompanyWorkspace,
@@ -494,5 +496,72 @@ test('native pilot passports execute original Kernel permission ceiling and pers
       assert.ok(tombstone&&tombstone.revision===business.revision+1&&tombstone.deleted===true,'PILOT_ORIGINAL_TOMBSTONE_MISSING');
       await pilot.runtime.__resetKernelStoreForTests();
     }
+  });
+});
+
+// Actual original Kernel and Exchange ZIP, independent IndexedDB emulations.
+// Test access is still a fixture; native enrollment and Windows are separate gates.
+test('original empty Workspace roundtrip admits identical shared T4 creation prefix on both pilot roles',async()=>{
+  await withOriginalRuntime(async({stage,activate})=>{
+    const source=await stage('agent','SOURCE'),recipient=await stage('admin','RECIPIENT');
+    const history=p=>p.product.t1.listEventsSince(ws);
+    async function exportEmpty(p){
+      const preview=await p.bound.exportPreview(full);
+      assert.equal(preview.summary.scope_mode,'workspace');
+      assert.equal(preview.counts.objects,0);assert.equal(preview.counts.assets,0);
+      const archive=await p.bound.exportPackage(full);
+      assert.ok(archive.bytes instanceof Uint8Array&&archive.bytes.length>0,'ORIGINAL_ZIP_REQUIRED');
+      await p.bound.confirmExport({package_digest:archive.package_digest,workspace_ids:[ws]});
+      return archive;
+    }
+    async function importEmpty(p,archive){
+      const incoming=await p.bound.importPreview(archive.bytes);
+      assert.equal(incoming.preview.scope_mode,'workspace');
+      assert.equal(incoming.preview.included.events,archive.manifest.counts.events);
+      assert.equal(incoming.preview.included.objects,0);
+      const receipt=await p.bound.importCommit({preview_token:incoming.preview_token,
+        package_digest:incoming.package_digest,plan:merge});
+      assert.deepEqual(validateCompanyMergeReceipt(incoming.preview,merge,receipt),[]);
+    }
+    function admission(p,role,selection){
+      const originalKernel={hasOperation:op=>p.product.granted_operations.includes(op)};
+      for(const name of ['listEventsSince','listObjects','listAssets'])
+        originalKernel[name]=(...args)=>p.product.t1[name](...args);
+      return createT4OriginalFreshWorkspaceBaseline({selection,role,workspaceId:ws,
+        originalWriteOwnerRef:'person:employee',originalKernel,getMode:()=> 'T4_NETWORK',
+        authorizeOriginalRead:async()=>true,requireCurrent:async()=>{}});
+    }
+    const a=await activate(source);
+    await a.product.t1.createWorkspace({workspace_id:ws,profile:'generic'});
+    const sourceInitial=await history(a);
+    assert.equal(sourceInitial.length,1);
+    const outbound=await exportEmpty(a);
+    assertHistoryContains(await history(a),sourceInitial);
+    await source.runtime.__resetKernelStoreForTests();
+    const b=await activate(recipient);
+    await b.product.t1.createWorkspace({workspace_id:ws,profile:'generic'});
+    const recipientInitial=await history(b);
+    assert.equal(recipientInitial.length,1);
+    assert.notEqual(recipientInitial[0].event_id,sourceInitial[0].event_id);
+    await importEmpty(b,outbound);
+    const merged=await history(b);
+    assertHistoryContains(merged,[...sourceInitial,...recipientInitial]);
+    const proposal=readT4OriginalFreshWorkspaceBaselineSelection({workspaceId:ws,originalEvents:merged});
+    assert.equal(proposal.confirmed,false);assert.equal(proposal.creationAnchors.length,2);
+    const selection={...proposal,confirmed:true};
+    const inbound=await exportEmpty(b);
+    const before=await admission(b,'RECIPIENT',selection).readOriginalBaselineAdmissionInput();
+    await recipient.runtime.__resetKernelStoreForTests();
+    const ac=await activate(source);
+    await importEmpty(ac,inbound);
+    assertHistoryContains(await history(ac),merged);
+    const sourceBaseline=await admission(ac,'SOURCE',selection).readOriginalBaselineAdmissionInput();
+    assert.deepEqual(sourceBaseline,before,'ORIGINAL_BASELINE_CURSORS_DIVERGED');
+    await source.runtime.__resetKernelStoreForTests();
+    const bc=await activate(recipient);
+    assert.deepEqual(await admission(bc,'RECIPIENT',selection).readOriginalBaselineAdmissionInput(),before);
+    await recipient.runtime.__resetKernelStoreForTests();
+    const acc=await activate(source);
+    assert.deepEqual(await admission(acc,'SOURCE',selection).readOriginalBaselineAdmissionInput(),before);
   });
 });
