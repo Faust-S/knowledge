@@ -13,7 +13,7 @@ const ca=readFileSync(process.env.NODE_EXTRA_CA_CERTS,'utf8');
 const pin=createHash('sha256').update(new X509Certificate(ca).raw).digest('hex');
 const caps=['network.frame.read','network.frame.publish','network.frame.index.read','network.frame.index.publish'];
 const actions=caps.map(x=>'t4.'+x),family='network:pilot',server='node:pilot:apache',location='location:pilot:apache';
-function fixture({node='node:pilot:source',authorization=auth,certificateSha256=pin,onCredential=()=>{}}={}){
+function fixture({node='node:pilot:source',authorization=auth,certificateSha256=pin,onCredential=()=>{},simple=false}={}){
   const original=createTemporaryOriginalPersonalAuthority({workspaceId:'ws:pilot:real',operations:actions,purpose:'network.synchronization',clock:Date.now});
   const context=original.access.currentContext(),workspaceId=context.workspace_id,principal=context.principal_id,owner='owner:'+workspaceId;
   let live=true,credentials=0;
@@ -29,8 +29,8 @@ function fixture({node='node:pilot:source',authorization=auth,certificateSha256=
       primaryPlacement:'LOCAL_PRIMARY_HOSTED_REPLICA',allowedLocations:['location:'+node,location],
       retentionClass:'pilot',recoveryClass:'pilot',universalCloudMaster:false,subjectActionAuthority:false},
       primaryNodeRef:node,replicaNodeRefs:[server]}]});
-  let selection={confirmed:true,topology,ca,certificateSha256};
-  const selected=createT4OriginalSelfHostedPilotRoute({workspaceId,objectFamily:family,serverNodeRef:server,
+  let selection={confirmed:true,...(simple?{endpointUrl:url}:{topology}),ca,certificateSha256};
+  const selected=createT4OriginalSelfHostedPilotRoute({workspaceId,...(simple?{}:{objectFamily:family,serverNodeRef:server}),
     localNodeRef:node,originalWriteOwnerRef:owner,authorityRoot:principal,
     getMode:()=> 'T4_NETWORK',isOriginalHostActive:()=>live,readOriginalSelection:()=>selection,
     async readOriginalAuthorization(){credentials++;await onCredential();return authorization;}});
@@ -103,4 +103,18 @@ test('HTTPS adapter cannot follow redirects or send credentials to another colle
     await assert.rejects(a.selected.fetchImpl(new URL(p.key,url),{...options,redirect:'follow'}),{code:'T4_PILOT_HTTPS_REQUEST_SCOPE_DENIED'});
     a.stop();await assert.rejects(a.transport.getSnapshot(p),{code:'T4_PILOT_NATIVE_ROUTE_INACTIVE'});
   }finally{a.close();}
+});
+
+test('native endpoint-only settings derive the same server and original owner without manual topology',async()=>{
+  const a=fixture({simple:true}),b=fixture({simple:true,node:'node:pilot:recipient',authorization:peerAuth}),p=await payload();
+  try{
+    assert.equal(a.selected.serverNodeRef,b.selected.serverNodeRef);
+    assert.notEqual(a.selected.topology.localNodeRef,b.selected.topology.localNodeRef);
+    assert.equal(a.connection.binding.originalWriteOwnerRef,b.connection.binding.originalWriteOwnerRef);
+    assert.equal(a.selected.topology.profiles[0].endpointUrl,url);
+    assert.equal((await a.transport.putSnapshot({...p,createOnly:true})).state,'PUBLISHED_AND_READ_BACK');
+    assert.deepEqual((await b.transport.getSnapshot(p)).bytes,p.bytes);
+    a.change({endpointUrl:new URL('../person-b/',url).href});
+    await assert.rejects(a.transport.getSnapshot(p),{code:'T4_PILOT_NATIVE_ROUTE_SCOPE_DENIED'});
+  }finally{a.close();b.close();}
 });
