@@ -1,0 +1,180 @@
+name: T3 rc.6 shared control placement and final user routes
+on:
+  push:
+    branches: ['ci/once/t3-rc6-layout-correction/**']
+    paths: ['.github/ci-requests/t3-rc6-layout-correction.json']
+permissions:
+  contents: read
+concurrency:
+  group: t3-rc6-layout-correction
+  cancel-in-progress: false
+jobs:
+  package:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      BEFORE: ${{ github.event.before }}
+      SOURCE: '3e8c40fc5a80866f32f4547f1780ebef525c964c'
+      BASE: 'a50d40dafc2e029fcc7668dece925f7fc38cc510'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Admit exact request and one source-module change
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Faust-S/knowledge
+          test "$GITHUB_REF_NAME" = "ci/once/t3-rc6-layout-correction/$BEFORE"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $BEFORE"
+          test "$(git rev-list --parents -n 1 "$BEFORE")" = "$BEFORE $SOURCE"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = "$(printf 'A\t.github/ci-requests/t3-rc6-layout-correction.json')"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('.github/ci-requests/t3-rc6-layout-correction.json','utf8'));
+          assert.equal(r.preparedSha,process.env.BEFORE);delete r.preparedSha;
+          assert.deepEqual(r,{"schema":"iwxa.ci.once/1","workflow":"t3-rc6-layout-correction","source":"3e8c40fc5a80866f32f4547f1780ebef525c964c","base":"a50d40dafc2e029fcc7668dece925f7fc38cc510","baseArchiveSha256":"381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4","reason":"FIX_REAL_T3_CONTROL_OVERLAP_AND_FINISH_REMAINING_USER_ROUTES"});
+          NODE
+          git checkout --detach "$SOURCE"
+          test "$(git diff --name-only "$BASE" HEAD -- packages/t3-core/src)" = packages/t3-core/src/t3/domain-mode/t3-domain-mode.mjs
+          git diff --quiet "$BASE" HEAD -- packages/t3-core/integration-sources packages/t3-core/qualified-runtime packages/t3-core/vite.config.ts
+          node --check packages/t3-core/src/t3/domain-mode/t3-domain-mode.mjs
+      - name: Reuse exact qualified compiled Host and BLI, no rebuild
+        working-directory: packages/t3-core
+        run: |
+          set -euo pipefail
+          curl -fLsS https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.1-rc.5/platform-inputs.zip -o "$RUNNER_TEMP/rc5-platform.zip"
+          echo '381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4  '"$RUNNER_TEMP/rc5-platform.zip" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/rc5-platform"
+          unzip -q "$RUNNER_TEMP/rc5-platform.zip" -d "$RUNNER_TEMP/rc5-platform"
+          (cd "$RUNNER_TEMP/rc5-platform"; sha256sum -c t3-platform-inputs.sha256)
+          test ! -e dist
+          cp -a "$RUNNER_TEMP/rc5-platform/dist" dist
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          for(const name of ['package.json','package-lock.json']){
+            const old=readFileSync(join(process.env.RUNNER_TEMP,'rc5-platform',name),'utf8');
+            const n=name==='package.json'?1:2;
+            assert.equal(old.split('"version": "0.3.1-rc.5"').length-1,n);
+            writeFileSync(name,old.replaceAll('"version": "0.3.1-rc.5"','"version": "0.3.1-rc.6"'));
+          }
+          NODE
+          node scripts/package-t3-portable-platform.mjs "$RUNNER_TEMP/rc6-platform" "$SOURCE" "$GITHUB_RUN_ID"
+          mkdir "$RUNNER_TEMP/rc6-extract"
+          unzip -q "$RUNNER_TEMP/rc6-platform/platform-inputs.zip" -d "$RUNNER_TEMP/rc6-extract"
+          (cd "$RUNNER_TEMP/rc6-extract"; sha256sum -c t3-platform-inputs.sha256)
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const temp=process.env.RUNNER_TEMP;
+          const get=dir=>JSON.parse(readFileSync(join(temp,dir,'t3-platform-inputs.json'),'utf8'));
+          const a=get('rc5-platform'),b=get('rc6-extract');
+          assert.equal(a.sourceCommit,process.env.BASE);assert.equal(b.sourceCommit,process.env.SOURCE);assert.equal(b.version,'0.3.1-rc.6');
+          assert.deepEqual(a.files.map(f=>f.path),b.files.map(f=>f.path));
+          const changed=b.files.filter((f,i)=>f.sha256!==a.files[i].sha256).map(f=>f.path).sort();
+          assert.deepEqual(changed,['docs/t3-consolidation-sources.json','package-lock.json','package.json','src/t3/domain-mode/t3-domain-mode.mjs'].sort());
+          console.log('T3_RC6_EXACT_DELTA_PASS '+JSON.stringify({compiledAssetsUnchanged:b.files.filter(f=>f.path.startsWith('dist/')).length,changed}));
+          NODE
+          cp "$RUNNER_TEMP/rc6-extract/t3-platform-inputs.json" "$RUNNER_TEMP/rc6-extract/t3-platform-inputs.sha256" "$RUNNER_TEMP/rc6-platform/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: t3-rc6-exact-platform
+          path: ${{ runner.temp }}/rc6-platform/
+          if-no-files-found: error
+          retention-days: 90
+  user-routes:
+    needs: package
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: packages/t3-core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '3e8c40fc5a80866f32f4547f1780ebef525c964c'
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+          architecture: x64
+      - uses: actions/download-artifact@v4
+        with:
+          name: t3-rc6-exact-platform
+          path: ${{ runner.temp }}/rc6-platform
+      - name: Materialize corrected candidate and original local transport
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $platform=Join-Path $env:RUNNER_TEMP 'rc6-platform'
+          $candidate=Join-Path $platform 'candidate-receipt.json'
+          $r=Get-Content $candidate -Raw | ConvertFrom-Json
+          if ($r.sourceCommit -ne '3e8c40fc5a80866f32f4547f1780ebef525c964c' -or $r.version -ne '0.3.1-rc.6' -or $r.qualificationRun -ne [long]$env:GITHUB_RUN_ID) { throw 'EXACT_RC6_RECEIPT_REQUIRED' }
+          $dest=Join-Path $env:RUNNER_TEMP 'rc6-delivery'
+          node scripts/prepare-t3-rc5-acceptance.mjs (Join-Path $platform 'platform-inputs.zip') $dest 'http://localhost:18443' $candidate
+          if ($LASTEXITCODE -ne 0) { throw 'RC6_MATERIALIZATION_FAILED' }
+          $oldZip=Join-Path $env:RUNNER_TEMP 'acceptance-host-loopback-windows-x64.zip'
+          gh release download t3-platform-v0.3.1-rc.5 --pattern acceptance-host-loopback-windows-x64.zip --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_DELIVERY_DOWNLOAD_FAILED' }
+          if ((Get-FileHash $oldZip).Hash.ToLowerInvariant() -ne '42144034304a756d77219501e73458486bc0fd72fafa883590392215b9d93618') { throw 'ORIGINAL_DELIVERY_CHANGED' }
+          $old=Join-Path $env:RUNNER_TEMP 'rc5-delivery'
+          Expand-Archive $oldZip -DestinationPath $old
+          Copy-Item (Join-Path $old 'runtime'),(Join-Path $old 'examples') -Destination $dest -Recurse
+          Copy-Item acceptance/rc5/loopback/START.cmd,acceptance/rc5/loopback/serve-acceptance.mjs -Destination $dest
+          $readme=Get-Content acceptance/rc5/loopback/README-RU.md -Raw
+          $readme=$readme.Replace('0.3.1-rc.5','0.3.1-rc.6').Replace('a50d40dafc2e029fcc7668dece925f7fc38cc510',$r.sourceCommit).Replace('381e9845fea164569d9363dd4e0983b5d9971347450e93246c1ebd5023fb98c4',$r.archiveSha256).Replace('t3-platform-v0.3.1-rc.5','t3-platform-v0.3.1-rc.6')
+          Set-Content (Join-Path $dest 'README-RU.md') -Value $readme -Encoding utf8NoBOM
+          & (Join-Path $dest 'runtime/node.exe') --check (Join-Path $dest 'serve-acceptance.mjs')
+          if ($LASTEXITCODE -ne 0) { throw 'LOCAL_SERVER_SYNTAX_FAILED' }
+          npm ci --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'LOCKED_TEST_DEPS_FAILED' }
+          node --test tests/t3-domain-offline.test.mjs tests/t3-pwa-install.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'EXISTING_AUTONOMY_TESTS_FAILED' }
+          npx --no-install playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'BROWSER_INSTALL_FAILED' }
+      - name: Complete existing file chooser and cold-offline witness on corrected delivery
+        run: |
+          node acceptance/rc5/loopback/final-user-routes.mjs (Join-Path $env:RUNNER_TEMP 'rc6-delivery') (Join-Path $env:RUNNER_TEMP 'rc6-user-route-results') (Join-Path $env:RUNNER_TEMP 'rc6-platform/candidate-receipt.json')
+          if ($LASTEXITCODE -ne 0) { throw 'RC6_USER_ROUTES_FAILED' }
+      - name: Package the exact tested local delivery
+        run: |
+          $dest=Join-Path $env:RUNNER_TEMP 'rc6-delivery'
+          $zip=Join-Path $env:RUNNER_TEMP 'acceptance-host-loopback-windows-x64.zip'
+          Remove-Item $zip
+          Compress-Archive -Path (Join-Path $dest '*') -DestinationPath $zip -CompressionLevel Optimal
+          $receipt=Get-Content (Join-Path $dest 'acceptance-receipt.json') -Raw | ConvertFrom-Json
+          $receipt | Add-Member -NotePropertyName deliveryRun -NotePropertyValue ([long]$env:GITHUB_RUN_ID)
+          $receipt | Add-Member -NotePropertyName deliveryArchiveSha256 -NotePropertyValue (Get-FileHash $zip).Hash.ToLowerInvariant()
+          $receipt | Add-Member -NotePropertyName exampleSha256 -NotePropertyValue (Get-FileHash (Join-Path $dest 'examples/workspace-original.iwxa')).Hash.ToLowerInvariant()
+          $receipt | Add-Member -NotePropertyName fileCount -NotePropertyValue @(Get-ChildItem -File -Recurse $dest).Count
+          $receipt | Add-Member -NotePropertyName deliveryBrowserSmoke -NotePropertyValue 'PASS'
+          $receipt | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $env:RUNNER_TEMP 'acceptance-host-loopback-receipt.json') -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: t3-rc6-qualified-loopback-delivery
+          path: |
+            ${{ runner.temp }}/acceptance-host-loopback-windows-x64.zip
+            ${{ runner.temp }}/acceptance-host-loopback-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t3-rc6-final-user-routes-evidence
+          path: |
+            ${{ runner.temp }}/rc6-user-route-results/result.json
+            ${{ runner.temp }}/rc6-user-route-results/failure.png
+            ${{ runner.temp }}/rc6-user-route-results/workspace-exported.iwxa
+          if-no-files-found: ignore
+          retention-days: 30
