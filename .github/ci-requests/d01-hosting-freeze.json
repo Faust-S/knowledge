@@ -1,0 +1,9 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d01-hosting-freeze",
+  "prepared_sha": "54a9bc8355acd6b562be1989b8dc0012047092c3",
+  "profile": "stable-host-release-witness-source",
+  "revisions": {
+    "site": "a6622dd7f9008a142193d1481f902d61efbe12f6"
+  }
+}
