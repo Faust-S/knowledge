@@ -9,6 +9,7 @@ import {isDeepStrictEqual} from "node:util";
 import {normalizeOriginalInstalledNetworkScope,sameOriginalInstalledNetworkScope} from "./original-installed-network-scope.mjs";
 import {createSubjectKernelBinding,consumeOriginalApplicationReceiptGraphBinding} from "./subject-access-binding.mjs";
 import {ORIGINAL_NETWORK_RELAY_METHODS as NETWORK_METHODS,
+  ORIGINAL_REGISTRY_EXCHANGE_METHODS as REGISTRY_EXCHANGE_METHODS,originalRegistryExchangeOperations,
   encodeOriginalNetworkRelayArgs,decodeOriginalNetworkRelayArgs,decodeOriginalNetworkRelayResult}
   from "./original-kernel-native-relay-codec.mjs";
 const METHODS=Object.freeze({
@@ -327,12 +328,75 @@ export function createOriginalKernelNativeRelay({
       return result;
     }finally{if(registryCommand===held)registryCommand=null;}
   };
+  // One native command slot and the actual existing private T2 Exchange
+  // connection. SOURCE may import only during the original activation
+  // lease; RECIPIENT may export only its exact management partition.
+  const registryExchangeDispatch=async(state,method,args)=>{
+    const scope=registryScope,lease=registryContext?.getStore(),op=REGISTRY_EXCHANGE_METHODS[method];
+    check(scope&&activation?.installedScope&&liveState(state)&&state.registryExchangeOperations.includes(op),
+      "T3_ORIGINAL_REGISTRY_EXCHANGE_NOT_CONNECTED");
+    const source=activation.role==="SOURCE";
+    const active=()=>liveState(state)&&(source?
+      !state.networkReady&&lease?.state===state&&lease.active()&&activationTask?.state===state:
+      !lease&&reservation===null&&wakeTask===null&&localSourceTask===null&&historyTask===null&&activationTask===null&&
+      state.activationRequest===null&&state.activationAnnouncement===null);
+    check(active()&&pending===null&&!registryBusy(),"T3_ORIGINAL_REGISTRY_EXCHANGE_LIFETIME_ENDED");
+    const exact=clone(args),input=exact[0],preview=state.registryExchangePreview;
+    check(exact.length===1,"T3_ORIGINAL_REGISTRY_EXCHANGE_SCOPE_DENIED");
+    if(method==="exportPackage"){
+      check(!source&&exactFields(input,["workspaces","include_history","include_assets","include_relations","include_schemas","scope"])&&
+        Array.isArray(input.workspaces)&&input.workspaces.length===1&&input.workspaces[0]===scope.workspaceId&&
+        input.include_history===true&&input.include_assets===false&&input.include_relations===false&&input.include_schemas===false&&
+        exactFields(input.scope,["mode"])&&input.scope.mode==="workspace","T3_ORIGINAL_REGISTRY_EXCHANGE_SCOPE_DENIED");
+    }else if(method==="importPreview"){
+      check(source&&preview===null&&input instanceof Uint8Array,"T3_ORIGINAL_REGISTRY_EXCHANGE_SCOPE_DENIED");
+    }else if(method==="importCancel"){
+      check(source&&preview&&input===preview.token,"T3_ORIGINAL_REGISTRY_EXCHANGE_SCOPE_DENIED");
+    }else{
+      const plan=input?.plan,mode=preview?.existing?"merge":"full";
+      check(source&&preview?.scoped===true&&exactFields(input,["preview_token","package_digest","plan"])&&
+        input.preview_token===preview.token&&input.package_digest===preview.digest&&
+        exactFields(plan,["mode","conflict","include_workspaces","include_history","include_assets","include_relations",
+          ...(mode==="merge"?["target_workspace"]:[])])&&plan.mode===mode&&
+        plan.conflict===(preview.localRevision===null?"fail":"overwrite")&&
+        Array.isArray(plan.include_workspaces)&&plan.include_workspaces.length===1&&plan.include_workspaces[0]===scope.workspaceId&&
+        (mode!=="merge"||plan.target_workspace===scope.workspaceId)&&
+        plan.include_history===true&&plan.include_assets===false&&plan.include_relations===false,
+        "T3_ORIGINAL_REGISTRY_EXCHANGE_SCOPE_DENIED");
+    }
+    const held={};registryCommand=held;
+    const current=async()=>check(await currentEpoch()===state.epoch&&active()&&registryCommand===held,
+      "T3_ORIGINAL_REGISTRY_EXCHANGE_LIFETIME_ENDED");
+    try{
+      await current();
+      check(pending===null,"T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS");
+      if(method==="importCommit"||method==="importCancel")state.registryExchangePreview=null;
+      const result=decodeOriginalNetworkRelayResult(method,await enqueue(method,encodeOriginalNetworkRelayArgs(method,exact),false));
+      await current();
+      if(method==="importPreview"){
+        const p=result?.preview,w=p?.workspaces,o=p?.objects;
+        check(typeof result?.preview_token==="string"&&result.preview_token.length>0,
+          "T3_ORIGINAL_REGISTRY_EXCHANGE_PREVIEW_INVALID");
+        state.registryExchangePreview=Object.freeze({token:result.preview_token,digest:result.package_digest,
+          existing:w?.[0]?.exists_locally===true,localRevision:o?.[0]?.local_revision,
+          scoped:Array.isArray(w)&&w.length===1&&w[0].workspace_id===scope.workspaceId&&
+            typeof w[0].exists_locally==="boolean"&&Array.isArray(o)&&o.length===1&&o[0].workspace_id===scope.workspaceId&&
+            o[0].object_id===scope.objectId&&o[0].schema_id===registrySchema&&o[0].schema_version==="1.0.0"&&
+            /^[a-f0-9]{64}$/.test(result.package_digest??"")});
+      }
+      return result;
+    }finally{if(registryCommand===held)registryCommand=null;}
+  };
   const registryKernelFor=state=>Object.freeze({sessionInfo:state.kernel.sessionInfo,
     // During attach the original owner may construct its ONE Registry
     // from this exact port. Capability inspection is not a command: the
     // registryDispatch live-state check still prevents all I/O until the
     // realm has received its token and can service the original slot.
-    hasOperation:id=>!closed&&live===state&&[METHODS.getWorkspace,METHODS.getObject,METHODS.listEventsSince,METHODS.commitObjectGraph].includes(id)&&state.kernel.hasOperation(id),
+    hasOperation:id=>!closed&&live===state&&(
+      [METHODS.getWorkspace,METHODS.getObject,METHODS.listEventsSince,METHODS.commitObjectGraph].includes(id)&&state.kernel.hasOperation(id)||
+      state.registryExchangeOperations.includes(id)),
+    ...Object.fromEntries(Object.entries(REGISTRY_EXCHANGE_METHODS).filter(([,op])=>state.registryExchangeOperations.includes(op))
+      .map(([method])=>[method,(...args)=>registryExchangeDispatch(state,method,args)])),
     getWorkspace:(...args)=>registryDispatch(state,"getWorkspace",args),
     getObject:(...args)=>registryDispatch(state,"getObject",args),
     listEventsSince:(...args)=>registryDispatch(state,"listEventsSince",args),
@@ -573,6 +637,10 @@ export function createOriginalKernelNativeRelay({
         check(!live&&validSession(payload?.sessionInfo),
           "T3_D3_ORIGINAL_KERNEL_SESSION_INVALID");
         const grants=clone(payload.sessionInfo);
+        const registryExchangeOperations=payload.registryExchangeOperations??[];
+        check(Array.isArray(registryExchangeOperations)&&new Set(registryExchangeOperations).size===registryExchangeOperations.length&&
+          registryExchangeOperations.every(op=>activation?.installedScope&&originalRegistryExchangeOperations(activation.role).includes(op)),
+          "T3_ORIGINAL_REGISTRY_EXCHANGE_OPERATIONS_INVALID");
         // Read-only Workspace preflight is part of the SAME native D3
         // apply transaction. Never advertise an APPLY-capable binding that
         // cannot prove its target exists before independent Human consent.
@@ -583,7 +651,8 @@ export function createOriginalKernelNativeRelay({
         const epoch=requestEpoch,sessionId=randomBytes(32).toString("base64url");
         const kernel=kernelFor(epoch,grants,sessionId);
         const state={epoch,sessionId,grants,kernel,network,networkReady:false,networkStarted:false,localSourceReady:false,
-          registryKernel:null,activationRequest:null,activationAnnouncement:null,profile:null,stopPeerHistory:null};
+          registryKernel:null,registryExchangeOperations:[...registryExchangeOperations],registryExchangePreview:null,
+          activationRequest:null,activationAnnouncement:null,profile:null,stopPeerHistory:null};
         if(registryScope)state.registryKernel=registryKernelFor(state);
         live=state;
         attaching=state;

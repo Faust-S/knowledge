@@ -11,7 +11,7 @@ import { createControlLoopbackOwner } from "./t3/control-loopback-owner.mjs";
 import { createOriginalLocalSourceMutationRoute,type OriginalLocalSourceMutationRoute } from "./t3/original-local-source-mutation-route.mjs";
 import { normalizeOriginalInstalledNetworkScope,createOriginalInstalledNetworkMutationRoute,
   type OriginalInstalledNetworkScope } from "./t3/original-installed-network-scope.mjs";
-import { decodeOriginalNetworkRelayArgs,
+import { ORIGINAL_REGISTRY_EXCHANGE_METHODS,originalRegistryExchangeOperations,decodeOriginalNetworkRelayArgs,
   encodeOriginalNetworkRelayResult,readOriginalNativeRelayNegotiation } from "./t3/original-kernel-native-relay-codec.mjs";
 import {
   acceptOriginalKernelRealmChannel,
@@ -72,10 +72,17 @@ async function attachOriginalNativeKernelRelay(
     granted_operations?:readonly string[]},
   sourceRoute?:OriginalLocalSourceMutationRoute,
   installedScope?:OriginalInstalledNetworkScope,
+  registryExchange?:ReturnType<typeof createKernelFacade>,
 ):Promise<void>{
   const originalMethods=new Set([
     "commitObjectGraph","getWorkspace","getObject","listEventsSince","createWorkspace",
   ]);
+  const registryExchangeOperations=installedScope&&registryExchange?
+    originalRegistryExchangeOperations(installedScope.role).filter(op=>registryExchange.grantedOperations.includes(
+      op as (typeof registryExchange.grantedOperations)[number])):[];
+  const registryExchangeMethods=new Set(Object.entries(ORIGINAL_REGISTRY_EXCHANGE_METHODS)
+    .filter(([,op])=>registryExchangeOperations.includes(op)).map(([name])=>name));
+  for(const name of registryExchangeMethods)originalMethods.add(name);
   const info={
     contract_version:session.contract_version,
     runtime_version:session.runtime_version,
@@ -91,7 +98,7 @@ async function attachOriginalNativeKernelRelay(
     localSourceWorkspaceId?:string;localSourceMutationMethods?:string[]}|null=null;
   try{
     connected=await owner.originalKernelRelay("attach",{sessionInfo:info,networkRelayVersion:1,networkActivationVersion:1,
-      ...(installedScope?{installedNetworkScope:installedScope}:{}),
+      ...(installedScope?{installedNetworkScope:installedScope,registryExchangeOperations}:{}),
       ...(sourceRoute?{localSourceMutationVersion:1,localSourceGraphVersion:1}:{})});
   }catch(error){
     const code=(error as {code?:string}|null)?.code;
@@ -143,12 +150,14 @@ async function attachOriginalNativeKernelRelay(
   const invokeOriginal=async(method:string,args:unknown[])=>{
     if(!originalMethods.has(method)||!Array.isArray(args))
       throw reject("T3_D3_ORIGINAL_KERNEL_METHOD_DENIED");
-    const fn=(plain as unknown as Record<string,unknown>)[method];
+    const scopedExchange=registryExchangeMethods.has(method);
+    const selectedFacade=scopedExchange?registryExchange:plain;
+    const fn=(selectedFacade as unknown as Record<string,unknown>)[method];
     if(typeof fn!=="function")
       throw reject("T3_D3_ORIGINAL_KERNEL_METHOD_DENIED");
     const result=await (fn as (...args:unknown[])=>Promise<unknown>)(
-      ...(networkMethods.has(method)?decodeOriginalNetworkRelayArgs(method,args):args));
-    return networkMethods.has(method)?encodeOriginalNetworkRelayResult(method,result):result;
+      ...((networkMethods.has(method)||scopedExchange)?decodeOriginalNetworkRelayArgs(method,args):args));
+    return networkMethods.has(method)||scopedExchange?encodeOriginalNetworkRelayResult(method,result):result;
   };
   void (async()=>{
     while(active&&live){
@@ -337,6 +346,7 @@ async function attach(event:MessageEvent){
     // UI-facing T2 interface even when this independent binding is absent.
     void attachOriginalNativeKernelRelay(
       owner,createKernelFacade({session:originalSession}),originalSession,sourceRoute,cfg.installed_network_scope,
+      cfg.installed_network_scope&&privateExchange?createKernelFacade({session:privateExchange}):undefined,
     ).catch(()=>{
       // No false APPLY availability: native relay clears an incomplete
       // binding itself and never replays a possibly written graph.

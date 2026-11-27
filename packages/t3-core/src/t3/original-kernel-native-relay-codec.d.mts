@@ -1,4 +1,6 @@
 export const ORIGINAL_NETWORK_RELAY_METHODS: Readonly<Record<string,string>>;
+export const ORIGINAL_REGISTRY_EXCHANGE_METHODS: Readonly<Record<string,string>>;
+export function originalRegistryExchangeOperations(role:string):readonly string[];
 export function encodeOriginalNetworkRelayArgs(method:string,args:unknown[]):unknown[];
 export function decodeOriginalNetworkRelayArgs(method:string,args:unknown[]):unknown[];
 export function encodeOriginalNetworkRelayResult(method:string,value:unknown):unknown;

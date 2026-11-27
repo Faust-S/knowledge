@@ -8,6 +8,16 @@ export const ORIGINAL_NETWORK_RELAY_METHODS=Object.freeze({
   listAssets:"t1.listAssets",getAsset:"t1.getAsset",putAsset:"t1.putAsset",
   deleteAsset:"t1.deleteAsset",putRelation:"t1.putRelation",deleteRelation:"t1.deleteRelation",
 });
+// Internal use of the existing trusted T2 Exchange connection. These
+// methods are not negotiated as T4 network methods or exposed to the UI.
+export const ORIGINAL_REGISTRY_EXCHANGE_METHODS=Object.freeze({
+  exportPackage:"t2.exportPackage",importPreview:"t2.importPreview",
+  importCommit:"t2.importCommit",importCancel:"t2.importCancel",
+});
+export const originalRegistryExchangeOperations=role=>Object.freeze(role==="SOURCE"?
+  [ORIGINAL_REGISTRY_EXCHANGE_METHODS.importPreview,ORIGINAL_REGISTRY_EXCHANGE_METHODS.importCommit,
+    ORIGINAL_REGISTRY_EXCHANGE_METHODS.importCancel]:role==="RECIPIENT"?
+  [ORIGINAL_REGISTRY_EXCHANGE_METHODS.exportPackage]:[]);
 const MAX=16*1024*1024;
 const fail=()=>{throw Object.assign(Error("T3_ORIGINAL_KERNEL_ASSET_BYTES_INVALID"),
   {code:"T3_ORIGINAL_KERNEL_ASSET_BYTES_INVALID"});};
@@ -39,20 +49,28 @@ function decodeRecord(value){
   return {...rest,bytes:decode(bytesBase64url)};
 }
 export function encodeOriginalNetworkRelayArgs(method,args){
+  if(method==="importPreview"){
+    if(!Array.isArray(args)||args.length!==1)fail();
+    return [encode(args[0])];
+  }
   if(method!=="putAsset")return args;
   if(!Array.isArray(args)||args.length!==1)fail();
   return [encodeRecord(args[0])];
 }
 export function decodeOriginalNetworkRelayArgs(method,args){
+  if(method==="importPreview"){
+    if(!Array.isArray(args)||args.length!==1)fail();
+    return [decode(args[0])];
+  }
   if(method!=="putAsset")return args;
   if(!Array.isArray(args)||args.length!==1)fail();
   return [decodeRecord(args[0])];
 }
 export function encodeOriginalNetworkRelayResult(method,value){
-  return method==="getAsset"&&value!==null?encodeRecord(value):value;
+  return (method==="getAsset"&&value!==null)||method==="exportPackage"?encodeRecord(value):value;
 }
 export function decodeOriginalNetworkRelayResult(method,value){
-  return method==="getAsset"&&value!==null?decodeRecord(value):value;
+  return (method==="getAsset"&&value!==null)||method==="exportPackage"?decodeRecord(value):value;
 }
 
 // Internal Host negotiation, not T4 wire data. The trusted realm may
