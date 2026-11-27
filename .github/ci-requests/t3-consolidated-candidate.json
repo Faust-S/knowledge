@@ -1,0 +1,9 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-consolidated-candidate",
+  "preparedSha": "3ac68cb036200b7d3312859cd15dfbe9992a52f0",
+  "profile": "SOURCE_SHARED_HOST_PORTABLE_NO_PRIVATE_OUTPUT",
+  "assistant": "3b8c2fb25bf5205e53331f5db3e035210b7aac9f",
+  "corporateWorkflow": "3a30878acca2d2f62f5573e9d03c3ffcecc441ae",
+  "reason": "QUALIFY_CONSOLIDATED_ORIGINAL_T3"
+}
