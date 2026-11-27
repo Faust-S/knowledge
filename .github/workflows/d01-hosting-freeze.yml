@@ -37,7 +37,7 @@ jobs:
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-hosting-freeze \
             --profile full-hosting-qualification \
-            --revision site=9c8c39d58190fa8c765b62583762968ec80ed77e \
+            --revision site=b07665d98fcd87ef06be2edd907b8ad9470f745e \
             --revision subject=1e8700f4fd6f11c50db154f9f080b2406bef02ec \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1 \
             --revision core=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 9c8c39d58190fa8c765b62583762968ec80ed77e
+          ref: b07665d98fcd87ef06be2edd907b8ad9470f745e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -76,7 +76,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 9c8c39d58190fa8c765b62583762968ec80ed77e
+          test "$(git -C private/site rev-parse HEAD)" = b07665d98fcd87ef06be2edd907b8ad9470f745e
           test "$(git -C original/core rev-parse HEAD)" = 326f725c44d69ac99f6b912241e9e8a6c3d716a5
           test "$(git -C private/assistant rev-parse HEAD)" = 5e3083788aa541921559de29d3457d4a52bbba00
           test "$(git -C private/t2 rev-parse HEAD)" = 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
@@ -121,6 +121,7 @@ jobs:
         run: |
           npm run build:product:t3 >"$RUNNER_TEMP/d01-t3-build.log" 2>&1 || {
             echo D01_T3_BUILD_FAILED
+            grep '^D01_OFFLINE_LINK=' "$RUNNER_TEMP/d01-t3-build.log" | python3 -c 'import json,sys; pairs=set(); [pairs.add((x.get("tag"),x.get("target"),x.get("canonical"))) for line in sys.stdin if (x:=json.loads(line.split("=",1)[1])) and all(isinstance(x.get(k),str) and len(x[k])<200 and not any(c in x[k] for c in ("?","#","\n","\r")) for k in ("tag","target","canonical"))]; print(json.dumps(sorted(pairs),ensure_ascii=True))' || true
             grep -E '^(✖|not ok|ℹ (tests|pass|fail|skipped) |# (tests|pass|fail|skipped) )' "$RUNNER_TEMP/d01-t3-build.log" | cut -c1-160 | head -40 || true
             grep -Eo '(D01_|T3_|ERR_)[A-Z0-9_]+(:[A-Z0-9_]+)*|[A-Za-z0-9_.-]+\.(mjs|js|tsx?|mts|cts):[0-9]+:[0-9]+|AssertionError|TypeError|ReferenceError|SyntaxError|ENOENT|EACCES|MODULE_NOT_FOUND' "$RUNNER_TEMP/d01-t3-build.log" | sort -u | head -80 || true
             exit 1
