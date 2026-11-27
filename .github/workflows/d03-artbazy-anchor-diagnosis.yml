@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
-      SITE_PIN: 5994bc36837beb5534797c5349019d12ed30797c
-      SITE_TREE: 47dee32dd4f17e7eb41ba29af66595e59ab3407d
+      SITE_PIN: a6ad6a7a90d97e04a931c8f33598373a5336c1a2
+      SITE_TREE: a641b728d836017d3cf4c6d9410a8e28493e97ab
       PUPPETEER_SKIP_DOWNLOAD: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -25,13 +25,14 @@ jobs:
           fetch-depth: 2
       - name: Verify immutable source-only request
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-anchor-diagnosis --profile source-anchor-diagnosis --revision site=5994bc36837beb5534797c5349019d12ed30797c
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-anchor-diagnosis --profile source-anchor-diagnosis --revision site=a6ad6a7a90d97e04a931c8f33598373a5336c1a2
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazy.ru
-          ref: 5994bc36837beb5534797c5349019d12ed30797c
+          ref: a6ad6a7a90d97e04a931c8f33598373a5336c1a2
           token: ${{ secrets.DOMEN }}
           path: private-site
+          fetch-depth: 2
           persist-credentials: false
           show-progress: false
       - uses: actions/setup-node@v4
@@ -48,7 +49,43 @@ jobs:
           test "$(git -C private-site rev-parse HEAD)" = "$SITE_PIN"
           test "$(git -C private-site rev-parse 'HEAD^{tree}')" = "$SITE_TREE"
           (cd private-site && bun install --frozen-lockfile --ignore-scripts) >"$RUNNER_TEMP/d03-anchor-install.log" 2>&1 || { echo SOURCE_DEPENDENCIES=FAIL; exit 1; }
-          node ci-harness/tools/ci/artbazy-delivery/audit-public-anchors.cjs private-site
+          python3 - <<'PY'
+          import subprocess
+          def git(*args):
+              return subprocess.check_output(['git','-C','private-site',*args])
+          parent = '5994bc36837beb5534797c5349019d12ed30797c'
+          paths = git('diff','--name-only','-z',parent,'HEAD').decode().strip('\0').split('\0')
+          assert len(paths) == 90 and 'runtime/t3-platform/site-preservation.json' in paths
+          total = 0
+          for path in paths:
+              if path == 'runtime/t3-platform/site-preservation.json':
+                  continue
+              assert path.startswith('src/') and path.endswith('.tsx')
+              before = git('show',parent+':'+path)
+              after = git('show','HEAD:'+path)
+              i = j = inserted = 0
+              while i < len(before) and j < len(after):
+                  if before[i] == after[j]:
+                      i += 1
+                      j += 1
+                  else:
+                      assert after[j] == 47, 'NOT_SLASH_INSERTION'
+                      inserted += 1
+                      j += 1
+              assert i == len(before) and j == len(after) and inserted > 0
+              total += inserted
+          assert total == 451
+          print('SOURCE_DIFF=451_SLASH_INSERTIONS_ONLY; SOURCE_FILES=89')
+          PY
+          (cd private-site && npm run check:source-links && npm run test:source-links) >"$RUNNER_TEMP/d03-anchor-checks.log" 2>&1 || { echo SOURCE_LINK_CHECKS=FAIL; exit 1; }
+          echo SOURCE_LINK_CHECKS=PASS
+          node ci-harness/tools/ci/artbazy-delivery/audit-public-anchors.cjs private-site >"$RUNNER_TEMP/d03-anchor-audit.log"
+          grep -E '^SOURCE_ANCHOR_(ROUTES|KIND|TOTAL)=' "$RUNNER_TEMP/d03-anchor-audit.log"
+          if grep -Eq '^SOURCE_ANCHOR_KIND=(DATA_URL|JSX_HREF|JSX_TO)_' "$RUNNER_TEMP/d03-anchor-audit.log"; then
+            echo SOURCE_CALCULATOR_LINKS=FAIL
+            exit 1
+          fi
+          echo SOURCE_CALCULATOR_LINKS=PASS
       - name: Remove private checkout and diagnostic log
         if: always()
-        run: rm -rf -- "$GITHUB_WORKSPACE/private-site" "$RUNNER_TEMP/d03-anchor-install.log"
+        run: rm -rf -- "$GITHUB_WORKSPACE/private-site" "$RUNNER_TEMP/d03-anchor-install.log" "$RUNNER_TEMP/d03-anchor-checks.log" "$RUNNER_TEMP/d03-anchor-audit.log"
