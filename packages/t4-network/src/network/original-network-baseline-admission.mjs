@@ -238,6 +238,7 @@ export function readT4OriginalFreshWorkspaceBaselineSelection({workspaceId,origi
   if(!ID(workspaceId)||!Array.isArray(originalEvents)||![1,2,3].includes(originalEvents.length))
     fail('BASELINE_FRESH_WORKSPACE_NOT_EMPTY');
   if(originalEvents.length===3){
+    if(!originalEvents.some(e=>e?.event_type===IMPORT_APPLIED))fail('BASELINE_FRESH_WORKSPACE_NOT_EMPTY');
     const {source}=originalEmptyExchangeEvidence(originalEvents,workspaceId);
     return freeze({confirmed:false,...originalCreationAnchor(source,workspaceId)});
   }
