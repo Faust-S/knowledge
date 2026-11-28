@@ -1,4 +1,4 @@
-name: D09 HOP T3 0.3.2 command profiles and verified hosting ZIP
+name: D09 HOP T3 0.3.2 native structured artistic action and hosting ZIP
 on:
   push:
     branches: ['ci/once/d09-hop-t3-integration/**']
@@ -36,8 +36,8 @@ jobs:
             preview: '1'
             profile: balanced
     env:
-      SITE_PIN: 4ae0335694485d6181bb4951c231c199d3042f6a
-      SUBJECT_PIN: 24da92543502914ff5bac01269b82d4984788dae
+      SITE_PIN: 1e30df8d96ff2a698c0b57512d5fd52cd95a7024
+      SUBJECT_PIN: 13d262f05cf0979d9b360cb9d01253ffbc163a0d
       T3_PIN: 8e26076ce66f0c26693a647e061fcd568e055b77
       ASSISTANT_PIN: 2c247482306f218a7d5be668de11e98f168862d4
       D09_ORIGIN: ${{ matrix.origin }}
@@ -53,7 +53,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable domain request
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=4ae0335694485d6181bb4951c231c199d3042f6a --revision subject=24da92543502914ff5bac01269b82d4984788dae --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=1e30df8d96ff2a698c0b57512d5fd52cd95a7024 --revision subject=13d262f05cf0979d9b360cb9d01253ffbc163a0d --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
       - name: Checkout HOP site
         uses: actions/checkout@v4
         with:
@@ -87,13 +87,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for spec in "private-site $SITE_PIN 71954250a5967e7eab46de723cd71bfbaa6bb60c" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
+          for spec in "private-site $SITE_PIN 6e47ce0a13bed0a19604c64cf4e9dc0b246dc4bd" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
             read -r dir sha tree <<< "$spec"
             test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
             test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
             echo "D09_T3_INPUT $dir PASS"
           done
-          test "$(git -C private-site rev-parse HEAD:public/assets/hop-assistant-skills.json)" = ff1a1f8cfcf2854549f291f8ddee1964736915e4
+          test "$(git -C private-site rev-parse HEAD:public/assets/hop-assistant-skills.json)" = 36d132c1b82480c3d4186f4553bf6723c88b269c
           mkdir -p "$RUNNER_TEMP/d09-t3"
           curl --fail --silent --show-error --location --retry 2 'https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.2/platform-inputs.zip' -o "$RUNNER_TEMP/d09-t3/platform-inputs.zip"
           printf '%s  %s\n' '5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b' "$RUNNER_TEMP/d09-t3/platform-inputs.zip" | (if command -v sha256sum >/dev/null 2>&1; then sha256sum -c -; else shasum -a 256 -c -; fi) >/dev/null
@@ -136,6 +136,24 @@ jobs:
             grep -E '^([[:alnum:]_./-]+\.(tsx?|mjs)\([0-9]+,[0-9]+\): error TS[0-9]+:)' "$RUNNER_TEMP/d09-t3/typecheck.log" | cut -c1-180 | head -30 || true
             exit 1
           fi
+      - name: Complete unit regression including guided operation and stale draft
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && matrix.lane == 'browser' }}
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -eu
+          failed=0
+          npm test -- --reporter=json --outputFile="$RUNNER_TEMP/d09-t3/UNIT.json" > "$RUNNER_TEMP/d09-t3/UNIT.log" 2>&1 || failed=1
+          if test -f "$RUNNER_TEMP/d09-t3/UNIT.json"; then
+            node --input-type=module - "$RUNNER_TEMP/d09-t3/UNIT.json" <<'D09_UNIT'
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync(process.argv[2],'utf8'));
+          console.log('D09_T3_UNIT_SUMMARY='+JSON.stringify({tests:r.numTotalTests,passed:r.numPassedTests,failed:r.numFailedTests,files:r.numTotalTestSuites,passedFiles:r.numPassedTestSuites}));
+          if(!r.success||r.numFailedTests!==0||r.numPassedTests<1114)process.exit(1);
+          D09_UNIT
+          fi
+          if [ "$failed" = 0 ]; then echo D09_T3_UNIT=PASS; else echo D09_T3_UNIT=FAIL; fi
+          exit "$failed"
       - name: Prepare ONE original T3 Host with HOP editor and assistant
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         id: prepare
@@ -282,7 +300,7 @@ jobs:
           failed=0
           node tests/d09-t3-user.browser.mjs > "$log" 2>&1 || failed=1
           # Finite evidence only: never print generated text or private source.
-          grep -E '^D09_T3_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN_AFTER_FIRST_FAILURE|[0-9]+)$|^D09_T3_MODEL_(DEVICE|ANSWER|PAGE_REQUESTS|CANVAS_STRUCTURE)=' "$log" | cut -c1-650 | tail -40 || true
+          grep -E '^D09_T3_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN_AFTER_FIRST_FAILURE|[0-9]+)$|^D09_T3_MODEL_(DEVICE|ANSWER|PAGE_REQUESTS|CANVAS_STRUCTURE|FORM_STRUCTURE)=' "$log" | cut -c1-650 | tail -40 || true
           if [ "$failed" = 0 ]; then
             echo D09_T3_REAL_MODEL_FUNCTIONAL=PASS
           else
