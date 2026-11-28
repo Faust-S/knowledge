@@ -2,7 +2,7 @@
 // and an already scoped original Kernel getObject port. No new executor,
 // Task, Result, acceptance, storage or grant. This is a non-atomic read.
 import { createHash } from 'node:crypto';
-import { canonicalStringify } from '../../../persistence/canonical-codec.mjs';
+import { canonicalClone,canonicalStringify } from '../../../persistence/canonical-codec.mjs';
 import { openWorkspaceMethodStageClosure,openWorkspaceMethodCompleteClosure } from './project-process-method-readback.mjs';
 
 function fail(code,message){throw Object.assign(new Error(message),{code});}
