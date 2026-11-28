@@ -1,4 +1,5 @@
 import concurrent.futures
+import hashlib
 import html.parser
 import ipaddress
 import json
@@ -45,7 +46,7 @@ def probe(url):
         if not safe(url):
             return {"url":url,"status":"NOT_PUBLIC"}
         opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),Redirect())
-        for method in ("HEAD","GET"):
+        for method in ("GET",):
             try:
                 with opener.open(urllib.request.Request(url,method=method,headers={"User-Agent":"CehoVod-Link-Qualification/1"}),timeout=12) as r:
                     if method=="GET":
@@ -64,6 +65,8 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
     rows=list(pool.map(probe,sorted(urls)))
 counts={k:sum(r["status"]==k for r in rows) for k in ("PASS","BROKEN","UNCONFIRMED","NOT_PUBLIC")}
 pathlib.Path(sys.argv[2]).write_text(json.dumps({"count":len(rows),"counts":counts,"links":rows},ensure_ascii=False,indent=2),encoding="utf-8")
+for index,row in enumerate(rows):
+    print("D05_EXTERNAL_LINK_RESULT "+json.dumps({"index":index,"sha256":hashlib.sha256(row["url"].encode("utf-8")).hexdigest(),"http":row.get("http"),"status":row["status"]},sort_keys=True))
 print("D05_EXTERNAL_PUBLIC_LINKS "+json.dumps(counts,sort_keys=True))
 # Confirmed missing public destinations and accidental non-public addresses block delivery.
-assert counts["BROKEN"]==0 and counts["NOT_PUBLIC"]==0,"D05_EXTERNAL_LINKS_REQUIRE_CORRECTION"
+assert len(rows)>0 and counts["PASS"]==len(rows),"D05_EXTERNAL_LINKS_REQUIRE_CORRECTION"
