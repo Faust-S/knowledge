@@ -1,0 +1,12 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d05-t3-033-migration",
+  "prepared_sha": "eca276af975a1b7b00e4cedd2b097c7be8f59749",
+  "profile": "0.3.3-corner-controls-autonomy",
+  "revisions": {
+    "site": "671bb997fe88ac192f20dfee5be8cdf6db6b9f9d",
+    "subject": "6852d55ae8e7100b480b2d5c0a10b92de1c7d467",
+    "assistant": "629aaa274f2d6ad915730ee0d817aedc33e53108",
+    "platform": "30e3f98f944ffa351f2dfa9922f38bcca8b7d314"
+  }
+}
