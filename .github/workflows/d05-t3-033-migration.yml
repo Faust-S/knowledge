@@ -1,0 +1,576 @@
+name: D05 T3 0.3.3 domain migration and hosting
+on:
+  push:
+    branches:
+      - 'ci/once/d05-t3-033-migration/*'
+    paths:
+      - '.github/ci-requests/d05-t3-033-migration.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: d05-t3-033-migration
+  cancel-in-progress: false
+jobs:
+  admission:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Validate deliberate one-shot request
+        shell: bash
+        run: |
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d05-t3-033-migration --profile 0.3.3-corner-controls-autonomy --revision site=671bb997fe88ac192f20dfee5be8cdf6db6b9f9d --revision subject=6852d55ae8e7100b480b2d5c0a10b92de1c7d467 --revision assistant=629aaa274f2d6ad915730ee0d817aedc33e53108 --revision platform=30e3f98f944ffa351f2dfa9922f38bcca8b7d314
+  linux:
+    needs: admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    outputs:
+      tree: ${{ steps.normalized.outputs.tree }}
+      digest: ${{ steps.package.outputs.digest }}
+    env:
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: ${{ github.sha }}
+          path: harness
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod.ru
+          ref: 671bb997fe88ac192f20dfee5be8cdf6db6b9f9d
+          path: site
+          fetch-depth: 4
+          persist-credentials: false
+          token: ${{ secrets.DOMEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod
+          ref: 6852d55ae8e7100b480b2d5c0a10b92de1c7d467
+          path: domain
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.DOMEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 629aaa274f2d6ad915730ee0d817aedc33e53108
+          path: assistant
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.DOMEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 30e3f98f944ffa351f2dfa9922f38bcca8b7d314
+          path: one-core
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact source, platform and unchanged subject
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C site rev-parse HEAD)" = "671bb997fe88ac192f20dfee5be8cdf6db6b9f9d"
+          test "$(git -C site rev-parse HEAD^^^)" = "75eddb38289b5b10bffad82e2a6c2fc277101617"
+          test "$(git -C domain rev-parse HEAD)" = "6852d55ae8e7100b480b2d5c0a10b92de1c7d467"
+          test "$(git -C assistant rev-parse HEAD)" = "629aaa274f2d6ad915730ee0d817aedc33e53108"
+          test "$(git -C one-core rev-parse HEAD)" = "30e3f98f944ffa351f2dfa9922f38bcca8b7d314"
+          test "$(git -C one-core rev-parse HEAD:packages/t3-core)" = "6e8c8d1b2b822e95cbfd9641659f6755420746f1"
+          test "$(git -C assistant rev-parse HEAD:browser-local-inference/domain-assistant/main.mjs)" = "8392bddd8e4ce4863fd44be73f046c111bcc2bf0"
+          test "$(git -C assistant rev-parse HEAD:browser-local-inference/domain-assistant/skill-runtime.mjs)" = "9a9704df6b2b41df119827dd357d7ac2058bdd34"
+          cmp -s domain/models/assistant-skills.json site/public/assets/cehovod-assistant-skills.json
+          cmp -s domain/src/lib/iwps/registry-snapshot.generated.json site/src/lib/iwps/registry-snapshot.generated.json
+          git -C site diff --exit-code "75eddb38289b5b10bffad82e2a6c2fc277101617" HEAD -- src/data src/lib t2-site-module public/assets/cehovod-assistant-skills.json package.json package-lock.json
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync} from "node:fs";
+          const read=p=>JSON.parse(readFileSync("site/runtime/t3-platform/"+p,"utf8"));
+          assert.equal(read("active.json").version,"0.3.3");
+          const p=read("0.3.3/release.json"),a=read("0.3.3/domain-assistant.json");
+          assert.equal(p.sourceCommit,"30e3f98f944ffa351f2dfa9922f38bcca8b7d314");
+          assert.equal(a.sourceCommit,"629aaa274f2d6ad915730ee0d817aedc33e53108");
+          assert.equal(p.kernel,"0.3.6");
+          assert.equal(p.contract,"1.3.0");
+          assert.equal(p.webllm,"0.2.87");
+          assert.deepEqual(read("0.3.3/domain-skills.json"),read("0.3.2/domain-skills.json"));
+          console.log("D05_033_PINS_AND_UNCHANGED_SUBJECT_PASS");
+          JS
+      - name: Install locked dependencies and normalize only edited surfaces
+        shell: bash
+        id: normalized
+        working-directory: site
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund >"$RUNNER_TEMP/d05-033-npm.log" 2>&1 || { echo D05_033_NPM_FAIL; exit 1; }
+          npx --no-install prettier --write public/assets/cehovod-t3-bootstrap.mjs scripts/build-cehovod-t3-local-site.mjs scripts/check-t3-public-offline.ts scripts/check-t3-assistant-browser.ts scripts/check-t3-assistant-dynamic.ts scripts/check-t3-corner-controls.ts scripts/d05-first-use-real-kernel-witness.mjs scripts/d05-t3-real-model-witness.mjs src/routes/__root.tsx src/components/site/Layout.tsx src/components/site/T3ContextActions.tsx src/routes/index.tsx src/styles.css src/components/home/DocumentStack.tsx src/routes/keisy.240-fartukov.tsx >"$RUNNER_TEMP/d05-033-format.log" 2>&1 || { echo D05_033_FORMAT_FAIL; exit 1; }
+          node --check public/assets/cehovod-t3-bootstrap.mjs
+          node --check scripts/d05-first-use-real-kernel-witness.mjs
+          node --check scripts/d05-t3-real-model-witness.mjs
+          git diff --check
+          git add -u
+          tree="$(git write-tree)"
+          echo "tree=$tree" >>"$GITHUB_OUTPUT"
+          echo "D05_033_NORMALIZED_TREE=$tree"
+      - name: Import exact published 0.3.3 archive
+        shell: bash
+        working-directory: site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download t3-platform-v0.3.3 --repo Faust-S/knowledge --pattern platform-inputs.zip --dir "$RUNNER_TEMP" >"$RUNNER_TEMP/d05-033-download.log" 2>&1 || { echo D05_033_DOWNLOAD_FAIL; exit 1; }
+          echo "e573cadb5bac9f25f5eaa159e12f38ef1781962cc8e23908bab2bc3032424316  $RUNNER_TEMP/platform-inputs.zip" | shasum -a 256 -c
+          node scripts/t3-platform-inputs.mjs verify "$RUNNER_TEMP/platform-inputs.zip"
+          echo D05_033_ORIGINAL_PLATFORM_PASS
+      - name: Confirm previous complete release and inherited evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/runs/46142673103 >"$RUNNER_TEMP/d05-033-prior.json"
+          gh api repos/Faust-S/knowledge/actions/jobs/140971893427 >"$RUNNER_TEMP/d05-033-prior-job.json"
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync} from "node:fs";
+          const read=p=>JSON.parse(readFileSync(process.env.RUNNER_TEMP+"/"+p,"utf8"));
+          const r=read("d05-033-prior.json"),j=read("d05-033-prior-job.json");
+          assert.equal(r.conclusion,"success");
+          assert.equal(r.head_sha,"8df2220ac92e9cefbfe051485dc2694259d39fbc");
+          assert.equal(j.conclusion,"success");
+          assert.equal(j.run_id,46142673103);
+          console.log("D05_033_PREVIOUS_QUALIFIED_RELEASE_PASS");
+          JS
+      - name: Check source contracts and targeted regressions
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          failed=0
+          for gate in prepare:static verify:generated verify:static-build-contract typecheck lint verify:t3-skills; do
+            log="$RUNNER_TEMP/d05-033-source-$gate.log"
+            if npm run "$gate" >"$log" 2>&1; then
+              echo "D05_033_SOURCE $gate PASS"
+            else
+              echo "D05_033_SOURCE $gate FAIL"
+              grep -Eo '(src|scripts|public)/[A-Za-z0-9_.$/-]+\.(tsx?|mjs)\([0-9]+,[0-9]+\): error TS[0-9]+|prettier/prettier|CEHOVOD_[A-Z0-9_]+' "$log" | head -65 || true
+              failed=1
+            fi
+          done
+          log="$RUNNER_TEMP/d05-033-targeted.log"
+          if npx --no-install vitest run src/design-contract.test.ts src/order-route-design-contract.test.ts src/static-checks-contract.test.ts src/site-routes.test.ts src/data/materials.test.ts src/lib/t3-result-detail.test.ts --reporter=json --outputFile="$RUNNER_TEMP/d05-033-targeted.json" >"$log" 2>&1; then
+            node --input-type=module <<'JS'
+            import assert from "node:assert/strict";
+            import {readFileSync} from "node:fs";
+            const r=JSON.parse(readFileSync(process.env.RUNNER_TEMP+"/d05-033-targeted.json","utf8"));
+            const counts={total:r.numTotalTests,passed:r.numPassedTests,failed:r.numFailedTests,pending:r.numPendingTests};
+            assert.ok(counts.total>0&&counts.total===counts.passed&&counts.failed===0&&counts.pending===0);
+            console.log("D05_033_TARGETED "+JSON.stringify(counts));
+            JS
+          else
+            echo D05_033_TARGETED_FAIL
+            failed=1
+          fi
+          node scripts/check-t3-native-context.mjs
+          node --test scripts/site-owned-chrome.test.mjs scripts/lib/t3-model-install-consent.test.mjs scripts/lib/t3-assistant-vite-config.test.mjs
+          test "$failed" -eq 0
+          echo D05_033_SOURCE_PASS
+      - name: Install existing protected Host browser witness dependencies
+        shell: bash
+        working-directory: one-core/packages/t3-core
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          set -euo pipefail
+          npm ci --include=dev --no-audit --no-fund >"$RUNNER_TEMP/d05-033-witness-npm.log" 2>&1 || { echo D05_033_WITNESS_NPM_FAIL; exit 1; }
+          npx --no-install playwright install chromium >"$RUNNER_TEMP/d05-033-browser-install.log" 2>&1 || { echo D05_033_BROWSER_INSTALL_FAIL; exit 1; }
+      - name: Prepare original protected HTTPS loopback Host
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-033-loopback-host.log"
+          code=0
+          npm run prepare:t3-host -- "$GITHUB_WORKSPACE/one-core/packages/t3-core" "$RUNNER_TEMP/d05-033-loopback-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/assistant" https://127.0.0.1:34567 >"$log" 2>&1 || code=$?
+          grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$|^CEHOVOD_T3_DYNAMIC_STAGE_[A-Z0-9_]+$|^\{"status":"(CEHOVOD_T3_[A-Z0-9_]+|D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED)"' "$log" | tail -85 || true
+          grep -Eo 'CEHOVOD_[A-Za-z0-9_-]{3,120}|IWXA_[A-Za-z0-9_-]{3,120}|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+|(check-t3-[a-z-]+\.ts|d05-first-use-real-kernel-witness\.mjs):[0-9]+:[0-9]+' "$log" | sort -u | head -55 || true
+          if [ "$code" -ne 0 ]; then echo "D05_033_LOOPBACK_HOST_FAIL"; exit "$code"; fi
+          echo "D05_033_LOOPBACK_HOST_PASS"
+      - name: Build exact T3 loopback distribution
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-033-loopback-dist.log"
+          code=0
+          node scripts/build-cehovod-t3-local-site.mjs "$RUNNER_TEMP/d05-033-loopback-host" "$RUNNER_TEMP/platform-inputs.zip" >"$log" 2>&1 || code=$?
+          grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$|^CEHOVOD_T3_DYNAMIC_STAGE_[A-Z0-9_]+$|^\{"status":"(CEHOVOD_T3_[A-Z0-9_]+|D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED)"' "$log" | tail -85 || true
+          grep -Eo 'CEHOVOD_[A-Za-z0-9_-]{3,120}|IWXA_[A-Za-z0-9_-]{3,120}|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+|(check-t3-[a-z-]+\.ts|d05-first-use-real-kernel-witness\.mjs):[0-9]+:[0-9]+' "$log" | sort -u | head -55 || true
+          if [ "$code" -ne 0 ]; then echo "D05_033_LOOPBACK_DIST_FAIL"; exit "$code"; fi
+          echo "D05_033_LOOPBACK_DIST_PASS"
+      - name: Actual T3 autonomous production and independent cold physical Exchange
+        shell: bash
+        working-directory: site
+        env:
+          D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
+          D05_T3_WITNESS_MATERIALIZER: ${{ github.workspace }}/one-core/packages/t3-core/scripts/materialize-t3-domain-mode.mjs
+          D05_FIRST_USE_T3: '1'
+          D05_FIRST_USE_T3_OFFLINE_CASE001: '1'
+          D05_FIRST_USE_CASE001: '1'
+          D05_FIRST_USE_CASE001_COSTED: '1'
+          D05_FIRST_USE_CASE001_EXCHANGE: '1'
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-033-autonomous-production.log"
+          code=0
+          node scripts/d05-first-use-real-kernel-witness.mjs >"$log" 2>&1 || code=$?
+          grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$|^CEHOVOD_T3_DYNAMIC_STAGE_[A-Z0-9_]+$|^\{"status":"(CEHOVOD_T3_[A-Z0-9_]+|D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED)"' "$log" | tail -85 || true
+          grep -Eo 'CEHOVOD_[A-Za-z0-9_-]{3,120}|IWXA_[A-Za-z0-9_-]{3,120}|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+|(check-t3-[a-z-]+\.ts|d05-first-use-real-kernel-witness\.mjs):[0-9]+:[0-9]+' "$log" | sort -u | head -55 || true
+          if [ "$code" -ne 0 ]; then echo "D05_033_AUTONOMOUS_PRODUCTION_FAIL"; exit "$code"; fi
+          echo "D05_033_AUTONOMOUS_PRODUCTION_PASS"
+          for marker in D05_T3_ASSISTANT_EXPLICIT_ORDER_HANDOFF D05_T3_CASE001_RECEIVER_EMPTY_SNAPSHOT D05_T3_CASE001_SERVER_STOPPED D05_CASE001_ACTUALS_120_REWORK_4_SCRAP_0 D05_CASE001_TWENTY_SEVEN_RESULT_CLOSED_COLD_RECOVERY D05_T3_CASE001_OFFLINE_PRODUCTION_CLOSED D05_CASE001_PHYSICAL_IWXA_EXPORTED D05_CASE001_IWXA_CLEAN_PROFILE_27_RESULTS_AND_EVENTS D05_CASE001_IWXA_CLEAN_PROFILE_COLD_RECOVERY D05_T3_CASE001_OFFLINE_PHYSICAL_EXCHANGE D05_T3_CASE001_COLD_OFFLINE_COMPLETE D05_FIRST_USE_REAL_T2_CROSS_SERVICE; do
+            grep -Fxq "$marker=PASS" "$log"
+          done
+      - name: Prepare canonical Host and retain verified inputs
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-033-canonical-host.log"
+          code=0
+          (rm -rf dist .native-build "$RUNNER_TEMP/d05-033-loopback-host" && npm run prepare:t3-host -- "$GITHUB_WORKSPACE/one-core/packages/t3-core" "$RUNNER_TEMP/d05-033-canonical-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/assistant" https://cehovod.ru && npm run retain:t3-inputs -- "$RUNNER_TEMP/d05-033-canonical-host" "$RUNNER_TEMP/platform-inputs.zip") >"$log" 2>&1 || code=$?
+          grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$|^CEHOVOD_T3_DYNAMIC_STAGE_[A-Z0-9_]+$|^\{"status":"(CEHOVOD_T3_[A-Z0-9_]+|D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED)"' "$log" | tail -85 || true
+          grep -Eo 'CEHOVOD_[A-Za-z0-9_-]{3,120}|IWXA_[A-Za-z0-9_-]{3,120}|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+|(check-t3-[a-z-]+\.ts|d05-first-use-real-kernel-witness\.mjs):[0-9]+:[0-9]+' "$log" | sort -u | head -55 || true
+          if [ "$code" -ne 0 ]; then echo "D05_033_CANONICAL_HOST_FAIL"; exit "$code"; fi
+          echo "D05_033_CANONICAL_HOST_PASS"
+      - name: Build canonical final distribution and verify origin
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-033-canonical-dist.log"
+          code=0
+          (node scripts/build-cehovod-t3-local-site.mjs && npm run verify:product:t3 -- --production) >"$log" 2>&1 || code=$?
+          grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$|^CEHOVOD_T3_DYNAMIC_STAGE_[A-Z0-9_]+$|^\{"status":"(CEHOVOD_T3_[A-Z0-9_]+|D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED)"' "$log" | tail -85 || true
+          grep -Eo 'CEHOVOD_[A-Za-z0-9_-]{3,120}|IWXA_[A-Za-z0-9_-]{3,120}|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+|(check-t3-[a-z-]+\.ts|d05-first-use-real-kernel-witness\.mjs):[0-9]+:[0-9]+' "$log" | sort -u | head -55 || true
+          if [ "$code" -ne 0 ]; then echo "D05_033_CANONICAL_DIST_FAIL"; exit "$code"; fi
+          echo "D05_033_CANONICAL_DIST_PASS"
+      - name: Run all independent changed browser routes and actual fixed controls
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          failed=0
+          for test in check-t3-corner-controls check-t3-assistant-browser check-t3-assistant-dynamic check-t3-public-offline; do
+            log="$RUNNER_TEMP/d05-033-$test.log"
+            code=0
+            node --import tsx "scripts/$test.ts" >"$log" 2>&1 || code=$?
+            grep -E '^CEHOVOD_T3_(DYNAMIC_STAGE_[A-Z0-9_]+|DYNAMIC_FAILURE [A-Za-z0-9_]+|ASSISTANT_PARTIAL_MOUNT_PASS_[01]_[01]|ASSISTANT_BROWSER_DIAG |ASSISTANT_BROWSER_ROUTE_)|^\{"status":"CEHOVOD_T3_' "$log" | tail -100 || true
+            grep -Eo 'CEHOVOD_T3_[A-Za-z0-9_-]{3,120}|check-t3-[a-z-]+\.ts:[0-9]+:[0-9]+|TimeoutError|AssertionError|ReferenceError' "$log" | sort -u | head -80 || true
+            if [ "$code" -eq 0 ]; then echo "D05_033_BROWSER $test PASS"; else echo "D05_033_BROWSER $test FAIL"; failed=1; fi
+          done
+          test "$failed" -eq 0
+          grep -q '^{"status":"CEHOVOD_T3_CORNER_PASS",' "$RUNNER_TEMP/d05-033-check-t3-corner-controls.log"
+          grep -q '^{"status":"CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS",' "$RUNNER_TEMP/d05-033-check-t3-assistant-browser.log"
+          grep -q '^{"status":"CEHOVOD_T3_DYNAMIC_CONTEXT_PASS",' "$RUNNER_TEMP/d05-033-check-t3-assistant-dynamic.log"
+          grep -q '^{"status":"CEHOVOD_T3_PUBLIC_COLD_OFFLINE_PASS",' "$RUNNER_TEMP/d05-033-check-t3-public-offline.log"
+          grep -q '^{"status":"CEHOVOD_T3_ALL_SITE_COLD_PASS",' "$RUNNER_TEMP/d05-033-check-t3-public-offline.log"
+      - name: Verify actual navigation remains reachable with fixed controls
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          harness="$GITHUB_WORKSPACE/harness/qualification/d05/navigation"
+          audit="scripts/d05-release-rendered-links.ts"
+          helper="scripts/d05-release-link-target.mjs"
+          transport="scripts/d05-release-transport.mjs"
+          test ! -e "$audit" && test ! -e "$helper" && test ! -e "$transport"
+          trap 'rm -f "$audit" "$helper" "$transport"' EXIT
+          cp "$harness/check-t3-rendered-links.ts" "$audit"
+          cp "$harness/t3-link-target.mjs" "$helper"
+          cp "$harness/transport.mjs" "$transport"
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-033-navigation.log"
+          code=0
+          node --import tsx "$audit" >"$log" 2>&1 || code=$?
+          grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$|^CEHOVOD_T3_DYNAMIC_STAGE_[A-Z0-9_]+$|^\{"status":"(CEHOVOD_T3_[A-Z0-9_]+|D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED)"' "$log" | tail -85 || true
+          grep -Eo 'CEHOVOD_[A-Za-z0-9_-]{3,120}|IWXA_[A-Za-z0-9_-]{3,120}|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+|(check-t3-[a-z-]+\.ts|d05-first-use-real-kernel-witness\.mjs):[0-9]+:[0-9]+' "$log" | sort -u | head -55 || true
+          if [ "$code" -ne 0 ]; then echo "D05_033_NAVIGATION_FAIL"; exit "$code"; fi
+          echo "D05_033_NAVIGATION_PASS"
+          grep -q '^{"status":"D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED",' "$log"
+      - name: Verify actual Apache routing and all external anchors
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          if ! command -v apache2 >/dev/null 2>&1 && ! command -v httpd >/dev/null 2>&1; then
+            sudo apt-get update -qq >"$RUNNER_TEMP/d05-033-apache-install.log" 2>&1
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq apache2 >>"$RUNNER_TEMP/d05-033-apache-install.log" 2>&1
+          fi
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-033-apache.log"
+          code=0
+          npm run check:htaccess:strict >"$log" 2>&1 || code=$?
+          grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$|^CEHOVOD_T3_DYNAMIC_STAGE_[A-Z0-9_]+$|^\{"status":"(CEHOVOD_T3_[A-Z0-9_]+|D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED)"' "$log" | tail -85 || true
+          grep -Eo 'CEHOVOD_[A-Za-z0-9_-]{3,120}|IWXA_[A-Za-z0-9_-]{3,120}|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+|(check-t3-[a-z-]+\.ts|d05-first-use-real-kernel-witness\.mjs):[0-9]+:[0-9]+' "$log" | sort -u | head -55 || true
+          if [ "$code" -ne 0 ]; then echo "D05_033_APACHE_FAIL"; exit "$code"; fi
+          echo "D05_033_APACHE_PASS"
+          grep -Eq '^  Apache integration[[:space:]]*:[[:space:]]*PASS$' "$log"
+          python3 "$GITHUB_WORKSPACE/harness/qualification/d05/current-hosting/external-links.py" dist "$RUNNER_TEMP/d05-033-external.json"
+      - name: Verify reproducible retained-input distribution and rollback
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-033-repro.log"
+          code=0
+          node scripts/check-t3-dist-reproducibility.mjs >"$log" 2>&1 || code=$?
+          grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$|^CEHOVOD_T3_DYNAMIC_STAGE_[A-Z0-9_]+$|^\{"status":"(CEHOVOD_T3_[A-Z0-9_]+|D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED)"' "$log" | tail -85 || true
+          grep -Eo 'CEHOVOD_[A-Za-z0-9_-]{3,120}|IWXA_[A-Za-z0-9_-]{3,120}|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+|(check-t3-[a-z-]+\.ts|d05-first-use-real-kernel-witness\.mjs):[0-9]+:[0-9]+' "$log" | sort -u | head -55 || true
+          if [ "$code" -ne 0 ]; then echo "D05_033_REPRO_FAIL"; exit "$code"; fi
+          echo "D05_033_REPRO_PASS"
+          grep -E '^\{"status":"CEHOVOD_T3_REPRO_PASS","files":[0-9]+,"invalidInputPreservedDist":true,"exactBytes":true,"productAccepted":false\}$' "$log"
+      - name: Package exact hosting candidate privately after all Linux gates
+        shell: bash
+        id: package
+        working-directory: site
+        run: |
+          set -euo pipefail
+          git diff --check
+          git add -u
+          tree="$(git write-tree)"
+          test "$tree" = "${{ steps.normalized.outputs.tree }}"
+          python3 "$GITHUB_WORKSPACE/harness/qualification/d05/t3-033/package.py" dist "$RUNNER_TEMP/cehovod-t3-0.3.3-delivery.zip" "$tree"
+          openssl cms -encrypt -binary -aes-256-gcm -outform DER -in "$RUNNER_TEMP/cehovod-t3-0.3.3-delivery.zip" -out "$RUNNER_TEMP/cehovod-t3-0.3.3-hosting.cms" -recip "$GITHUB_WORKSPACE/harness/qualification/d05/current-hosting/recipient.pem" -keyopt rsa_padding_mode:oaep -keyopt rsa_oaep_md:sha256
+          digest="$(sha256sum "$RUNNER_TEMP/cehovod-t3-0.3.3-delivery.zip" | cut -d' ' -f1)"
+          echo "digest=$digest" >>"$GITHUB_OUTPUT"
+          echo "D05_033_DELIVERY_SHA256=$digest"
+          rm -f "$RUNNER_TEMP/cehovod-t3-0.3.3-delivery.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: d05-t3-0.3.3-hosting-encrypted-candidate
+          path: ${{ runner.temp }}/cehovod-t3-0.3.3-hosting.cms
+          if-no-files-found: error
+          retention-days: 7
+      - name: Destroy private temporary source and unencrypted logs
+        shell: bash
+        if: always()
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/site" "$GITHUB_WORKSPACE/domain" "$GITHUB_WORKSPACE/assistant" "$GITHUB_WORKSPACE/one-core" "$RUNNER_TEMP/d05-033-canonical-host" "$RUNNER_TEMP/d05-033-loopback-host"
+          rm -f "$RUNNER_TEMP"/d05-033-*.log "$RUNNER_TEMP/platform-inputs.zip" "$RUNNER_TEMP/cehovod-t3-0.3.3-delivery.zip"
+  hardware:
+    needs: admission
+    runs-on: macos-latest
+    timeout-minutes: 65
+    outputs:
+      tree: ${{ steps.normalized.outputs.tree }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: ${{ github.sha }}
+          path: harness
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod.ru
+          ref: 671bb997fe88ac192f20dfee5be8cdf6db6b9f9d
+          path: site
+          fetch-depth: 4
+          persist-credentials: false
+          token: ${{ secrets.DOMEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod
+          ref: 6852d55ae8e7100b480b2d5c0a10b92de1c7d467
+          path: domain
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.DOMEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 629aaa274f2d6ad915730ee0d817aedc33e53108
+          path: assistant
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.DOMEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 30e3f98f944ffa351f2dfa9922f38bcca8b7d314
+          path: one-core
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact source, platform and unchanged subject
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C site rev-parse HEAD)" = "671bb997fe88ac192f20dfee5be8cdf6db6b9f9d"
+          test "$(git -C site rev-parse HEAD^^^)" = "75eddb38289b5b10bffad82e2a6c2fc277101617"
+          test "$(git -C domain rev-parse HEAD)" = "6852d55ae8e7100b480b2d5c0a10b92de1c7d467"
+          test "$(git -C assistant rev-parse HEAD)" = "629aaa274f2d6ad915730ee0d817aedc33e53108"
+          test "$(git -C one-core rev-parse HEAD)" = "30e3f98f944ffa351f2dfa9922f38bcca8b7d314"
+          test "$(git -C one-core rev-parse HEAD:packages/t3-core)" = "6e8c8d1b2b822e95cbfd9641659f6755420746f1"
+          test "$(git -C assistant rev-parse HEAD:browser-local-inference/domain-assistant/main.mjs)" = "8392bddd8e4ce4863fd44be73f046c111bcc2bf0"
+          test "$(git -C assistant rev-parse HEAD:browser-local-inference/domain-assistant/skill-runtime.mjs)" = "9a9704df6b2b41df119827dd357d7ac2058bdd34"
+          cmp -s domain/models/assistant-skills.json site/public/assets/cehovod-assistant-skills.json
+          cmp -s domain/src/lib/iwps/registry-snapshot.generated.json site/src/lib/iwps/registry-snapshot.generated.json
+          git -C site diff --exit-code "75eddb38289b5b10bffad82e2a6c2fc277101617" HEAD -- src/data src/lib t2-site-module public/assets/cehovod-assistant-skills.json package.json package-lock.json
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync} from "node:fs";
+          const read=p=>JSON.parse(readFileSync("site/runtime/t3-platform/"+p,"utf8"));
+          assert.equal(read("active.json").version,"0.3.3");
+          const p=read("0.3.3/release.json"),a=read("0.3.3/domain-assistant.json");
+          assert.equal(p.sourceCommit,"30e3f98f944ffa351f2dfa9922f38bcca8b7d314");
+          assert.equal(a.sourceCommit,"629aaa274f2d6ad915730ee0d817aedc33e53108");
+          assert.equal(p.kernel,"0.3.6");
+          assert.equal(p.contract,"1.3.0");
+          assert.equal(p.webllm,"0.2.87");
+          assert.deepEqual(read("0.3.3/domain-skills.json"),read("0.3.2/domain-skills.json"));
+          console.log("D05_033_PINS_AND_UNCHANGED_SUBJECT_PASS");
+          JS
+      - name: Install locked dependencies and normalize only edited surfaces
+        shell: bash
+        id: normalized
+        working-directory: site
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund >"$RUNNER_TEMP/d05-033-npm.log" 2>&1 || { echo D05_033_NPM_FAIL; exit 1; }
+          npx --no-install prettier --write public/assets/cehovod-t3-bootstrap.mjs scripts/build-cehovod-t3-local-site.mjs scripts/check-t3-public-offline.ts scripts/check-t3-assistant-browser.ts scripts/check-t3-assistant-dynamic.ts scripts/check-t3-corner-controls.ts scripts/d05-first-use-real-kernel-witness.mjs scripts/d05-t3-real-model-witness.mjs src/routes/__root.tsx src/components/site/Layout.tsx src/components/site/T3ContextActions.tsx src/routes/index.tsx src/styles.css src/components/home/DocumentStack.tsx src/routes/keisy.240-fartukov.tsx >"$RUNNER_TEMP/d05-033-format.log" 2>&1 || { echo D05_033_FORMAT_FAIL; exit 1; }
+          node --check public/assets/cehovod-t3-bootstrap.mjs
+          node --check scripts/d05-first-use-real-kernel-witness.mjs
+          node --check scripts/d05-t3-real-model-witness.mjs
+          git diff --check
+          git add -u
+          tree="$(git write-tree)"
+          echo "tree=$tree" >>"$GITHUB_OUTPUT"
+          echo "D05_033_NORMALIZED_TREE=$tree"
+      - name: Import exact published 0.3.3 archive
+        shell: bash
+        working-directory: site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download t3-platform-v0.3.3 --repo Faust-S/knowledge --pattern platform-inputs.zip --dir "$RUNNER_TEMP" >"$RUNNER_TEMP/d05-033-download.log" 2>&1 || { echo D05_033_DOWNLOAD_FAIL; exit 1; }
+          echo "e573cadb5bac9f25f5eaa159e12f38ef1781962cc8e23908bab2bc3032424316  $RUNNER_TEMP/platform-inputs.zip" | shasum -a 256 -c
+          node scripts/t3-platform-inputs.mjs verify "$RUNNER_TEMP/platform-inputs.zip"
+          echo D05_033_ORIGINAL_PLATFORM_PASS
+      - name: Prepare original OpenSSL and GPU witness dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! brew list --versions openssl@3 >/dev/null 2>&1; then brew install openssl@3; fi
+          echo "$(brew --prefix openssl@3)/bin" >>"$GITHUB_PATH"
+      - name: Install existing protected Host browser witness dependencies
+        shell: bash
+        working-directory: one-core/packages/t3-core
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          set -euo pipefail
+          npm ci --include=dev --no-audit --no-fund >"$RUNNER_TEMP/d05-033-witness-npm.log" 2>&1 || { echo D05_033_WITNESS_NPM_FAIL; exit 1; }
+          npx --no-install playwright install chromium >"$RUNNER_TEMP/d05-033-browser-install.log" 2>&1 || { echo D05_033_BROWSER_INSTALL_FAIL; exit 1; }
+      - name: Require actual nonfallback WebGPU
+        shell: bash
+        working-directory: site
+        env:
+          D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
+        run: |
+          set -euo pipefail
+          node --test scripts/lib/t3-webgpu-probe.test.mjs
+          node --experimental-strip-types --test scripts/lib/t3-assistant-vite-config.test.mjs
+          node scripts/check-t3-hardware-webgpu.mjs >"$RUNNER_TEMP/d05-033-gpu.log" 2>&1 || { echo D05_033_GPU_FAIL; exit 1; }
+          grep -Fx 'D05_T3_HARDWARE_PREFLIGHT {"adapter":"nonfallback-reported","supported":true,"compute":true,"reason":"READBACK"}' "$RUNNER_TEMP/d05-033-gpu.log"
+      - name: Prepare original protected HTTPS loopback Host
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-033-loopback-host.log"
+          code=0
+          npm run prepare:t3-host -- "$GITHUB_WORKSPACE/one-core/packages/t3-core" "$RUNNER_TEMP/d05-033-loopback-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/assistant" https://127.0.0.1:34567 >"$log" 2>&1 || code=$?
+          grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$|^CEHOVOD_T3_DYNAMIC_STAGE_[A-Z0-9_]+$|^\{"status":"(CEHOVOD_T3_[A-Z0-9_]+|D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED)"' "$log" | tail -85 || true
+          grep -Eo 'CEHOVOD_[A-Za-z0-9_-]{3,120}|IWXA_[A-Za-z0-9_-]{3,120}|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+|(check-t3-[a-z-]+\.ts|d05-first-use-real-kernel-witness\.mjs):[0-9]+:[0-9]+' "$log" | sort -u | head -55 || true
+          if [ "$code" -ne 0 ]; then echo "D05_033_LOOPBACK_HOST_FAIL"; exit "$code"; fi
+          echo "D05_033_LOOPBACK_HOST_PASS"
+      - name: Build exact T3 loopback distribution
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-033-loopback-dist.log"
+          code=0
+          node scripts/build-cehovod-t3-local-site.mjs "$RUNNER_TEMP/d05-033-loopback-host" "$RUNNER_TEMP/platform-inputs.zip" >"$log" 2>&1 || code=$?
+          grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$|^CEHOVOD_T3_DYNAMIC_STAGE_[A-Z0-9_]+$|^\{"status":"(CEHOVOD_T3_[A-Z0-9_]+|D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED)"' "$log" | tail -85 || true
+          grep -Eo 'CEHOVOD_[A-Za-z0-9_-]{3,120}|IWXA_[A-Za-z0-9_-]{3,120}|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+|(check-t3-[a-z-]+\.ts|d05-first-use-real-kernel-witness\.mjs):[0-9]+:[0-9]+' "$log" | sort -u | head -55 || true
+          if [ "$code" -ne 0 ]; then echo "D05_033_LOOPBACK_DIST_FAIL"; exit "$code"; fi
+          echo "D05_033_LOOPBACK_DIST_PASS"
+      - name: Real model consent, online and cold offline consultation through new panel
+        shell: bash
+        working-directory: site
+        env:
+          D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
+          D05_T3_MODEL_PROFILE: light
+          D05_T3_MODEL_CROSS_SERVICE: '1'
+          D05_T3_MODEL_GROUNDED_ADVICE: '1'
+          D05_T3_MODEL_EVALUATION_SOURCE: ${{ github.workspace }}/domain/tests/assistant-answer-diagnostic.mjs
+          D05_T3_REQUIRE_HARDWARE_GPU: '1'
+        run: |
+          set -euo pipefail
+          node --test scripts/lib/t3-model-install-consent.test.mjs
+          log="$RUNNER_TEMP/d05-033-model.log"
+          code=0
+          node scripts/d05-t3-real-model-witness.mjs >"$log" 2>&1 || code=$?
+          grep -E '^D05_T3_(MODEL_ADVICE_EVIDENCE|MODEL_CROSS_SERVICE_EVIDENCE|REAL_MODEL_PASS|REAL_MODEL_FAIL|MODEL_CANCEL_PASS|MODEL_CACHE_INSPECTION) \{[A-Za-z0-9":{}, _-]+\}$|^D05_T3_(MODEL_CROSS_SERVICE_(PASS_NOT_PRODUCT_ACCEPTED|REVIEW_REQUIRED)|REAL_MODEL_(INSTALL|CACHE_RELEASE|COLD_LOAD)_PASS|MODEL_INSTALL_CONFIRMATION_PASS)$' "$log" || true
+          grep -Eo 'CEHOVOD_T3_MODEL_[A-Z0-9_]+|TimeoutError|AssertionError|d05-t3-real-model-witness\.mjs:[0-9]+:[0-9]+' "$log" | sort -u | head -60 || true
+          test "$code" -eq 0
+          grep -Fxq 'D05_T3_MODEL_CACHE_INSPECTION {"state":"missing"}' "$log"
+          grep -Fxq 'D05_T3_MODEL_CANCEL_PASS {"cancelled":true,"workers":0,"externalRequests":0,"ready":false}' "$log"
+          grep -Fxq 'D05_T3_MODEL_INSTALL_CONFIRMATION_PASS' "$log"
+          grep -q '^D05_T3_REAL_MODEL_PASS ' "$log"
+      - name: Destroy private temporary hardware-test sources
+        shell: bash
+        if: always()
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/site" "$GITHUB_WORKSPACE/domain" "$GITHUB_WORKSPACE/assistant" "$GITHUB_WORKSPACE/one-core" "$RUNNER_TEMP/d05-033-loopback-host"
+          rm -f "$RUNNER_TEMP"/d05-033-*.log "$RUNNER_TEMP/platform-inputs.zip"
+  release_gate:
+    needs: [linux, hardware]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      LINUX_TREE: ${{ needs.linux.outputs.tree }}
+      HARDWARE_TREE: ${{ needs.hardware.outputs.tree }}
+      DIGEST: ${{ needs.linux.outputs.digest }}
+    steps:
+      - name: Require exact source identity and completed domain qualifications
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$LINUX_TREE"
+          test "$LINUX_TREE" = "$HARDWARE_TREE"
+          [[ "$DIGEST" =~ ^[a-f0-9]{64}$ ]]
+          echo D05_033_ENGINEERING_RELEASE_GATE_PASS
+          echo "D05_033_HOSTING_DELIVERY_SHA256=$DIGEST"
+          echo "Independent final acceptance and hosting deployment remain separate."
