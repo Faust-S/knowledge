@@ -22,7 +22,7 @@ t2=next(r for r in source if r["name"]=="t2-module")
 assert t2["nodeCounts"]=={"tests":130,"pass":130,"fail":0}
 static=[m.split()[1] for m in messages if m.startswith("D05_STATIC_GATE ") and m.endswith(" PASS")]
 assert len(static)==15 and len(set(static))==15
-receipt={"previousSiteCommit":"a6b3a9a0dea273f134268670e8abdc0321d8368e","previousTree":"d89dd6a39c9e983d02b31b66339d587f10f626c6","previousRun":46139054634,"previousJob":140960744989,"previousSource":source,"previousStatic":static,"previousT2Production":"PASS","currentSiteCommit":"a9ead59a8db271209112a200bf7a8816b8449e0c"}
+receipt={"previousSiteCommit":"a6b3a9a0dea273f134268670e8abdc0321d8368e","previousTree":"d89dd6a39c9e983d02b31b66339d587f10f626c6","previousRun":46139054634,"previousJob":140960744989,"previousSource":source,"previousStatic":static,"previousT2Production":"PASS","currentSiteCommit":"75eddb38289b5b10bffad82e2a6c2fc277101617"}
 if len(sys.argv)>2:
     result=json.loads((temp/"d05-current-targeted-tests.json").read_text())
     counts={k:result[k] for k in ("numTotalTests","numPassedTests","numFailedTests","numPendingTests")}
