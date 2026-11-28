@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory() as tmp:
         assert sorted(z.namelist()) == sorted(names)
         for path, name in zip(files, names):
             assert hashlib.sha256(z.read(name)).digest() == hashlib.sha256(path.read_bytes()).digest()
-    receipt = {"siteCommit":"c4d84ddb9e9b1b1849b2326f4d19a79f6ac7aaad","subjectCommit":"6852d55ae8e7100b480b2d5c0a10b92de1c7d467","assistantCommit":"2c247482306f218a7d5be668de11e98f168862d4","platformCommit":"8e26076ce66f0c26693a647e061fcd568e055b77","platformVersion":"0.3.2","sourceTree":tree,"distFiles":len(files),"distSha256":hashlib.sha256(hosting.read_bytes()).hexdigest(),"linuxQualification":"PASS","hardwareQualification":"PASS_ON_UNCHANGED_RUNTIME_PREDECESSOR","hardwareSiteCommit":"b7896f9b74be8b4d5d9e1eeb3c039b1c5098606f","hardwareRunId":46134347428,"hardwareJobId":140946226501,"productAccepted":False}
+    receipt = {"siteCommit":"a9ead59a8db271209112a200bf7a8816b8449e0c","subjectCommit":"6852d55ae8e7100b480b2d5c0a10b92de1c7d467","assistantCommit":"2c247482306f218a7d5be668de11e98f168862d4","platformCommit":"8e26076ce66f0c26693a647e061fcd568e055b77","platformVersion":"0.3.2","sourceTree":tree,"distFiles":len(files),"distSha256":hashlib.sha256(hosting.read_bytes()).hexdigest(),"linuxQualification":"PASS","hardwareQualification":"PASS_ON_UNCHANGED_RUNTIME_PREDECESSOR","hardwareSiteCommit":"b7896f9b74be8b4d5d9e1eeb3c039b1c5098606f","hardwareRunId":46134347428,"hardwareJobId":140946226501,"productAccepted":False}
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as z:
         z.write(hosting, hosting.name)
         z.write(patch, "qualified-source.patch")

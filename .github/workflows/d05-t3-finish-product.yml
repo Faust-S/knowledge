@@ -24,7 +24,7 @@ jobs:
       - name: Validate deliberate one-shot qualification request
         shell: bash
         run: |
-          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d05-t3-finish-product --profile 0.3.2-finish-product --revision site=c4d84ddb9e9b1b1849b2326f4d19a79f6ac7aaad --revision subject=6852d55ae8e7100b480b2d5c0a10b92de1c7d467 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4 --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d05-t3-finish-product --profile 0.3.2-finish-product --revision site=a9ead59a8db271209112a200bf7a8816b8449e0c --revision subject=6852d55ae8e7100b480b2d5c0a10b92de1c7d467 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4 --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77
   linux:
     needs: admission
     runs-on: ubuntu-latest
@@ -44,10 +44,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: c4d84ddb9e9b1b1849b2326f4d19a79f6ac7aaad
+          ref: a9ead59a8db271209112a200bf7a8816b8449e0c
           path: site
           persist-credentials: false
-          fetch-depth: 2
+          fetch-depth: 3
           token: ${{ secrets.DOMEN }}
       - uses: actions/checkout@v4
         with:
@@ -76,7 +76,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C site rev-parse HEAD)" = "c4d84ddb9e9b1b1849b2326f4d19a79f6ac7aaad"
+          test "$(git -C site rev-parse HEAD)" = "a9ead59a8db271209112a200bf7a8816b8449e0c"
           test "$(git -C domain rev-parse HEAD)" = "6852d55ae8e7100b480b2d5c0a10b92de1c7d467"
           test "$(git -C assistant rev-parse HEAD)" = "2c247482306f218a7d5be668de11e98f168862d4"
           test "$(git -C one-core rev-parse HEAD)" = "8e26076ce66f0c26693a647e061fcd568e055b77"
@@ -94,10 +94,12 @@ jobs:
           import {execFileSync} from "node:child_process";
           import {readFileSync} from "node:fs";
           const git=(...args)=>execFileSync("git",args,{encoding:"utf8",stdio:["ignore","pipe","pipe"]});
-          assert.equal(git("rev-parse","HEAD^").trim(),"a6b3a9a0dea273f134268670e8abdc0321d8368e");
-          assert.equal(git("rev-parse","HEAD^"+"^{tree}").trim(),"d89dd6a39c9e983d02b31b66339d587f10f626c6");
-          assert.deepEqual(git("diff","--name-only","HEAD^","HEAD").trim().split("\n").sort(),["scripts/check-t3-assistant-browser.ts","scripts/d05-first-use-real-kernel-witness.mjs","src/components/home/DocumentStack.tsx","src/routes/keisy.240-fartukov.tsx"].sort());
-          const before=p=>git("show","HEAD^:"+p);
+          assert.equal(git("rev-parse","HEAD^").trim(),"c4d84ddb9e9b1b1849b2326f4d19a79f6ac7aaad");
+          assert.deepEqual(git("diff","--name-only","HEAD^","HEAD").trim().split("\n"),["scripts/d05-first-use-real-kernel-witness.mjs"]);
+          assert.equal(git("rev-parse","HEAD^^").trim(),"a6b3a9a0dea273f134268670e8abdc0321d8368e");
+          assert.equal(git("rev-parse","HEAD^^"+"^{tree}").trim(),"d89dd6a39c9e983d02b31b66339d587f10f626c6");
+          assert.deepEqual(git("diff","--name-only","HEAD^^","HEAD").trim().split("\n").sort(),["scripts/check-t3-assistant-browser.ts","scripts/d05-first-use-real-kernel-witness.mjs","src/components/home/DocumentStack.tsx","src/routes/keisy.240-fartukov.tsx"].sort());
+          const before=p=>git("show","HEAD^^:"+p);
           const home="src/components/home/DocumentStack.tsx",fabric="src/routes/keisy.240-fartukov.tsx";
           assert.equal(readFileSync(home,"utf8"),before(home).replace('group relative -mt-2 first:mt-0 border border-border bg-paper px-4 py-3 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition-transform focus-within:-translate-y-1 hover:-translate-y-1','-mt-2 first:mt-0 border border-border bg-paper px-4 py-3 shadow-[0_1px_0_rgba(0,0,0,0.02)]').replace(/^\s*<a href="#[^"]+" tabIndex=\{-1\} aria-hidden className="absolute inset-0" \/>\n/m,""));
           assert.equal(readFileSync(fabric,"utf8"),before(fabric).replace("https://msk.sarafanovo.com/category/tekhnicheskie-tkani/tehnicheskaya/","https://msk.sarafanovo.com/category/tekhnicheskie-tkani/seryy/").replace("https://nahodka.sarafanovo.com/product/tkan-sarzha-150-sm-260-gr-041-seryj/","https://ufa.sarafanovo.com/product/tkan-sarzha-150-sm-260-gr-041-seryj/"));
@@ -165,7 +167,7 @@ jobs:
           set -euo pipefail
           gh api repos/Faust-S/knowledge/actions/runs/46139054634 >"$RUNNER_TEMP/d05-qualified-predecessor-run.json"
           gh api repos/Faust-S/knowledge/actions/jobs/140960744989 >"$RUNNER_TEMP/d05-qualified-predecessor-job.json"
-          gh api repos/Faust-S/knowledge/actions/jobs/140960744989/logs >"$RUNNER_TEMP/d05-qualified-predecessor.log"
+          gh api --allow-escape-sequences repos/Faust-S/knowledge/actions/jobs/140960744989/logs >"$RUNNER_TEMP/d05-qualified-predecessor.log"
           python3 "$GITHUB_WORKSPACE/harness/qualification/d05/current-hosting/verify-predecessor.py" "$RUNNER_TEMP"
       - name: Check current source and the affected site contracts without repeating unchanged algorithms
         id: source_gate
