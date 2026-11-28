@@ -4,6 +4,16 @@ const SCHEMA = "iwxa.t3.domain-offline/1";
 const PREFIX = "iwxa-t3-domain-snapshot:";
 const MARKER = "/_iwxa/t3-domain-snapshot";
 const MANIFEST_PATH = "/t3-offline-manifest.json";
+const RELEASE_ORIGIN = /* IWXA_RELEASE_ORIGIN */ null;
+function permittedOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    // A development/test copy can run on a real local loopback origin.
+    return origin === RELEASE_ORIGIN || (url.protocol === "http:" &&
+      ["localhost","127.0.0.1","[::1]"].includes(url.hostname));
+  } catch {return false;}
+}
+
 const MODE_CACHE = "iwxa-t3-domain-mode-v1";
 const ACTIVE_MARKER = "/_iwxa/t3-domain-mode-enabled";
 async function enabledVersion() {
@@ -157,6 +167,9 @@ function validate(manifest) {
       manifest.files.length > 50000 || manifest.complete_static_tree !== true) {
     throw new Error("T3_DOMAIN_MANIFEST_INVALID");
   }
+  if (manifest.domain_origin !== RELEASE_ORIGIN || !permittedOrigin(self.location.origin)) {
+    throw new Error("T3_DOMAIN_RELEASE_ORIGIN_MISMATCH");
+  }
   const seen = new Set();
   for (const file of manifest.files) {
     if (!file || typeof file.path !== "string" ||
@@ -293,12 +306,6 @@ async function checkUpdate(port) {
     const response = await fetch(MANIFEST_PATH, {cache: "no-store", credentials: "same-origin"});
     if (!response.ok) throw new Error("T3_DOMAIN_UPDATE_CHECK_UNAVAILABLE");
     const manifest = validate(await response.json());
-    // Developer localhost fixtures can use a production HTTPS domain.json,
-    // but a deployed HTTPS origin must match its own immutable release.
-    if (self.location.protocol === "https:" &&
-        manifest.domain_origin !== self.location.origin) {
-      throw new Error("T3_DOMAIN_UPDATE_ORIGIN_MISMATCH");
-    }
     const available = manifest.version !== state.manifest.version || state.complete !== true;
     port.postMessage({type: "UPDATE_STATUS", available,
       version: manifest.version, currentVersion: state.manifest.version,

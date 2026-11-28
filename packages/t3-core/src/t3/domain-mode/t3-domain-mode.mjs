@@ -3,6 +3,16 @@
 const SW_PATH = "/t3-sw.js";
 const MANIFEST_PATH = "/t3-offline-manifest.json";
 const SCHEMA = "iwxa.t3.domain-offline/1";
+const RELEASE_ORIGIN = /* IWXA_RELEASE_ORIGIN */ null;
+function permittedOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    // A development/test copy can run on a real local loopback origin.
+    return origin === RELEASE_ORIGIN || (url.protocol === "http:" &&
+      ["localhost","127.0.0.1","[::1]"].includes(url.hostname));
+  } catch {return false;}
+}
+
 const LAST_OFFER_KEY = "iwxa.t3.offline.last-update-offer.v2";
 const CHECK_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 function preference(name) {
@@ -25,20 +35,31 @@ const standalone = () => window.matchMedia?.("(display-mode: standalone)")?.matc
 
 function style() {
   const el = document.createElement("style");
-  el.textContent = "#iwxa-t3-domain-controls,#iwxa-t3-weekly-offer{font:var(--iwxa-assistant-font,inherit);box-sizing:border-box;color:var(--iwxa-assistant-ink,inherit);max-width:100%;overflow-wrap:anywhere}\n#iwxa-t3-domain-controls{display:flex;flex-direction:column;align-items:flex-start;gap:var(--iwxa-assistant-gap,8px)}\n#iwxa-t3-domain-controls[data-inline-fallback]{position:static;margin:12px;padding:var(--iwxa-assistant-padding,12px);border:1px solid var(--iwxa-assistant-border,#cbd8e4);border-radius:var(--iwxa-assistant-radius,8px)}\n#iwxa-t3-domain-controls>*,#iwxa-t3-weekly-offer>*{min-width:0;max-width:100%}\n#iwxa-t3-domain-controls button,#iwxa-t3-weekly-offer button{font:inherit;min-height:44px;max-width:100%;white-space:normal;padding:8px 12px;border:1px solid var(--iwxa-assistant-border,#c0d2de);border-radius:var(--iwxa-assistant-radius,8px);color:var(--iwxa-assistant-ink,#153c56);background:var(--iwxa-assistant-control,#f6f9fc);cursor:pointer}\n#iwxa-t3-domain-controls button:hover:not(:disabled),#iwxa-t3-weekly-offer button:hover:not(:disabled){background:var(--iwxa-assistant-control-hover,var(--iwxa-assistant-control,#f6f9fc))}\n#iwxa-t3-install-offline,#iwxa-t3-install-update,#iwxa-t3-weekly-check{color:var(--iwxa-assistant-accent-ink,#fff)!important;background:var(--iwxa-assistant-accent,#174c74)!important;border-color:var(--iwxa-assistant-accent,#174c74)!important;font-weight:600}\n#iwxa-t3-domain-controls button:disabled,#iwxa-t3-weekly-offer button:disabled{opacity:.55;cursor:default}\n#iwxa-t3-domain-controls button:focus-visible,#iwxa-t3-weekly-offer button:focus-visible{outline:2px solid var(--iwxa-assistant-focus,#2477aa);outline-offset:2px}\n#iwxa-t3-domain-controls [hidden],#iwxa-t3-weekly-offer[hidden]{display:none!important}\n#iwxa-t3-domain-controls p{margin:0;font-size:.875em;line-height:1.5}\n#iwxa-t3-update-offer{border-inline-start:3px solid var(--iwxa-assistant-accent,#174c74);padding-inline-start:10px}\n#iwxa-t3-weekly-offer{display:flex;flex-wrap:wrap;align-items:center;gap:var(--iwxa-assistant-gap,8px);padding:var(--iwxa-assistant-padding,12px);border-bottom:1px solid var(--iwxa-assistant-border,#cbd8e4);background:var(--iwxa-assistant-surface,transparent)}\n#iwxa-t3-weekly-offer p{margin:0;flex:1 1 12rem}\ndetails[data-iwxa-update-available]:not([open])>summary::after{content:' · Доступна проверка обновления';font-weight:400}\n";
+  el.textContent = "#iwxa-t3-domain-controls{position:fixed!important;display:block!important;right:calc(16px + env(safe-area-inset-right,0px))!important;bottom:calc(16px + env(safe-area-inset-bottom,0px))!important;top:auto!important;left:auto!important;width:48px!important;height:48px!important;min-width:0!important;min-height:0!important;margin:0!important;padding:0!important;border:0!important;background:none!important;z-index:1000;font:var(--iwxa-assistant-font,inherit);color:var(--iwxa-assistant-ink,inherit);line-height:1.5;overflow:visible!important;box-sizing:border-box}\n#iwxa-t3-domain-controls *,#iwxa-t3-domain-controls *::before,#iwxa-t3-domain-controls *::after{box-sizing:border-box}\n#iwxa-t3-domain-controls [hidden]{display:none!important}\n#iwxa-t3-domain-controls button{font:inherit;min-height:44px;max-width:100%;white-space:normal;padding:8px 12px;border:1px solid var(--iwxa-assistant-border,#c0d2de);border-radius:var(--iwxa-assistant-radius,8px);color:var(--iwxa-assistant-ink,#153c56);background:var(--iwxa-assistant-control,#f6f9fc);cursor:pointer}\n#iwxa-t3-domain-controls button:hover:not(:disabled){background:var(--iwxa-assistant-control-hover,var(--iwxa-assistant-control,#f6f9fc))}\n#iwxa-t3-domain-controls #iwxa-t3-install-launcher{position:relative;display:grid;place-items:center;width:48px;height:48px;min-height:48px;padding:0;border-radius:50%;box-shadow:0 3px 12px #0002}\n#iwxa-t3-install-launcher svg{display:block;width:24px;height:24px}\n#iwxa-t3-domain-controls[data-iwxa-update-available] #iwxa-t3-install-launcher::after,#iwxa-t3-domain-controls[data-iwxa-window-change] #iwxa-t3-install-launcher::after{content:\"\";position:absolute;top:1px;right:1px;width:10px;height:10px;border-radius:50%;background:var(--iwxa-assistant-accent,#174c74);border:1px solid var(--iwxa-assistant-surface,#fff)}\n#iwxa-t3-install-panel,#iwxa-t3-weekly-offer{position:absolute;right:0;box-sizing:border-box;background:var(--iwxa-assistant-surface,#fff);border:1px solid var(--iwxa-assistant-border,#cbd8e4);border-radius:var(--iwxa-assistant-radius,12px);padding:var(--iwxa-assistant-padding,16px);box-shadow:0 8px 32px #0003;overflow-wrap:anywhere}\n#iwxa-t3-install-panel{bottom:112px;width:min(420px,calc(100vw - 32px - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)));max-height:min(640px,calc(100vh - 144px));max-height:min(640px,calc(100dvh - 144px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px)));overflow:auto;overscroll-behavior:contain;display:flex;flex-direction:column;align-items:flex-start;gap:var(--iwxa-assistant-gap,8px)}\n#iwxa-t3-install-panel>*,#iwxa-t3-weekly-offer>*{min-width:0;max-width:100%}\n#iwxa-t3-install-panel-heading{width:100%;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}\n#iwxa-t3-install-panel-heading h2{font-size:var(--iwxa-assistant-heading-size,1.15em);font-weight:var(--iwxa-assistant-heading-weight,650);line-height:1.3;margin:0}\n#iwxa-t3-domain-controls #iwxa-t3-install-offline,#iwxa-t3-domain-controls #iwxa-t3-install-update,#iwxa-t3-domain-controls #iwxa-t3-weekly-check{color:var(--iwxa-assistant-accent-ink,#fff)!important;background:var(--iwxa-assistant-accent,#174c74)!important;border-color:var(--iwxa-assistant-accent,#174c74)!important;font-weight:600}\n#iwxa-t3-domain-controls button:disabled{opacity:.55;cursor:default}\n#iwxa-t3-domain-controls button:focus-visible{outline:2px solid var(--iwxa-assistant-focus,#2477aa);outline-offset:2px}\n#iwxa-t3-domain-controls p{margin:0;font-size:.875em;line-height:1.5}\n#iwxa-t3-update-offer{border-inline-start:3px solid var(--iwxa-assistant-accent,#174c74);padding-inline-start:10px}\n#iwxa-t3-weekly-offer{right:56px;bottom:0;width:min(280px,calc(100vw - 88px - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)));display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px}\n#iwxa-t3-weekly-offer p{flex:1 1 100%}\n";
   document.head.append(el);
 }
 function createControl() {
-  const mount = document.querySelector("[data-iwxa-t3-controls]");
   const box = document.createElement("section");
   box.id = "iwxa-t3-domain-controls";
   box.setAttribute("aria-label", "Установка на устройство");
-  if (!mount) box.setAttribute("data-inline-fallback", "");
   const button = (id,label,hidden=false) => {
     const node = document.createElement("button");
     node.type = "button";node.id = id;node.textContent = label;node.hidden = hidden;
     return node;
   };
+  const launcher=button("iwxa-t3-install-launcher","");
+  launcher.setAttribute("aria-label","Автономная версия");
+  launcher.title="Автономная версия";
+  launcher.setAttribute("aria-expanded","false");
+  launcher.setAttribute("aria-controls","iwxa-t3-install-panel");
+  launcher.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg>';
+  const panel=document.createElement("section");
+  panel.id="iwxa-t3-install-panel";panel.hidden=true;
+  panel.setAttribute("role","region");panel.setAttribute("aria-label","Установка на устройство");
+  const heading=document.createElement("div");heading.id="iwxa-t3-install-panel-heading";
+  const title=document.createElement("h2");title.textContent="Автономная версия";
+  const close=button("iwxa-t3-install-close","Закрыть");
+  heading.append(title,close);
   const installOffline = button("iwxa-t3-install-offline","Установить автономную версию");
   installOffline.disabled = true;
   const installApp = button("iwxa-t3-install-app","Установить приложение",standalone());
@@ -54,19 +75,26 @@ function createControl() {
   const state = document.createElement("p");
   state.setAttribute("role", "status");state.setAttribute("aria-live", "polite");
   state.textContent = "Проверяем установку…";
-  box.append(installOffline,installApp,installHint,offer,updateCheck,updateInstall,later,reloadWindow,state);
-  if (mount) mount.append(box);else document.body.prepend(box);
-  const noticeSlot=document.querySelector("[data-iwxa-update-offer-slot]");
-  let weekly=null,weeklyCheck=null,weeklyLater=null;
-  if(noticeSlot){
-    weekly=document.createElement("section");weekly.id="iwxa-t3-weekly-offer";weekly.hidden=true;
-    const question=document.createElement("p");question.textContent="Хотите обновить автономную версию?";question.setAttribute("role","status");
-    weeklyCheck=button("iwxa-t3-weekly-check","Проверить обновление");weeklyLater=button("iwxa-t3-weekly-later","Позже");
-    weekly.append(question,weeklyCheck,weeklyLater);noticeSlot.append(weekly);
-  }
+  panel.append(heading,installOffline,installApp,installHint,offer,updateCheck,updateInstall,later,reloadWindow,state);
+  const weekly=document.createElement("section");weekly.id="iwxa-t3-weekly-offer";weekly.hidden=true;
+  const question=document.createElement("p");question.textContent="Хотите обновить автономную версию?";question.setAttribute("role","status");
+  const weeklyCheck=button("iwxa-t3-weekly-check","Проверить");
+  const weeklyLater=button("iwxa-t3-weekly-later","Позже");
+  weekly.append(question,weeklyCheck,weeklyLater);
+  box.append(launcher,panel,weekly);
   style();
-  return {box,installOffline,state,installApp,installHint,offer,updateCheck,updateInstall,later,reloadWindow,weekly,weeklyCheck,weeklyLater,
-    active:false,complete:false,blocked:true,busy:false,appInstalled:false,pendingUpdate:null};
+  // One fixed site-wide host. Old domain layout slots are deliberately ignored.
+  document.body.append(box);
+  return {box,launcher,panel,close,installOffline,state,installApp,installHint,offer,updateCheck,updateInstall,later,reloadWindow,weekly,weeklyCheck,weeklyLater,
+    assistantOpen:false,active:false,complete:false,blocked:true,busy:false,appInstalled:false,pendingUpdate:null};
+}
+function setInstallOpen(ui,open,focus=true) {
+  if (ui.panel.hidden===!open) return;
+  ui.panel.hidden=!open;
+  ui.launcher.setAttribute("aria-expanded",String(open));
+  syncControls(ui);
+  document.dispatchEvent(new window.CustomEvent("iwxa:t3-panel-change",{detail:{panel:"installation",open}}));
+  if(focus)(open?ui.close:ui.launcher).focus({preventScroll:true});
 }
 function tell(ui, text) { ui.state.textContent = text; }
 async function installApplication(ui) {
@@ -116,9 +144,9 @@ window.addEventListener("appinstalled", () => {
   if(button)button.hidden = true;
 });
 function offerBadge(ui,on) {
-  const owner=ui.box.closest?.("details")||ui.box;
-  if(on)owner.dataset.iwxaUpdateAvailable="";
-  else delete owner.dataset.iwxaUpdateAvailable;
+  ui.box.toggleAttribute("data-iwxa-update-available",on);
+  const label=on?"Автономная версия: доступна проверка обновления":"Автономная версия";
+  ui.launcher.title=label;ui.launcher.setAttribute("aria-label",label);
 }
 function syncControls(ui) {
   ui.installOffline.hidden = ui.active && ui.complete && !ui.blocked;
@@ -130,7 +158,8 @@ function syncControls(ui) {
   ui.updateInstall.disabled = ui.busy || ui.blocked;
   ui.later.hidden = ui.offer.hidden && !ui.pendingUpdate;
   ui.later.disabled = ui.busy;
-  if(ui.weekly)ui.weekly.hidden=ui.offer.hidden||ui.busy;
+  ui.weekly.hidden=ui.offer.hidden||ui.busy||!ui.panel.hidden||ui.assistantOpen;
+  ui.box.toggleAttribute("data-iwxa-window-change",!ui.reloadWindow.hidden);
 }
 function render(ui, active, complete=active) {
   ui.active = active;ui.complete = complete;ui.blocked = false;
@@ -181,7 +210,7 @@ async function status(ui) {
   if(answer?.type!=="STATUS")throw Error("T3_DOMAIN_STATUS_INVALID");
   render(ui,answer.active===true,answer.complete===true);
   if(ui.active&&!isOwn(navigator.serviceWorker.controller)){
-    ui.reloadWindow.hidden=false;
+    ui.reloadWindow.hidden=false;syncControls(ui);
     tell(ui,"Локальная версия установлена. Примените её в этом окне.");
   }
 }
@@ -193,6 +222,7 @@ async function enable(ui) {
   const response = await fetch(MANIFEST_PATH, {cache:"no-store"});
   if (!response.ok) throw Error("T3_DOMAIN_MANIFEST_UNAVAILABLE");
   const manifest = await response.json();
+  if (manifest.domain_origin !== RELEASE_ORIGIN || !permittedOrigin(location.origin)) throw Error("T3_DOMAIN_RELEASE_ORIGIN_MISMATCH");
   if (manifest.schema !== SCHEMA || !manifest.complete_static_tree ||
       !Number.isSafeInteger(manifest.total_bytes) || manifest.total_bytes < 1 ||
       !Array.isArray(manifest.files)) throw Error("T3_DOMAIN_MANIFEST_INVALID");
@@ -280,12 +310,27 @@ async function applyUpdate(ui) {
 async function main() {
   if(!document.body||document.getElementById("iwxa-t3-domain-controls"))return;
   const ui=createControl();
+  ui.launcher.addEventListener("click",()=>setInstallOpen(ui,ui.panel.hidden));
+  ui.close.addEventListener("click",()=>setInstallOpen(ui,false));
+  document.addEventListener("keydown",event=>{
+    if(event.key==="Escape"&&!event.defaultPrevented&&!ui.panel.hidden){event.preventDefault();setInstallOpen(ui,false);}
+  });
+  document.addEventListener("iwxa:t3-panel-change",event=>{
+    if(event.detail?.panel!=="assistant")return;
+    ui.assistantOpen=event.detail.open===true;
+    if(ui.assistantOpen)setInstallOpen(ui,false,false);
+    syncControls(ui);
+  });
+  if(!permittedOrigin(location.origin)){
+    ui.installApp.hidden=true;
+    tell(ui,"Автономная версия доступна на официальном сайте.");
+    return;
+  }
   ui.installApp.addEventListener("click",()=>void installApplication(ui));
   ui.later.addEventListener("click",()=>dismissOffer(ui));
   ui.weeklyLater?.addEventListener("click",()=>dismissOffer(ui));
   ui.weeklyCheck?.addEventListener("click",()=>{
-    const disclosure=ui.box.closest("details");if(disclosure)disclosure.open=true;
-    ui.box.scrollIntoView?.({block:"center",behavior:"auto"});
+    setInstallOpen(ui,true);
     void checkForUpdate(ui);
   });
   ui.updateCheck.addEventListener("click",()=>void checkForUpdate(ui));
@@ -304,7 +349,7 @@ async function main() {
   window.addEventListener("pagehide",()=>shared?.close(),{once:true});
   shared?.addEventListener("message",event=>{
     if(event.data?.type!=="changed")return;
-    ui.reloadWindow.hidden=false;
+    ui.reloadWindow.hidden=false;syncControls(ui);
     if(!ui.busy){ui.pendingUpdate=null;ui.offer.hidden=true;offerBadge(ui,false);void refreshStatus();}
     tell(ui,"Версия изменена в другом окне. Примените изменения после завершения текущей работы.");
   });

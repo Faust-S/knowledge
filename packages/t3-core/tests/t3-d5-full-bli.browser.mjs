@@ -94,6 +94,7 @@ try {
   const errors=[];
   page.on("pageerror",error=>errors.push(error.message));
   await page.goto(live.origin+"/workspace/",{waitUntil:"domcontentloaded",timeout:45000});
+  await page.locator("#iwxa-t3-install-launcher").click();
   const modeSwitch=page.locator("#iwxa-t3-install-offline");
   await modeSwitch.waitFor({state:"visible",timeout:30000});
   await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-install-offline")?.disabled);

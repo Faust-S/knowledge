@@ -3,7 +3,7 @@
 // been assembled into ONE final dist. Never run against the original T2.
 import {createHash} from "node:crypto";
 import {existsSync, mkdirSync, readdirSync, readFileSync,
-  realpathSync, writeFileSync, copyFileSync, cpSync} from "node:fs";
+  realpathSync, writeFileSync, cpSync} from "node:fs";
 import {dirname, join, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 import {materializePwaManifest} from "./t3-pwa-manifest.mjs";
@@ -102,7 +102,7 @@ export function materializeDomainMode(distRoot, assistantDistRoot = null) {
   const domainOrigin = domain?.domain?.origin || domain?.runtime?.origin ||
     domain?.origin || null;
   // The real deployment origin must be discoverable, not synthesized.
-  if (typeof domainOrigin !== "string" || !/^https:\/\/[^/]+$/.test(domainOrigin)) {
+  if (typeof domainOrigin !== "string" || !/^https:\/\/[^/]+$/.test(domainOrigin) || new URL(domainOrigin).origin !== domainOrigin) {
     fail("ORIGIN_UNKNOWN");
   }
   if (assistantDistRoot) {
@@ -150,14 +150,19 @@ export function materializeDomainMode(distRoot, assistantDistRoot = null) {
       inject(before,relativePage,!!assistantDistRoot,appleIcon)]);
   }
   for (const [path, content] of replacements) writeFileSync(path, content);
-  copyFileSync(join(scriptRoot, "t3-domain-mode.mjs"), join(root, "t3-domain-mode.mjs"));
+  const originMarker="/* IWXA_RELEASE_ORIGIN */ null";
+  const bindOrigin=template=>{
+    if(template.split(originMarker).length!==2)fail("RELEASE_ORIGIN_MARKER_INVALID");
+    return template.replace(originMarker,JSON.stringify(domainOrigin));
+  };
+  writeFileSync(join(root,"t3-domain-mode.mjs"),bindOrigin(readFileSync(join(scriptRoot,"t3-domain-mode.mjs"),"utf8")));
   const workerTemplate=readFileSync(join(scriptRoot,"t3-sw.js"),"utf8");
   const marker="/* IWXA_MODEL_INSTALL_SOURCES */ []";
   if(workerTemplate.split(marker).length!==2)fail("MODEL_CATALOG_MARKER_INVALID");
   const pairs=modelInstallSources();
   if(!pairs.length||new Set(pairs.map(x=>x.model)).size!==pairs.length)
     fail("MODEL_CATALOG_SOURCES_INVALID");
-  const materialized=workerTemplate.replace(marker,JSON.stringify(pairs));
+  const materialized=bindOrigin(workerTemplate.replace(marker,JSON.stringify(pairs)));
   writeFileSync(join(root,"t3-sw.js"),materialized);
   const files = [];
   const aliases = [];

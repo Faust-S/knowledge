@@ -315,6 +315,7 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
     assert.equal(originalRead.text,title);
     assert.ok(originalRead.eventIds.includes(saved.event));
     // Explicitly install the offline snapshot, unrelated to PWA app install.
+    await site.locator("#iwxa-t3-install-launcher").click();
     site.once("dialog",dialog=>dialog.accept());
     await site.locator("#iwxa-t3-install-offline").click();
     await site.waitForFunction(()=>document.documentElement
@@ -323,6 +324,7 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       .then(regs=>regs.length)),1,"only one existing T3 worker");
     assert.equal((await read(second)).text,title,
       "second same-profile Window must see the original Kernel Store");
+    await second.locator("#iwxa-t3-install-launcher").click();
     await second.getByRole("button",{name:"Применить изменения в этом окне"})
       .waitFor({state:"visible",timeout:15000});
     // The broadcast can already mark the OLD document autonomous.

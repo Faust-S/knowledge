@@ -1,19 +1,19 @@
 {
   "schema": "iwxa.t3.consolidation-sources/1",
-  "status": "ENGINEERING_QUALIFIED_STABLE_INPUTS_PENDING_PUBLICATION",
+  "status": "CORNER_CONTROLS_SOURCE_CANDIDATE_NOT_QUALIFIED",
   "base": "3056eef0665fb3503294d49b89d937af2ea060e2",
   "rc2": "4b3314079600f5d95b3dd9e0defe3be8e845378e",
   "corporate": "8db847058cab231d2d39c34df46024b60564d2ad",
   "workflow": "196e3cd824f2a21078f75576f09c1153a6b17d17",
   "originalAssistant": {
     "repository": "Faust-S/T3",
-    "commit": "2c247482306f218a7d5be668de11e98f168862d4",
+    "commit": "2602f9d90b47ede1c0645844c2a4b6a0055ce697",
     "sourceDisposition": "private owner; build only through authorized qualification",
     "sourceRoot": "browser-local-inference/domain-assistant",
     "files": [
       {
         "path": "main.mjs",
-        "blob": "4b6c54064b67d06c3ac767eaafaec30df247aa9a"
+        "blob": "ea7ef3621a6e384354e6a8f0f202d2ec05749771"
       },
       {
         "path": "field-policy.mjs",

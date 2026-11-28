@@ -149,6 +149,7 @@ test("browser PWA.install + PWA.launch: actual installed app, same origin data, 
       "PWA and ordinary browser must share the same origin database");
     // T3 autonomy remains an explicit separate opt-in inside the installed app.
     assert.equal(await app.evaluate(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),false);
+    await app.locator("#iwxa-t3-install-launcher").click();
     app.once("dialog",dialog=>dialog.accept());
     await app.locator("#iwxa-t3-install-offline").click();
     await app.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous"),

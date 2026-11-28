@@ -97,14 +97,14 @@ test("No T3 mode on incomplete Host or sites requiring external runtime resource
   }finally{cleanup(root);}
 });
 
-function fakeBrowser(root,store=null,clock=Date) {
+function fakeBrowser(root,store=null,clock=Date,origin=ORIGIN) {
   const entries=new Map();
   const handlers={};
   const caches=store||new Map();
   let liveFetches=0;
   let networkDown=false;
   let ownerAlive=true;
-  const toKey=value=>new URL(typeof value==="string"?value:value.url,ORIGIN).href;
+  const toKey=value=>new URL(typeof value==="string"?value:value.url,origin).href;
   const cacheAPI={
     async open(name){
       if(!caches.has(name))caches.set(name,new Map());
@@ -131,9 +131,9 @@ function fakeBrowser(root,store=null,clock=Date) {
     catch{return new Response("not found",{status:404});}
   };
   const self={
-    location:{origin:ORIGIN,protocol:"https:"},
+    location:{origin,protocol:new URL(origin).protocol},
     clients:{claim:async()=>{},get:async id=>id==="model-owner" && ownerAlive
-      ? {id,type:"window",url:ORIGIN+"/workspace/"} : undefined},
+      ? {id,type:"window",url:origin+"/workspace/"} : undefined},
     skipWaiting:async()=>{},
     addEventListener(kind,fn){handlers[kind]=fn;}
   };
@@ -409,4 +409,37 @@ test("Explicit T3 update is atomic: confirmed version, failed download, offline 
     assert.match(await (await restart.fetchPage(ORIGIN+"/profile/index.html")).text(),
       /Updated Profile page/,"a failed update check never switches off autonomy");
   } finally {cleanup(root);}
+});
+
+
+test("Exact released origin prevents unchanged autonomous bundle installation on another HTTPS domain",async()=>{
+  const root=specimen();
+  try {
+    const release=materializeDomainMode(root);
+    const manifestPath=join(root,"t3-offline-manifest.json");
+    const manifest=JSON.parse(readFileSync(manifestPath,"utf8"));
+    const copied=fakeBrowser(root,null,Date,"https://copy.example");
+    const rejected=[];
+    await copied.dispatch("T3_INSTALL",{postMessage:m=>rejected.push(m)});
+    assert.equal(rejected.at(-1)?.type,"FAILED");
+    assert.match(rejected.at(-1)?.message,/RELEASE_ORIGIN_MISMATCH/);
+    assert.equal(copied.liveFetches,1,"no assets fetched from an unauthorized host");
+    writeFileSync(manifestPath,JSON.stringify({...manifest,domain_origin:"https://copy.example"}));
+    const forged=[];
+    await copied.dispatch("T3_INSTALL",{postMessage:m=>forged.push(m)});
+    assert.match(forged.at(-1)?.message,/RELEASE_ORIGIN_MISMATCH/,"rewriting only manifest is insufficient");
+    writeFileSync(manifestPath,JSON.stringify(manifest));
+    const local=fakeBrowser(root,null,Date,"http://127.0.0.1:18443"),ready=[];
+    await local.dispatch("T3_INSTALL",{postMessage:m=>ready.push(m)},{expectedVersion:release.version});
+    assert.equal(ready.at(-1)?.type,"READY");
+    const cold=fakeBrowser(root,local.caches,Date,"http://127.0.0.1:18443");
+    cold.setNetworkDown(true);
+    assert.equal((await cold.fetchPage("http://127.0.0.1:18443/workspace/")).status,200);
+    const official=fakeBrowser(root),officialReady=[];
+    await official.dispatch("T3_INSTALL",{postMessage:m=>officialReady.push(m)});
+    assert.equal(officialReady.at(-1)?.type,"READY");
+    const foreignCold=fakeBrowser(root,official.caches,Date,"https://copy.example"),status=[];
+    await foreignCold.dispatch("T3_STATUS",{postMessage:m=>status.push(m)});
+    assert.equal(status.at(-1)?.active,false,"foreign-origin cache cannot be activated");
+  }finally{cleanup(root);}
 });

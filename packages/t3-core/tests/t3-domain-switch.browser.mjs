@@ -131,6 +131,22 @@ test("real Chromium: explicit installation, site theme, weekly offer, cold resta
       "Chromium must accept the install metadata without errors");
     assert.equal(JSON.parse(chromeManifest.data).display,"standalone");
     await cdp.detach();
+    const openInstall=async p=>{
+      const launch=p.locator("#iwxa-t3-install-launcher");
+      await launch.waitFor({state:"visible"});
+      if(await launch.getAttribute("aria-expanded")==="false")await launch.click();
+    };
+    const host=page.locator("#iwxa-t3-domain-controls");
+    const before=await page.evaluate(()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight,main:document.querySelector("main").getBoundingClientRect().top}));
+    assert.equal(await page.locator("#iwxa-t3-install-panel").isVisible(),false);
+    assert.equal(await host.evaluate(n=>n.parentElement===document.body&&getComputedStyle(n).position==="fixed"),true);
+    await openInstall(page);
+    const after=await page.evaluate(()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight,main:document.querySelector("main").getBoundingClientRect().top}));
+    assert.deepEqual(after,before,"opening installation never moves domain content");
+    assert.equal(await host.evaluate(n=>{const r=n.getBoundingClientRect();return r.width===48&&r.height===48&&Math.abs(innerWidth-r.right-16)<1&&Math.abs(innerHeight-r.bottom-16)<1;}),true);
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator("#iwxa-t3-install-panel").isVisible(),false);
+    await openInstall(page);
     const installButton=page.locator("#iwxa-t3-install-app");
     await installButton.waitFor();
     assert.equal(await installButton.isVisible(),true,"PWA installation is offered separately from T3 autonomy");
@@ -163,6 +179,7 @@ test("real Chromium: explicit installation, site theme, weekly offer, cold resta
       .then(rows=>rows.length)),0,"T3 does not silently register a worker");
     let companion=await context.newPage();
     await companion.goto(base+"/tools/");
+    await openInstall(companion);
     await companion.locator("#iwxa-t3-install-offline").waitFor();
     assert.equal(await companion.evaluate(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),false);
     assert.equal(await profileWitness(page,"write"),"saved");
@@ -186,17 +203,19 @@ test("real Chromium: explicit installation, site theme, weekly offer, cold resta
     await page.waitForFunction(()=>document.documentElement
       .hasAttribute("data-iwxa-t3-autonomous"),null,{timeout:60000});
     assert.equal(await toggle.isVisible(),false,"complete snapshot does not need another installation");
+    await openInstall(page);
     assert.match(await page.locator("#iwxa-t3-domain-controls").innerText(),/Модель помощника устанавливается отдельно/);
     assert.equal(await page.locator("#iwxa-t3-update-offer").isVisible(),false,"fresh install is not asked to update");
     await page.evaluate(()=>localStorage.setItem("iwxa.t3.offline.last-update-offer.v2",String(Date.now()-7*86400000)));
     await page.reload();
     await page.locator("#iwxa-t3-weekly-offer").waitFor({state:"visible"});
-    assert.equal(await page.locator("#iwxa-t3-weekly-offer").evaluate(n=>n.parentElement.hasAttribute("data-iwxa-update-offer-slot")),true);
+    assert.equal(await page.locator("#iwxa-t3-weekly-offer").evaluate(n=>n.parentElement.id==="iwxa-t3-domain-controls"&&getComputedStyle(n).position==="absolute"),true);
     await page.locator("#iwxa-t3-weekly-later").click();
     await page.reload();
     await page.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous"));
     assert.equal(await page.locator("#iwxa-t3-weekly-offer").isVisible(),false,"weekly offer is not repeated");
 
+    await openInstall(companion);
     await companion.getByRole("button",{name:"Применить изменения в этом окне"})
       .waitFor({state:"visible",timeout:15000});
     await companion.locator("#a").fill("19");
@@ -250,7 +269,8 @@ test("real Chromium: explicit installation, site theme, weekly offer, cold resta
       "<h1>Калькулятор домена — обновлён</h1>"));
     const updated=materializeDomainMode(root);
     assert.notEqual(updated.version,built.version,"a new on-disk site changes the release");
-    const check=page.getByRole("button",{name:"Проверить обновление"});
+    await openInstall(page);
+    const check=page.getByRole("button",{name:"Проверить обновление",exact:true});
     updateServer.blockUpdates=true;
     await check.click();
     await page.getByRole("status").filter({hasText:/Проверка обновления недоступна/}).waitFor();
@@ -271,6 +291,7 @@ test("real Chromium: explicit installation, site theme, weekly offer, cold resta
     });
     await installUpdate.click();
     await upgradedReload;
+    await openInstall(companion);
     await companion.getByRole("button",{name:"Применить изменения в этом окне"})
       .waitFor({state:"visible",timeout:15000});
     assert.equal(await companion.locator("#a").inputValue(),"123",
