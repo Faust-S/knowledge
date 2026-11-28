@@ -1,6 +1,6 @@
 import { describeWorkspaceMethodSourceInputs } from '../features/workspace/workspace-project-method.mjs';
 import { projectProcessSourceObjectId } from './project-process-source-owner.mjs';
-import { readHistoricalWorkspaceMethod } from './project-process-method-readback.mjs';
+import { readHistoricalWorkspaceMethod,readWorkspaceMethodFromSourceOwner } from './project-process-method-readback.mjs';
 
 function fail(code,message){throw Object.assign(new Error(message),{code});}
 function text(value){return typeof value==='string'&&value.trim().length>0;}
@@ -246,4 +246,48 @@ export async function compareWorkspaceMethodAlternatives({owner,workspaceId,befo
     beforeFromOrigin:compareReadbacks(sr,ar,sr.projectId!==ar.projectId),
     afterFromOrigin:compareReadbacks(sr,br,sr.projectId!==br.projectId),
     currentHeadVerified:false,mergeAuthorized:false});
+}
+
+
+/** W06.5. Compare the selected CURRENT method with its exact first creation.
+ * The original immutable creation record supplies all initial Work refs,
+ * including Works since excluded. Do not guess a revision set by timestamp,
+ * infer it from the current step list, or scan the Workspace history.
+ */
+export async function compareWorkspaceMethodWithCreation({owner,workspaceId,projectId,expected}={}){
+  if(!text(workspaceId)||!text(projectId)||workspaceId.trim()!==workspaceId||projectId.trim()!==projectId
+      ||typeof owner?.load!=='function'||typeof owner?.historyThrough!=='function'){
+    fail('METHOD_CREATION_COMPARISON_OWNER_REQUIRED','Original addressed source and history owner required');
+  }
+  const selected=captureSelection(expected,'current');
+  const current=await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId});
+  if(!sameSelection(current,selected))fail('METHOD_CREATION_SELECTION_CHANGED','Selected current method changed');
+  const creation=current.originalCreation;
+  if(!creation||!text(creation.projectRecordId)||!Array.isArray(creation.steps)
+      ||!creation.steps.length||creation.steps.length>64){
+    fail('METHOD_CREATION_REFERENCE_UNAVAILABLE','Exact original creation set is unavailable');
+  }
+  const initial={
+    projectRef:{family:'iwxa.project',objectId:current.projectRef.objectId,
+      recordId:creation.projectRecordId,revision:1},
+    workRefs:creation.steps.map(step=>({family:'iwxa.work',
+      objectId:projectProcessSourceObjectId('work',workspaceId,step.workId),
+      recordId:step.recordId,revision:1})),
+  };
+  const before=await readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected:initial});
+  if(!before.originalCreation||before.originalCreation.projectRecordId!==creation.projectRecordId
+      ||!sameSelection(before,initial)){
+    fail('METHOD_CREATION_REFERENCE_UNAVAILABLE','Original creation identities do not match');
+  }
+  // An async history read must not certify a now-replaced current selection.
+  const after=await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId});
+  if(!sameSelection(after,selected))fail('METHOD_CREATION_SELECTION_CHANGED','Selected current method changed');
+  const comparison=compareWorkspaceMethodRevisions({before,after});
+  const left=new Map(before.draft.steps.map(step=>[step.id,step]));
+  const right=new Map(after.draft.steps.map(step=>[step.id,step]));
+  return Object.freeze({...comparison,comparisonBasis:'ORIGINAL_CREATION_TO_SELECTED_CURRENT',
+    beforeSelection:selectionOf(before),afterSelection:selectionOf(after),currentHeadVerified:true,
+    stageDetails:Object.freeze(comparison.stepChanges.filter(row=>row.operation!=='UNCHANGED').map(row=>Object.freeze({
+      stepId:row.stepId,before:left.get(row.stepId)??null,after:right.get(row.stepId)??null,
+    })))});
 }

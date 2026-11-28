@@ -5,6 +5,7 @@
 import {createHash} from 'node:crypto';
 import { canonicalClone,canonicalStringify } from '../persistence/canonical-codec.mjs';
 import { createSubjectKernelBinding } from './subject-access-binding.mjs';
+import {compareWorkspaceMethodWithCreation} from '../modules/base/owners/project-process-method-comparison.mjs';
 import { inspectWorkspaceMethodAgentPredecessorResults,readWorkspaceMethodInputOverview,
   previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation,inspectWorkspaceMethodMaterialEvidence,
   buildWorkspaceMethodPersonalTaskDraft,prepareWorkspaceMethodPersonalChain,buildWorkspaceMethodCorporateTaskReference,buildWorkspaceMethodCorporateTaskInputs } from '../modules/base/owners/project-process-method-stage-input.mjs';
@@ -46,6 +47,7 @@ function createReader({kernel,accessForRead,currentWorkspace,
     try{return await read(input,mode);}finally{personalDraftInFlight=false;}
   }
   async function read(input,mode,selectedOnly=false){
+    const methodOnly=mode==='overview'||mode==='compare-creation';
     // Native-only selection from an existing signed Task, never from UI metadata.
     const selected=selectedOnly?currentWorkspace.get():null;
     if(selectedOnly)check(nativeCorporateOnly&&mode==='corporate-inputs'&&input&&
@@ -54,9 +56,9 @@ function createReader({kernel,accessForRead,currentWorkspace,
     // Snapshot selections before any original owner await. No caller port,
     // context, Result content, digest, permission or dispatch callback.
     check(selectedOnly||(input&&typeof input.workspaceId==='string'&&typeof input.projectId==='string'
-      &&(mode==='overview'||typeof input.stepId==='string')&&Array.isArray(input.expected?.workRefs)
+      &&(methodOnly||typeof input.stepId==='string')&&Array.isArray(input.expected?.workRefs)
       &&input.expected.workRefs.length>0&&input.expected.workRefs.length<=64
-      &&(mode==='overview'||input.resultSelections==null||(Array.isArray(input.resultSelections)&&input.resultSelections.length<=64))
+      &&(methodOnly||input.resultSelections==null||(Array.isArray(input.resultSelections)&&input.resultSelections.length<=64))
       &&(!['native-preview','native-recover'].includes(mode)||typeof input.predecessorStepId==='string')
       &&(mode!=='handoff'||input.includeMaterialEvidence===undefined||typeof input.includeMaterialEvidence==='boolean')
       &&(!['personal-draft','personal-draft-recover','personal-task-inspect','corporate-reference','corporate-reference-inspect'].includes(mode)||/^[a-f0-9]{64}$/.test(input.expectedCandidateDigest??''))
@@ -76,7 +78,7 @@ function createReader({kernel,accessForRead,currentWorkspace,
     const ref=value=>({family:value?.family,objectId:value?.objectId,recordId:value?.recordId,revision:value?.revision});
     const request=selectedOnly?{workspaceId:selected.workspace_id,taskId:input.taskId,resultSelections:[]}:canonicalClone({workspaceId:input.workspaceId,projectId:input.projectId,
       expected:{projectRef:ref(input.expected.projectRef),workRefs:input.expected.workRefs.map(ref)},
-      ...(mode==='overview'?{}:{stepId:input.stepId,
+      ...(methodOnly?{}:{stepId:input.stepId,
         resultSelections:(input.resultSelections??[]).map(row=>({stepId:row.stepId,reference:{
           workspace_id:row.reference?.workspace_id,object_id:row.reference?.object_id,
           schema_id:row.reference?.schema_id,revision:row.reference?.revision}}))}),
@@ -124,7 +126,12 @@ function createReader({kernel,accessForRead,currentWorkspace,
       const owner={load:(kind,workspaceId,id)=>{
         check(workspaceId===request.workspaceId,'T3_METHOD_STAGE_SIGNED_SCOPE_MISMATCH');
         return guarded(()=>sourceOwner.load(kind,workspaceId,id));
-      }};
+      },...(mode==='compare-creation'&&typeof sourceOwner.historyThrough==='function'?{
+        historyThrough:(kind,workspaceId,id,recordId,revision)=>{
+          check(workspaceId===request.workspaceId,'T3_METHOD_STAGE_SIGNED_SCOPE_MISMATCH');
+          return guarded(()=>sourceOwner.historyThrough(kind,workspaceId,id,recordId,revision));
+        },
+      }:{})};
       const readObject=(workspaceId,id)=>{
         check(workspaceId===request.workspaceId,'T3_METHOD_STAGE_SIGNED_SCOPE_MISMATCH');
         return guarded(()=>signed.getObject(workspaceId,id));
@@ -153,6 +160,7 @@ function createReader({kernel,accessForRead,currentWorkspace,
         ...(corporateChain?{organizationId:context.organization_id,readCorporateAcceptedResult:planningResult}:{})};
       let report;
       if(mode==='overview')report=await readWorkspaceMethodInputOverview(args);
+      else if(mode==='compare-creation')report=await compareWorkspaceMethodWithCreation(args);
       else if(mode==='handoff'&&!request.includeMaterialEvidence&&!personalChain)report=await previewWorkspaceMethodStageHandoff(args);
       else if(mode==='material-evidence'||mode==='handoff'||personalMode||corporateMode){
         // Resolve the ORIGINAL owner for each Asset operation, then fence
@@ -374,6 +382,7 @@ function createReader({kernel,accessForRead,currentWorkspace,
   return Object.freeze({
     inspect:input=>read(input,'inspect'),
     overview:input=>read(input,'overview'),
+    ...(typeof sourceOwner.historyThrough==='function'?{compareCreation:input=>read(input,'compare-creation')}:{}),
     previewHandoff:input=>read(input,'handoff'),
     inspectMaterialEvidence:input=>read(input,'material-evidence'),
     prepareCorporateTaskReference:input=>read(input,'corporate-reference'),

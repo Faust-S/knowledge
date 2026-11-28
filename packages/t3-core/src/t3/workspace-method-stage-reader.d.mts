@@ -1,4 +1,4 @@
-import type { WorkspaceMethodRevisionSelection,WorkspaceMethodSourceRef } from '../modules/base/owners/project-process-method-comparison.mjs';
+import type { WorkspaceMethodRevisionSelection,WorkspaceMethodSourceRef,WorkspaceMethodCreationComparison } from '../modules/base/owners/project-process-method-comparison.mjs';
 import type { WorkspaceMethodActor } from '../modules/base/features/workspace/workspace-project-method.mjs';
 export type WorkspaceMethodReaderSelection = Readonly<{workspaceId:string;projectId:string;expected:WorkspaceMethodRevisionSelection}>;
 export type WorkspaceMethodPublishedResultRef = Readonly<{workspace_id:string;object_id:string;schema_id:'iwxa.agent.accepted-result';revision:number}>;
@@ -94,6 +94,7 @@ export type WorkspaceMethodCorporateTaskReferenceInspection=Readonly<{
 }>;
 export interface WorkspaceMethodStageReader {
   overview(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodInputOverview>;
+  compareCreation?(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodCreationComparison>;
   inspect(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodStageInspection>;
   previewHandoff(input:WorkspaceMethodStageRequest&Readonly<{includeMaterialEvidence?:boolean}>):Promise<WorkspaceMethodHandoffPreview>;
   inspectMaterialEvidence?(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodMaterialEvidence>;

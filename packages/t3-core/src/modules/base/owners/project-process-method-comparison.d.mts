@@ -78,3 +78,17 @@ export function compareWorkspaceMethodAlternatives(input:{
   before:WorkspaceMethodRevisionSelection & Readonly<{projectId:string}>;
   after:WorkspaceMethodRevisionSelection & Readonly<{projectId:string}>;
 }):Promise<WorkspaceMethodAlternativeComparison>;
+
+
+export type WorkspaceMethodCreationComparison = WorkspaceMethodRevisionComparison & Readonly<{
+  comparisonBasis:'ORIGINAL_CREATION_TO_SELECTED_CURRENT';
+  beforeSelection:WorkspaceMethodRevisionSelection;
+  afterSelection:WorkspaceMethodRevisionSelection;
+  currentHeadVerified:true;
+  stageDetails:readonly Readonly<{stepId:string;
+    before:WorkspaceMethodDraft['steps'][number]|null;after:WorkspaceMethodDraft['steps'][number]|null}>[];
+}>;
+export function compareWorkspaceMethodWithCreation(input:{
+  owner:WorkspaceMethodHistoryPort & {load:(kind:string,workspaceId:string,id:string)=>Promise<unknown>};
+  workspaceId:string;projectId:string;expected:WorkspaceMethodRevisionSelection;
+}):Promise<WorkspaceMethodCreationComparison>;

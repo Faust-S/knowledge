@@ -1165,3 +1165,32 @@ test('selected native signed Task recovers only its Work closure without unrelat
   assert.equal('readSelectedInputs' in h.reader,false);
   await assert.rejects(h.nativeInputs.readSelectedInputs({taskId:'task:workflow',workspaceId:ws}),code('T3_METHOD_STAGE_SELECTION_REQUIRED'));
 });
+
+
+test('trusted method reader compares original creation through signed current Workspace without writes',async()=>{
+  const f=await setup(),h=trusted(f),input={workspaceId:ws,projectId,expected:f.base};
+  const result=await h.reader.compareCreation(input);
+  assert.equal(result.state,'UNCHANGED');assert.equal(result.comparisonBasis,'ORIGINAL_CREATION_TO_SELECTED_CURRENT');
+  assert.equal(result.currentHeadVerified,true);assert.equal(result.executionAuthority,false);
+  assert.equal(f.nativeCalls.length,0);assert.equal((await f.owner.audit()).length,3);
+  h.deny();await assert.rejects(h.reader.compareCreation(input),code('T3_ACCESS_NOT_PERMITTED'));
+});
+
+test('trusted method creation comparison ignores disposed or changed Workspace before read completes',async()=>{
+  for(const change of ['selection','dispose','context']){
+    const f=await setup();
+    let release,started;const gate=new Promise(resolve=>{release=resolve;});
+    const ready=new Promise(resolve=>{started=resolve;});
+    const actual=f.owner;
+    const scoped={...actual,load:(...a)=>actual.load(...a),historyThrough:async(...a)=>{started();await gate;return actual.historyThrough(...a);}};
+    const h=trusted({...f,owner:scoped});
+    const pending=h.reader.compareCreation({workspaceId:ws,projectId,expected:f.base});
+    await ready;
+    if(change==='selection')h.changeSelection();
+    else if(change==='dispose')h.dispose();
+    else h.context.scope_revision++;
+    release();
+    await assert.rejects(pending,e=>['T3_METHOD_STAGE_WORKSPACE_CHANGED','T3_METHOD_STAGE_SIGNED_CONTEXT_CHANGED'].includes(e.code));
+    assert.equal((await actual.audit()).length,3);
+  }
+});

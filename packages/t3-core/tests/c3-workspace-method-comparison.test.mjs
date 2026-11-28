@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compareWorkspaceMethodRevisions,compareWorkspaceMethodSelections,compareWorkspaceMethodAlternatives } from '../src/modules/base/owners/project-process-method-comparison.mjs';
+import { compareWorkspaceMethodRevisions,compareWorkspaceMethodSelections,compareWorkspaceMethodAlternatives,compareWorkspaceMethodWithCreation } from '../src/modules/base/owners/project-process-method-comparison.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { readWorkspaceMethodFromSourceOwner } from '../src/modules/base/owners/project-process-method-readback.mjs';
@@ -194,4 +194,45 @@ test('alternative comparison captures exact selections before async original his
   const r=await pending;
   assert.equal(r.afterProjectId,'option-b');assert.equal(r.state,'INDEPENDENT_IDENTITIES');
   assert.equal(calls,15);assert.equal((await owner.audit()).length,10);
+});
+
+
+test('creation comparison uses exact first method and selected current revision without writing',async()=>{
+  const {owner,readback,draft:d}=await base();
+  const next=await reviseReal(owner,readback,{...d,steps:d.steps.map(s=>s.id==='analyse'?{...s,instruction:'Revised analysis'}:s)});
+  const count=(await owner.audit()).length;
+  let histories=0;
+  const port={load:(...a)=>owner.load(...a),historyThrough:(...a)=>{histories++;return owner.historyThrough(...a);},
+    history:()=>{throw Error('full history not allowed');}};
+  const r=await compareWorkspaceMethodWithCreation({owner:port,workspaceId,projectId:'project-a',expected:next});
+  assert.equal(r.comparisonBasis,'ORIGINAL_CREATION_TO_SELECTED_CURRENT');
+  assert.equal(r.currentHeadVerified,true);assert.deepEqual(r.beforeSelection.workRefs,readback.workRefs);
+  assert.deepEqual(r.afterSelection.workRefs,next.workRefs);
+  assert.deepEqual(r.changedStepIds,['analyse']);assert.deepEqual(r.affectedStepIds,['analyse','review']);
+  assert.equal(r.stageDetails[0].before.instruction,'Propose options');
+  assert.equal(r.stageDetails[0].after.instruction,'Revised analysis');
+  assert.equal(histories,5);assert.equal(r.writeAuthorized,false);assert.equal(r.resultReuseProven,false);
+  assert.equal((await owner.audit()).length,count);
+});
+
+test('creation comparison rejects a stale current selection and captures exact original refs',async()=>{
+  const {owner,readback,draft:d}=await base();
+  const next=await reviseReal(owner,readback,{...d,name:'Renamed method'});
+  await assert.rejects(compareWorkspaceMethodWithCreation({owner,workspaceId,projectId:'project-a',expected:readback}),
+    e=>e.code==='METHOD_CREATION_SELECTION_CHANGED');
+  const r=await compareWorkspaceMethodWithCreation({owner,workspaceId,projectId:'project-a',expected:next});
+  assert.deepEqual(r.beforeSelection.projectRef,readback.projectRef);
+  assert.deepEqual(r.projectChanges.map(x=>x.field),['NAME']);
+  assert.equal(r.stageDetails.length,0);
+});
+
+test('creation comparison rechecks selected current heads after historical reads',async()=>{
+  const {owner,readback,draft:d}=await base();
+  let once=false;
+  const port={load:(...a)=>owner.load(...a),historyThrough:async(...a)=>{
+    if(!once){once=true;await reviseReal(owner,readback,{...d,name:'Changed while reading'});}
+    return owner.historyThrough(...a);
+  }};
+  await assert.rejects(compareWorkspaceMethodWithCreation({owner:port,workspaceId,projectId:'project-a',expected:readback}),
+    e=>e.code==='METHOD_CREATION_SELECTION_CHANGED');
 });

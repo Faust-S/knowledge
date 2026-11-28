@@ -1,5 +1,6 @@
 import { useEffect,useMemo,useRef,useState } from "react";
 import type { ObjectRecord } from "../../../../kernel-client/contracts/runtime-1.3.0";
+import type { WorkspaceMethodCreationComparison,WorkspaceMethodRevisionSelection } from "../../../../modules/base/owners/project-process-method-comparison.mjs";
 import type { WorkspaceMethodReaderSelection,WorkspaceMethodStageReader,WorkspaceMethodInputOverview,
   WorkspaceMethodPublishedResultRef,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,
   WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence,WorkspaceMethodPersonalDraftReceipt,WorkspaceMethodPersonalTaskInspection,WorkspaceMethodPersonalResultSelection,WorkspaceMethodRecoveredPersonalTask,WorkspaceMethodCorporateTaskReferenceInspection,WorkspaceMethodCorporateResultSelection } from "../../../../t3/workspace-method-stage-reader.mjs";
@@ -113,6 +114,81 @@ export function WorkspaceMethodWorkflowPanel(props:{
   if(!props.binding.contextEpoch)return null;
   return <WorkflowPanel key={bindingKey(props.binding)} {...props}/>;
 }
+
+const comparisonFieldLabels:Record<string,string>={
+  NAME:"Название",OBJECTIVE:"Цель",TEMPLATE:"Шаблон",DOMAIN_APPLICABILITY:"Области применения",
+  WORK_COMPOSITION:"Состав работ",WORK_ORDER:"Порядок работ",MATERIAL_REVISIONS:"Редакции материалов",
+  ACTOR:"Участник",INSTRUCTION:"Инструкция",MATERIALS:"Материалы",DEPENDENCIES:"Зависимости",
+  ADDED:"Добавлена",REMOVED:"Исключена",
+};
+const comparisonText=(value:unknown)=>typeof value==="string"?value:
+  Array.isArray(value)&&value.every(item=>typeof item==="string")?value.join(", "):"";
+function sameRevisionSelection(a:WorkspaceMethodRevisionSelection,b:WorkspaceMethodRevisionSelection){
+  const refs=new Map(b.workRefs.map(ref=>[ref.objectId,ref]));
+  return sameRef(a.projectRef,b.projectRef)&&a.workRefs.length===refs.size
+    &&a.workRefs.length===b.workRefs.length&&new Set(a.workRefs.map(ref=>ref.objectId)).size===refs.size
+    &&a.workRefs.every(ref=>{const expected=refs.get(ref.objectId);return !!expected&&sameRef(ref,expected);});
+}
+function MethodCreationComparison({binding}:{binding:WorkspaceMethodWorkflowBinding}){
+  const [report,setReport]=useState<WorkspaceMethodCreationComparison|null>(null);
+  const [busy,setBusy]=useState(false),[error,setError]=useState("");
+  const generation=useRef(0),reader=binding.reader;
+  const currentReader=useRef(reader);currentReader.current=reader;
+  useEffect(()=>{
+    setReport(null);setBusy(false);setError("");
+    return ()=>{generation.current+=1;};
+  },[reader]);
+  if(!reader.compareCreation)return null;
+  const compare=async()=>{
+    if(busy||!reader.compareCreation)return;
+    const token=++generation.current;
+    const current=()=>token===generation.current&&currentReader.current===reader;
+    setBusy(true);setError("");setReport(null);
+    try{
+      const value=await reader.compareCreation({workspaceId:binding.workspaceId,projectId:binding.projectId,expected:binding.expected});
+      if(!current())return;
+      if(value.schema!=="IWXA_T2_WORKSPACE_METHOD_REVISION_COMPARISON_V1"||value.comparisonBasis!=="ORIGINAL_CREATION_TO_SELECTED_CURRENT"
+          ||value.workspaceId!==binding.workspaceId||value.projectId!==binding.projectId||!value.currentHeadVerified
+          ||value.atomicSnapshot!==false||value.writeAuthorized!==false||value.executionAuthority!==false||value.resultReuseProven!==false
+          ||value.beforeSelection.projectRef.revision!==1||value.beforeSelection.workRefs.some(ref=>ref.revision!==1)
+          ||!sameRevisionSelection(value.afterSelection,binding.expected))throw Error("comparison mismatch");
+      setReport(value);
+    }catch(err){if(current()){
+      const code=err&&typeof err==="object"&&"code" in err?String(err.code):"";
+      setError(code==="METHOD_CREATION_REFERENCE_UNAVAILABLE"?"Исходная редакция недоступна.":message(err));
+    }}finally{if(current())setBusy(false);}
+  };
+  return <section aria-label="Редакции методики" className="space-y-2 rounded border border-slate-800 p-2 min-w-0">
+    <button type="button" className={button} disabled={busy} onClick={()=>void compare()}>Сравнить с исходной редакцией</button>
+    {busy&&<p role="status" className="text-xs text-slate-300">Читаем сохранённые редакции…</p>}
+    {error&&<p role="alert" className="text-xs text-amber-200">{error}</p>}
+    {report&&<div data-testid="workflow-creation-comparison" className="space-y-2 text-xs text-slate-200">
+      <p className="font-medium">Исходная редакция 1 и выбранная редакция {report.afterSelection.projectRef.revision}</p>
+      <p>{report.state==="UNCHANGED"?"Изменений нет.":report.state==="SOURCE_REBIND_ONLY"?"Изменились ссылки на редакции.":"Обнаружены изменения методики."} Изменённых работ: {report.changedStepIds.length}. Затронуто работ: {report.affectedStepIds.length}.</p>
+      {report.projectChanges.filter(item=>item.field!=="MATERIAL_REVISIONS").map(item=><div key={item.field} className="rounded border border-slate-800 p-2 break-words">
+        <strong>{comparisonFieldLabels[item.field]??item.field}</strong>
+        <p>Было: {comparisonText(item.before)||"Нет"}</p><p>Стало: {comparisonText(item.after)||"Нет"}</p>
+      </div>)}
+      {report.materialChanges.length>0&&<div className="space-y-1">
+        <strong>Материалы</strong>{report.materialChanges.map(item=><p key={item.object_id} className="break-all">{item.object_id}: {item.beforeRevision??"нет"} → {item.afterRevision??"нет"}</p>)}
+      </div>}
+      {report.stageDetails.map(item=>{
+        const diff=report.stepChanges.find(row=>row.stepId===item.stepId);
+        return <div key={item.stepId} className="rounded border border-slate-800 p-2 space-y-1 break-words">
+          <strong>{item.after?.name??item.before?.name??item.stepId}</strong>
+          <p>{diff?.changedFields.map(field=>comparisonFieldLabels[field]??field).join(", ")}</p>
+          {item.before&&<div className="text-slate-400"><p>Было: {item.before.name} · {actorLabels[item.before.actor]}</p><p className="whitespace-pre-wrap">{item.before.instruction}</p>
+            <p>Материалы: {item.before.materialIds.join(", ")||"нет"}. Предшественники: {item.before.dependsOn.join(", ")||"нет"}.</p></div>}
+          {item.after&&<div><p>Стало: {item.after.name} · {actorLabels[item.after.actor]}</p><p className="whitespace-pre-wrap">{item.after.instruction}</p>
+            <p>Материалы: {item.after.materialIds.join(", ")||"нет"}. Предшественники: {item.after.dependsOn.join(", ")||"нет"}.</p></div>}
+        </div>;
+      })}
+      {report.affectedStepIds.length>0&&<p className="break-words text-amber-200">Требуют проверки: {report.affectedStepIds.join(", ")}.</p>}
+      <p className="text-slate-400">Сохранённые редакции не изменены. Пригодность прежних результатов и запуск работ не подтверждены.</p>
+    </div>}
+  </section>;
+}
+
 function prerequisiteStages(report:WorkspaceMethodInputOverview,stage:WorkspaceMethodOverviewStage){
   const byId=new Map(report.stages.map(row=>[row.stepId,row]));
   const found=new Set<string>(),pending=[...stage.directPredecessorStepIds];
@@ -431,6 +507,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
       <p className="text-xs text-slate-400 break-words">Проект: {binding.projectId} · ред. {binding.expected.projectRef.revision}</p>
       <p className="text-xs text-slate-400">Проверка входов и передачи результатов. Исполнение остаётся у оригинальных владельцев.</p>
     </div><button type="button" className={button} disabled={busy} onClick={()=>void checkOverview()}>Проверить входы</button></div>
+    <MethodCreationComparison binding={binding}/>
     {busy&&<p role="status" className="text-xs text-slate-300">Проверка оригинальных данных…</p>}
     {error&&<p role="alert" className="text-xs text-amber-200">{error}</p>}
     {visible&&<div className="space-y-3">

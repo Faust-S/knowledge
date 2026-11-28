@@ -383,6 +383,35 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
       reader,contextEpoch:"epoch-1",nativeRecipientLabel:"Atlas"};
     return {binding,overview,previewHandoff,recoverContinuation};
   }
+  it("compares the selected method with original creation only on request and hides stale readback",async()=>{
+    const f=fixture();
+    type Comparison=Awaited<ReturnType<NonNullable<WorkspaceMethodStageReader["compareCreation"]>>>;
+    const report:Comparison={
+      schema:"IWXA_T2_WORKSPACE_METHOD_REVISION_COMPARISON_V1",state:"CHANGES_PROPOSED",
+      comparisonBasis:"ORIGINAL_CREATION_TO_SELECTED_CURRENT",workspaceId:"w",projectId:"research",
+      beforeSelection:{projectRef:{...projectRef,revision:1},workRefs:[{...a,revision:1},{...b,revision:1}]},
+      afterSelection:f.binding.expected,currentHeadVerified:true,
+      projectChanges:[],projectCompositionChanged:false,displayOrderChanged:false,projectIntentChanged:false,
+      materialChanges:[],unassignedMaterialChanges:[],stepChanges:[{stepId:"analyse",operation:"CHANGED",changedFields:["INSTRUCTION"],beforeIndex:0,afterIndex:0,reviewRequired:true}],
+      changedStepIds:["analyse"],dependencyChanges:[],materialImpactStepIds:[],affectedStepIds:["analyse","review"],
+      sourceRevisionSetChanged:true,sourceRevisionChanges:{project:{before:projectRef,after:projectRef,changed:false},works:[]},
+      reviewRequired:true,atomicSnapshot:false,writeAuthorized:false,executionAuthority:false,resultReuseProven:false,
+      stageDetails:[{stepId:"analyse",before:{id:"analyse",name:"Анализ материалов",actor:"agent",instruction:"Исходная инструкция",dependsOn:[],materialIds:[]},
+        after:{id:"analyse",name:"Анализ материалов",actor:"agent",instruction:"Новая инструкция",dependsOn:[],materialIds:[]}}],
+    };
+    const compareCreation=vi.fn(async()=>report);
+    const binding={...f.binding,reader:{...f.binding.reader,compareCreation}};
+    const ui=render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    expect(compareCreation).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button",{name:"Сравнить с исходной редакцией"}));
+    await screen.findByTestId("workflow-creation-comparison");
+    expect(screen.getByText("Исходная инструкция")).toBeTruthy();
+    expect(screen.getByText("Новая инструкция")).toBeTruthy();
+    expect(compareCreation).toHaveBeenCalledWith({workspaceId:"w",projectId:"research",expected:f.binding.expected});
+    expect(f.overview).not.toHaveBeenCalled();
+    ui.rerender(<WorkspaceMethodWorkflowPanel binding={{...binding,contextEpoch:"epoch-2"}} objects={[]} selectedObjectIds={[]}/>);
+    expect(screen.queryByTestId("workflow-creation-comparison")).toBeNull();
+  });
   it("mounts saved Workflow in actual Rich Workspace only for a trusted current binding and explicitly reads original overview",async()=>{
     const f=fixture(),props={workspace,objects,events,profileDefinition:profile,onOpenObject:vi.fn()};
     const ui=render(<RichWorkspaceReadModel {...props}/>);
