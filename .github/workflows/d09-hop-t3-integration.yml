@@ -1,4 +1,4 @@
-name: D09 HOP T3 0.3.2 native structured artistic action and hosting ZIP
+name: D09 HOP T3 0.3.3 fixed corner controls, origin-bound offline and original art workflow
 on:
   push:
     branches: ['ci/once/d09-hop-t3-integration/**']
@@ -36,10 +36,10 @@ jobs:
             preview: '1'
             profile: balanced
     env:
-      SITE_PIN: 1e30df8d96ff2a698c0b57512d5fd52cd95a7024
+      SITE_PIN: 077c90c13d077bb666467261eb2d65a9065680f9
       SUBJECT_PIN: 13d262f05cf0979d9b360cb9d01253ffbc163a0d
-      T3_PIN: 8e26076ce66f0c26693a647e061fcd568e055b77
-      ASSISTANT_PIN: 2c247482306f218a7d5be668de11e98f168862d4
+      T3_PIN: 30e3f98f944ffa351f2dfa9922f38bcca8b7d314
+      ASSISTANT_PIN: 629aaa274f2d6ad915730ee0d817aedc33e53108
       D09_ORIGIN: ${{ matrix.origin }}
       D09_PREVIEW_PRODUCTION_LOOPBACK: ${{ matrix.preview }}
       D09_ASSEMBLY_ONLY: '0'
@@ -53,7 +53,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable domain request
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=1e30df8d96ff2a698c0b57512d5fd52cd95a7024 --revision subject=13d262f05cf0979d9b360cb9d01253ffbc163a0d --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-033 --revision site=077c90c13d077bb666467261eb2d65a9065680f9 --revision subject=13d262f05cf0979d9b360cb9d01253ffbc163a0d --revision platform=30e3f98f944ffa351f2dfa9922f38bcca8b7d314 --revision assistant=629aaa274f2d6ad915730ee0d817aedc33e53108
       - name: Checkout HOP site
         uses: actions/checkout@v4
         with:
@@ -87,7 +87,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for spec in "private-site $SITE_PIN 6e47ce0a13bed0a19604c64cf4e9dc0b246dc4bd" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
+          for spec in "private-site $SITE_PIN 9df09a18a2e6d30faa7c323570c893e10f59f14b" "original-platform $T3_PIN 2dfb29f3e165195f03512f5ea53561dcfbae1c53" "private-assistant $ASSISTANT_PIN dd72a0427356a341180349a7cc55d816074f84d3"; do
             read -r dir sha tree <<< "$spec"
             test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
             test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
@@ -95,8 +95,8 @@ jobs:
           done
           test "$(git -C private-site rev-parse HEAD:public/assets/hop-assistant-skills.json)" = 36d132c1b82480c3d4186f4553bf6723c88b269c
           mkdir -p "$RUNNER_TEMP/d09-t3"
-          curl --fail --silent --show-error --location --retry 2 'https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.2/platform-inputs.zip' -o "$RUNNER_TEMP/d09-t3/platform-inputs.zip"
-          printf '%s  %s\n' '5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b' "$RUNNER_TEMP/d09-t3/platform-inputs.zip" | (if command -v sha256sum >/dev/null 2>&1; then sha256sum -c -; else shasum -a 256 -c -; fi) >/dev/null
+          curl --fail --silent --show-error --location --retry 2 'https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.3/platform-inputs.zip' -o "$RUNNER_TEMP/d09-t3/platform-inputs.zip"
+          printf '%s  %s\n' 'e573cadb5bac9f25f5eaa159e12f38ef1781962cc8e23908bab2bc3032424316' "$RUNNER_TEMP/d09-t3/platform-inputs.zip" | (if command -v sha256sum >/dev/null 2>&1; then sha256sum -c -; else shasum -a 256 -c -; fi) >/dev/null
           openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=hop.iwxa.ru' -keyout "$RUNNER_TEMP/d09-t3/key.pem" -out "$RUNNER_TEMP/d09-t3/cert.pem" >/dev/null 2>&1
           {
             echo "D09_T3_CORE_SOURCE=$GITHUB_WORKSPACE/original-platform/packages/t3-core"
@@ -149,7 +149,7 @@ jobs:
           import {readFileSync} from 'node:fs';
           const r=JSON.parse(readFileSync(process.argv[2],'utf8'));
           console.log('D09_T3_UNIT_SUMMARY='+JSON.stringify({tests:r.numTotalTests,passed:r.numPassedTests,failed:r.numFailedTests,files:r.numTotalTestSuites,passedFiles:r.numPassedTestSuites}));
-          if(!r.success||r.numFailedTests!==0||r.numPassedTests<1114)process.exit(1);
+          if(!r.success||r.numFailedTests!==0||r.numPassedTests<1118)process.exit(1);
           D09_UNIT
           fi
           if [ "$failed" = 0 ]; then echo D09_T3_UNIT=PASS; else echo D09_T3_UNIT=FAIL; fi
