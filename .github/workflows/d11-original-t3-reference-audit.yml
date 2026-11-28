@@ -1,0 +1,67 @@
+name: D11 exact public T3 compiler reference audit
+on:
+  push:
+    branches: ['ci/once/d11-original-t3-reference-audit/**']
+    paths: ['.github/ci-requests/d11-original-t3-reference-audit.json']
+permissions:
+  contents: read
+jobs:
+  original-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit explicit request
+        run: python tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-original-t3-reference-audit --profile original-public-compiler --revision t3=8e26076ce66f0c26693a647e061fcd568e055b77
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 8e26076ce66f0c26693a647e061fcd568e055b77
+          path: original
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact released public source and dependencies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C original rev-parse HEAD)" = "8e26076ce66f0c26693a647e061fcd568e055b77"
+          test "$(git -C original rev-parse HEAD:packages/t3-core)" = "1d969c6ed91995e213bb9f89fc3c17b309ba3770"
+          mkdir -p "$RUNNER_TEMP/platform" "$RUNNER_TEMP/bli"
+          gh release download t3-platform-v0.3.2 --repo Faust-S/knowledge --pattern platform-inputs.zip --dir "$RUNNER_TEMP"
+          echo "5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b  $RUNNER_TEMP/platform-inputs.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/platform-inputs.zip" -d "$RUNNER_TEMP/platform"
+          (cd "$RUNNER_TEMP/platform"; sha256sum -c t3-platform-inputs.sha256) > "$RUNNER_TEMP/public-manifest.log"
+          cd original/packages/t3-core
+          cp "$RUNNER_TEMP/platform/package.json" "$RUNNER_TEMP/platform/package-lock.json" .
+          cp "$RUNNER_TEMP/platform/integration-sources/bli1/"* "$RUNNER_TEMP/bli/"
+          node scripts/stage-t2-external-module.mjs "$PWD" "$RUNNER_TEMP/bli" iwxa.t3.local-inference t3-local-inference
+          npm ci --ignore-scripts --no-audit --no-fund --include=dev > "$RUNNER_TEMP/public-install.log" 2>&1
+          node node_modules/vite/bin/vite.js build > "$RUNNER_TEMP/public-build.log" 2>&1
+          node scripts/materialize-static-routes.mjs
+          echo ORIGINAL_PUBLIC_COMPILER=PASS
+      - name: Inspect only the original public generated JavaScript
+        working-directory: original/packages/t3-core
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import {readdirSync,readFileSync} from "node:fs";
+          import {join} from "node:path";
+          const seen=new Set();
+          for(const name of readdirSync("dist/assets").filter(n=>n.endsWith(".js"))){
+            const text=readFileSync(join("dist/assets",name),"utf8");
+            for(const match of text.matchAll(/https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?|\blocalhost\b|\b127\.0\.0\.1\b|\b0\.0\.0\.0\b|:(?:4173|4178|5173)\b|vite\/client/gi)){
+              const snippet=text.slice(Math.max(0,match.index-90),match.index+match[0].length+90);
+              if(seen.has(snippet))continue;
+              seen.add(snippet);
+              console.log("PUBLIC_ORIGINAL_REFERENCE="+JSON.stringify({file:name,token:match[0],context:snippet}));
+            }
+          }
+          console.log("PUBLIC_ORIGINAL_REFERENCES="+seen.size);
+          JS
