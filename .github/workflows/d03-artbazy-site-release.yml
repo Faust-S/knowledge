@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 110
     env:
-      SITE_PIN: f5e7437c742b8bad9c0a758af7e20faacafd700f
-      SITE_TREE: 69530d7efee67c665cecd4e358f1a544b7f97d84
+      SITE_PIN: 8b12266d465b4f424533cca09ac0f717522a5ecd
+      SITE_TREE: bf2c8d3f2e1650100912c97fb0892ef621a9d922
       T2_PIN: 9c64951cd78411283e8a416641c36d71e169fc1d
       T2_TREE: 56e55a9458aeb3ce540ef87dbc2dd9549ae2fcb2
       T3_PIN: 8e26076ce66f0c26693a647e061fcd568e055b77
@@ -40,7 +40,7 @@ jobs:
       - name: Verify deliberate immutable request before private checkout
         working-directory: ci-harness
         run: |
-          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-site-release --profile artbazy-integrated-site-release --revision site=f5e7437c742b8bad9c0a758af7e20faacafd700f --revision subject=b3e6614aeace087b66a7b25e3d881fab074e4d8e --revision t2=9c64951cd78411283e8a416641c36d71e169fc1d --revision core=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4 --revision skills=f5858032830317a9c0b9cb153c1c98fc08cfe4c2
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-site-release --profile artbazy-integrated-site-release --revision site=8b12266d465b4f424533cca09ac0f717522a5ecd --revision subject=b3e6614aeace087b66a7b25e3d881fab074e4d8e --revision t2=9c64951cd78411283e8a416641c36d71e169fc1d --revision core=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4 --revision skills=f5858032830317a9c0b9cb153c1c98fc08cfe4c2
       - name: Identify exact private GitHub source access before build
         shell: bash
         env:
@@ -92,7 +92,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazy.ru
-          ref: f5e7437c742b8bad9c0a758af7e20faacafd700f
+          ref: 8b12266d465b4f424533cca09ac0f717522a5ecd
           token: ${{ secrets.DOMEN }}
           path: private-site
           persist-credentials: false
@@ -197,6 +197,7 @@ jobs:
           const rendered=[...s.matchAll(/(?:^|\n)\[prerender:(?:ok|fail)\] (\/[a-z0-9/_-]*)/g)];
           if(rendered.length)console.log('PRERENDER_OBSERVED='+rendered.length);
           for(const m of [...s.matchAll(/(?:^|\n)\[prerender:fail\] (\/[a-z0-9/_-]*)/g)].slice(0,20))console.log('PRERENDER_FAILED_ROUTE='+m[1]);
+          for(const m of [...s.matchAll(/(?:^|\n)\[prerender:(?:retry|diagnostic)\] (\/[a-z0-9/_-]*)(?: attempt=\d+)? codes=([A-Z_,]+) html=(\d+) text=(\d+) links=(\d+)/g)].slice(0,40))console.log('PRERENDER_ROUTE_DIAGNOSTIC='+m[1]+' CODES='+m[2]+' HTML='+m[3]+' TEXT='+m[4]+' LINKS='+m[5]);
           const linkFailures=[...s.matchAll(/(?:^|\n)\[links:fail\] (no-slash|broken): (\/[a-z0-9/._-]+)/g)];
           for(const kind of ['no-slash','broken']){
             const matches=linkFailures.filter(m=>m[1]===kind);
@@ -235,6 +236,7 @@ jobs:
           phase SOURCE_LINKS npm run check:source-links
           phase SOURCE_LINK_TESTS npm run test:source-links
           phase STATIC_CAPTURE_TESTS node --test scripts/capture-static-document.test.mjs
+          phase STATIC_RETRY_TESTS node --test scripts/prerender-retry.test.mjs
           host_ok=yes
           kernel_ok=yes
           phase ORIGINAL_HOST npm run prepare:t3:host -- \
@@ -289,7 +291,7 @@ jobs:
           stage="$RUNNER_TEMP/artbazy-release"
           python3 -m unittest discover -s ci-harness/tools/ci/artbazy-delivery -p 'test_verify_artbazy_zip.py' >"$stage/independent-verifier-tests.log" 2>&1 || { echo D03_DELIVERY_VERIFIER_TESTS=FAIL; exit 1; }
           echo D03_DELIVERY_VERIFIER_TESTS=PASS
-          python3 ci-harness/tools/ci/artbazy-delivery/verify_artbazy_zip.py "$stage/ArtBazy-site.zip" --site-checkout "$GITHUB_WORKSPACE/private-site" >"$stage/independent-verification.json" 2>"$stage/independent-verification.log" || { echo D03_DELIVERY_VERIFICATION=FAIL; grep -Eo 'ARTBAZY_DELIVERY_FAIL: [A-Z_]+' "$stage/independent-verification.log" | head -1 || true; exit 1; }
+          python3 ci-harness/tools/ci/artbazy-delivery/verify_artbazy_zip.py "$stage/ArtBazy-site.zip" --site-checkout "$GITHUB_WORKSPACE/private-site" >"$stage/independent-verification.json" 2>"$stage/independent-verification.log" || { echo D03_DELIVERY_VERIFICATION=FAIL; grep -Eo 'ARTBAZY_DELIVERY_FAIL: [A-Z_]+' "$stage/independent-verification.log" | head -1 || true; grep -Eo 'ARTBAZY_DELIVERY_FAIL: OFFLINE_LINK:/[a-z0-9/._-]*->/[a-z0-9/._-]+' "$stage/independent-verification.log" | head -1 || true; exit 1; }
           cat "$stage/independent-verification.json"
           echo D03_DELIVERY_VERIFICATION=PASS
       - name: Seal only the verified ArtBazy delivery ZIP
