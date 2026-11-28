@@ -1,0 +1,9 @@
+{
+  "schema": "iwxa.ci.once/1",
+  "workflow": "t3-033-corner-controls",
+  "source": "56ee1bf853c734b8101b76d4648929df59f7a053",
+  "assistant": "629aaa274f2d6ad915730ee0d817aedc33e53108",
+  "base": "8e26076ce66f0c26693a647e061fcd568e055b77",
+  "preparedSha": "2140510f0d595153790c188efd629734cf0850b3",
+  "reason": "REUSE_CONFIRMED_OFFLINE_RESULT_WITHOUT_READING_TERMINAL_LOG"
+}
