@@ -1100,8 +1100,10 @@
         },
         "integratedOneWayNativePhases": {
           "run": 46053120268,
-          "status": "IN_PROGRESS_AT_LAST_OBSERVATION",
-          "scope": "Three original captured changes, exact observed import Event shape, modeled Kernel and transport"
+          "status": "PASS",
+          "scope": "Three original captured changes, exact observed import Event shape, modeled Kernel and transport",
+          "transfers": 3,
+          "coldRecovery": true
         }
       },
       "diagnostics": [
@@ -1154,6 +1156,67 @@
         46053009571,
         46053120268
       ]
+    },
+    "latestOriginalRouteKeySelection": {
+      "date": "2026-11-28",
+      "state": "ORIGINAL_ROUTE_KEY_SELECTION_COMPONENT_QUALIFIED_NATIVE_STARTUP_NOT_ACCEPTED",
+      "core": {
+        "commit": "0f7eb79f1dd8e155c314d529640aa302fecb7683",
+        "tree": "e640c35404374f7f9f0d36beb0c3a50cea7923f9"
+      },
+      "owner": {
+        "commit": "7e9b757b8b3233cf58f7b44766e0bc56704cc27f",
+        "tree": "b6bb6f4ce129504665f825fbdcbfa1f63281b968"
+      },
+      "agent": {
+        "commit": "1bbdc1177a3e082e24e821a4e0aa5df1ea4f3362",
+        "tree": "ce0d762c54123e9c4caf3dabcd6c8c98f0f225b6",
+        "build": "NOT_RUN"
+      },
+      "center": {
+        "commit": "62287f280c731a5567fa300c7553346e39e13861",
+        "tree": "2964b2ec405b9bc02c82fa764f805738de64b2cc",
+        "fullLocalQualification": "NOT_RUN"
+      },
+      "qualification": {
+        "integratedOneWayNativePhases": {
+          "run": 46053120268,
+          "status": "PASS",
+          "transfers": 3,
+          "coldRecovery": true,
+          "scope": "Native phase integration with real cryptography and modeled Kernel/transport"
+        },
+        "registryRouteKeys": {
+          "run": 46156078526,
+          "pass": 3,
+          "fail": 0,
+          "scope": "Actual signed Registry lifecycle, Ed25519/X25519 key enrollment, role selection, cold read, rotation, revocation; modeled storage"
+        },
+        "nativeComposition": {
+          "productPass": 29,
+          "adminPass": 8,
+          "fail": 0,
+          "scope": "Exact private source and test modules executed in isolated V8; adapted Node test/assert/Buffer/structuredClone, modeled owner ports; not full Node or installed runtime"
+        }
+      },
+      "decisions": [
+        "Resolve existing route keys from one replay-verified original Registry snapshot instead of manual references. Return public references only; original Vault and signed JIT remain responsible for use.",
+        "Existing explicit key selection preserved. No fallback from an invalid explicit selection. Both existing native mounts use the automatic completion before composing the signed owner.",
+        "Working qualification pins changed; stable release pins unchanged."
+      ],
+      "blocking": [
+        "Complete real installed provider composition, Agent SOURCE startup and compiled Admin RECIPIENT launch",
+        "Original corrected unaccepted K036 exact private reconstruction/full local qualification and actual Registry ZIP import",
+        "Windows build and DPAPI, physical server and two installed products, independent final acceptance"
+      ],
+      "publicActions": 1,
+      "privateActions": 0,
+      "codexUsed": false,
+      "kernelChanged": false,
+      "wireChanged": false,
+      "releasePinsChanged": false,
+      "T4_READY": false,
+      "FEATURE_FREEZE": true
     }
   }
 }
