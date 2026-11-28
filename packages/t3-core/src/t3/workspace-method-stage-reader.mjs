@@ -6,7 +6,7 @@ import {createHash} from 'node:crypto';
 import { canonicalClone,canonicalStringify } from '../persistence/canonical-codec.mjs';
 import { createSubjectKernelBinding } from './subject-access-binding.mjs';
 import {compareWorkspaceMethodWithCreation,compareWorkspaceMethodWithOrigin} from '../modules/base/owners/project-process-method-comparison.mjs';
-import {runOriginalWorkspaceMethodAlternative} from './workspace-method-alternative-lifecycle.mjs';
+import {runOriginalWorkspaceMethodAlternative,reopenOriginalSavedWorkspaceMethodAlternative} from './workspace-method-alternative-lifecycle.mjs';
 import { inspectWorkspaceMethodAgentPredecessorResults,readWorkspaceMethodInputOverview,
   previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation,inspectWorkspaceMethodMaterialEvidence,
   buildWorkspaceMethodPersonalTaskDraft,prepareWorkspaceMethodPersonalChain,buildWorkspaceMethodCorporateTaskReference,buildWorkspaceMethodCorporateTaskInputs,
@@ -67,7 +67,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
     try{return await read(input,mode);}finally{personalDraftInFlight=false;}
   }
   async function read(input,mode,selectedOnly=false){
-    const alternativeMode=mode==='alternative-create'||mode==='alternative-recover';
+    const savedAlternativeMode=mode==='alternative-reopen';
+    const alternativeMode=mode==='alternative-create'||mode==='alternative-recover'||savedAlternativeMode;
     const programMode=mode==='program-input';
     check(!programMode||nativeProgramOnly,'T3_METHOD_PROGRAM_NATIVE_OWNER_REQUIRED');
     const methodOnly=mode==='overview'||mode==='compare-creation'||mode==='compare-origin'||alternativeMode;
@@ -78,7 +79,10 @@ function createReader({kernel,accessForRead,currentWorkspace,
       typeof selected?.workspace_id==='string'&&selected.deleted_at==null,'T3_METHOD_STAGE_SELECTION_REQUIRED');
     // Snapshot selections before any original owner await. No caller port,
     // context, Result content, digest, permission or dispatch callback.
-    check(selectedOnly||(input&&typeof input.workspaceId==='string'&&typeof input.projectId==='string'
+    check(selectedOnly||(savedAlternativeMode?(alternativeEnabled&&input&&Object.keys(input).sort().join(',')==='projectId,targetProjectId,workspaceId'
+      &&typeof input.workspaceId==='string'&&/^[A-Za-z0-9_-]{1,63}$/u.test(input.projectId??'')
+      &&typeof input.projectId==='string'&&typeof input.targetProjectId==='string'&&/^[A-Za-z0-9_-]{1,63}$/u.test(input.targetProjectId)
+      &&input.projectId!==input.targetProjectId):(input&&typeof input.workspaceId==='string'&&typeof input.projectId==='string'
       &&(methodOnly||typeof input.stepId==='string')&&Array.isArray(input.expected?.workRefs)
       &&(!alternativeMode||alternativeEnabled)
       &&(!programMode||(input.sourceAsset&&input.program&&(input.resultSelections??[]).length===0
@@ -101,10 +105,11 @@ function createReader({kernel,accessForRead,currentWorkspace,
       &&(mode!=='personal-task-recover'||(input.personalResultSelections===undefined&&(input.resultSelections??[]).length===0))
       &&(input.personalResultSelections===undefined||(['handoff','personal-draft','personal-draft-recover','personal-task-inspect'].includes(mode)
         &&Array.isArray(input.personalResultSelections)&&input.personalResultSelections.length<=63
-        &&(input.resultSelections??[]).length===0))),
+        &&(input.resultSelections??[]).length===0)))),
       'T3_METHOD_STAGE_SELECTION_REQUIRED');
     const ref=value=>({family:value?.family,objectId:value?.objectId,recordId:value?.recordId,revision:value?.revision});
-    const request=selectedOnly?{workspaceId:selected.workspace_id,taskId:input.taskId,resultSelections:[]}:canonicalClone({workspaceId:input.workspaceId,projectId:input.projectId,
+    const request=selectedOnly?{workspaceId:selected.workspace_id,taskId:input.taskId,resultSelections:[]}:savedAlternativeMode?
+      canonicalClone({workspaceId:input.workspaceId,projectId:input.projectId,targetProjectId:input.targetProjectId}):canonicalClone({workspaceId:input.workspaceId,projectId:input.projectId,
       expected:{projectRef:ref(input.expected.projectRef),workRefs:input.expected.workRefs.map(ref)},
       ...(mode==='alternative-recover'?{targetProjectId:input.targetProjectId}:{}),
       ...(programMode?{sourceAsset:input.sourceAsset,program:input.program}:{}),
@@ -214,6 +219,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
       if(mode==='overview')report=await readWorkspaceMethodInputOverview(args);
       else if(mode==='compare-creation')report=await compareWorkspaceMethodWithCreation(args);
       else if(mode==='compare-origin')report=await compareWorkspaceMethodWithOrigin(args);
+      else if(savedAlternativeMode)report=await reopenOriginalSavedWorkspaceMethodAlternative({...args,
+        confirm:value=>guarded(()=>confirmAlternative(value))});
       else if(alternativeMode)report=await runOriginalWorkspaceMethodAlternative({...args,
         confirm:value=>guarded(()=>confirmAlternative(value))});
       else if(mode==='handoff'&&!request.includeMaterialEvidence&&!personalChain)report=await previewWorkspaceMethodStageHandoff(args);
@@ -442,7 +449,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
     ...(typeof sourceOwner.historyThrough==='function'?{compareCreation:input=>read(input,'compare-creation'),
       compareOrigin:input=>read(input,'compare-origin')}:{}),
     ...(alternativeEnabled?{createAlternative:input=>alternativeAction(input,'alternative-create'),
-      recoverAlternative:input=>alternativeAction(input,'alternative-recover')}:{}),
+      recoverAlternative:input=>alternativeAction(input,'alternative-recover'),
+      reopenSavedAlternative:input=>alternativeAction(input,'alternative-reopen')}:{}),
     previewHandoff:input=>read(input,'handoff'),
     inspectMaterialEvidence:input=>read(input,'material-evidence'),
     prepareCorporateTaskReference:input=>read(input,'corporate-reference'),

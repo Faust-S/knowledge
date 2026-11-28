@@ -98,12 +98,18 @@ export type WorkspaceMethodAlternativeReceipt=Readonly<{
   selection:WorkspaceMethodRevisionSelection|null;
   executionAuthority:false;newAuthorityGranted:false;resultReuseProven:false;sourceModified:false;
 }>;
+export type WorkspaceMethodSavedAlternativeReceipt=Readonly<Omit<WorkspaceMethodAlternativeReceipt,'state'>&{
+  state:Exclude<WorkspaceMethodAlternativeReceipt['state'],'CREATED'|'USER_CANCELLED'|'MATERIAL_REVIEW_REQUIRED'>|'OPENED';
+}>;
 export interface WorkspaceMethodStageReader {
   overview(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodInputOverview>;
   compareCreation?(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodCreationComparison>;
   compareOrigin?(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodOriginComparison>;
   createAlternative?(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodAlternativeReceipt>;
   recoverAlternative?(input:WorkspaceMethodReaderSelection&Readonly<{targetProjectId:string}>):Promise<WorkspaceMethodAlternativeReceipt>;
+  // Original selected saved target, independent of transient source selection.
+  // Complete current targets are read-only; partial creation uses native confirmation.
+  reopenSavedAlternative?(input:Readonly<{workspaceId:string;projectId:string;targetProjectId:string}>):Promise<WorkspaceMethodSavedAlternativeReceipt>;
   inspect(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodStageInspection>;
   previewHandoff(input:WorkspaceMethodStageRequest&Readonly<{includeMaterialEvidence?:boolean}>):Promise<WorkspaceMethodHandoffPreview>;
   inspectMaterialEvidence?(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodMaterialEvidence>;

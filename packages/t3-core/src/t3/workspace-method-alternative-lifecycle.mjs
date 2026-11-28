@@ -3,7 +3,7 @@
 // No new persistence, Task/Result owner, permission grant or automatic retry.
 import {randomUUID} from 'node:crypto';
 import {canonicalStringify} from '../persistence/canonical-codec.mjs';
-import {readWorkspaceMethodFromSourceOwner} from '../modules/base/owners/project-process-method-readback.mjs';
+import {readWorkspaceMethodFromSourceOwner,readHistoricalWorkspaceMethod} from '../modules/base/owners/project-process-method-readback.mjs';
 import {previewWorkspaceMethodAlternative,createWorkspaceMethodAlternativeThroughSourceOwner}
   from '../modules/base/owners/project-process-method-alternative.mjs';
 import {readWorkspaceMethodCreationIntent,inspectWorkspaceMethodCreation,resumeWorkspaceMethodThroughSourceOwner}
@@ -132,4 +132,41 @@ export async function runOriginalWorkspaceMethodAlternative({owner,workspaceId,p
       confirmationDigest:fresh.preview.confirmationDigest});
     return receipt('CREATED',confirmedMethod(result.method,workspaceId,projectId,target,selected));
   }catch(error){if(!invoked)throw error;return receipt('OUTCOME_UNKNOWN');}
+}
+
+/** Explicit reopen of an original saved Project selected by identity. No
+ * previous UI receipt, source current-head selection or new Project ID is
+ * required. A complete (possibly edited) target is read-only. Only an exact
+ * incomplete FIRST creation can be resumed, with the original confirmation.
+ * A partial selective revision is not mistaken for an interrupted creation.
+ */
+export async function reopenOriginalSavedWorkspaceMethodAlternative({owner,workspaceId,projectId,targetProjectId,readObject,confirm}={}){
+  check(id(projectId)&&id(targetProjectId)&&projectId!==targetProjectId&&typeof workspaceId==='string'&&workspaceId.length>0
+    &&typeof owner?.load==='function'&&typeof owner.historyThrough==='function'&&typeof owner.history==='function'
+    &&typeof owner.create==='function'&&typeof readObject==='function'&&typeof confirm==='function',
+    'METHOD_ALTERNATIVE_ORIGINAL_OWNER_REQUIRED');
+  const receipt=(state,method)=>baseReceipt(workspaceId,projectId,targetProjectId,state,method);
+  const original=await owner.load('project',workspaceId,targetProjectId);
+  if(!original)return receipt(await hasProjectProcessSourceIdentity(owner,'project',workspaceId,targetProjectId)?'CONFLICT':'NOT_FOUND');
+  let current;
+  try{
+    current=await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId:targetProjectId});
+  }catch(error){
+    if(error?.code!=='METHOD_SOURCE_INCOMPLETE')throw error;
+    if(original.revision!==1)return receipt('CONFLICT');
+    const intent=await readWorkspaceMethodCreationIntent({owner,workspaceId,projectId:targetProjectId});
+    const origin=intent.alternativeOrigin;
+    check(origin?.workspaceId===workspaceId&&origin.projectId===projectId,'METHOD_ALTERNATIVE_ORIGIN_MISMATCH');
+    // Derive the exact historical basis from the original immutable target.
+    // The existing recovery route rechecks its identity, closure, materials,
+    // record IDs and confirmation before every possible continuation.
+    return runOriginalWorkspaceMethodAlternative({owner,workspaceId,projectId,targetProjectId,expected:origin,readObject,confirm});
+  }
+  const origin=current.originalCreation?.origin;
+  check(origin?.workspaceId===workspaceId&&origin.projectId===projectId,'METHOD_ALTERNATIVE_ORIGIN_MISMATCH');
+  await readHistoricalWorkspaceMethod({owner,workspaceId,projectId,expected:origin});
+  const fresh=confirmedMethod(await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId:targetProjectId}),
+    workspaceId,projectId,targetProjectId,origin);
+  check(matches(current,fresh)&&eq(origin,fresh.originalCreation.origin),'METHOD_ALTERNATIVE_SELECTION_CHANGED');
+  return receipt('OPENED',fresh);
 }

@@ -1276,6 +1276,61 @@ test('partial alternative creation resumes original records after lost write, no
 });
 
 
+test('fresh trusted reader opens the saved edited variant and historical origin after source changes',async()=>{
+  const f=await setup(),source={workspaceId:ws,projectId,expected:f.base};
+  const creator=trusted(f,{confirmAlternative:async()=>true});
+  const created=await creator.reader.createAlternative(source),targetProjectId=created.targetProjectId;
+  const sourceEdit=draft();sourceEdit.steps[0].instruction='Source revision changed after creating the variant';
+  const sourceNext=(await applyWorkspaceMethodRevision({owner:f.owner,workspaceId:ws,projectId,expected:f.base,draft:sourceEdit,objects:[material],
+    operationId:'saved-variant-source-edit',knowledgeAt:'2026-11-28T12:00:00Z'})).method;
+  const targetDraft={...draft(),projectId:targetProjectId};targetDraft.steps[0].instruction='Independent variant changed';
+  const edited=(await applyWorkspaceMethodRevision({owner:f.owner,workspaceId:ws,projectId:targetProjectId,expected:created.selection,draft:targetDraft,objects:[material],
+    operationId:'saved-variant-target-edit',knowledgeAt:new Date(Date.now()+60000).toISOString()})).method;
+  const before=(await f.owner.audit()).length;let confirms=0;
+  const fresh=trusted(f,{confirmAlternative:async()=>{confirms++;return false;}});
+  const input={workspaceId:ws,projectId,targetProjectId};
+  const reopened=await fresh.reader.reopenSavedAlternative(input);
+  assert.equal(reopened.state,'OPENED');assert.deepEqual(reopened.selection.projectRef,edited.projectRef);
+  assert.deepEqual(reopened.selection.workRefs,[...edited.workRefs].sort((a,b)=>a.objectId.localeCompare(b.objectId)));
+  const comparison=await fresh.reader.compareOrigin({workspaceId:ws,projectId:targetProjectId,expected:reopened.selection});
+  assert.deepEqual(comparison.beforeSelection.projectRef,f.base.projectRef);
+  assert.equal((await fresh.reader.overview({...source,expected:sourceNext})).stages.length,2);
+  assert.equal(confirms,0);assert.equal((await f.owner.audit()).length,before);
+  assert.equal((await fresh.reader.reopenSavedAlternative({...input,targetProjectId:'not-saved'})).state,'NOT_FOUND');
+  await assert.rejects(fresh.reader.reopenSavedAlternative({...input,projectId:'foreign-origin'}),code('METHOD_ALTERNATIVE_ORIGIN_MISMATCH'));
+  await assert.rejects(fresh.reader.reopenSavedAlternative({...input,workspaceId:'foreign'}),code('T3_METHOD_STAGE_WORKSPACE_REQUIRED'));
+  await assert.rejects(fresh.reader.reopenSavedAlternative({...input,expected:f.base}),code('T3_METHOD_STAGE_SELECTION_REQUIRED'));
+  assert.equal(trusted(f).reader.reopenSavedAlternative,undefined);
+  fresh.deny();await assert.rejects(fresh.reader.reopenSavedAlternative(input),code('T3_ACCESS_NOT_PERMITTED'));
+  assert.equal((await f.owner.audit()).length,before);
+});
+
+test('fresh trusted reader resumes only the original interrupted creation after source revision changes',async()=>{
+  const f=await setup(),actual=f.owner,source={workspaceId:ws,projectId,expected:f.base};
+  const owner={load:(...a)=>actual.load(...a),history:(...a)=>actual.history(...a),historyThrough:(...a)=>actual.historyThrough(...a),
+    sourceIdentityExists:(...a)=>actual.sourceIdentityExists(...a),create:async(kind,input)=>{
+      if(kind==='work')throw Error('interrupted before first variant Work');return actual.create(kind,input);}};
+  const first=await trusted({...f,owner},{confirmAlternative:async()=>true}).reader.createAlternative(source);
+  assert.equal(first.state,'OUTCOME_UNKNOWN');
+  const targetProjectId=first.targetProjectId,initial=await actual.load('project',ws,targetProjectId);
+  const nextDraft=draft();nextDraft.steps[0].instruction='Different source revision';
+  await applyWorkspaceMethodRevision({owner:actual,workspaceId:ws,projectId,expected:f.base,draft:nextDraft,objects:[material],
+    operationId:'partial-variant-source-edit',knowledgeAt:'2026-11-28T12:02:00Z'});
+  const before=(await actual.audit()).length,input={workspaceId:ws,projectId,targetProjectId};
+  const cancelled=trusted(f,{confirmAlternative:async()=>false});
+  assert.equal((await cancelled.reader.reopenSavedAlternative(input)).state,'RECOVERY_REQUIRED');
+  assert.equal((await actual.audit()).length,before);
+  const confirmations=[],fresh=trusted(f,{confirmAlternative:async value=>{confirmations.push(value);return true;}});
+  const recovered=await fresh.reader.reopenSavedAlternative(input);
+  assert.equal(recovered.state,'RECOVERED');assert.equal(recovered.targetProjectId,targetProjectId);
+  assert.equal(recovered.selection.projectRef.recordId,initial.baseRevisionId);
+  assert.equal(confirmations.length,1);assert.deepEqual(confirmations[0].sourceSelection.projectRef,f.base.projectRef);
+  assert.equal((await actual.audit()).length,before+2);
+  const reopened=await fresh.reader.reopenSavedAlternative(input);
+  assert.equal(reopened.state,'OPENED');assert.deepEqual(reopened.selection,recovered.selection);
+  assert.equal(confirmations.length,1);assert.equal((await actual.audit()).length,before+2);
+});
+
 const selectedProgram=(f,extra={})=>({workspaceId:ws,projectId,expected:f.base,stepId:'analyse',
   sourceAsset:{objectId:'source',assetId:'asset:1',revision:1,name:'points.json'},
   program:{providerId:'QGIS_PROCESSING_V1',operation:'reproject_points',parameters:{specification:'{"target_crs":"EPSG:32632"}'},

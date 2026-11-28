@@ -10,6 +10,7 @@ import { readWorkspaceMethodStageInputBasis,readWorkspaceMethodInputOverview,pre
 import { createOriginalPersonalWorkflowTaskObserver,recoverOriginalPersonalWorkflowTaskSelection,recoverOriginalPersonalWorkflowTaskSelections,personalWorkflowTaskInspection } from '../src/t3/workspace-method-personal-draft.mjs';
 import { compareWorkspaceMethodAlternatives } from '../src/modules/base/owners/project-process-method-comparison.mjs';
 import { previewWorkspaceMethodAlternative,createWorkspaceMethodAlternativeThroughSourceOwner,readWorkspaceMethodAlternativeOrigin } from '../src/modules/base/owners/project-process-method-alternative.mjs';
+import {runOriginalWorkspaceMethodAlternative,reopenOriginalSavedWorkspaceMethodAlternative} from '../src/t3/workspace-method-alternative-lifecycle.mjs';
 
 const ws='qualification-c3-owner-source',copyWs='qualification-c3-owner-copy',projectId='research-project';
 const time='2026-11-27T12:00:00.000000123Z',time2='2026-11-27T12:01:00.000000456Z',time3='2026-11-27T12:02:00.000000789Z';
@@ -456,10 +457,57 @@ export async function qualifyOriginalC3OwnerOnK036({client,openEmpty,anchorSchem
   await expectReject('original K036 changed actual Asset invalidates dependent corporate chain',
     ()=>buildWorkspaceMethodCorporateTaskInputs({...cRestoredArgs,expectedCandidateDigest:cFinalPreview.candidateDigest}),
     ['METHOD_CORPORATE_CHAIN_SIGNED_REFERENCE_CHANGED']);
+  // Independent original archive restore: no transient prior source selection,
+  // no UI receipt, no new alternative identity. The actual K036 Exchange
+  // transfers the partial original creation and exact declared material Asset.
+  const transferClient=await openEmpty();
+  await transferClient.t1.createWorkspace({workspace_id:ws,profile:'personal'});
+  await transferClient.t1.commitObjectGraph({workspace_id:ws,idempotency_key:'transfer-original-material',
+    object:{object_id:materialId,schema_id:anchorSchema,schema_version:schemaVersion,base_revision:0,
+      data:{kind:'material',value:'original material for alternative recovery'}},event:{event_type:'qualification.original-material'}});
+  const transferBytes=new TextEncoder().encode('Exact original material for cold variant restore\\r\\n');
+  await transferClient.t1.putAsset({workspace_id:ws,object_id:materialId,asset_id:'transfer-original-attachment',
+    mime:'text/plain',bytes:transferBytes,base_revision:0,event:{event_type:'qualification.transfer.material',idempotency_key:'transfer-material-asset'}});
+  const transferOwner=await open(transferClient,ws),transferObjects=await material(transferClient,ws);
+  const originalTransfer=await createWorkspaceMethodThroughSourceOwner({owner:transferOwner.owner,workspaceId:ws,objects:transferObjects,
+    draft:method(),recordIds,knowledgeAt:time});
+  const interruptedAlternative={...Object.fromEntries(['load','history','historyThrough','sourceIdentityExists']
+    .map(name=>[name,transferOwner.owner[name].bind(transferOwner.owner)])),
+    create:async(kind,input)=>{if(kind==='work')throw Error('fixture interruption before variant Work');return transferOwner.owner.create(kind,input);}};
+  const attempt=await runOriginalWorkspaceMethodAlternative({owner:interruptedAlternative,workspaceId:ws,projectId,
+    expected:originalTransfer.method,readObject:(...a)=>transferClient.t1.getObject(...a),confirm:async()=>true});
+  same('original K036 variant interrupted after initial Project',attempt.state,'OUTCOME_UNKNOWN');
+  const savedTargetId=attempt.targetProjectId;
+  const initialTarget=await transferOwner.owner.load('project',ws,savedTargetId);
+  check('original K036 partial target first Project is actually persisted',!!initialTarget?.baseRevisionId);
+  const changedTransferDraft=edit(method(),'analyse','New source revision after interrupted variant');
+  const changedTransfer=await applyWorkspaceMethodRevision({owner:transferOwner.owner,workspaceId:ws,projectId,expected:originalTransfer.method,
+    draft:changedTransferDraft,objects:transferObjects,operationId:'transfer-source-revision',knowledgeAt:time2});
+  const transferAudit=order(await transferOwner.owner.audit()),transferPackage=await exportAll(transferClient,ws);
+  const coldTransferClient=await openEmpty();await importAll(coldTransferClient,transferPackage.bytes,{mode:'full'});
+  const coldTransferOwner=await open(coldTransferClient,ws);
+  same('original K036 full same-ID archive restores partial variant audit exactly',exact(order(await coldTransferOwner.owner.audit())),exact(transferAudit));
+  const asset=await coldTransferClient.t1.getAsset(ws,'transfer-original-attachment');
+  same('original K036 same-ID archive restores exact original material Asset',Array.from(asset.bytes),Array.from(transferBytes));
+  const recoveryConfirmations=[];
+  const coldSelection={owner:coldTransferOwner.owner,workspaceId:ws,projectId,targetProjectId:savedTargetId,
+    readObject:(...a)=>coldTransferClient.t1.getObject(...a),confirm:async preview=>{recoveryConfirmations.push(preview);return true;}};
+  const coldRecovered=await reopenOriginalSavedWorkspaceMethodAlternative(coldSelection);
+  same('original K036 same-ID cold reopen resumes original saved alternative',coldRecovered.state,'RECOVERED');
+  same('original K036 restored alternative retains exact target Project record',coldRecovered.selection.projectRef.recordId,initialTarget.baseRevisionId);
+  same('original K036 restored alternative uses original historical source selection',recoveryConfirmations[0].sourceSelection.projectRef,originalTransfer.method.projectRef);
+  same('original K036 cold recovery writes only the four missing Works',(await coldTransferOwner.owner.audit()).length,transferAudit.length+4);
+  same('original K036 cold recovery leaves revised source untouched',exact((await readWorkspaceMethodFromSourceOwner({owner:coldTransferOwner.owner,workspaceId:ws,projectId})).draft),exact(changedTransfer.method.draft));
+  const coldAgain=await reopenOriginalSavedWorkspaceMethodAlternative(coldSelection);
+  same('original K036 repeated cold target reopen is read-only',coldAgain.state,'OPENED');
+  same('original K036 repeated cold target reopen preserves selected refs',exact(coldAgain.selection),exact(coldRecovered.selection));
+  same('original K036 repeated cold target reopen does not reconfirm',recoveryConfirmations.length,1);
+  same('original K036 repeated cold target reopen does not duplicate records',(await coldTransferOwner.owner.audit()).length,transferAudit.length+4);
   same('fixture owner and Exchange use only original database',(await indexedDB.databases()).map(d=>d.name),['iwxa-local']);
   return {status:'PASS_ORIGINAL_OWNER_FIXTURE_ONLY',recordCount:9,restoredPartial:true,copyBinding:'EXPLICIT_EPHEMERAL_FIXTURE_PASS_PRODUCTION_BLOCKED',
     currentMethodAddressedReads:{before:beforeReads,after:afterReads},unfilteredCatalog:{before:catalogBefore,after:catalogAfter},
     additionalHistoryRevisions:64,alternativeLineageRestored:true,
+    savedAlternativeColdRestore:{sameIdArchive:true,exactAsset:true,originalHistoricalBasis:true,missingWorksResumed:4,reopenReadOnly:true,productionAdapterApproved:false},
     copiedMethodLocalProjection:true,copyOfCopyLocalProjection:true,durableCopyProvenance:false,
     stageInputBasisVerified:true,selectedStageAddressedReads:{before:beforeStageReads,after:afterStageReads},
     completeOverviewAddressedReads:{before:beforeOverviewReads,after:afterOverviewReads},rootHandoffPreview:true,
