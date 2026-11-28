@@ -1,0 +1,12 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d05-t3-seal-hosting",
+  "prepared_sha": "4d69ee0f6bc5d9e73f13a9f8cb7e6ff1135436ea",
+  "profile": "0.3.2-seal-hosting",
+  "revisions": {
+    "site": "75eddb38289b5b10bffad82e2a6c2fc277101617",
+    "subject": "6852d55ae8e7100b480b2d5c0a10b92de1c7d467",
+    "assistant": "2c247482306f218a7d5be668de11e98f168862d4",
+    "platform": "8e26076ce66f0c26693a647e061fcd568e055b77"
+  }
+}
