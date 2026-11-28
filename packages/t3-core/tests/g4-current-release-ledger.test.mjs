@@ -44,23 +44,66 @@ test('typed ledger separates released T3 technology, original T2, and still opti
   assert.equal(core.runtime_contract,'1.3.0');
   assert.equal(core.auto_publish_to_sites,false);
   if(platformReleased){
-    assert.equal(core.status,'RELEASED_T3_TECHNOLOGY_0_3_1');
-    assert.equal(core.version,'0.3.1');
+    assert.ok(['0.3.1','0.3.2','0.3.3'].includes(core.version));
+    assert.equal(core.status,'RELEASED_T3_TECHNOLOGY_'+core.version.replaceAll('.','_'));
     assert.equal(current.final_t3_release.version,core.version);
     assert.equal(current.previous_core_release_0_3_0.version,'0.3.0');
-    assert.equal(core.promotion.release_tag,'t3-platform-v0.3.1');
-    assert.equal(core.promotion.metadata_only_delta.identical,171);
-    assert.equal(core.promotion.metadata_only_delta.files,174);
-    assert.equal(core.promotion.rc6_user_routes_run,46050260479);
-    assert.equal(core.promotion.hardware_run_on_unchanged_bli,46014698884);
-    assert.equal(core.promotion.independent_codex,'PARTIAL_ON_RC5');
+    assert.equal(core.promotion.release_tag,'t3-platform-v'+core.version);
+    assert.equal(core.portable_inputs.version,core.version);
+    if(core.version==='0.3.3'){
+      assert.equal(core.promotion.scoped_delta.identical,168);
+      assert.equal(core.promotion.scoped_delta.files,174);
+      assert.equal(core.promotion.scoped_delta.compiled_assets_unchanged,true);
+      assert.equal(core.promotion.scoped_delta.kernel_unchanged,true);
+      assert.equal(core.promotion.scoped_delta.bli_unchanged,true);
+      assert.equal(core.promotion.assistant_source_tests,137);
+      assert.equal(core.promotion.offline_source_tests,19);
+      assert.equal(core.promotion.browser_route_tests,2);
+      assert.deepEqual(core.promotion.browser_viewports,['1440x900','375x812','320x568']);
+      assert.equal(core.promotion.prior_model_hardware_evidence.model_generation_retested,false);
+      assert.equal(core.promotion.prior_model_hardware_evidence.run,46065502722);
+      assert.equal(core.promotion.independent_codex,'NOT_RUN_ON_0_3_3');
+      assert.equal(current.previous_core_release_0_3_2.version,'0.3.2');
+      assert.equal(current.final_t3_release.previous_release_evidence_0_3_2.source_sha,current.previous_core_release_0_3_2.source_sha);
+      assert.equal(current.final_t3_release.previous_release_evidence_0_3_2.exact_platform_ci_run,46065502722);
+    }else{
+      assert.equal(core.promotion.metadata_only_delta.identical,171);
+      assert.equal(core.promotion.metadata_only_delta.files,174);
+    }
+    // Preserve the exact historical 0.3.1 evidence. An upgraded ledger
+    // must reference its own publication and actual model profiles.
+    const prior=core.version==='0.3.1'?core:current.previous_core_release_0_3_1;
+    assert.equal(prior.version,'0.3.1');
+    assert.equal(prior.promotion.rc6_user_routes_run,46050260479);
+    assert.equal(prior.promotion.hardware_run_on_unchanged_bli,46014698884);
+    assert.equal(prior.promotion.independent_codex,'PARTIAL_ON_RC5');
+    if(core.version==='0.3.2'||core.version==='0.3.3'){
+      const qualified032=core.version==='0.3.2'?core:current.previous_core_release_0_3_2;
+      const promotion=qualified032.promotion;
+      assert.equal(promotion.metadata_only_delta.identical,171);
+      assert.equal(promotion.metadata_only_delta.files,174);
+      assert.match(promotion.assistant_source,hex40);
+      assert.ok(Number.isSafeInteger(promotion.assistant_source_tests)&&promotion.assistant_source_tests>=137);
+      assert.equal(promotion.prior_browser_run,46060488224);
+      assert.equal(promotion.prior_hardware_run,46062741580);
+      assert.equal(promotion.independent_codex,'NOT_RUN_ON_0_3_2');
+      assert.deepEqual(promotion.profiles.map(p=>p.profile),['light','balanced','extended']);
+      for(const p of promotion.profiles){
+        assert.equal(p.exactSource,7);
+        assert.equal(p.expectedChoices,7);
+        assert.equal(p.coldOffline,true);
+      }
+      assert.equal(current.final_t3_release.previous_release_evidence_0_3_1.source_sha,prior.source_sha);
+      assert.equal(current.final_t3_release.previous_release_evidence_0_3_1.exact_platform_ci_run,46053342716);
+    }
     assert.equal(core.source_sha,current.final_t3_release.release_evidence.source_sha);
     assert.equal(core.executable_tree_sha,
       current.final_t3_release.release_evidence.source_tree_sha);
     assert.equal(core.portable_inputs.manifest_sha256,
       current.final_t3_release.release_evidence.portable_platform_manifest_sha256);
     assert.equal(current.final_t3_release.release_evidence.conclusion,'SUCCESS');
-    assert.equal(current.final_t3_release.release_evidence.exact_platform_ci_run,46053342716);
+    assert.equal(current.final_t3_release.release_evidence.exact_platform_ci_run,core.promotion.publication_run);
+    assert.ok(Number.isSafeInteger(core.promotion.publication_run)&&core.promotion.publication_run>0);
     assert.equal(current.final_t3_release.previous_release_evidence_0_3_0.exact_platform_ci_run,44913691238);
     assert.equal(core.migration_eligible,true);
   }else{

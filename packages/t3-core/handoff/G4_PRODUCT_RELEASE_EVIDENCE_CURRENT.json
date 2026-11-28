@@ -2972,10 +2972,10 @@
     },
     "core_release": {
       "schema": "IWXA_T3_ONE_CORE_RELEASE_SCOPE/1",
-      "status": "RELEASED_T3_TECHNOLOGY_0_3_1",
+      "status": "RELEASED_T3_TECHNOLOGY_0_3_3",
       "release_subject": "IWXA_T3_PRODUCT_NEUTRAL_TECHNOLOGY_VERIFIED_PORTABLE_INPUTS_ONE_DIST_PER_PRODUCT",
-      "source_sha": "d7f439fe974fab1709270e515721da72d887240f",
-      "executable_tree_sha": "ddfe22f54e622d89522146c40aa726577edaae95",
+      "source_sha": "30e3f98f944ffa351f2dfa9922f38bcca8b7d314",
+      "executable_tree_sha": "74e14f7e857a03c257e6e65e3bd011db54d95853",
       "normative_t2_sha": "9c64951cd78411283e8a416641c36d71e169fc1d",
       "kernel_version": "0.3.6",
       "runtime_contract": "1.3.0",
@@ -2993,7 +2993,12 @@
         "rc6_layout_and_package": 46048628242,
         "rc6_final_user_routes": 46050260479,
         "rc6_publication": 46053077770,
-        "stable_0_3_1_metadata_promotion": 46053342716
+        "stable_0_3_1_metadata_promotion": 46053342716,
+        "domain_assistant_032_browser": 46060488224,
+        "domain_assistant_032_hardware": 46062741580,
+        "stable_0_3_2_qualification_publication": 46065502722,
+        "stable_0_3_3_offline_source": 46152580621,
+        "stable_0_3_3_common_ui_publication": 46152768497
       },
       "feature_boundary": "D1_D7_TECHNOLOGY_QUALIFIED_SOURCE_HARDWARE_AND_PORTABLE_ONE_CORE__INSTALLED_APPLICATIONS_INDEPENDENT",
       "independent_release_scopes": [
@@ -3004,58 +3009,96 @@
       ],
       "migration_eligible": true,
       "auto_publish_to_sites": false,
-      "version": "0.3.1",
+      "version": "0.3.3",
       "portable_inputs": {
         "schema": "IWXA_T3_PORTABLE_PLATFORM_INPUTS/1",
-        "version": "0.3.1",
-        "artifact_name": "iwxa-t3-platform-inputs-0.3.1-d7f439fe974fab1709270e515721da72d887240f",
-        "artifact_id": 15225337367,
-        "archive_sha256": "d926739f94d54f3f2015b5d249687a3e8d67f588e850e15eb17012e33959879e",
-        "manifest_sha256": "36675db908e61f261af722f59b115616e4860c7dd459ba2d8db78ef481a1d05e",
+        "version": "0.3.3",
+        "artifact_name": "iwxa-t3-platform-inputs-0.3.3-30e3f98f944ffa351f2dfa9922f38bcca8b7d314",
+        "artifact_id": 15265409508,
+        "archive_sha256": "e573cadb5bac9f25f5eaa159e12f38ef1781962cc8e23908bab2bc3032424316",
+        "manifest_sha256": "cd05c61aa7042a1d4c3e71299bc967aec60b6e311d8b6b2e43f3bad04f1803bf",
         "file_count": 174,
         "original_kernel_version": "0.3.6",
         "original_kernel_contract": "1.3.0",
         "native_signer_included": false,
         "model_weights_included": false,
         "owner_specific_installed_products_accepted": false,
-        "release_tag": "t3-platform-v0.3.1",
-        "release_url": "https://github.com/Faust-S/knowledge/releases/tag/t3-platform-v0.3.1",
-        "archive_bytes": 15145248
+        "release_tag": "t3-platform-v0.3.3",
+        "release_url": "https://github.com/Faust-S/knowledge/releases/tag/t3-platform-v0.3.3",
+        "archive_bytes": 15156009
       },
       "promotion": {
-        "release_id": 460967263,
-        "release_tag": "t3-platform-v0.3.1",
-        "release_url": "https://github.com/Faust-S/knowledge/releases/tag/t3-platform-v0.3.1",
-        "source_sha": "d7f439fe974fab1709270e515721da72d887240f",
-        "source_tree_sha": "ddfe22f54e622d89522146c40aa726577edaae95",
-        "source_package_tree_sha": "aa1539689a539a98d6e492eb24a6cad023e2a729",
-        "publication_run": 46053342716,
+        "release_id": 461601783,
+        "release_tag": "t3-platform-v0.3.3",
+        "release_url": "https://github.com/Faust-S/knowledge/releases/tag/t3-platform-v0.3.3",
+        "source_sha": "30e3f98f944ffa351f2dfa9922f38bcca8b7d314",
+        "source_tree_sha": "74e14f7e857a03c257e6e65e3bd011db54d95853",
+        "source_package_tree_sha": "6e8c8d1b2b822e95cbfd9641659f6755420746f1",
+        "publication_run": 46152768497,
         "conclusion": "SUCCESS",
-        "qualified_rc6_sha": "3e8c40fc5a80866f32f4547f1780ebef525c964c",
-        "rc6_user_routes_run": 46050260479,
-        "rc6_publication_run": 46053077770,
-        "consolidated_source_run": 46012582910,
-        "hardware_run_on_unchanged_bli": 46014698884,
-        "metadata_only_delta": {
+        "base_release": "0.3.2",
+        "base_source": "8e26076ce66f0c26693a647e061fcd568e055b77",
+        "tested_source": "56ee1bf853c734b8101b76d4648929df59f7a053",
+        "assistant_source": "629aaa274f2d6ad915730ee0d817aedc33e53108",
+        "assistant_source_tests": 137,
+        "offline_source_run": 46152580621,
+        "offline_source_tests": 19,
+        "browser_route_tests": 2,
+        "browser_viewports": [
+          "1440x900",
+          "375x812",
+          "320x568"
+        ],
+        "origin_binding": "OFFICIAL_ORIGIN_AND_EXPLICIT_HTTP_LOOPBACK_DEVELOPMENT_EXCEPTION",
+        "prior_model_hardware_evidence": {
+          "release": "0.3.2",
+          "run": 46065502722,
+          "profiles": [
+            {
+              "profile": "light",
+              "exactSource": 7,
+              "expectedChoices": 7,
+              "coldOffline": true
+            },
+            {
+              "profile": "balanced",
+              "exactSource": 7,
+              "expectedChoices": 7,
+              "coldOffline": true
+            },
+            {
+              "profile": "extended",
+              "exactSource": 7,
+              "expectedChoices": 7,
+              "coldOffline": true
+            }
+          ],
+          "model_generation_retested": false
+        },
+        "scoped_delta": {
           "files": 174,
-          "identical": 171,
+          "identical": 168,
           "changed": [
             "docs/t3-consolidation-sources.json",
             "package-lock.json",
-            "package.json"
+            "package.json",
+            "scripts/materialize-t3-domain-mode.mjs",
+            "src/t3/domain-mode/t3-domain-mode.mjs",
+            "src/t3/domain-mode/t3-sw.js"
           ],
           "compiled_assets_unchanged": true,
           "kernel_unchanged": true,
           "bli_unchanged": true
         },
         "assets": {
-          "candidate-receipt.json": "9c604e725855e10f5339f74c9567732bcebbbf8931d530bcd5ec4a8e969fd237",
-          "platform-inputs.zip": "d926739f94d54f3f2015b5d249687a3e8d67f588e850e15eb17012e33959879e",
-          "t3-platform-inputs.json": "36675db908e61f261af722f59b115616e4860c7dd459ba2d8db78ef481a1d05e",
-          "t3-platform-inputs.sha256": "0f35d799dd59e32e72232ec567405930a35c844c50b93adba1a7f75a0f3c125d"
+          "candidate-receipt.json": "5f98a252a399dc60672a2c6d991d949ece28ffc5d13bae4ea30d45c2498cb65b",
+          "platform-inputs.zip": "e573cadb5bac9f25f5eaa159e12f38ef1781962cc8e23908bab2bc3032424316",
+          "qualification-result.json": "420687776aabc83c90b72262042651cab49c096bb9ccf2d7ae4a52a3df8a8c7e",
+          "t3-platform-inputs.json": "cd05c61aa7042a1d4c3e71299bc967aec60b6e311d8b6b2e43f3bad04f1803bf",
+          "t3-platform-inputs.sha256": "7033b027c0e1e6c9f6be6eab0f7924ceded9a5b6d6b414164dbee5b7f44c01bf"
         },
-        "independent_codex": "PARTIAL_ON_RC5",
-        "acceptance": "OWNER_DIRECTED_ENGINEERING_COMPLETION",
+        "independent_codex": "NOT_RUN_ON_0_3_3",
+        "acceptance": "COMMON_UI_AND_OFFLINE_LIFECYCLE_ENGINEERING_QUALIFIED",
         "no_auto_domain_or_installed_product_migration": true
       }
     },
@@ -3453,9 +3496,153 @@
       },
       "platform_release_boundary": "GENERIC_T2_T3_D1_D7_AND_VERIFIED_ONE_DIST_ONLY__COMPANY_AGENT_ADMIN_CENTER_INTEGRATION_QUALIFIED_SEPARATELY",
       "acceptance_policy": "INDEPENDENT_EXACT_T2_T3_PLATFORM_D1_D7_AND_VERIFIED_VERSIONED_ONE_DIST__G4_INSTALLED_APPLICATIONS_SEPARATE",
-      "version": "0.3.1",
+      "version": "0.3.3",
       "release_scope": "PRODUCT_NEUTRAL_D1_D7_TECHNOLOGY_NOT_INSTALLED_PRODUCT_G4",
       "release_evidence": {
+        "source_sha": "30e3f98f944ffa351f2dfa9922f38bcca8b7d314",
+        "source_tree_sha": "74e14f7e857a03c257e6e65e3bd011db54d95853",
+        "exact_platform_ci_run": 46152768497,
+        "conclusion": "SUCCESS",
+        "jobs": {
+          "qualify": "SUCCESS",
+          "release": "SUCCESS"
+        },
+        "features": {
+          "D1": "ORIGINAL_T2_SIGNED_GRANTS_AND_WINDOWS_CREDENTIAL_SOURCE_PASS",
+          "D2": "ORIGINAL_KERNEL_ACTIVITY_EVENT_PERSISTENCE_COLD_PASS",
+          "D3": "SIGNED_TASK_RESULT_HUMAN_DECISION_AND_ORIGINAL_T2_CORE_SOURCE_PASS",
+          "D4": "RC6_ORIGINAL_WORKSPACE_FULL_HISTORY_EXPORT_IMPORT_TWO_INDEPENDENT_PROFILES_COLD_OFFLINE_PASS",
+          "D5": "PUBLISHED_0_3_2_THREE_CENTRAL_MODELS_ACTUAL_HARDWARE_EVIDENCE_UNCHANGED_MODEL_ENGINE;_0_3_3_COMMON_UI_AND_OFFLINE_LIFECYCLE_PASS",
+          "D6": "GENERIC_ORIGINAL_T2_RECIPIENT_COLD_AND_DURABLE_SOURCE_PASS_NO_ATLAS_REQUIRED",
+          "D7": "ORIGINAL_AGE_1_3_1_TWO_INDEPENDENT_RECIPIENTS_COLD_PASS__PERSON_ORIGINAL_OWNER_SOURCE_22_OF_22_PRIOR_PASS"
+        },
+        "original_t2_source_sha": "9c64951cd78411283e8a416641c36d71e169fc1d",
+        "original_t2_kernel_sha256": "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68",
+        "original_bli_tree_sha": "04e3d3e961248b7bc97dcfefea070cbd2cb0ca3d",
+        "portable_platform_input_artifact_id": 15265409508,
+        "portable_platform_input_archive_sha256": "e573cadb5bac9f25f5eaa159e12f38ef1781962cc8e23908bab2bc3032424316",
+        "portable_platform_manifest_sha256": "cd05c61aa7042a1d4c3e71299bc967aec60b6e311d8b6b2e43f3bad04f1803bf",
+        "portable_platform_file_count": 174,
+        "independent_checksum_check": "RC6_PLATFORM_174_DELIVERY_103_OFFLINE_97_VERIFIED_SEPARATELY; STABLE_171_OF_174_INPUTS_IDENTICAL_AND_ALL_MANIFEST_CHECKSUMS_PASS",
+        "independent_node_builder_check": "STABLE_METADATA_ONLY_ORIGINAL_PORTABLE_PACKAGER_PASS",
+        "release_branch": "fix/2026-11-28-t3-corner-controls",
+        "installed_agent_admin_center_corporate_transfer": "NOT_ACCEPTED_SEPARATE_PRODUCT_TRACK",
+        "no_automatic_domain_migration": true,
+        "no_private_signer_in_public_artifact": true,
+        "release_tag": "t3-platform-v0.3.3",
+        "qualification_basis": "PUBLISHED_0_3_2_BASELINE_WITH_0_3_3_COMMON_FIXED_CORNER_CONTROLS_AND_DOMAIN_BOUND_OFFLINE_LIFECYCLE",
+        "promotion": {
+          "release_id": 461601783,
+          "release_tag": "t3-platform-v0.3.3",
+          "release_url": "https://github.com/Faust-S/knowledge/releases/tag/t3-platform-v0.3.3",
+          "source_sha": "30e3f98f944ffa351f2dfa9922f38bcca8b7d314",
+          "source_tree_sha": "74e14f7e857a03c257e6e65e3bd011db54d95853",
+          "source_package_tree_sha": "6e8c8d1b2b822e95cbfd9641659f6755420746f1",
+          "publication_run": 46152768497,
+          "conclusion": "SUCCESS",
+          "base_release": "0.3.2",
+          "base_source": "8e26076ce66f0c26693a647e061fcd568e055b77",
+          "tested_source": "56ee1bf853c734b8101b76d4648929df59f7a053",
+          "assistant_source": "629aaa274f2d6ad915730ee0d817aedc33e53108",
+          "assistant_source_tests": 137,
+          "offline_source_run": 46152580621,
+          "offline_source_tests": 19,
+          "browser_route_tests": 2,
+          "browser_viewports": [
+            "1440x900",
+            "375x812",
+            "320x568"
+          ],
+          "origin_binding": "OFFICIAL_ORIGIN_AND_EXPLICIT_HTTP_LOOPBACK_DEVELOPMENT_EXCEPTION",
+          "prior_model_hardware_evidence": {
+            "release": "0.3.2",
+            "run": 46065502722,
+            "profiles": [
+              {
+                "profile": "light",
+                "exactSource": 7,
+                "expectedChoices": 7,
+                "coldOffline": true
+              },
+              {
+                "profile": "balanced",
+                "exactSource": 7,
+                "expectedChoices": 7,
+                "coldOffline": true
+              },
+              {
+                "profile": "extended",
+                "exactSource": 7,
+                "expectedChoices": 7,
+                "coldOffline": true
+              }
+            ],
+            "model_generation_retested": false
+          },
+          "scoped_delta": {
+            "files": 174,
+            "identical": 168,
+            "changed": [
+              "docs/t3-consolidation-sources.json",
+              "package-lock.json",
+              "package.json",
+              "scripts/materialize-t3-domain-mode.mjs",
+              "src/t3/domain-mode/t3-domain-mode.mjs",
+              "src/t3/domain-mode/t3-sw.js"
+            ],
+            "compiled_assets_unchanged": true,
+            "kernel_unchanged": true,
+            "bli_unchanged": true
+          },
+          "assets": {
+            "candidate-receipt.json": "5f98a252a399dc60672a2c6d991d949ece28ffc5d13bae4ea30d45c2498cb65b",
+            "platform-inputs.zip": "e573cadb5bac9f25f5eaa159e12f38ef1781962cc8e23908bab2bc3032424316",
+            "qualification-result.json": "420687776aabc83c90b72262042651cab49c096bb9ccf2d7ae4a52a3df8a8c7e",
+            "t3-platform-inputs.json": "cd05c61aa7042a1d4c3e71299bc967aec60b6e311d8b6b2e43f3bad04f1803bf",
+            "t3-platform-inputs.sha256": "7033b027c0e1e6c9f6be6eab0f7924ceded9a5b6d6b414164dbee5b7f44c01bf"
+          },
+          "independent_codex": "NOT_RUN_ON_0_3_3",
+          "acceptance": "COMMON_UI_AND_OFFLINE_LIFECYCLE_ENGINEERING_QUALIFIED",
+          "no_auto_domain_or_installed_product_migration": true
+        }
+      },
+      "previous_release_evidence_0_3_0": {
+        "source_sha": "3056eef0665fb3503294d49b89d937af2ea060e2",
+        "source_tree_sha": "55c7731509513e80fd0aa80da25d3cb49f9f8efb",
+        "exact_platform_ci_run": 44913691238,
+        "conclusion": "SUCCESS",
+        "jobs": {
+          "test": "SUCCESS",
+          "real-host": "SUCCESS",
+          "windows-credential": "SUCCESS",
+          "native-model": "SUCCESS",
+          "native-age": "SUCCESS",
+          "metal-webgpu": "SUCCESS"
+        },
+        "features": {
+          "D1": "ORIGINAL_T2_SIGNED_GRANTS_AND_WINDOWS_CREDENTIAL_SOURCE_PASS",
+          "D2": "ORIGINAL_KERNEL_ACTIVITY_EVENT_PERSISTENCE_COLD_PASS",
+          "D3": "SIGNED_TASK_RESULT_HUMAN_DECISION_AND_ORIGINAL_T2_CORE_SOURCE_PASS",
+          "D4": "FULL_ONE_WORKSPACE_IWXA_HISTORY_ASSETS_RELATIONS_SCHEMAS_TWO_INDEPENDENT_RECIPIENTS_COLD_PASS",
+          "D5": "APPLE_METAL_SMOLLM2_WEBGPU_COLD_OFFLINE_SECOND_GENERATION_AND_NATIVE_QWEN_ORIGINAL_KERNEL_PASS",
+          "D6": "GENERIC_ORIGINAL_T2_RECIPIENT_COLD_AND_DURABLE_SOURCE_PASS_NO_ATLAS_REQUIRED",
+          "D7": "ORIGINAL_AGE_1_3_1_TWO_INDEPENDENT_RECIPIENTS_COLD_PASS__PERSON_ORIGINAL_OWNER_SOURCE_22_OF_22_PRIOR_PASS"
+        },
+        "original_t2_source_sha": "9c64951cd78411283e8a416641c36d71e169fc1d",
+        "original_t2_kernel_sha256": "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68",
+        "original_bli_tree_sha": "e17b628392fb4e2dbeba2df67fdb0a5506fc5243",
+        "portable_platform_input_artifact_id": 14710772859,
+        "portable_platform_input_archive_sha256": "6a80def6c3a9581daa24cd6d79ec26c557f70fb37f08a8b96e160ef4783b9fc4",
+        "portable_platform_manifest_sha256": "6bd9421889a7e374988f0d9a2ee00f2b758d8cbb213154d791f13bb1e5c0eb2b",
+        "portable_platform_file_count": 127,
+        "independent_checksum_check": "128_OF_128_SHA256_PASS",
+        "independent_node_builder_check": "PORTABLE_T3_STABLE_BUILD_MODULES_PASS",
+        "release_branch": "release/t3-0.3.0",
+        "installed_agent_admin_center_corporate_transfer": "NOT_ACCEPTED_SEPARATE_PRODUCT_TRACK",
+        "no_automatic_domain_migration": true,
+        "no_private_signer_in_public_artifact": true
+      },
+      "previous_release_evidence_0_3_1": {
         "source_sha": "d7f439fe974fab1709270e515721da72d887240f",
         "source_tree_sha": "ddfe22f54e622d89522146c40aa726577edaae95",
         "exact_platform_ci_run": 46053342716,
@@ -3524,41 +3711,99 @@
           "no_auto_domain_or_installed_product_migration": true
         }
       },
-      "previous_release_evidence_0_3_0": {
-        "source_sha": "3056eef0665fb3503294d49b89d937af2ea060e2",
-        "source_tree_sha": "55c7731509513e80fd0aa80da25d3cb49f9f8efb",
-        "exact_platform_ci_run": 44913691238,
+      "previous_release_evidence_0_3_2": {
+        "source_sha": "8e26076ce66f0c26693a647e061fcd568e055b77",
+        "source_tree_sha": "81294420eff40500ecd04a43b4c253cb4bcd67c7",
+        "exact_platform_ci_run": 46065502722,
         "conclusion": "SUCCESS",
         "jobs": {
-          "test": "SUCCESS",
-          "real-host": "SUCCESS",
-          "windows-credential": "SUCCESS",
-          "native-model": "SUCCESS",
-          "native-age": "SUCCESS",
-          "metal-webgpu": "SUCCESS"
+          "original_assistant": "SUCCESS",
+          "light": "SUCCESS",
+          "balanced": "SUCCESS",
+          "extended": "SUCCESS",
+          "publish": "SUCCESS"
         },
         "features": {
           "D1": "ORIGINAL_T2_SIGNED_GRANTS_AND_WINDOWS_CREDENTIAL_SOURCE_PASS",
           "D2": "ORIGINAL_KERNEL_ACTIVITY_EVENT_PERSISTENCE_COLD_PASS",
           "D3": "SIGNED_TASK_RESULT_HUMAN_DECISION_AND_ORIGINAL_T2_CORE_SOURCE_PASS",
-          "D4": "FULL_ONE_WORKSPACE_IWXA_HISTORY_ASSETS_RELATIONS_SCHEMAS_TWO_INDEPENDENT_RECIPIENTS_COLD_PASS",
-          "D5": "APPLE_METAL_SMOLLM2_WEBGPU_COLD_OFFLINE_SECOND_GENERATION_AND_NATIVE_QWEN_ORIGINAL_KERNEL_PASS",
+          "D4": "RC6_ORIGINAL_WORKSPACE_FULL_HISTORY_EXPORT_IMPORT_TWO_INDEPENDENT_PROFILES_COLD_OFFLINE_PASS",
+          "D5": "THREE_CENTRAL_MODELS_ACTUAL_HARDWARE_NATIVE_ADVICE_AND_COLD_OFFLINE_PASS_7_SCENARIOS_EACH",
           "D6": "GENERIC_ORIGINAL_T2_RECIPIENT_COLD_AND_DURABLE_SOURCE_PASS_NO_ATLAS_REQUIRED",
           "D7": "ORIGINAL_AGE_1_3_1_TWO_INDEPENDENT_RECIPIENTS_COLD_PASS__PERSON_ORIGINAL_OWNER_SOURCE_22_OF_22_PRIOR_PASS"
         },
         "original_t2_source_sha": "9c64951cd78411283e8a416641c36d71e169fc1d",
         "original_t2_kernel_sha256": "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68",
-        "original_bli_tree_sha": "e17b628392fb4e2dbeba2df67fdb0a5506fc5243",
-        "portable_platform_input_artifact_id": 14710772859,
-        "portable_platform_input_archive_sha256": "6a80def6c3a9581daa24cd6d79ec26c557f70fb37f08a8b96e160ef4783b9fc4",
-        "portable_platform_manifest_sha256": "6bd9421889a7e374988f0d9a2ee00f2b758d8cbb213154d791f13bb1e5c0eb2b",
-        "portable_platform_file_count": 127,
-        "independent_checksum_check": "128_OF_128_SHA256_PASS",
-        "independent_node_builder_check": "PORTABLE_T3_STABLE_BUILD_MODULES_PASS",
-        "release_branch": "release/t3-0.3.0",
+        "original_bli_tree_sha": "04e3d3e961248b7bc97dcfefea070cbd2cb0ca3d",
+        "portable_platform_input_artifact_id": 15230599751,
+        "portable_platform_input_archive_sha256": "5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b",
+        "portable_platform_manifest_sha256": "f752ee74d54706479162dc212cd4152099d2751655a3781d3d91243dd56c4ba0",
+        "portable_platform_file_count": 174,
+        "independent_checksum_check": "RC6_PLATFORM_174_DELIVERY_103_OFFLINE_97_VERIFIED_SEPARATELY; STABLE_171_OF_174_INPUTS_IDENTICAL_AND_ALL_MANIFEST_CHECKSUMS_PASS",
+        "independent_node_builder_check": "STABLE_METADATA_ONLY_ORIGINAL_PORTABLE_PACKAGER_PASS",
+        "release_branch": "ci/once/t3-032-final/0b5c4063573bba491f8b574484862463469b90bf",
         "installed_agent_admin_center_corporate_transfer": "NOT_ACCEPTED_SEPARATE_PRODUCT_TRACK",
         "no_automatic_domain_migration": true,
-        "no_private_signer_in_public_artifact": true
+        "no_private_signer_in_public_artifact": true,
+        "release_tag": "t3-platform-v0.3.2",
+        "qualification_basis": "PUBLISHED_0_3_1_BASELINE_AND_0_3_2_INLINE_ASSISTANT_UI_NATIVE_FORM_AND_RESULT_ROUTES_REAL_HARDWARE_PROFILES",
+        "promotion": {
+          "release_id": 461055240,
+          "release_tag": "t3-platform-v0.3.2",
+          "release_url": "https://github.com/Faust-S/knowledge/releases/tag/t3-platform-v0.3.2",
+          "source_sha": "8e26076ce66f0c26693a647e061fcd568e055b77",
+          "source_tree_sha": "81294420eff40500ecd04a43b4c253cb4bcd67c7",
+          "source_package_tree_sha": "1d969c6ed91995e213bb9f89fc3c17b309ba3770",
+          "publication_run": 46065502722,
+          "conclusion": "SUCCESS",
+          "qualified_rc2_sha": "0a2cd84af5d56e148e003326bada030da8fb62e2",
+          "prior_browser_run": 46060488224,
+          "prior_hardware_run": 46062741580,
+          "assistant_source": "2c247482306f218a7d5be668de11e98f168862d4",
+          "assistant_source_tests": 137,
+          "profiles": [
+            {
+              "profile": "light",
+              "exactSource": 7,
+              "expectedChoices": 7,
+              "coldOffline": true
+            },
+            {
+              "profile": "balanced",
+              "exactSource": 7,
+              "expectedChoices": 7,
+              "coldOffline": true
+            },
+            {
+              "profile": "extended",
+              "exactSource": 7,
+              "expectedChoices": 7,
+              "coldOffline": true
+            }
+          ],
+          "metadata_only_delta": {
+            "files": 174,
+            "identical": 171,
+            "changed": [
+              "docs/t3-consolidation-sources.json",
+              "package-lock.json",
+              "package.json"
+            ],
+            "compiled_assets_unchanged": true,
+            "kernel_unchanged": true,
+            "bli_unchanged": true
+          },
+          "assets": {
+            "candidate-receipt.json": "3de5d10178abb35ce0841d4f5ba5d127229eb0df765f6432fc8d44e9f73dc146",
+            "platform-inputs.zip": "5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b",
+            "qualification-result.json": "e06760faef50e7bacc23287e73e856b260da1cc1b9548210bdc0f1b2dc99fdb2",
+            "t3-platform-inputs.json": "f752ee74d54706479162dc212cd4152099d2751655a3781d3d91243dd56c4ba0",
+            "t3-platform-inputs.sha256": "e51713fed37b50ca20d56a88bb426c4b83448f0f65546237a5d73819687fca37"
+          },
+          "independent_codex": "NOT_RUN_ON_0_3_2",
+          "acceptance": "OWNER_DIRECTED_ENGINEERING_COMPLETION",
+          "no_auto_domain_or_installed_product_migration": true
+        }
       }
     },
     "required_gates": {
@@ -3972,6 +4217,208 @@
         "native_signer_included": false,
         "model_weights_included": false,
         "owner_specific_installed_products_accepted": false
+      }
+    },
+    "previous_core_release_0_3_1": {
+      "schema": "IWXA_T3_ONE_CORE_RELEASE_SCOPE/1",
+      "status": "RELEASED_T3_TECHNOLOGY_0_3_1",
+      "release_subject": "IWXA_T3_PRODUCT_NEUTRAL_TECHNOLOGY_VERIFIED_PORTABLE_INPUTS_ONE_DIST_PER_PRODUCT",
+      "source_sha": "d7f439fe974fab1709270e515721da72d887240f",
+      "executable_tree_sha": "ddfe22f54e622d89522146c40aa726577edaae95",
+      "normative_t2_sha": "9c64951cd78411283e8a416641c36d71e169fc1d",
+      "kernel_version": "0.3.6",
+      "runtime_contract": "1.3.0",
+      "delivery": "EXISTING_VERIFIED_ONE_DIST_PER_PRODUCT_NO_SECOND_KERNEL",
+      "verified_actions": {
+        "original_t3_core_source": 44772659989,
+        "original_t3_full_qualification_corrected": 44736580680,
+        "native_qwen_age_metal_jobs": 44736009194,
+        "installed_agent": 44756816999,
+        "installed_center": 44726573571,
+        "original_signed_d3_native_source": 44753688093,
+        "final_t3_0_3_0_source_and_hardware": 44913691238,
+        "consolidated_rc5_source": 46012582910,
+        "rc5_hardware_on_unchanged_bli": 46014698884,
+        "rc6_layout_and_package": 46048628242,
+        "rc6_final_user_routes": 46050260479,
+        "rc6_publication": 46053077770,
+        "stable_0_3_1_metadata_promotion": 46053342716
+      },
+      "feature_boundary": "D1_D7_TECHNOLOGY_QUALIFIED_SOURCE_HARDWARE_AND_PORTABLE_ONE_CORE__INSTALLED_APPLICATIONS_INDEPENDENT",
+      "independent_release_scopes": [
+        "FINAL_T3_TECHNOLOGY_RELEASE_FIRST",
+        "ONLY_AFTER_THAT_EACH_DESKTOP_PROGRAM",
+        "ONLY_AFTER_THAT_EACH_DOMAIN",
+        "OPTIONAL_OWNER_TO_OWNER_INTEGRATIONS"
+      ],
+      "migration_eligible": true,
+      "auto_publish_to_sites": false,
+      "version": "0.3.1",
+      "portable_inputs": {
+        "schema": "IWXA_T3_PORTABLE_PLATFORM_INPUTS/1",
+        "version": "0.3.1",
+        "artifact_name": "iwxa-t3-platform-inputs-0.3.1-d7f439fe974fab1709270e515721da72d887240f",
+        "artifact_id": 15225337367,
+        "archive_sha256": "d926739f94d54f3f2015b5d249687a3e8d67f588e850e15eb17012e33959879e",
+        "manifest_sha256": "36675db908e61f261af722f59b115616e4860c7dd459ba2d8db78ef481a1d05e",
+        "file_count": 174,
+        "original_kernel_version": "0.3.6",
+        "original_kernel_contract": "1.3.0",
+        "native_signer_included": false,
+        "model_weights_included": false,
+        "owner_specific_installed_products_accepted": false,
+        "release_tag": "t3-platform-v0.3.1",
+        "release_url": "https://github.com/Faust-S/knowledge/releases/tag/t3-platform-v0.3.1",
+        "archive_bytes": 15145248
+      },
+      "promotion": {
+        "release_id": 460967263,
+        "release_tag": "t3-platform-v0.3.1",
+        "release_url": "https://github.com/Faust-S/knowledge/releases/tag/t3-platform-v0.3.1",
+        "source_sha": "d7f439fe974fab1709270e515721da72d887240f",
+        "source_tree_sha": "ddfe22f54e622d89522146c40aa726577edaae95",
+        "source_package_tree_sha": "aa1539689a539a98d6e492eb24a6cad023e2a729",
+        "publication_run": 46053342716,
+        "conclusion": "SUCCESS",
+        "qualified_rc6_sha": "3e8c40fc5a80866f32f4547f1780ebef525c964c",
+        "rc6_user_routes_run": 46050260479,
+        "rc6_publication_run": 46053077770,
+        "consolidated_source_run": 46012582910,
+        "hardware_run_on_unchanged_bli": 46014698884,
+        "metadata_only_delta": {
+          "files": 174,
+          "identical": 171,
+          "changed": [
+            "docs/t3-consolidation-sources.json",
+            "package-lock.json",
+            "package.json"
+          ],
+          "compiled_assets_unchanged": true,
+          "kernel_unchanged": true,
+          "bli_unchanged": true
+        },
+        "assets": {
+          "candidate-receipt.json": "9c604e725855e10f5339f74c9567732bcebbbf8931d530bcd5ec4a8e969fd237",
+          "platform-inputs.zip": "d926739f94d54f3f2015b5d249687a3e8d67f588e850e15eb17012e33959879e",
+          "t3-platform-inputs.json": "36675db908e61f261af722f59b115616e4860c7dd459ba2d8db78ef481a1d05e",
+          "t3-platform-inputs.sha256": "0f35d799dd59e32e72232ec567405930a35c844c50b93adba1a7f75a0f3c125d"
+        },
+        "independent_codex": "PARTIAL_ON_RC5",
+        "acceptance": "OWNER_DIRECTED_ENGINEERING_COMPLETION",
+        "no_auto_domain_or_installed_product_migration": true
+      }
+    },
+    "previous_core_release_0_3_2": {
+      "schema": "IWXA_T3_ONE_CORE_RELEASE_SCOPE/1",
+      "status": "RELEASED_T3_TECHNOLOGY_0_3_2",
+      "release_subject": "IWXA_T3_PRODUCT_NEUTRAL_TECHNOLOGY_VERIFIED_PORTABLE_INPUTS_ONE_DIST_PER_PRODUCT",
+      "source_sha": "8e26076ce66f0c26693a647e061fcd568e055b77",
+      "executable_tree_sha": "81294420eff40500ecd04a43b4c253cb4bcd67c7",
+      "normative_t2_sha": "9c64951cd78411283e8a416641c36d71e169fc1d",
+      "kernel_version": "0.3.6",
+      "runtime_contract": "1.3.0",
+      "delivery": "EXISTING_VERIFIED_ONE_DIST_PER_PRODUCT_NO_SECOND_KERNEL",
+      "verified_actions": {
+        "original_t3_core_source": 44772659989,
+        "original_t3_full_qualification_corrected": 44736580680,
+        "native_qwen_age_metal_jobs": 44736009194,
+        "installed_agent": 44756816999,
+        "installed_center": 44726573571,
+        "original_signed_d3_native_source": 44753688093,
+        "final_t3_0_3_0_source_and_hardware": 44913691238,
+        "consolidated_rc5_source": 46012582910,
+        "rc5_hardware_on_unchanged_bli": 46014698884,
+        "rc6_layout_and_package": 46048628242,
+        "rc6_final_user_routes": 46050260479,
+        "rc6_publication": 46053077770,
+        "stable_0_3_1_metadata_promotion": 46053342716,
+        "domain_assistant_032_browser": 46060488224,
+        "domain_assistant_032_hardware": 46062741580,
+        "stable_0_3_2_qualification_publication": 46065502722
+      },
+      "feature_boundary": "D1_D7_TECHNOLOGY_QUALIFIED_SOURCE_HARDWARE_AND_PORTABLE_ONE_CORE__INSTALLED_APPLICATIONS_INDEPENDENT",
+      "independent_release_scopes": [
+        "FINAL_T3_TECHNOLOGY_RELEASE_FIRST",
+        "ONLY_AFTER_THAT_EACH_DESKTOP_PROGRAM",
+        "ONLY_AFTER_THAT_EACH_DOMAIN",
+        "OPTIONAL_OWNER_TO_OWNER_INTEGRATIONS"
+      ],
+      "migration_eligible": true,
+      "auto_publish_to_sites": false,
+      "version": "0.3.2",
+      "portable_inputs": {
+        "schema": "IWXA_T3_PORTABLE_PLATFORM_INPUTS/1",
+        "version": "0.3.2",
+        "artifact_name": "iwxa-t3-platform-inputs-0.3.2-8e26076ce66f0c26693a647e061fcd568e055b77",
+        "artifact_id": 15230599751,
+        "archive_sha256": "5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b",
+        "manifest_sha256": "f752ee74d54706479162dc212cd4152099d2751655a3781d3d91243dd56c4ba0",
+        "file_count": 174,
+        "original_kernel_version": "0.3.6",
+        "original_kernel_contract": "1.3.0",
+        "native_signer_included": false,
+        "model_weights_included": false,
+        "owner_specific_installed_products_accepted": false,
+        "release_tag": "t3-platform-v0.3.2",
+        "release_url": "https://github.com/Faust-S/knowledge/releases/tag/t3-platform-v0.3.2",
+        "archive_bytes": 15149091
+      },
+      "promotion": {
+        "release_id": 461055240,
+        "release_tag": "t3-platform-v0.3.2",
+        "release_url": "https://github.com/Faust-S/knowledge/releases/tag/t3-platform-v0.3.2",
+        "source_sha": "8e26076ce66f0c26693a647e061fcd568e055b77",
+        "source_tree_sha": "81294420eff40500ecd04a43b4c253cb4bcd67c7",
+        "source_package_tree_sha": "1d969c6ed91995e213bb9f89fc3c17b309ba3770",
+        "publication_run": 46065502722,
+        "conclusion": "SUCCESS",
+        "qualified_rc2_sha": "0a2cd84af5d56e148e003326bada030da8fb62e2",
+        "prior_browser_run": 46060488224,
+        "prior_hardware_run": 46062741580,
+        "assistant_source": "2c247482306f218a7d5be668de11e98f168862d4",
+        "assistant_source_tests": 137,
+        "profiles": [
+          {
+            "profile": "light",
+            "exactSource": 7,
+            "expectedChoices": 7,
+            "coldOffline": true
+          },
+          {
+            "profile": "balanced",
+            "exactSource": 7,
+            "expectedChoices": 7,
+            "coldOffline": true
+          },
+          {
+            "profile": "extended",
+            "exactSource": 7,
+            "expectedChoices": 7,
+            "coldOffline": true
+          }
+        ],
+        "metadata_only_delta": {
+          "files": 174,
+          "identical": 171,
+          "changed": [
+            "docs/t3-consolidation-sources.json",
+            "package-lock.json",
+            "package.json"
+          ],
+          "compiled_assets_unchanged": true,
+          "kernel_unchanged": true,
+          "bli_unchanged": true
+        },
+        "assets": {
+          "candidate-receipt.json": "3de5d10178abb35ce0841d4f5ba5d127229eb0df765f6432fc8d44e9f73dc146",
+          "platform-inputs.zip": "5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b",
+          "qualification-result.json": "e06760faef50e7bacc23287e73e856b260da1cc1b9548210bdc0f1b2dc99fdb2",
+          "t3-platform-inputs.json": "f752ee74d54706479162dc212cd4152099d2751655a3781d3d91243dd56c4ba0",
+          "t3-platform-inputs.sha256": "e51713fed37b50ca20d56a88bb426c4b83448f0f65546237a5d73819687fca37"
+        },
+        "independent_codex": "NOT_RUN_ON_0_3_2",
+        "acceptance": "OWNER_DIRECTED_ENGINEERING_COMPLETION",
+        "no_auto_domain_or_installed_product_migration": true
       }
     }
   },
