@@ -335,38 +335,8 @@ jobs:
           & node scripts/d11-live-t2-kernel-exchange-acceptance.mjs --operational --cold-offline *> $log
           $code=$LASTEXITCODE
           Get-Content $log | ForEach-Object {
-            if ($_ -match '^(D11_[A-Z0-9_]+=([0-9/ ]*PASS))
-        if: always()
-        run: |
-          if ("${{ steps.source.outcome }}" -ne "success" -or "${{ steps.host.outcome }}" -ne "success" -or "${{ steps.build.outcome }}" -ne "success" -or "${{ steps.static.outcome }}" -ne "success" -or "${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.documents.outcome }}" -ne "success" -or "${{ steps.exchange.outcome }}" -ne "success" -or "${{ steps.os.outcome }}" -ne "success" -or "${{ steps.cold.outcome }}" -ne "success") { throw "D11_T3_BUILD_ONLINE_COLD_QUALIFICATION_INCOMPLETE" }
-          Write-Output "D11_T3_BUILD_ONLINE_QUALIFICATION=PASS"
-          Write-Output "D11_T3_BUILD_ONLINE_COLD_QUALIFICATION=PASS"
-      - name: Remove private inputs and diagnostics
-        if: always()
-        run: |
-          foreach ($name in @("domain","site","t3","assistant")) {
-            $folder=Join-Path $env:GITHUB_WORKSPACE $name
-            if (Test-Path $folder) { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue }
-          }
-          Get-ChildItem $env:RUNNER_TEMP -Filter "d11-*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-      # No private code, output, logs, screenshots or artifacts uploaded.
-) { Write-Output $Matches[1] }
-            elseif ($_ -match '^(D11_(?:COLD_SNAPSHOT_FILES|OS_STAGE|EXCHANGE_STAGE|REAL_T2_FAILED|LIVE_FAILURE_KIND|OS_DISPATCH_NOTICE|OS_FORM_INVALID_KIND)=[A-Z0-9_,]+)
-        if: always()
-        run: |
-          if ("${{ steps.source.outcome }}" -ne "success" -or "${{ steps.host.outcome }}" -ne "success" -or "${{ steps.build.outcome }}" -ne "success" -or "${{ steps.static.outcome }}" -ne "success" -or "${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.documents.outcome }}" -ne "success" -or "${{ steps.exchange.outcome }}" -ne "success" -or "${{ steps.os.outcome }}" -ne "success") { throw "D11_T3_BUILD_ONLINE_QUALIFICATION_INCOMPLETE" }
-          Write-Output "D11_T3_BUILD_ONLINE_QUALIFICATION=PASS"
-          Write-Output "D11_T3_OFFLINE_AND_MODEL_QUALIFICATION=NOT_RUN"
-      - name: Remove private inputs and diagnostics
-        if: always()
-        run: |
-          foreach ($name in @("domain","site","t3","assistant")) {
-            $folder=Join-Path $env:GITHUB_WORKSPACE $name
-            if (Test-Path $folder) { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue }
-          }
-          Get-ChildItem $env:RUNNER_TEMP -Filter "d11-*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-      # No private code, output, logs, screenshots or artifacts uploaded.
-) { Write-Output $Matches[1] }
+            if ($_ -match '^(D11_[A-Z0-9_]+=([0-9/ ]*PASS))$') { Write-Output $Matches[1] }
+            elseif ($_ -match '^(D11_(?:COLD_SNAPSHOT_FILES|OS_STAGE|EXCHANGE_STAGE|REAL_T2_FAILED|LIVE_FAILURE_KIND|OS_DISPATCH_NOTICE|OS_FORM_INVALID_KIND)=[A-Z0-9_,]+)$') { Write-Output $Matches[1] }
             elseif ($_ -match '(?:AssertionError|Error):\s*(D11_COLD_[A-Z0-9_]+)') { Write-Output ("D11_COLD_DIAGNOSTIC="+$Matches[1]) }
           }
           if ($code -ne 0) { throw "D11_T3_COLD_OS_FAILED" }
@@ -375,9 +345,9 @@ jobs:
       - name: Require all current T3 build, online and offline checks
         if: always()
         run: |
-          if ("${{ steps.source.outcome }}" -ne "success" -or "${{ steps.host.outcome }}" -ne "success" -or "${{ steps.build.outcome }}" -ne "success" -or "${{ steps.static.outcome }}" -ne "success" -or "${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.documents.outcome }}" -ne "success" -or "${{ steps.exchange.outcome }}" -ne "success" -or "${{ steps.os.outcome }}" -ne "success") { throw "D11_T3_BUILD_ONLINE_QUALIFICATION_INCOMPLETE" }
+          if ("${{ steps.source.outcome }}" -ne "success" -or "${{ steps.host.outcome }}" -ne "success" -or "${{ steps.build.outcome }}" -ne "success" -or "${{ steps.static.outcome }}" -ne "success" -or "${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.documents.outcome }}" -ne "success" -or "${{ steps.exchange.outcome }}" -ne "success" -or "${{ steps.os.outcome }}" -ne "success" -or "${{ steps.cold.outcome }}" -ne "success") { throw "D11_T3_BUILD_ONLINE_COLD_QUALIFICATION_INCOMPLETE" }
           Write-Output "D11_T3_BUILD_ONLINE_QUALIFICATION=PASS"
-          Write-Output "D11_T3_OFFLINE_AND_MODEL_QUALIFICATION=NOT_RUN"
+          Write-Output "D11_T3_BUILD_ONLINE_COLD_QUALIFICATION=PASS"
       - name: Remove private inputs and diagnostics
         if: always()
         run: |
