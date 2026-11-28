@@ -1,4 +1,4 @@
-name: D09 HOP T3 0.3.2 canonical macOS path and genuine model qualification
+name: D09 HOP T3 0.3.2 exact release candidate qualification
 on:
   push:
     branches: ['ci/once/d09-hop-t3-integration/**']
@@ -17,13 +17,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - lane: production
+            runner: ubuntu-24.04
+            origin: https://hop.iwxa.ru
+            preview: '0'
+          - lane: browser
+            runner: ubuntu-24.04
+            origin: https://hop.iwxa.ru:9443
+            preview: '1'
           - lane: hardware
             runner: macos-latest
             origin: https://hop.iwxa.ru:9443
             preview: '1'
     env:
-      SITE_PIN: deb2c2b7641972331a9144edc2a757236443c29a
-      SUBJECT_PIN: fc1c9ab095a6eaed05e6b42d63ce1c3388103507
+      SITE_PIN: df51b47bde31e8d99267d484f8e46dce6bdd9a2f
+      SUBJECT_PIN: 21550443a23ab2c8dd47137f7bb1344ead19b52b
       T3_PIN: 8e26076ce66f0c26693a647e061fcd568e055b77
       ASSISTANT_PIN: 2c247482306f218a7d5be668de11e98f168862d4
       D09_ORIGIN: ${{ matrix.origin }}
@@ -39,7 +47,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable domain request
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=deb2c2b7641972331a9144edc2a757236443c29a --revision subject=fc1c9ab095a6eaed05e6b42d63ce1c3388103507 --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=df51b47bde31e8d99267d484f8e46dce6bdd9a2f --revision subject=21550443a23ab2c8dd47137f7bb1344ead19b52b --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
       - name: Checkout HOP site
         uses: actions/checkout@v4
         with:
@@ -73,13 +81,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for spec in "private-site $SITE_PIN 46276d3a3c56a8dc419cd09adb4680a60b8c5869" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
+          for spec in "private-site $SITE_PIN 810e679f473a784626e507dcc8bfd4200522aee0" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
             read -r dir sha tree <<< "$spec"
             test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
             test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
             echo "D09_T3_INPUT $dir PASS"
           done
-          test "$(git -C private-site rev-parse HEAD:public/assets/hop-assistant-skills.json)" = 47cf03f25daac9e458c84dcac13607946a4c7f80
+          test "$(git -C private-site rev-parse HEAD:public/assets/hop-assistant-skills.json)" = bc5325b505327595da242bbe681fa23fc0ea3a40
           mkdir -p "$RUNNER_TEMP/d09-t3"
           curl --fail --silent --show-error --location --retry 2 'https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.2/platform-inputs.zip' -o "$RUNNER_TEMP/d09-t3/platform-inputs.zip"
           printf '%s  %s\n' '5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b' "$RUNNER_TEMP/d09-t3/platform-inputs.zip" | (if command -v sha256sum >/dev/null 2>&1; then sha256sum -c -; else shasum -a 256 -c -; fi) >/dev/null
@@ -96,7 +104,7 @@ jobs:
       - name: Node 22 (qualified T3 macOS environment)
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ matrix.lane == 'hardware' && '22' || '24' }}
       - name: Locked HOP dependencies
         id: dependencies
         working-directory: private-site
@@ -215,7 +223,14 @@ jobs:
           set -eu
           if npm run check:d09:hosting-dist > "$RUNNER_TEMP/d09-t3/HOSTING.log" 2>&1; then
             echo D09_T3_HOSTING_DIST=PASS
-            grep -E '^D09_HOSTING_DIST_' "$RUNNER_TEMP/d09-t3/HOSTING.log" | cut -c1-240 | tail -5 || true
+            node --input-type=module - "$RUNNER_TEMP/d09-t3/HOSTING.log" <<'D09_SUMMARY'
+          import {readFileSync} from 'node:fs';
+          const raw=readFileSync(process.argv[2],'utf8');
+          const report=JSON.parse(raw.slice(raw.indexOf('{')));
+          if(report.status!=='D09_HOSTING_DIST_STRUCTURE_PASS'||report.platform!=='T3'||report.origin!=='https://hop.iwxa.ru')process.exit(1);
+          const {status,platform,origin,files,bytes,inventorySha256,offline}=report;
+          console.log('D09_T3_DIST_SUMMARY='+JSON.stringify({status,platform,origin,files,bytes,inventorySha256,offline:{pages:offline.pages,manifestEntries:offline.manifestEntries,manifestVersion:offline.manifestVersion}}));
+          D09_SUMMARY
           else
             echo D09_T3_HOSTING_DIST=FAIL
             grep -oE '(D09_[A-Z0-9_]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-t3/HOSTING.log" | sort -u | head -25 || true
@@ -234,7 +249,7 @@ jobs:
           failed=0
           node tests/d09-t3-user.browser.mjs > "$log" 2>&1 || failed=1
           # Finite evidence only: never print generated text or private source.
-          grep -E '^D09_T3_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN_AFTER_FIRST_FAILURE|[0-9]+)$|^D09_T3_MODEL_(DEVICE|ANSWER|PAGE_REQUESTS)=' "$log" | cut -c1-300 | tail -40 || true
+          grep -E '^D09_T3_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN_AFTER_FIRST_FAILURE|[0-9]+)$|^D09_T3_MODEL_(DEVICE|ANSWER|PAGE_REQUESTS|CANVAS_STRUCTURE)=' "$log" | cut -c1-650 | tail -40 || true
           if [ "$failed" = 0 ]; then
             echo D09_T3_REAL_MODEL_FUNCTIONAL=PASS
           else
