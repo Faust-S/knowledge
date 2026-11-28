@@ -141,3 +141,25 @@ export function createTrustedWorkspaceMethodCorporateInputReader(input:{
   kernel:unknown;accessForRead:(operation:string)=>unknown;currentWorkspace:unknown;
   sourceOwner:unknown;corporateTaskOwner:unknown;corporateResultOwner?:unknown;isHostActive:()=>boolean;
 }):Readonly<{readInputs(input:WorkspaceMethodStageRequest&Readonly<{taskId:string}>):Promise<WorkspaceMethodCorporateTextInputs>}>;
+
+
+// Native-only selected file input for the existing program Task owner.
+export type WorkspaceMethodProgramSelection=WorkspaceMethodReaderSelection & Readonly<{
+  stepId:string;sourceAsset:Readonly<{objectId:string;assetId:string;revision:number;name:string}>;
+  program:Readonly<{providerId:string;operation:string;parameters:Readonly<Record<string,string>>;
+    connectionEpoch:string;trustedCodeConfirmed:boolean}>;
+}>;
+export type WorkspaceMethodProgramInput=Readonly<{
+  state:'ORIGINAL_PROGRAM_WORK_INPUT_PREPARED';candidateDigest:string;
+  reference:Readonly<{schema:'IWXA_T3_PERSONAL_PROGRAM_WORK_INPUT/1';workspaceId:string;projectId:string;stepId:string;
+    projectRef:WorkspaceMethodSourceRef;workRef:WorkspaceMethodSourceRef;inputBasisDigest:string;materialEvidenceDigest:string;
+    source:Readonly<{objectId:string;objectRevision:number;assetId:string;revision:number;name:string;mime:string;bytes:number;sha256:string}>;
+    program:WorkspaceMethodProgramSelection['program'];messageSha256:string;predecessorResults:readonly never[]}>;
+  modelingSource:Readonly<{name:string;text:string;trusted_code_confirmed?:true}>;message:string;
+  selectedAssetBytesVerified:true;observedMaterialBytesVerified:true;allAssetsProven:false;
+  executionAuthority:false;taskCreated:false;workCompleted:false;resultReuseProven:false;
+}>;
+export function createTrustedWorkspaceMethodProgramInputReader(input:{
+  kernel:unknown;accessForRead:(operation:string)=>unknown;currentWorkspace:unknown;
+  sourceOwner:unknown;isHostActive:()=>boolean;
+}):Readonly<{readInputs(input:WorkspaceMethodProgramSelection):Promise<WorkspaceMethodProgramInput>}>;

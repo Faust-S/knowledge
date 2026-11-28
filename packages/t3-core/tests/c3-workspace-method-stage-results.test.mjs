@@ -6,7 +6,7 @@ import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modu
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { applyWorkspaceMethodRevision } from '../src/modules/base/owners/project-process-method-revision.mjs';
 import { inspectWorkspaceMethodAgentPredecessorResults,previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation,buildWorkspaceMethodPersonalTaskDraft,buildWorkspaceMethodCorporateTaskInputs } from '../src/modules/base/owners/project-process-method-stage-input.mjs';
-import { createTrustedWorkspaceMethodStageReader,createTrustedWorkspaceMethodCorporateInputReader } from '../src/t3/workspace-method-stage-reader.mjs';
+import { createTrustedWorkspaceMethodStageReader,createTrustedWorkspaceMethodCorporateInputReader,createTrustedWorkspaceMethodProgramInputReader } from '../src/t3/workspace-method-stage-reader.mjs';
 import { inspectOriginalPersonalWorkflowTask } from '../src/t3/workspace-method-personal-draft.mjs';
 import { createTrustedNativeContinuation } from '../src/t3/native-result-continuation.mjs';
 
@@ -147,9 +147,10 @@ function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=(
     originalAgentResultOwner:withAgent?{readAccepted:async ref=>{if(hook)await hook();return f.readAccepted(ref);}}:null,
     nativeContinuation,nativeRecipientId:withNative?recipientId:null,personalComposer,confirmPersonalDraft,personalTaskOwner,corporateTaskOwner,corporateResultOwner,confirmAlternative,isHostActive:()=>active};
   const reader=createTrustedWorkspaceMethodStageReader(ports);
+  const nativeProgramInputs=createTrustedWorkspaceMethodProgramInputReader(ports);
   const nativeInputs=nativeTaskOwner?createTrustedWorkspaceMethodCorporateInputReader({...ports,corporateTaskOwner:nativeTaskOwner}):null;
   const changeSelection=()=>{chosen={...workspace};for(const notify of listeners)notify();};
-  return {reader,nativeInputs,context,deny:()=>{allowed=false;},changeSelection,dispose:()=>{active=false;},hook:fn=>{hook=fn;},
+  return {reader,nativeInputs,nativeProgramInputs,context,deny:()=>{allowed=false;},changeSelection,dispose:()=>{active=false;},hook:fn=>{hook=fn;},
     nativeHook:fn=>{nativeHook=fn;},nativeContinuation,inspections:()=>inspections,receives:()=>receives,confirmations:()=>confirmations};
 }
 const hostInput=f=>({workspaceId:ws,projectId,stepId:'review',expected:f.base,resultSelections:selection});
@@ -1255,4 +1256,45 @@ test('partial alternative creation resumes original records after lost write, no
   assert.equal(final.state,'RECOVERED');assert.deepEqual(final.selection,next.selection);
   assert.equal((await actual.audit()).length,6);
   assert.equal((await h.reader.recoverAlternative({...source,targetProjectId:'project-absent'})).state,'NOT_FOUND');
+});
+
+
+const selectedProgram=(f,extra={})=>({workspaceId:ws,projectId,expected:f.base,stepId:'analyse',
+  sourceAsset:{objectId:'source',assetId:'asset:1',revision:1,name:'points.json'},
+  program:{providerId:'QGIS_PROCESSING_V1',operation:'reproject_points',parameters:{specification:'{"target_crs":"EPSG:32632"}'},
+    connectionEpoch:'program-epoch',trustedCodeConfirmed:false},...extra});
+test('native program input binds exact original Work and selected UTF-8 Asset, not UI-provided text',async()=>{
+  const d=draft();d.steps[0].actor='program';
+  const f=await setup(d),bytes=new TextEncoder().encode('{"label":"Проверка"}\r\n');
+  const h=trusted(f,{withAssets:true,assetBytes:bytes,assetMime:'application/json'});
+  const input=selectedProgram(f),result=await h.nativeProgramInputs.readInputs(input);
+  assert.equal(result.state,'ORIGINAL_PROGRAM_WORK_INPUT_PREPARED');
+  assert.equal(result.modelingSource.text,'{"label":"Проверка"}\r\n');
+  assert.equal(result.reference.source.sha256,createHash('sha256').update(bytes).digest('hex'));
+  assert.deepEqual(result.reference.workRef,f.base.workRefs.find(ref=>ref.objectId.endsWith('.analyse')));
+  assert.equal(result.reference.source.objectRevision,1);
+  assert.deepEqual(result.reference.program,input.program);
+  assert.equal(result.candidateDigest,createHash('sha256').update(canonicalStringify(result.reference)).digest('hex'));
+  assert.equal(result.executionAuthority,false);assert.equal(result.taskCreated,false);
+  assert.equal(h.reader.readInputs,undefined);assert.equal(h.reader.prepareProgramInput,undefined);
+  assert.equal((await f.owner.audit()).length,3);
+});
+test('native program input rejects stale Asset, wrong actor, missing declared material and denied D1',async()=>{
+  const d=draft();d.steps[0].actor='program';
+  const f=await setup(d),h=trusted(f,{withAssets:true,assetBytes:new TextEncoder().encode('{}')});
+  const input=selectedProgram(f);
+  await assert.rejects(h.nativeProgramInputs.readInputs({...input,sourceAsset:{...input.sourceAsset,revision:2}}),code('METHOD_PROGRAM_ASSET_CHANGED'));
+  await assert.rejects(h.nativeProgramInputs.readInputs({...input,sourceAsset:{...input.sourceAsset,objectId:'other'}}),code('METHOD_PROGRAM_MATERIAL_REVIEW_REQUIRED'));
+  const a=await setup();
+  await assert.rejects(trusted(a,{withAssets:true}).nativeProgramInputs.readInputs(selectedProgram(a)),code('METHOD_PROGRAM_WORK_UNSUPPORTED'));
+  h.deny();await assert.rejects(h.nativeProgramInputs.readInputs(input),code('T3_ACCESS_NOT_PERMITTED'));
+});
+test('native program input rejects changed bytes without changed Object or Asset revision',async()=>{
+  const d=draft();d.steps[0].actor='program';
+  const f=await setup(d),bytes=new TextEncoder().encode('{"a":1}');
+  let count=0;
+  const h=trusted(f,{withAssets:true,assetBytes:bytes,assetMime:'application/json',
+    assetHook:kind=>{if(kind==='get'&&++count===2)bytes[5]=50;}});
+  await assert.rejects(h.nativeProgramInputs.readInputs(selectedProgram(f)),code('METHOD_PROGRAM_ASSET_CHANGED'));
+  assert.equal(count,2);assert.equal((await f.owner.audit()).length,3);
 });

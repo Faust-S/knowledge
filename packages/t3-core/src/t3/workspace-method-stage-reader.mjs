@@ -9,7 +9,8 @@ import {compareWorkspaceMethodWithCreation,compareWorkspaceMethodWithOrigin} fro
 import {runOriginalWorkspaceMethodAlternative} from './workspace-method-alternative-lifecycle.mjs';
 import { inspectWorkspaceMethodAgentPredecessorResults,readWorkspaceMethodInputOverview,
   previewWorkspaceMethodStageHandoff,inspectWorkspaceMethodNativeContinuation,inspectWorkspaceMethodMaterialEvidence,
-  buildWorkspaceMethodPersonalTaskDraft,prepareWorkspaceMethodPersonalChain,buildWorkspaceMethodCorporateTaskReference,buildWorkspaceMethodCorporateTaskInputs } from '../modules/base/owners/project-process-method-stage-input.mjs';
+  buildWorkspaceMethodPersonalTaskDraft,prepareWorkspaceMethodPersonalChain,buildWorkspaceMethodCorporateTaskReference,buildWorkspaceMethodCorporateTaskInputs,
+  buildWorkspaceMethodProgramInput } from '../modules/base/owners/project-process-method-stage-input.mjs';
 
 import {saveOriginalPersonalWorkflowDraft,inspectOriginalPersonalWorkflowTask,createOriginalPersonalWorkflowTaskObserver,
   recoverOriginalPersonalWorkflowTaskSelection,recoverOriginalPersonalWorkflowTaskSelections,personalWorkflowTaskInspection} from './workspace-method-personal-draft.mjs';
@@ -22,10 +23,15 @@ export function createTrustedWorkspaceMethodStageReader(options={}){return creat
 export function createTrustedWorkspaceMethodCorporateInputReader(options={}){
   return createReader(options,true);
 }
+// Native-only program owner input transport. Never expose file text to the
+// ordinary Workspace reader or accept a UI-supplied owner.
+export function createTrustedWorkspaceMethodProgramInputReader(options={}){
+  return createReader(options,false,true);
+}
 function createReader({kernel,accessForRead,currentWorkspace,
   sourceOwner,originalAgentResultOwner=null,nativeContinuation=null,nativeRecipientId=null,
   personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null,corporateTaskOwner=null,corporateResultOwner=null,
-  confirmAlternative=null,isHostActive}={},nativeCorporateOnly=false){
+  confirmAlternative=null,isHostActive}={},nativeCorporateOnly=false,nativeProgramOnly=false){
   check(kernel?.sessionInfo?.contract_version==='1.3.0'&&typeof kernel.hasOperation==='function'
     &&kernel.hasOperation('t1.getObject')===true&&typeof accessForRead==='function'
     &&typeof currentWorkspace?.get==='function'&&typeof currentWorkspace?.subscribe==='function'
@@ -44,7 +50,7 @@ function createReader({kernel,accessForRead,currentWorkspace,
   if(nativeCorporateOnly)check(typeof corporateTaskOwner.verifyTextInputs==='function','T3_METHOD_CORPORATE_TASK_INPUT_VERIFIER_REQUIRED');
   // Actual scoped source-owner write adoption and native confirmation are
   // required from trusted Host composition. Never enable from UI inputs.
-  const alternativeEnabled=!nativeCorporateOnly&&confirmAlternative!==null;
+  const alternativeEnabled=!nativeCorporateOnly&&!nativeProgramOnly&&confirmAlternative!==null;
   if(alternativeEnabled)check(typeof confirmAlternative==='function'
     &&['create','load','history','historyThrough'].every(name=>typeof sourceOwner[name]==='function'),
     'T3_METHOD_ALTERNATIVE_ORIGINAL_OWNER_REQUIRED');
@@ -62,6 +68,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
   }
   async function read(input,mode,selectedOnly=false){
     const alternativeMode=mode==='alternative-create'||mode==='alternative-recover';
+    const programMode=mode==='program-input';
+    check(!programMode||nativeProgramOnly,'T3_METHOD_PROGRAM_NATIVE_OWNER_REQUIRED');
     const methodOnly=mode==='overview'||mode==='compare-creation'||mode==='compare-origin'||alternativeMode;
     // Native-only selection from an existing signed Task, never from UI metadata.
     const selected=selectedOnly?currentWorkspace.get():null;
@@ -73,6 +81,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
     check(selectedOnly||(input&&typeof input.workspaceId==='string'&&typeof input.projectId==='string'
       &&(methodOnly||typeof input.stepId==='string')&&Array.isArray(input.expected?.workRefs)
       &&(!alternativeMode||alternativeEnabled)
+      &&(!programMode||(input.sourceAsset&&input.program&&(input.resultSelections??[]).length===0
+        &&input.personalResultSelections===undefined&&input.corporateResultSelections===undefined))
       &&(mode!=='alternative-recover'||(typeof input.targetProjectId==='string'
         &&/^[A-Za-z0-9_-]{1,63}$/u.test(input.targetProjectId)&&input.targetProjectId!==input.projectId))
       &&input.expected.workRefs.length>0&&input.expected.workRefs.length<=64
@@ -97,6 +107,7 @@ function createReader({kernel,accessForRead,currentWorkspace,
     const request=selectedOnly?{workspaceId:selected.workspace_id,taskId:input.taskId,resultSelections:[]}:canonicalClone({workspaceId:input.workspaceId,projectId:input.projectId,
       expected:{projectRef:ref(input.expected.projectRef),workRefs:input.expected.workRefs.map(ref)},
       ...(mode==='alternative-recover'?{targetProjectId:input.targetProjectId}:{}),
+      ...(programMode?{sourceAsset:input.sourceAsset,program:input.program}:{}),
       ...(methodOnly?{}:{stepId:input.stepId,
         resultSelections:(input.resultSelections??[]).map(row=>({stepId:row.stepId,reference:{
           workspace_id:row.reference?.workspace_id,object_id:row.reference?.object_id,
@@ -127,6 +138,7 @@ function createReader({kernel,accessForRead,currentWorkspace,
       const corporateMode=['corporate-reference','corporate-reference-inspect','corporate-reference-recover','corporate-inputs'].includes(mode);
       const corporateChain=request.corporateResultSelections!==undefined;
       if(corporateMode||corporateChain)check(context.kind==='CORP','T3_METHOD_CORPORATE_TASK_SCOPE_REQUIRED');
+      if(programMode)check(context.kind==='PERSONAL','T3_METHOD_PROGRAM_PERSONAL_OWNER_REQUIRED');
       const personalChain=request.personalResultSelections!==undefined;
       const recoverTask=mode==='personal-task-recover';
       const inspectTask=mode==='personal-task-inspect'||recoverTask;
@@ -205,7 +217,7 @@ function createReader({kernel,accessForRead,currentWorkspace,
       else if(alternativeMode)report=await runOriginalWorkspaceMethodAlternative({...args,
         confirm:value=>guarded(()=>confirmAlternative(value))});
       else if(mode==='handoff'&&!request.includeMaterialEvidence&&!personalChain)report=await previewWorkspaceMethodStageHandoff(args);
-      else if(mode==='material-evidence'||mode==='handoff'||personalMode||corporateMode){
+      else if(mode==='material-evidence'||mode==='handoff'||personalMode||corporateMode||programMode){
         // Resolve the ORIGINAL owner for each Asset operation, then fence
         // its complete signed context against the already selected method.
         // Each individual read still receives a fresh D1 authorization.
@@ -222,7 +234,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
         const list=await assetPort('t1.listAssets'),get=await assetPort('t1.getAsset');
         const evidenceArgs={...args,listAssets:query=>list(binding=>binding.listAssets(query)),
           getAsset:(workspaceId,id)=>get(binding=>binding.getAsset(workspaceId,id))};
-        if(corporateMode){
+        if(programMode)report=await buildWorkspaceMethodProgramInput(evidenceArgs);
+        else if(corporateMode){
           if(mode==='corporate-reference')report=await buildWorkspaceMethodCorporateTaskReference(evidenceArgs);
           else{
             check(corporateTaskOwner!==null,'T3_METHOD_CORPORATE_TASK_ORIGINAL_OWNER_REQUIRED');
@@ -420,6 +433,7 @@ function createReader({kernel,accessForRead,currentWorkspace,
       return report;
     }finally{unsubscribe();}
   }
+  if(nativeProgramOnly)return Object.freeze({readInputs:input=>read(input,'program-input')});
   if(nativeCorporateOnly)return Object.freeze({readInputs:input=>read(input,'corporate-inputs'),
     readSelectedInputs:input=>read(input,'corporate-inputs',true)});
   return Object.freeze({

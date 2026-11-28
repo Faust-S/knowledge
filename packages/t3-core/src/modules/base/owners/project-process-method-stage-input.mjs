@@ -200,7 +200,7 @@ function captureDraftAsset(capture,asset,bytes){
     fail('METHOD_PERSONAL_DRAFT_ATTACHMENT_UNSUPPORTED','The selected attachment cannot be represented without changing its bytes');
   appendPersonalDraftAttachment(capture,'attachment-'+String(++capture.assetCount).padStart(3,'0')+'.'+ext,text);
 }
-async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,materials},draftCapture=null,materialCaptures=null){
+async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,materials},draftCapture=null,materialCaptures=null,observeAsset=null){
   const limits=WORKSPACE_METHOD_MATERIAL_EVIDENCE_LIMITS;
   if(materials.length>limits.materials)fail('METHOD_MATERIAL_EVIDENCE_BUDGET_EXCEEDED','Too many materials for one observation');
   const budget={assets:0,assetBytes:0,canonicalBytes:0},seenAssets=new Set(),rows=[];
@@ -236,6 +236,7 @@ async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,works
       }
       assets.push(Object.freeze({...asset,sha256:createHash('sha256').update(actual.bytes).digest('hex')}));
       if(draftCapture)captureDraftAsset(draftCapture,asset,actual.bytes);
+      if(observeAsset)observeAsset(asset,actual.bytes);
     }
     rows.push(Object.freeze({reference:current,payloadDigest,visibleAssets:Object.freeze(assets)}));
     if(materialCaptures)materialCaptures.set(selected.object_id,draftCapture.attachments.slice(captureStart));
@@ -257,6 +258,80 @@ export async function inspectWorkspaceMethodMaterialEvidence(input={}){
   if(!equal(first,second))fail('METHOD_MATERIAL_CONTENT_CHANGED','Material content or visible Assets changed during observation');
   return materialEvidenceReport(stageInput,first);
 }
+
+/** W05.58. Original selected file input for an explicit PERSONAL program Work.
+ * Native-only: this is the actual input text and exact canonical Work/Asset
+ * identity, not a display receipt. The original program owner still validates
+ * its operation/arguments/connection, creates Task, and performs Review and
+ * ToolRuntime approval. Single-file, no predecessors at this boundary.
+ */
+export async function buildWorkspaceMethodProgramInput(input={}){
+  const {workspaceId,subjectKind,listAssets,getAsset,readObject}=input;
+  const file=input.sourceAsset,program=input.program;
+  const clean=(value,max)=>typeof value==='string'&&value.length>0&&value.length<=max
+    &&value.trim()===value&&!value.includes('\0')&&Buffer.from(value,'utf8').toString('utf8')===value;
+  const keys=(value,wanted)=>value&&typeof value==='object'&&!Array.isArray(value)
+    &&equal(Object.keys(value).sort(),wanted.slice().sort());
+  if(subjectKind!=='PERSONAL'||typeof listAssets!=='function'||typeof getAsset!=='function'
+      ||typeof readObject!=='function'||(input.resultSelections??[]).length||input.personalResultSelections!==undefined
+      ||input.corporateResultSelections!==undefined)
+    fail('METHOD_PROGRAM_ORIGINAL_OWNER_REQUIRED','Original personal Workspace and material owner required');
+  if(!keys(file,['objectId','assetId','revision','name'])||!clean(file.objectId,512)||!clean(file.assetId,512)
+      ||!Number.isSafeInteger(file.revision)||file.revision<1||!clean(file.name,255)||/[/\\:\u0000-\u001f]/u.test(file.name))
+    fail('METHOD_PROGRAM_ASSET_SELECTION_INVALID','Choose an exact original Asset revision and filename');
+  if(!keys(program,['providerId','operation','parameters','connectionEpoch','trustedCodeConfirmed'])
+      ||!clean(program.providerId,100)||!clean(program.operation,100)||!clean(program.connectionEpoch,256)
+      ||typeof program.trustedCodeConfirmed!=='boolean'||!program.parameters||typeof program.parameters!=='object'
+      ||Array.isArray(program.parameters)||Object.keys(program.parameters).length>16
+      ||Object.entries(program.parameters).some(([k,v])=>! /^[A-Za-z_][A-Za-z0-9_]{0,63}$/u.test(k)
+        ||typeof v!=='string'||Buffer.byteLength(v,'utf8')>16000||v.includes('\0')||Buffer.from(v,'utf8').toString('utf8')!==v))
+    fail('METHOD_PROGRAM_OPERATION_SELECTION_INVALID','Explicit program, operation, arguments and connection required');
+  const selected=canonicalClone(file),operation=canonicalClone(program);
+  const opened=await openStageInputObservation(input),stage=opened.report,basis=stage.basis;
+  if(basis.intendedActor!=='program'||stage.predecessors.length)
+    fail('METHOD_PROGRAM_WORK_UNSUPPORTED','This original program input route requires a root program Work');
+  if(stage.inputBasisDigest===null||!stage.materials.some(row=>row.object_id===selected.objectId))
+    fail('METHOD_PROGRAM_MATERIAL_REVIEW_REQUIRED','Selected input is not a current declared Work material');
+  const message=basis.objective+'\n\n'+basis.instruction;
+  if(!message.trim()||message.length>16000||message.includes('\0')||Buffer.from(message,'utf8').toString('utf8')!==message)
+    fail('METHOD_PROGRAM_OPERATION_SELECTION_INVALID','Original Work instruction exceeds the original Task boundary');
+  const observe=async()=>{
+    let capture=null;
+    const observation=await readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,materials:stage.materials},null,null,(asset,bytes)=>{
+      if(asset.object_id!==selected.objectId||asset.asset_id!==selected.assetId)return;
+      if(capture||asset.revision!==selected.revision||asset.size<1||asset.size>500000)
+        fail('METHOD_PROGRAM_ASSET_CHANGED','Selected original Asset is changed or exceeds the original single-file limit');
+      let value;
+      try{value=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);}
+      catch{fail('METHOD_PROGRAM_ASSET_UNSUPPORTED','Selected file is not exact UTF-8 text');}
+      if(!value.trim()||value.includes('\0')||!Buffer.from(value,'utf8').equals(Buffer.from(bytes)))
+        fail('METHOD_PROGRAM_ASSET_UNSUPPORTED','Selected file cannot be represented without changing its bytes');
+      const ref=stage.materials.find(row=>row.object_id===asset.object_id).current;
+      capture={source:Object.freeze({objectId:asset.object_id,objectRevision:ref.revision,assetId:asset.asset_id,
+        revision:asset.revision,name:selected.name,mime:asset.mime,bytes:asset.size,sha256:createHash('sha256').update(bytes).digest('hex')}),
+        modelingSource:Object.freeze({name:selected.name,text:value,
+          ...(operation.trustedCodeConfirmed?{trusted_code_confirmed:true}:{})})};
+    });
+    if(!capture)fail('METHOD_PROGRAM_ASSET_SELECTION_INVALID','Selected original file is not visible in the declared material');
+    const material=materialEvidenceReport(stage,observation);
+    const reference=Object.freeze({schema:'IWXA_T3_PERSONAL_PROGRAM_WORK_INPUT/1',workspaceId:basis.workspaceId,
+      projectId:basis.projectId,stepId:basis.stepId,projectRef:basis.projectRef,workRef:basis.stageRef,
+      inputBasisDigest:stage.inputBasisDigest,materialEvidenceDigest:material.materialEvidenceDigest,
+      program:operation,source:capture.source,messageSha256:createHash('sha256').update(message,'utf8').digest('hex'),
+      predecessorResults:Object.freeze([])});
+    return Object.freeze({state:'ORIGINAL_PROGRAM_WORK_INPUT_PREPARED',reference,
+      candidateDigest:createHash('sha256').update(canonicalStringify(reference)).digest('hex'),
+      modelingSource:capture.modelingSource,message,selectedAssetBytesVerified:true,observedMaterialBytesVerified:true,
+      allAssetsProven:false,executionAuthority:false,taskCreated:false,workCompleted:false,resultReuseProven:false});
+  };
+  const first=await observe();
+  await opened.revalidate('METHOD_PROGRAM_ASSET_CHANGED');
+  const second=await observe();
+  await opened.revalidate('METHOD_PROGRAM_ASSET_CHANGED');
+  if(!equal(first,second))fail('METHOD_PROGRAM_ASSET_CHANGED','Actual Work material content or selected Asset changed');
+  return second;
+}
+
 function materialEvidenceReport(stageInput,observation){
   const materialEvidenceDigest=observation?createHash('sha256').update(canonicalStringify({
     inputBasisDigest:stageInput.inputBasisDigest,observation})).digest('hex'):null;
