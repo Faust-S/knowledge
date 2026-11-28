@@ -1,0 +1,14 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d03-artbazy-site-release",
+  "prepared_sha": "e900695521357031ce6ae3c6b68416b41935c065",
+  "profile": "artbazy-integrated-site-release",
+  "revisions": {
+    "site": "95ee28cd4b1f064ff70d6afd0bb1a2fa830564cc",
+    "subject": "b3e6614aeace087b66a7b25e3d881fab074e4d8e",
+    "t2": "9c64951cd78411283e8a416641c36d71e169fc1d",
+    "core": "30e3f98f944ffa351f2dfa9922f38bcca8b7d314",
+    "assistant": "629aaa274f2d6ad915730ee0d817aedc33e53108",
+    "skills": "f5858032830317a9c0b9cb153c1c98fc08cfe4c2"
+  }
+}
