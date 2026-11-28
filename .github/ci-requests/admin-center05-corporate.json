@@ -1,0 +1,25 @@
+{
+  "workflow": "admin-center05-corporate",
+  "prepared": "fc38065fe6d874018ba96d3e55973151172b5135",
+  "pins": {
+    "CENTER_WITNESS_PIN": "3df4ced447fb70f444558181e6936e24bb14b8d4",
+    "T2_PIN": "c28e01876f3230307b7f20449f7ef54374367c93",
+    "KERNEL_CANDIDATE_ID": "iwxa-kernel-k036-canonical-event-merge-20261125-candidate.1",
+    "KERNEL_CANDIDATE_ARCHIVE_SHA256": "5320dcb6c42d5fca410880677c8a8b595d4c9a2a6cedf51089b5f60f4ceeb52a",
+    "KERNEL_CANDIDATE_RUNTIME_SHA256": "559e8dd74988144733394114b020ea89a78d49ae5bbc8d49faafb86f9325c1e7",
+    "T3_PIN": "d073d9e699efc7b2d38d656a00235098bd09f308",
+    "CORE_PIN": "8db847058cab231d2d39c34df46024b60564d2ad",
+    "CENTER_T3_PIN": "962cff41fdbfc864c4c15010b9ffa7e9bc43c29c",
+    "CENTER_CORE_PIN": "917e1d20647be9eee0d52a335f0cdbd0515649ee",
+    "CENTER_PIN": "3911575aad590bcf4125cb926dcdac0793a851cd",
+    "CENTER_ATLAS_PIN": "ec2a48aecb2efe1ca3a97739977be6992d4b8a60",
+    "CENTER_BRTEST_PIN": "7cfb17870042cac824644140b7f0a587e244a20e",
+    "CENTER_ATLAS_SETUP_PIN": "0ef7544e2a6fd5fab5994f7f25abbb960063908c",
+    "PUBLISHER_PIN": "f51877ab77dce56af0d745f09752ce2505a521a8",
+    "AGENT_PIN": "4cecffe7786a0afbf198a847d8368e4e8549e98a",
+    "AGENT_SETUP_PIN": "c10e193846a0ea4c73cabe3744aa7db82439d54e",
+    "CENTER_VERSION": "0.5.0-dev.1",
+    "ATLAS_VERSION": "0.12.0"
+  },
+  "reason": "Single owner-review build and installed corporate return qualification after Atlas recipient passed 46132504953. Reuse existing whole Workspace Task/Result/Exchange and license lifecycle witness with exact saved Atlas work, separate frozen Agent and Publisher source inputs, and encrypted delivery of only Center and Atlas. Do not promote the K036 candidate or stable branches."
+}
