@@ -29,6 +29,7 @@ with tempfile.TemporaryDirectory() as tmp:
         z.write(hosting, hosting.name)
         z.write(patch, "qualified-source.patch")
         z.write(pathlib.Path(sys.argv[5]), "external-links.json")
+        z.write(pathlib.Path(sys.argv[6]), "source-gates.json")
         z.writestr("receipt.json", json.dumps(receipt, indent=2) + "\n")
     with zipfile.ZipFile(output) as z:
         assert z.testzip() is None

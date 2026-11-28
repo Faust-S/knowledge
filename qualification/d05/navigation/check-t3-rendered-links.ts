@@ -39,7 +39,22 @@ async function openMenu(page: Page): Promise<boolean> {
   if (!menu || !(await menu.boundingBox())) return false;
   await menu.click();
   await page.waitForSelector('[role="dialog"]', { visible: true, timeout: 10000 });
+  await openMaterials(page, true);
   return true;
+}
+async function openMaterials(page: Page, mobile: boolean) {
+  const selector = mobile ? '[role="dialog"] details' : 'header nav[aria-label="Материалы"] details';
+  const details = await page.$(selector);
+  if (!details || !(await details.boundingBox())) fail('MATERIALS_DISCLOSURE_MISSING');
+  if (!(await details.evaluate(el => el.hasAttribute('open')))) {
+    const summary = await details.$('summary');
+    if (!summary) fail('MATERIALS_SUMMARY_MISSING');
+    await summary.focus();
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(s => document.querySelector(s)?.hasAttribute('open'), {timeout:5000}, selector);
+  }
+  const count = await details.$$eval('a[href]', nodes => nodes.length);
+  if (count !== 3) fail('MATERIALS_LINK_COUNT');
 }
 async function closeMenu(page: Page) {
   await page.keyboard.press('Escape');
@@ -59,6 +74,7 @@ async function snapshot(page: Page) {
         raw: el.getAttribute('href')!, resolved: el.href, target: el.target,
         label: (el.textContent || '').trim(), keyboardOnly: el.classList.contains('sr-only') && el.tabIndex >= 0,
         download: el.hasAttribute('download'), inMenu: !!el.closest('[role="dialog"]'),
+        inDesktopMaterials: !!el.closest('header nav[aria-label="Материалы"]'),
         visible: rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && !el.closest('[inert]'),
       };
     }),
@@ -91,6 +107,7 @@ async function clickTarget(page: Page, origin: string, target: PublicTarget, rep
   await page.setViewport(rep.viewport);
   await load(page, origin, rep.source, pagePath(rep.source));
   if (rep.link.inMenu && !(await openMenu(page))) fail('MENU_LINK_HIDDEN');
+  if (rep.link.inDesktopMaterials && !rep.link.inMenu) await openMaterials(page, false);
   const anchors = await page.$$('a[href]');
   let clicked = false;
   for (const anchor of anchors) {
@@ -101,7 +118,9 @@ async function clickTarget(page: Page, origin: string, target: PublicTarget, rep
       return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' &&
         el.getAttribute('href') === wanted.raw && el.href === wanted.resolved &&
         (el.textContent || '').trim() === wanted.label &&
-        !!el.closest('[role="dialog"]') === wanted.inMenu && (!el.target || el.target === '_self') &&
+        !!el.closest('[role="dialog"]') === wanted.inMenu &&
+        !!el.closest('header nav[aria-label="Материалы"]') === wanted.inDesktopMaterials &&
+        (!el.target || el.target === '_self') &&
         !el.hasAttribute('download') && !el.closest('[inert]');
     }, rep.link);
     if (!match || !(await anchor.boundingBox())) continue;
@@ -218,7 +237,14 @@ async function main() {
         const state = await load(page, server.origin, source, pagePath(source));
         responses.set(source, state);
         collect(state, source, desktop);
+        await openMaterials(page, false);
+        collect(await snapshot(page), source, desktop);
+        await page.keyboard.press('Escape');
         await page.setViewport(mobile);
+        const fits = await page.evaluate(() =>
+          document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1 &&
+          document.body.scrollWidth <= document.body.clientWidth + 1);
+        if (!fits) note(Error('DOCUMENT_HORIZONTAL_OVERFLOW'), source, undefined, mobile.width);
         collect(await snapshot(page), source, mobile);
         const opened = await openMenu(page);
         if (opened) menuPages++;
