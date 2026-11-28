@@ -180,3 +180,29 @@ export function createTrustedWorkspaceMethodProgramInputReader(input:{
   kernel:unknown;accessForRead:(operation:string)=>unknown;currentWorkspace:unknown;
   sourceOwner:unknown;originalProgramResultOwner?:Readonly<{readVerified:(selection:WorkspaceMethodProgramResultSelection,context:unknown)=>unknown}>;isHostActive:()=>boolean;
 }):Readonly<{readInputs(input:WorkspaceMethodProgramSelection):Promise<WorkspaceMethodProgramInput>}>;
+
+// W05.61. Native Host supplies the original program picker and exact
+// preview/confirmation owner. The display model never receives Asset bytes,
+// raw instruction or an authority-bearing source port.
+export type WorkspaceMethodProgramWorkPreview=Readonly<{
+  state:'ORIGINAL_PROGRAM_WORK_PREVIEW_READY';workspaceId:string;projectId:string;stepId:string;
+  projectRef:WorkspaceMethodSourceRef;workRef:WorkspaceMethodSourceRef;
+  candidateDigest:string;previewDigest:string;requestId:string;agentWorkspaceId:string;
+  providerId:string;operation:string;source:WorkspaceMethodProgramInput['reference']['source'];
+  nativeSource:Readonly<{name:string;bytes:number;sha256:string}>;
+  predecessorCount:number;fleetAssignmentCount:number;trustedCodeConfirmed:boolean;
+  taskCreated:false;executionPerformed:false;executionAuthority:false;workCompleted:false;finalHumanAcceptanceProven:false;
+}>;
+export type WorkspaceMethodProgramWorkReceipt=Readonly<{
+  state:'READY_FOR_REVIEW'|'TASK_AVAILABLE'|'RECOVERY_REQUIRED';workspaceId:string;projectId:string;stepId:string;
+  candidateDigest:string;previewDigest:string;requestId:string;agentWorkspaceId:string;taskId:string;reused:boolean;
+  executionPerformed:false;executionAuthority:false;workCompleted:false;finalHumanAcceptanceProven:false;
+}>;
+export interface WorkspaceMethodProgramWorkPort{
+  selectInputs(input:WorkspaceMethodReaderSelection&Readonly<{stepId:string}>):Promise<WorkspaceMethodProgramSelection|null>;
+  preview(input:WorkspaceMethodProgramSelection):Promise<WorkspaceMethodProgramWorkPreview>;
+  // Only trusted installed Host calls the native prepare-confirmed owner.
+  // A return to the same request recovers the original deterministic Task.
+  prepare(input:Readonly<{selection:WorkspaceMethodProgramSelection;requestId:string;previewDigest:string}>):Promise<WorkspaceMethodProgramWorkReceipt>;
+  openTask(receipt:WorkspaceMethodProgramWorkReceipt):Promise<void>;
+}

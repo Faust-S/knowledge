@@ -383,6 +383,35 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
       reader,contextEpoch:"epoch-1",nativeRecipientLabel:"Atlas"};
     return {binding,overview,previewHandoff,recoverContinuation};
   }
+
+  it("opens the original program picker and confirms only a verified Work preview, never executes from Workspace",async()=>{
+    const f=fixture();
+    const selected={workspaceId:"w",projectId:"research",stepId:"analyse",expected:f.binding.expected,
+      sourceAsset:{objectId:"material",assetId:"asset",revision:1,name:"problem.json"},
+      program:{providerId:"ORTOOLS_ALLOCATION_V1",operation:"allocate",parameters:{specification:"{}"},connectionEpoch:"native-epoch",trustedCodeConfirmed:false}};
+    const preview={state:"ORIGINAL_PROGRAM_WORK_PREVIEW_READY" as const,workspaceId:"w",projectId:"research",stepId:"analyse",
+      projectRef,workRef:a,candidateDigest:"a".repeat(64),previewDigest:"b".repeat(64),requestId:"workflow-"+"c".repeat(64),
+      agentWorkspaceId:"personal",providerId:selected.program.providerId,operation:selected.program.operation,
+      source:{...selected.sourceAsset,objectRevision:1,mime:"application/json",bytes:16,sha256:"d".repeat(64)},
+      nativeSource:{name:"problem.json",bytes:16,sha256:"d".repeat(64)},predecessorCount:0,fleetAssignmentCount:0,trustedCodeConfirmed:false,
+      taskCreated:false as const,executionPerformed:false as const,executionAuthority:false as const,workCompleted:false as const,finalHumanAcceptanceProven:false as const};
+    const receipt={state:"READY_FOR_REVIEW" as const,workspaceId:"w",projectId:"research",stepId:"analyse",candidateDigest:preview.candidateDigest,
+      previewDigest:preview.previewDigest,requestId:preview.requestId,agentWorkspaceId:"personal",taskId:"TASK-U01-"+"e".repeat(20),reused:false,
+      executionPerformed:false as const,executionAuthority:false as const,workCompleted:false as const,finalHumanAcceptanceProven:false as const};
+    const port={selectInputs:vi.fn(async()=>selected),preview:vi.fn(async()=>preview),prepare:vi.fn(async()=>receipt),openTask:vi.fn(async()=>{})};
+    const binding={...f.binding,reader:{...f.binding.reader,overview:async()=>({...report,stages:[{...report.stages[0],actor:"program" as const},report.stages[1]]})},programWork:port};
+    const view=render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Проверить входы"}));await screen.findByTestId("workflow-program-work");
+    expect(screen.queryByRole("button",{name:"Создать задачу Agent"})).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"Выбрать программу и материалы"}));await screen.findByTestId("workflow-program-preview");
+    expect(port.prepare).not.toHaveBeenCalled();expect(port.preview).toHaveBeenCalledWith(selected);
+    fireEvent.click(screen.getByRole("button",{name:"Создать задачу Agent"}));await screen.findByTestId("workflow-program-task-receipt");
+    expect(port.prepare).toHaveBeenCalledWith({selection:selected,requestId:preview.requestId,previewDigest:preview.previewDigest});
+    expect(port.openTask).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button",{name:"Открыть задачу Agent"}));await waitFor(()=>expect(port.openTask).toHaveBeenCalledWith(receipt));
+    view.rerender(<WorkspaceMethodWorkflowPanel binding={{...binding,contextEpoch:"other-epoch"}} objects={[]} selectedObjectIds={[]}/>);
+    expect(screen.queryByTestId("workflow-program-task-receipt")).toBeNull();
+  });
   it("compares the selected method with original creation only on request and hides stale readback",async()=>{
     const f=fixture();
     type Comparison=Awaited<ReturnType<NonNullable<WorkspaceMethodStageReader["compareCreation"]>>>;

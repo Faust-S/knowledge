@@ -1,9 +1,10 @@
 import { useEffect,useMemo,useRef,useState } from "react";
+import { WorkspaceMethodProgramPanel } from "./WorkspaceMethodProgramPanel";
 import type { ObjectRecord } from "../../../../kernel-client/contracts/runtime-1.3.0";
 import type { WorkspaceMethodCreationComparison,WorkspaceMethodRevisionSelection,WorkspaceMethodOriginComparison } from "../../../../modules/base/owners/project-process-method-comparison.mjs";
 import type { WorkspaceMethodReaderSelection,WorkspaceMethodStageReader,WorkspaceMethodInputOverview,WorkspaceMethodAlternativeReceipt,WorkspaceMethodSavedAlternativeReceipt,
   WorkspaceMethodPublishedResultRef,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,
-  WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence,WorkspaceMethodPersonalDraftReceipt,WorkspaceMethodPersonalTaskInspection,WorkspaceMethodPersonalResultSelection,WorkspaceMethodRecoveredPersonalTask,WorkspaceMethodCorporateTaskReferenceInspection,WorkspaceMethodCorporateResultSelection } from "../../../../t3/workspace-method-stage-reader.mjs";
+  WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence,WorkspaceMethodPersonalDraftReceipt,WorkspaceMethodPersonalTaskInspection,WorkspaceMethodPersonalResultSelection,WorkspaceMethodRecoveredPersonalTask,WorkspaceMethodCorporateTaskReferenceInspection,WorkspaceMethodCorporateResultSelection,WorkspaceMethodProgramWorkPort } from "../../../../t3/workspace-method-stage-reader.mjs";
 
 /** Trusted Host supplies this selection only after original source readback.
  * contextEpoch changes on subject/grant/session changes. Never derive it or
@@ -20,6 +21,8 @@ export type WorkspaceMethodWorkflowBinding = WorkspaceMethodReaderSelection & Re
   // Exact accepted original Admin Result selection; never an Atlas publication
   // or a latest-result guess. Host supplies the original owner selection.
   corporateResultSelections?:readonly WorkspaceMethodCorporateResultSelection[];
+  // Original native program owner, not available to a browser-only Host.
+  programWork?:WorkspaceMethodProgramWorkPort;
 }>;
 const button="min-h-[44px] px-3 py-1.5 rounded border border-slate-700 text-xs disabled:opacity-40";
 const states:Record<WorkspaceMethodOverviewStage["state"],string>={
@@ -366,6 +369,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds,onOpenAlternative}:Wor
   },[overviewStale]);
   const visible=overview?.reader===reader&&!overviewStale?overview.value:null;
   const stage=visible?.stages.find(row=>row.stepId===focus)??visible?.stages[0];
+  const originalProgram=stage?.actor==="program"&&binding.programWork;
   const candidates=useMemo(()=>{
     const byId=new Map(objects.map(row=>[row.object_id,row]));
     const values=new Map<string,WorkspaceMethodPublishedResultRef>();
@@ -679,7 +683,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds,onOpenAlternative}:Wor
             })}
             {!corporateReady&&<p className="text-xs text-amber-200">Нужна отдельная принятая редакция результата каждой предшествующей работы.</p>}
           </div>}
-          {!personalChain&&!corporateChain&&stage.directPredecessorStepIds.length>0&&<div className="space-y-2">
+          {!originalProgram&&!personalChain&&!corporateChain&&stage.directPredecessorStepIds.length>0&&<div className="space-y-2">
             <p className="text-xs text-slate-400">Для каждого предшественника явно выберите принятый результат из материалов полотна.</p>
             {candidates.size===0&&<p className="text-xs text-slate-300">Выберите опубликованный результат на полотне.</p>}
             {stage.directPredecessorStepIds.map(stepId=><label key={stepId} className="block text-xs text-slate-300">
@@ -712,13 +716,15 @@ function WorkflowPanel({binding,objects,selectedObjectIds,onOpenAlternative}:Wor
               <p className="text-slate-400">Работа не засчитана выполненной. Данные не изменены.</p>
             </div>}
           </div>}
-          <div className="flex flex-wrap gap-2">
+          {originalProgram&&<WorkspaceMethodProgramPanel key={JSON.stringify([bindingKey(binding),stage.stepId,stage.workRef,materialKey])}
+            port={originalProgram} request={request} stage={stage}/>}
+          {!originalProgram&&<div className="flex flex-wrap gap-2">
             {reader.inspectMaterialEvidence&&<button type="button" className={button} disabled={busy||stage.state==="MATERIAL_REVIEW_REQUIRED"}
               onClick={()=>void inspect("material")}>Проверить содержимое и вложения</button>}
             <button type="button" className={button} disabled={busy||duplicateResults||stage.state==="MATERIAL_REVIEW_REQUIRED"||(personalChain&&!personalReady)||(corporateChain&&!corporateReady)}
               onClick={()=>void inspect("handoff")}>Подготовить передачу</button>
-          </div>
-          {!personalChain&&!corporateChain&&binding.nativeRecipientLabel&&stage.directPredecessorStepIds.length>0&&<div className="space-y-2">
+          </div>}
+          {!originalProgram&&!personalChain&&!corporateChain&&binding.nativeRecipientLabel&&stage.directPredecessorStepIds.length>0&&<div className="space-y-2">
             <label className="block text-xs text-slate-300">Предшественник для проверки передачи
               <select className="block mt-1 w-full min-h-[44px] border border-slate-700 rounded bg-slate-950 p-2"
                 value={nativeStep} onChange={e=>{invalidateDetail();setNativeStep(e.target.value);}}>
