@@ -93,7 +93,7 @@ export type WorkspaceMethodCorporateTaskReferenceInspection=Readonly<{
   writeAuthorized:false;resultReuseProven:false;
 }>;
 export type WorkspaceMethodAlternativeReceipt=Readonly<{
-  state:'CREATED'|'RECOVERED'|'USER_CANCELLED'|'MATERIAL_REVIEW_REQUIRED'|'OUTCOME_UNKNOWN'|'RECOVERY_REQUIRED'|'NOT_FOUND'|'CONFLICT';
+  state:'CREATED'|'RECOVERED'|'USER_CANCELLED'|'MATERIAL_REVIEW_REQUIRED'|'RECOVERY_MATERIAL_REVIEW_REQUIRED'|'OUTCOME_UNKNOWN'|'RECOVERY_REQUIRED'|'NOT_FOUND'|'CONFLICT';
   workspaceId:string;sourceProjectId:string;targetProjectId:string;
   selection:WorkspaceMethodRevisionSelection|null;
   executionAuthority:false;newAuthorityGranted:false;resultReuseProven:false;sourceModified:false;

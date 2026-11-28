@@ -92,7 +92,7 @@ export async function runOriginalWorkspaceMethodAlternative({owner,workspaceId,p
     };
     if(first.state.state==='COMPLETE')return finish();
     if(first.state.state==='CONFLICT')return receipt('CONFLICT');
-    if(!first.state.resumeCandidate)return receipt('MATERIAL_REVIEW_REQUIRED');
+    if(!first.state.resumeCandidate)return receipt('RECOVERY_MATERIAL_REVIEW_REQUIRED');
     const accepted=await confirm(Object.freeze({kind:'RESUME_ALTERNATIVE',workspaceId,projectId,targetProjectId:target,
       sourceSelection:selected,name:first.intent.draft.name,workCount:first.intent.draft.steps.length,
       missingCount:first.state.missingCount,sourceModified:false,resultReuseProven:false}));
@@ -100,7 +100,7 @@ export async function runOriginalWorkspaceMethodAlternative({owner,workspaceId,p
     const fresh=await observe();
     if(fresh.state.state==='COMPLETE')return finish();
     if(fresh.state.state==='CONFLICT')return receipt('CONFLICT');
-    if(!fresh.state.resumeCandidate)return receipt('MATERIAL_REVIEW_REQUIRED');
+    if(!fresh.state.resumeCandidate)return receipt('RECOVERY_MATERIAL_REVIEW_REQUIRED');
     if(!eq(first.state.records,fresh.state.records)||!eq(first.state.materials,fresh.state.materials)
         ||!eq(first.intent.recordIds,fresh.intent.recordIds))return receipt('RECOVERY_REQUIRED');
     try{

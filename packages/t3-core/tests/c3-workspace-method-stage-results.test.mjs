@@ -1227,7 +1227,10 @@ test('alternative write action requires trusted confirmation and current materia
   const h=trusted({...f,readObject:async(...a)=>{
     const value=await f.readObject(...a);return changed&&value&&a[1]==='source'?{object:{...value.object,revision:2}}:value;
   }},{confirmAlternative:async()=>{changed=true;return true;}});
-  assert.equal((await h.reader.createAlternative(source)).state,'MATERIAL_REVIEW_REQUIRED');
+  const refused=await h.reader.createAlternative(source);
+  assert.equal(refused.state,'MATERIAL_REVIEW_REQUIRED');
+  assert.equal(refused.selection,null);
+  assert.equal(await f.owner.load('project',ws,refused.targetProjectId),null);
   const revoked=trusted(f,{confirmAlternative:async()=>{revoked.deny();return true;}});
   await assert.rejects(revoked.reader.createAlternative(source),code('T3_ACCESS_NOT_PERMITTED'));
   const switched=trusted(f,{confirmAlternative:async()=>{switched.changeSelection();return true;}});
@@ -1237,21 +1240,35 @@ test('alternative write action requires trusted confirmation and current materia
 
 test('partial alternative creation resumes original records after lost write, not a replacement Project',async()=>{
   const f=await setup(),actual=f.owner,source={workspaceId:ws,projectId,expected:f.base};
-  let failWork=true;const confirmations=[];
+  let failWork=true,materialChanged=false,changeDuringRecovery=false;const confirmations=[];
   const owner={
     load:(...a)=>actual.load(...a),history:(...a)=>actual.history(...a),
     historyThrough:(...a)=>actual.historyThrough(...a),sourceIdentityExists:(...a)=>actual.sourceIdentityExists(...a),
     create:async(kind,input)=>{if(kind==='work'&&failWork)throw Error('interrupted original Work write');
       return actual.create(kind,input);}
   };
-  const h=trusted({...f,owner},{confirmAlternative:async value=>{confirmations.push(value.kind);return true;}});
+  const h=trusted({...f,owner,readObject:async(...a)=>{
+    const value=await f.readObject(...a);return materialChanged&&value&&a[1]==='source'?{object:{...value.object,revision:2}}:value;
+  }},{confirmAlternative:async value=>{confirmations.push(value.kind);
+    if(value.kind==='RESUME_ALTERNATIVE'&&changeDuringRecovery)materialChanged=true;
+    return true;
+  }});
   const first=await h.reader.createAlternative(source);
   assert.equal(first.state,'OUTCOME_UNKNOWN');assert.equal(first.selection,null);
   assert.equal((await actual.audit()).length,4);
-  failWork=false;
+  failWork=false;materialChanged=true;
+  const blocked=await h.reader.recoverAlternative({...source,targetProjectId:first.targetProjectId});
+  assert.equal(blocked.state,'RECOVERY_MATERIAL_REVIEW_REQUIRED');assert.equal(blocked.targetProjectId,first.targetProjectId);
+  assert.equal(blocked.selection,null);assert.equal((await actual.audit()).length,4);
+  assert.deepEqual(confirmations,['CREATE_ALTERNATIVE']);
+  materialChanged=false;changeDuringRecovery=true;
+  const blockedAfterConfirmation=await h.reader.recoverAlternative({...source,targetProjectId:first.targetProjectId});
+  assert.equal(blockedAfterConfirmation.state,'RECOVERY_MATERIAL_REVIEW_REQUIRED');
+  assert.equal(blockedAfterConfirmation.targetProjectId,first.targetProjectId);assert.equal((await actual.audit()).length,4);
+  materialChanged=false;changeDuringRecovery=false;
   const next=await h.reader.recoverAlternative({...source,targetProjectId:first.targetProjectId});
   assert.equal(next.state,'RECOVERED');assert.equal(next.targetProjectId,first.targetProjectId);
-  assert.equal((await actual.audit()).length,6);assert.deepEqual(confirmations,['CREATE_ALTERNATIVE','RESUME_ALTERNATIVE']);
+  assert.equal((await actual.audit()).length,6);assert.deepEqual(confirmations,['CREATE_ALTERNATIVE','RESUME_ALTERNATIVE','RESUME_ALTERNATIVE']);
   const final=await h.reader.recoverAlternative({...source,targetProjectId:first.targetProjectId});
   assert.equal(final.state,'RECOVERED');assert.deepEqual(final.selection,next.selection);
   assert.equal((await actual.audit()).length,6);

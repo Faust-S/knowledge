@@ -239,10 +239,12 @@ function MethodAlternativeAction({binding,onOpen}:{binding:WorkspaceMethodWorkfl
     return ()=>{serial.current++;};},[reader]);
   if(!reader.createAlternative||!reader.recoverAlternative)return null;
   const complete=receipt!==null&&(receipt.state==="CREATED"||receipt.state==="RECOVERED");
-  const pending=receipt!==null&&["OUTCOME_UNKNOWN","RECOVERY_REQUIRED","NOT_FOUND","CONFLICT"].includes(receipt.state);
-  const recoverable=receipt!==null&&(pending||receipt.state==="MATERIAL_REVIEW_REQUIRED");
+  // A material refusal before the first write is not a recoverable target.
+  // Once a target exists, material review must not unlock a second creation.
+  const pending=receipt!==null&&["OUTCOME_UNKNOWN","RECOVERY_REQUIRED","RECOVERY_MATERIAL_REVIEW_REQUIRED","NOT_FOUND","CONFLICT"].includes(receipt.state);
+  const recoverable=pending;
   const action=async(recover:boolean)=>{
-    if(busy||!reader.createAlternative||!reader.recoverAlternative||(recover&&!receipt))return;
+    if(busy||!reader.createAlternative||!reader.recoverAlternative||(recover?!pending:pending))return;
     const token=++serial.current,current=()=>serial.current===token&&liveReader.current===reader;
     setBusy(true);setError("");
     try{
@@ -252,7 +254,9 @@ function MethodAlternativeAction({binding,onOpen}:{binding:WorkspaceMethodWorkfl
       const done=value.state==="CREATED"||value.state==="RECOVERED";
       const selected=value.selection,target=value.targetProjectId;
       const encodedWorkspace=encodeURIComponent(binding.workspaceId),encodedTarget=encodeURIComponent(target);
-      if(value.workspaceId!==binding.workspaceId||value.sourceProjectId!==binding.projectId
+      const allowedStates=recover?["RECOVERED","OUTCOME_UNKNOWN","RECOVERY_REQUIRED","RECOVERY_MATERIAL_REVIEW_REQUIRED","NOT_FOUND","CONFLICT"]:
+        ["CREATED","USER_CANCELLED","MATERIAL_REVIEW_REQUIRED","OUTCOME_UNKNOWN"];
+      if(!allowedStates.includes(value.state)||value.workspaceId!==binding.workspaceId||value.sourceProjectId!==binding.projectId
           ||!/^project-[a-f0-9]{32}$/.test(target)||target===binding.projectId
           ||(recover&&target!==receipt!.targetProjectId)||value.executionAuthority!==false
           ||value.sourceModified!==false||value.newAuthorityGranted!==false||value.resultReuseProven!==false
@@ -268,7 +272,8 @@ function MethodAlternativeAction({binding,onOpen}:{binding:WorkspaceMethodWorkfl
   };
   const labels:Record<WorkspaceMethodAlternativeReceipt["state"],string>={
     CREATED:"Независимый вариант сохранён.",RECOVERED:"Сохранённый вариант восстановлен.",
-    USER_CANCELLED:"Создание отменено.",MATERIAL_REVIEW_REQUIRED:"Проверьте редакции материалов.",
+    USER_CANCELLED:"Создание отменено.",MATERIAL_REVIEW_REQUIRED:"Проверьте редакции материалов. Вариант не создан.",
+    RECOVERY_MATERIAL_REVIEW_REQUIRED:"Проверьте редакции материалов незавершённого варианта. Новый вариант не создаётся.",
     OUTCOME_UNKNOWN:"Запись не подтверждена. Проверьте существующий вариант.",
     RECOVERY_REQUIRED:"Осталась незавершённая запись варианта.",NOT_FOUND:"Запись пока не найдена. Повторная запись не выполнялась.",
     CONFLICT:"Редакции варианта изменились. Откройте его из сохранённых проектов.",
