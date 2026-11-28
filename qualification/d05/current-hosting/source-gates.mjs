@@ -14,8 +14,10 @@ const pathOf=r=>relative(cwd,r.filePath).replaceAll("\\","/");
 const isSafePath=p=>/^(?:scripts|src|t2-site-module|public)\/[A-Za-z0-9_.$/-]{1,220}$/.test(p)||/^(?:eslint|vite|vitest)\.config\.(?:js|ts|mjs)$/.test(p);
 const allowedFix=p=>tracked.has(p)&&(
   p==="scripts/d05-t3-real-model-witness.mjs"||
-  /^scripts\/(?:check-|verify-|.*\.test\.)[A-Za-z0-9_.$/-]*\.(?:ts|tsx|mjs|js)$/.test(p)||
-  /^src\/[A-Za-z0-9_.$/-]+\.test\.tsx?$/.test(p));
+  p==="src/components/site/T3ContextActions.tsx"||
+  p==="src/routes/__root.tsx"||
+  /^scripts\/(?:check-|verify-)[A-Za-z0-9_.$/-]*\.(?:ts|tsx|mjs|js)$/.test(p)||
+  /^(?:scripts|src)\/[A-Za-z0-9_.$/-]+\.test\.(?:ts|tsx|mjs|js)$/.test(p));
 const emit=(tag,obj)=>console.log(tag+" "+JSON.stringify(obj));
 function report(rows,phase){
   const errors=rows.flatMap(row=>row.messages.filter(m=>m.severity===2).map(m=>({path:pathOf(row),line:m.line,column:m.column,rule:m.ruleId||"parse"})));
