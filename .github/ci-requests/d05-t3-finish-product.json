@@ -1,0 +1,12 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d05-t3-finish-product",
+  "prepared_sha": "7e90ce4e25aeec7147d406f9fa641cc58c692ba7",
+  "profile": "0.3.2-finish-product",
+  "revisions": {
+    "site": "a9ead59a8db271209112a200bf7a8816b8449e0c",
+    "subject": "6852d55ae8e7100b480b2d5c0a10b92de1c7d467",
+    "assistant": "2c247482306f218a7d5be668de11e98f168862d4",
+    "platform": "8e26076ce66f0c26693a647e061fcd568e055b77"
+  }
+}
