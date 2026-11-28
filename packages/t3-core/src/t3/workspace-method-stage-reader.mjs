@@ -89,7 +89,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
       &&(!programMode||(input.sourceAsset&&input.program&&(input.resultSelections??[]).length===0
         &&input.personalResultSelections===undefined&&input.corporateResultSelections===undefined))
       &&(input.programResultSelections===undefined||(programMode&&Array.isArray(input.programResultSelections)
-        &&input.programResultSelections.length<=1&&originalProgramResultOwner!==null))
+        &&input.programResultSelections.length<=32&&(!input.programResultSelections.length||originalProgramResultOwner!==null)))
+      &&(input.fleetAssignments===undefined||(programMode&&Array.isArray(input.fleetAssignments)&&input.fleetAssignments.length<=32))
       &&(mode!=='alternative-recover'||(typeof input.targetProjectId==='string'
         &&/^[A-Za-z0-9_-]{1,63}$/u.test(input.targetProjectId)&&input.targetProjectId!==input.projectId))
       &&input.expected.workRefs.length>0&&input.expected.workRefs.length<=64
@@ -116,7 +117,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
       expected:{projectRef:ref(input.expected.projectRef),workRefs:input.expected.workRefs.map(ref)},
       ...(mode==='alternative-recover'?{targetProjectId:input.targetProjectId}:{}),
       ...(programMode?{sourceAsset:input.sourceAsset,program:input.program,
-        ...(input.programResultSelections===undefined?{}:{programResultSelections:input.programResultSelections})}:{}),
+        ...(input.programResultSelections===undefined?{}:{programResultSelections:input.programResultSelections}),
+        ...(input.fleetAssignments===undefined?{}:{fleetAssignments:input.fleetAssignments})}:{}),
       ...(methodOnly?{}:{stepId:input.stepId,
         resultSelections:(input.resultSelections??[]).map(row=>({stepId:row.stepId,reference:{
           workspace_id:row.reference?.workspace_id,object_id:row.reference?.object_id,

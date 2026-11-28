@@ -1408,3 +1408,60 @@ test('dependent road Work binds exact original root QGIS receipt and rejects cha
     operationId:'program-predecessor-change',knowledgeAt:'2026-11-28T20:00:00Z'})).method;
   await assert.rejects(h.nativeProgramInputs.readInputs({...target,expected:next}),code('METHOD_PROGRAM_PREDECESSOR_RESULT_MISMATCH'));
 });
+
+
+// W05.60: shared original QGIS ancestor, two Valhalla Works, distinct
+// vehicle assignments, one exact material read per pass of the closure.
+test('fleet program Work verifies transitive original receipt lineage and distinct vehicle assignments',async()=>{
+  const d=draft();
+  d.steps=[
+    {id:'analyse',name:'QGIS',actor:'program',instruction:'Prepare points',dependsOn:[],materialIds:['source']},
+    {id:'small',name:'Small truck',actor:'program',instruction:'Calculate small truck road matrix',dependsOn:['analyse'],materialIds:['source']},
+    {id:'large',name:'Large truck',actor:'program',instruction:'Calculate large truck road matrix',dependsOn:['analyse'],materialIds:['source']},
+    {id:'review',name:'Optimize',actor:'program',instruction:'Route deliveries',dependsOn:['small','large'],materialIds:['source']}];
+  const f=await setup(d),bytes=new TextEncoder().encode('{"points":[]}');
+  const programResult=(step,prepared)=>({state:'ORIGINAL_WORKFLOW_PROGRAM_RESULT_VERIFIED',reference:prepared.reference,
+    candidateDigest:prepared.candidateDigest,agentWorkspaceId:'personal',taskId:'TASK-U01-'+step,
+    receiptId:'TXR-'+step,outputDigest:createHash('sha256').update(step).digest('hex'),
+    providerId:prepared.reference.program.providerId,operation:prepared.reference.program.operation,
+    declaredInputBindingVerified:true,outputVerified:true,executionPerformed:false,executionAuthority:false,
+    workCompleted:false,resultReuseProven:false,finalHumanAcceptanceProven:false});
+  const choice=result=>({stepId:result.reference.stepId,taskId:result.taskId,receiptId:result.receiptId,candidateDigest:result.candidateDigest});
+  const root=await trusted(f,{withAssets:true,assetBytes:bytes,assetMime:'application/json'}).nativeProgramInputs.readInputs(selectedProgram(f));
+  const saved=new Map([['analyse',programResult('analyse',root)]]);
+  let reads=[],assetReads=0;
+  const opts={withAssets:true,assetBytes:bytes,assetMime:'application/json',assetHook:kind=>{if(kind==='get')assetReads++;},
+    originalProgramResultOwner:{readVerified:async(s)=>{reads.push(s.stepId);return saved.get(s.stepId);}}};
+  const h=trusted(f,opts);
+  const roadSelection=step=>selectedProgram(f,{stepId:step,program:{providerId:'VALHALLA_ROUTING_V1',operation:'road_matrix',
+    parameters:{specification:'{}'},connectionEpoch:'road-epoch',trustedCodeConfirmed:false},programResultSelections:[choice(saved.get('analyse'))]});
+  for(const step of ['small','large']){
+    const prepared=await h.nativeProgramInputs.readInputs(roadSelection(step));
+    saved.set(step,programResult(step,prepared));
+  }
+  reads=[];assetReads=0;
+  const charge={cost_unit:'kopecks',per_kilometre:1000,per_hour:0};
+  const fleet=selectedProgram(f,{stepId:'review',program:{providerId:'ORTOOLS_ALLOCATION_V1',operation:'route_deliveries',
+    parameters:{specification:'{"time_limit_seconds":5}'},connectionEpoch:'fleet-epoch',trustedCodeConfirmed:false},
+    programResultSelections:[choice(saved.get('large')),choice(saved.get('small'))],
+    fleetAssignments:[{vehicleId:'small',stepId:'small',tariff:charge},{vehicleId:'large',stepId:'large',tariff:charge}]});
+  const prepared=await h.nativeProgramInputs.readInputs(fleet);
+  assert.deepEqual(prepared.reference.predecessorResults.map(row=>row.stepId),['small','large']);
+  assert.deepEqual(prepared.reference.fleetAssignments,fleet.fleetAssignments);
+  assert.deepEqual(reads,['small','analyse','large','small','analyse','large']);
+  assert.equal(assetReads,2);
+  assert.equal(prepared.taskCreated,false);assert.equal(prepared.executionAuthority,false);
+  await assert.rejects(h.nativeProgramInputs.readInputs({...fleet,fleetAssignments:[{vehicleId:'small',stepId:'small',tariff:charge}]}),code('METHOD_PROGRAM_FLEET_ASSIGNMENT_INVALID'));
+  await assert.rejects(h.nativeProgramInputs.readInputs({...fleet,programResultSelections:[choice(saved.get('small'))]}),code('METHOD_PROGRAM_WORK_UNSUPPORTED'));
+  const original=saved.get('large');
+  const linked={...original.reference.predecessorResults[0],outputDigest:'0'.repeat(64)};
+  const changedRef={...original.reference,predecessorResults:[linked]};
+  const changed={...original,reference:changedRef,candidateDigest:createHash('sha256').update(canonicalStringify(changedRef)).digest('hex')};
+  saved.set('large',changed);
+  await assert.rejects(h.nativeProgramInputs.readInputs({...fleet,programResultSelections:[choice(changed),choice(saved.get('small'))]}),
+    code('METHOD_PROGRAM_PREDECESSOR_LINEAGE_CHANGED'));
+  saved.set('large',original);
+  await assert.rejects(trusted(f,{...opts,assetBytes:new TextEncoder().encode('{"points":[1]}')}).nativeProgramInputs.readInputs(fleet),
+    code('METHOD_PROGRAM_PREDECESSOR_INPUT_CHANGED'));
+  assert.equal((await f.owner.audit()).length,5);
+});

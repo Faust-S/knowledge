@@ -200,7 +200,7 @@ function captureDraftAsset(capture,asset,bytes){
     fail('METHOD_PERSONAL_DRAFT_ATTACHMENT_UNSUPPORTED','The selected attachment cannot be represented without changing its bytes');
   appendPersonalDraftAttachment(capture,'attachment-'+String(++capture.assetCount).padStart(3,'0')+'.'+ext,text);
 }
-async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,materials},draftCapture=null,materialCaptures=null,observeAsset=null){
+async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,materials},draftCapture=null,materialCaptures=null,observeAsset=null,materialMetrics=null){
   const limits=WORKSPACE_METHOD_MATERIAL_EVIDENCE_LIMITS;
   if(materials.length>limits.materials)fail('METHOD_MATERIAL_EVIDENCE_BUDGET_EXCEEDED','Too many materials for one observation');
   const budget={assets:0,assetBytes:0,canonicalBytes:0},seenAssets=new Set(),rows=[];
@@ -239,6 +239,8 @@ async function readVisibleMaterialEvidence({readObject,listAssets,getAsset,works
       if(observeAsset)observeAsset(asset,actual.bytes);
     }
     rows.push(Object.freeze({reference:current,payloadDigest,visibleAssets:Object.freeze(assets)}));
+    if(materialMetrics)materialMetrics.set(selected.object_id,Object.freeze({assets:metadata.length,
+      assetBytes:metadata.reduce((sum,row)=>sum+row.size,0),canonicalBytes:Buffer.byteLength(payload.canonical,'utf8')}));
     if(materialCaptures)materialCaptures.set(selected.object_id,draftCapture.attachments.slice(captureStart));
   }
   return Object.freeze({materials:Object.freeze(rows),counts:Object.freeze({materials:rows.length,
@@ -263,7 +265,7 @@ export async function inspectWorkspaceMethodMaterialEvidence(input={}){
  * Native-only: this is the actual input text and exact canonical Work/Asset
  * identity, not a display receipt. The original program owner still validates
  * its operation/arguments/connection, creates Task, and performs Review and
- * ToolRuntime approval. Root single-file and explicit QGIS -> Valhalla handoff.
+ * ToolRuntime approval. Root single-file and explicit QGIS -> Valhalla -> OR-Tools handoff.
  */
 export async function buildWorkspaceMethodProgramInput(input={}){
   const {workspaceId,subjectKind,listAssets,getAsset,readObject}=input;
@@ -288,57 +290,119 @@ export async function buildWorkspaceMethodProgramInput(input={}){
     fail('METHOD_PROGRAM_OPERATION_SELECTION_INVALID','Explicit program, operation, arguments and connection required');
   const selected=canonicalClone(file),operation=canonicalClone(program);
   const opened=await openInputObservation(input,false),stage=opened.reportFor(input.stepId),basis=stage.basis;
+  const selectionValid=row=>keys(row,['stepId','taskId','receiptId','candidateDigest'])
+      &&typeof row.stepId==='string'&&/^[A-Za-z0-9_-]{1,63}$/.test(row.stepId)
+      &&typeof row.taskId==='string'&&/^TASK-[A-Za-z0-9_-]{1,100}$/.test(row.taskId)
+      &&typeof row.receiptId==='string'&&/^TXR-[A-Za-z0-9_-]{1,100}$/.test(row.receiptId)
+      &&typeof row.candidateDigest==='string'&&HEX.test(row.candidateDigest);
   const selections=input.programResultSelections??[];
-  if(!Array.isArray(selections)||selections.length>1||selections.some(row=>
-      !keys(row,['stepId','taskId','receiptId','candidateDigest'])||!clean(row.stepId,63)
-      ||!/^TASK-[A-Za-z0-9_-]{1,120}$/.test(row.taskId)||!/^TXR-[A-Za-z0-9_-]{1,100}$/.test(row.receiptId)
-      ||!HEX.test(row.candidateDigest??'')))
-    fail('METHOD_PROGRAM_PREDECESSOR_SELECTION_INVALID','Select the exact original program Task and execution receipt');
-  const chosen=canonicalClone(selections);
+  if(!Array.isArray(selections)||selections.length>32||selections.some(row=>!selectionValid(row))
+      ||['stepId','taskId','receiptId'].some(key=>new Set(selections.map(row=>row[key])).size!==selections.length))
+    fail('METHOD_PROGRAM_PREDECESSOR_SELECTION_INVALID','Select distinct exact original program Tasks and execution receipts');
+  const chosen=canonicalClone(selections),byStep=new Map(chosen.map(row=>[row.stepId,row]));
+  const fleet=stage.predecessors.length>0&&operation.providerId==='ORTOOLS_ALLOCATION_V1'&&operation.operation==='route_deliveries';
+  const spatial=stage.predecessors.length>0&&operation.providerId==='VALHALLA_ROUTING_V1'&&operation.operation==='road_matrix';
+  let assignments=null;
   if(basis.intendedActor!=='program')
     fail('METHOD_PROGRAM_WORK_UNSUPPORTED','Original program Work required');
-  let prior=null;
   if(stage.predecessors.length){
-    if(stage.predecessors.length!==1||chosen.length!==1||stage.predecessors[0].stepId!==chosen[0].stepId
-        ||operation.providerId!=='VALHALLA_ROUTING_V1'||operation.operation!=='road_matrix'||operation.trustedCodeConfirmed
+    if((!fleet&&!spatial)||(spatial&&stage.predecessors.length!==1)||stage.predecessors.length!==chosen.length
+        ||stage.predecessors.some(row=>!byStep.has(row.stepId))||operation.trustedCodeConfirmed
         ||typeof input.readVerifiedProgramResult!=='function')
-      fail('METHOD_PROGRAM_WORK_UNSUPPORTED','Choose one original root QGIS Work for the Valhalla road matrix');
-    prior=opened.reportFor(chosen[0].stepId);
-    if(prior.basis.intendedActor!=='program'||prior.predecessors.length||prior.inputBasisDigest===null)
-      fail('METHOD_PROGRAM_WORK_UNSUPPORTED','Selected original QGIS predecessor must be a current root program Work');
+      fail('METHOD_PROGRAM_WORK_UNSUPPORTED','Select the original direct program predecessors for the supported handoff');
     const target=opened.closure.works.find(row=>row.work.methodology.stepId===input.stepId);
     if(!target?.work.methodology.materialRefs.some(pin=>pin.object_id===selected.objectId))
       fail('METHOD_PROGRAM_MATERIAL_REVIEW_REQUIRED','Select a declared material of the target program Work');
   }else if(chosen.length)fail('METHOD_PROGRAM_PREDECESSOR_SELECTION_INVALID','Root Work has no predecessor');
-  const predecessor=async()=>{
-    if(!prior)return Object.freeze([]);
-    const choice=chosen[0],actual=await input.readVerifiedProgramResult(choice);
-    const r=actual?.reference;
-    if(actual?.state!=='ORIGINAL_WORKFLOW_PROGRAM_RESULT_VERIFIED'||actual.taskId!==choice.taskId
-        ||actual.receiptId!==choice.receiptId||actual.candidateDigest!==choice.candidateDigest
-        ||actual.providerId!=='QGIS_PROCESSING_V1'||actual.operation!=='reproject_points'
-        ||!HEX.test(actual.outputDigest??'')||!/^(personal|AREA-[a-f0-9]{18})$/.test(actual.agentWorkspaceId??'')
-        ||actual.declaredInputBindingVerified!==true||actual.outputVerified!==true
-        ||actual.executionPerformed!==false||actual.executionAuthority!==false||actual.workCompleted!==false
-        ||actual.resultReuseProven!==false||actual.finalHumanAcceptanceProven!==false
-        ||r?.schema!=='IWXA_T3_PERSONAL_PROGRAM_WORK_INPUT/1'||r.workspaceId!==workspaceId
-        ||r.projectId!==basis.projectId||r.stepId!==choice.stepId||!equal(r.projectRef,prior.basis.projectRef)
-        ||!equal(r.workRef,prior.basis.stageRef)||r.inputBasisDigest!==prior.inputBasisDigest
-        ||r.program?.providerId!==actual.providerId||r.program?.operation!==actual.operation
-        ||!Array.isArray(r.predecessorResults)||r.predecessorResults.length!==0
-        ||createHash('sha256').update(canonicalStringify(r)).digest('hex')!==choice.candidateDigest)
-      fail('METHOD_PROGRAM_PREDECESSOR_RESULT_MISMATCH','Original saved QGIS receipt does not bind the selected predecessor Work');
-    const observation=await readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,materials:prior.materials});
-    const observed=materialEvidenceReport(prior,observation);
-    const source=r.source,row=observation.materials.find(m=>m.reference.object_id===source?.objectId);
-    const asset=row?.visibleAssets.find(a=>a.asset_id===source?.assetId);
-    if(r.materialEvidenceDigest!==observed.materialEvidenceDigest||!asset||row.reference.revision!==source.objectRevision
-        ||asset.revision!==source.revision||asset.size!==source.bytes||asset.mime!==source.mime||asset.sha256!==source.sha256
-        ||r.messageSha256!==createHash('sha256').update(prior.basis.objective+'\n\n'+prior.basis.instruction,'utf8').digest('hex'))
-      fail('METHOD_PROGRAM_PREDECESSOR_INPUT_CHANGED','Original QGIS Work or exact input material has changed');
-    return Object.freeze([Object.freeze({stepId:choice.stepId,workRef:prior.basis.stageRef,candidateDigest:choice.candidateDigest,
-      taskId:choice.taskId,receiptId:choice.receiptId,outputDigest:actual.outputDigest,agentWorkspaceId:actual.agentWorkspaceId,
-      providerId:actual.providerId,operation:actual.operation,inputBasisDigest:r.inputBasisDigest,materialEvidenceDigest:r.materialEvidenceDigest})]);
+  if(fleet){
+    const rows=input.fleetAssignments;
+    if(!Array.isArray(rows)||!rows.length||rows.length>32||rows.some(row=>!keys(row,['vehicleId','stepId','tariff'])
+        ||typeof row.vehicleId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/.test(row.vehicleId)
+        ||!byStep.has(row.stepId)||!keys(row.tariff,['cost_unit','per_kilometre','per_hour'])
+        ||!clean(row.tariff.cost_unit,48)||/[\u0000-\u001f]/u.test(row.tariff.cost_unit)
+        ||['per_kilometre','per_hour'].some(key=>!Number.isSafeInteger(row.tariff[key])||row.tariff[key]<0||row.tariff[key]>1000000000))
+        ||new Set(rows.map(row=>row.vehicleId)).size!==rows.length
+        ||new Set(rows.map(row=>row.stepId)).size!==chosen.length)
+      fail('METHOD_PROGRAM_FLEET_ASSIGNMENT_INVALID','Assign every selected road Work to explicit vehicle IDs and tariffs');
+    assignments=canonicalClone(rows);
+  }else if(input.fleetAssignments!==undefined)
+    fail('METHOD_PROGRAM_FLEET_ASSIGNMENT_INVALID','Fleet assignments require dependent OR-Tools routing');
+  const predecessor=async(observation,metrics)=>{
+    if(!chosen.length)return Object.freeze([]);
+    // One exact material observation per pass for the whole closure.
+    // Slice counts without changing the original per-Work digest or reading
+    // the same shared Asset once per vehicle profile.
+    const slice=prior=>{
+      const ids=new Set(prior.materials.map(row=>row.object_id));
+      const materials=observation.materials.filter(row=>ids.has(row.reference.object_id));
+      if(materials.length!==ids.size)fail('METHOD_PROGRAM_PREDECESSOR_INPUT_CHANGED','Original material slice is unavailable');
+      const counts={materials:materials.length,assets:0,assetBytes:0,canonicalBytes:0};
+      for(const row of materials){
+        const part=metrics.get(row.reference.object_id);
+        if(!part)fail('METHOD_PROGRAM_PREDECESSOR_INPUT_CHANGED','Original material accounting is unavailable');
+        for(const key of ['assets','assetBytes','canonicalBytes'])counts[key]+=part[key];
+      }
+      return Object.freeze({materials:Object.freeze(materials),counts:Object.freeze(counts)});
+    };
+    const verified=new Map(),taskSteps=new Map(),receiptSteps=new Map();
+    const verify=async(choice,kind)=>{
+      if(!selectionValid(choice))fail('METHOD_PROGRAM_PREDECESSOR_SELECTION_INVALID','Invalid stored predecessor receipt identity');
+      const existing=verified.get(choice.stepId);
+      if(existing){
+        if(!equal(existing.choice,choice)||existing.kind!==kind)
+          fail('METHOD_PROGRAM_PREDECESSOR_LINEAGE_CHANGED','Shared predecessor Work has conflicting original Results');
+        return existing.evidence;
+      }
+      if(taskSteps.has(choice.taskId)||receiptSteps.has(choice.receiptId))
+        fail('METHOD_PROGRAM_PREDECESSOR_LINEAGE_CHANGED','One original receipt cannot satisfy different Work identities');
+      taskSteps.set(choice.taskId,choice.stepId);receiptSteps.set(choice.receiptId,choice.stepId);
+      const prior=opened.reportFor(choice.stepId);
+      if(prior.basis.intendedActor!=='program'||prior.inputBasisDigest===null
+          ||(kind==='spatial'?prior.predecessors.length!==0:prior.predecessors.length>1))
+        fail('METHOD_PROGRAM_WORK_UNSUPPORTED','Original QGIS root or Valhalla Work with at most one QGIS predecessor required');
+      const actual=await input.readVerifiedProgramResult(choice),r=actual?.reference;
+      const providerId=kind==='spatial'?'QGIS_PROCESSING_V1':'VALHALLA_ROUTING_V1';
+      const nativeOperation=kind==='spatial'?'reproject_points':'road_matrix';
+      if(actual?.state!=='ORIGINAL_WORKFLOW_PROGRAM_RESULT_VERIFIED'||actual.taskId!==choice.taskId
+          ||actual.receiptId!==choice.receiptId||actual.candidateDigest!==choice.candidateDigest
+          ||actual.providerId!==providerId||actual.operation!==nativeOperation
+          ||!HEX.test(actual.outputDigest??'')||!/^(personal|AREA-[a-f0-9]{18})$/.test(actual.agentWorkspaceId??'')
+          ||actual.declaredInputBindingVerified!==true||actual.outputVerified!==true
+          ||actual.executionPerformed!==false||actual.executionAuthority!==false||actual.workCompleted!==false
+          ||actual.resultReuseProven!==false||actual.finalHumanAcceptanceProven!==false
+          ||r?.schema!=='IWXA_T3_PERSONAL_PROGRAM_WORK_INPUT/1'||r.workspaceId!==workspaceId
+          ||r.projectId!==basis.projectId||r.stepId!==choice.stepId||!equal(r.projectRef,prior.basis.projectRef)
+          ||!equal(r.workRef,prior.basis.stageRef)||r.inputBasisDigest!==prior.inputBasisDigest
+          ||r.program?.providerId!==providerId||r.program?.operation!==nativeOperation||r.fleetAssignments!==undefined
+          ||!Array.isArray(r.predecessorResults)||r.predecessorResults.length!==prior.predecessors.length
+          ||createHash('sha256').update(canonicalStringify(r)).digest('hex')!==choice.candidateDigest)
+        fail('METHOD_PROGRAM_PREDECESSOR_RESULT_MISMATCH','Original saved program receipt does not bind the selected predecessor Work');
+      const material=slice(prior),observed=materialEvidenceReport(prior,material);
+      const source=r.source,row=material.materials.find(m=>m.reference.object_id===source?.objectId);
+      const asset=row?.visibleAssets.find(a=>a.asset_id===source?.assetId);
+      if(r.materialEvidenceDigest!==observed.materialEvidenceDigest||!asset||row.reference.revision!==source.objectRevision
+          ||asset.revision!==source.revision||asset.size!==source.bytes||asset.mime!==source.mime||asset.sha256!==source.sha256
+          ||r.messageSha256!==createHash('sha256').update(prior.basis.objective+'\n\n'+prior.basis.instruction,'utf8').digest('hex'))
+        fail('METHOD_PROGRAM_PREDECESSOR_INPUT_CHANGED','Original predecessor Work or exact input material has changed');
+      if(prior.predecessors.length){
+        const linked=r.predecessorResults[0];
+        if(linked?.stepId!==prior.predecessors[0].stepId)
+          fail('METHOD_PROGRAM_PREDECESSOR_LINEAGE_CHANGED','Original stored QGIS lineage is not the current declared dependency');
+        const original=await verify({stepId:linked.stepId,taskId:linked.taskId,receiptId:linked.receiptId,candidateDigest:linked.candidateDigest},'spatial');
+        if(!equal(linked,original)||linked.agentWorkspaceId!==actual.agentWorkspaceId)
+          fail('METHOD_PROGRAM_PREDECESSOR_LINEAGE_CHANGED','Original saved Valhalla input lineage changed');
+      }
+      const evidence=Object.freeze({stepId:choice.stepId,workRef:prior.basis.stageRef,candidateDigest:choice.candidateDigest,
+        taskId:choice.taskId,receiptId:choice.receiptId,outputDigest:actual.outputDigest,agentWorkspaceId:actual.agentWorkspaceId,
+        providerId:actual.providerId,operation:actual.operation,inputBasisDigest:r.inputBasisDigest,materialEvidenceDigest:r.materialEvidenceDigest});
+      verified.set(choice.stepId,{choice,kind,evidence});
+      return evidence;
+    };
+    const rows=[];
+    for(const row of stage.predecessors)rows.push(await verify(byStep.get(row.stepId),fleet?'road':'spatial'));
+    if(verified.size!==stage.basis.prerequisiteClosure.length-1||new Set(rows.map(row=>row.agentWorkspaceId)).size!==1)
+      fail('METHOD_PROGRAM_PREDECESSOR_LINEAGE_CHANGED','Exact original result closure and Agent Workspace required');
+    return Object.freeze(rows);
   };
   if(stage.inputBasisDigest===null||!stage.materials.some(row=>row.object_id===selected.objectId))
     fail('METHOD_PROGRAM_MATERIAL_REVIEW_REQUIRED','Selected input is not a current declared Work material');
@@ -346,7 +410,7 @@ export async function buildWorkspaceMethodProgramInput(input={}){
   if(!message.trim()||message.length>16000||message.includes('\0')||Buffer.from(message,'utf8').toString('utf8')!==message)
     fail('METHOD_PROGRAM_OPERATION_SELECTION_INVALID','Original Work instruction exceeds the original Task boundary');
   const observe=async()=>{
-    let capture=null;
+    let capture=null;const metrics=new Map();
     const observation=await readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,materials:stage.materials},null,null,(asset,bytes)=>{
       if(asset.object_id!==selected.objectId||asset.asset_id!==selected.assetId)return;
       if(capture||asset.revision!==selected.revision||asset.size<1||asset.size>500000)
@@ -361,14 +425,14 @@ export async function buildWorkspaceMethodProgramInput(input={}){
         revision:asset.revision,name:selected.name,mime:asset.mime,bytes:asset.size,sha256:createHash('sha256').update(bytes).digest('hex')}),
         modelingSource:Object.freeze({name:selected.name,text:value,
           ...(operation.trustedCodeConfirmed?{trusted_code_confirmed:true}:{})})};
-    });
+    },metrics);
     if(!capture)fail('METHOD_PROGRAM_ASSET_SELECTION_INVALID','Selected original file is not visible in the declared material');
     const material=materialEvidenceReport(stage,observation);
     const reference=Object.freeze({schema:'IWXA_T3_PERSONAL_PROGRAM_WORK_INPUT/1',workspaceId:basis.workspaceId,
       projectId:basis.projectId,stepId:basis.stepId,projectRef:basis.projectRef,workRef:basis.stageRef,
       inputBasisDigest:stage.inputBasisDigest,materialEvidenceDigest:material.materialEvidenceDigest,
       program:operation,source:capture.source,messageSha256:createHash('sha256').update(message,'utf8').digest('hex'),
-      predecessorResults:await predecessor()});
+      predecessorResults:await predecessor(observation,metrics),...(fleet?{fleetAssignments:assignments}:{})});
     return Object.freeze({state:'ORIGINAL_PROGRAM_WORK_INPUT_PREPARED',reference,
       candidateDigest:createHash('sha256').update(canonicalStringify(reference)).digest('hex'),
       modelingSource:capture.modelingSource,message,selectedAssetBytesVerified:true,observedMaterialBytesVerified:true,
