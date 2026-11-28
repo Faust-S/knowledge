@@ -1,0 +1,12 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d11-t3-033-qualification",
+  "prepared_sha": "2c97c6098e1ee0c8f63f1b3e52a5c0b3dfeea90f",
+  "profile": "t3-033-qualification",
+  "revisions": {
+    "domain": "f266bec7e24592b210ea5129001b8fd766199f79",
+    "site": "324b884a739295b0031b5f8d221e709ccf46f7c5",
+    "t3": "30e3f98f944ffa351f2dfa9922f38bcca8b7d314",
+    "assistant": "629aaa274f2d6ad915730ee0d817aedc33e53108"
+  }
+}
