@@ -1,4 +1,4 @@
-name: D09 HOP read-only snapshot and semantic collection regression
+name: D09 HOP artistic proposal and strict command regression
 on:
   push:
     branches: ['ci/once/d09-hop-regression-triage/**']
@@ -18,8 +18,8 @@ jobs:
       matrix:
         include:
           - lane: corrected
-            sha: acafd120ef1144a6cc17ec6e9085aa6abd46dbb0
-            tree: 74e4b5c112385557a519c2966a02587e06069660
+            sha: 8fe2077699d505c846f4c2853600188e7847cdf3
+            tree: 23b100a156fa8e90cae48ebfc3a11defd5a159a2
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
     steps:
@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable source comparison
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-regression-triage --profile hop-regression-node24 --revision site=acafd120ef1144a6cc17ec6e9085aa6abd46dbb0 --revision subject=fc1c9ab095a6eaed05e6b42d63ce1c3388103507
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-regression-triage --profile hop-regression-node24 --revision site=8fe2077699d505c846f4c2853600188e7847cdf3 --revision subject=21550443a23ab2c8dd47137f7bb1344ead19b52b
       - name: Checkout exact site source
         uses: actions/checkout@v4
         with:
