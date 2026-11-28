@@ -335,7 +335,9 @@ jobs:
           code=0
           (npm run check:t3-assistant-browser && node --import tsx scripts/check-t3-assistant-dynamic.ts && npm run check:t3-public-offline) >"$log" 2>&1 || code=$?
           grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$' "$log" | tail -60 || true
-          grep -E '^CEHOVOD_T3_DYNAMIC_STAGE_[A-Z0-9_]+$|^CEHOVOD_T3_DYNAMIC_FAILURE [A-Za-z0-9_]+$|^CEHOVOD_T3_ASSISTANT_BROWSER_DIAG \{[A-Za-z0-9":{}, _\[\]-]+\}; exit "$code"; fi
+          grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+' "$log" | sort -u | head -40 || true
+          grep -E '^CEHOVOD_T3_DYNAMIC_STAGE_[A-Z0-9_]+$|^CEHOVOD_T3_DYNAMIC_FAILURE [A-Za-z0-9_]+$|^CEHOVOD_T3_ASSISTANT_BROWSER_DIAG \{[A-Za-z0-9":{}, _\[\]-]+\}$' "$log" | tail -50 || true
+          if [ "$code" -ne 0 ]; then echo "D05_CURRENT_ASSISTANT_BROWSER_FAIL"; exit "$code"; fi
           echo "D05_CURRENT_ASSISTANT_BROWSER_PASS"
           grep -E '^\{"status":"(CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS|CEHOVOD_T3_DYNAMIC_CONTEXT_PASS|CEHOVOD_T3_PUBLIC_COLD_OFFLINE_PASS|CEHOVOD_T3_ALL_SITE_COLD_PASS)",' "$log"
       - name: Audit hydrated site links, desktop and mobile route journeys
@@ -359,6 +361,8 @@ jobs:
           node --import tsx "$audit" >"$log" 2>&1 || code=$?
           grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$' "$log" | tail -60 || true
           grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+' "$log" | sort -u | head -40 || true
+          grep -E '^D05_T3_RENDERED_LINK_DIAG \{"code":"[A-Z0-9_]+","sourceIndex":-?[0-9]+,"targetIndex":-?[0-9]+,"width":[0-9]+,"fragment":"[A-Za-z0-9_-]*","hasQuery":(true|false),"errorKind":"(timeout|other)"\}$' "$log" | head -80 || true
+          grep -E '^\{"status":"D05_T3_RENDERED_LINK_AUDIT_FAIL","declaredPages":[0-9]+,"publicPages":[0-9]+,"linkOccurrences":[0-9]+,"uniqueLocalTargets":[0-9]+,"clicks":[0-9]+,"pageErrors":[0-9]+,"localErrors":[0-9]+,"externalRequests":[0-9]+,"failures":\{("[A-Z0-9_]+":[0-9]+,?)*\}\}$' "$log" || true
           if [ "$code" -ne 0 ]; then echo "D05_CURRENT_RENDERED_LINKS_FAIL"; exit "$code"; fi
           echo "D05_CURRENT_RENDERED_LINKS_PASS"
           grep -E '^\{"status":"D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED",' "$log"
@@ -420,110 +424,6 @@ jobs:
           echo "D05_CURRENT_FINAL_SOURCE_TREE=$tree"
           git diff HEAD --binary >"$RUNNER_TEMP/d05-current-final.patch"
           python3 "$GITHUB_WORKSPACE/harness/qualification/d05/current-hosting/package.py" dist "$RUNNER_TEMP/d05-current-final.patch" "$RUNNER_TEMP/cehovod-hosting.zip" "$tree" "$RUNNER_TEMP/d05-external-links.json" "$RUNNER_TEMP/d05-source-gates.json"
-          openssl cms -encrypt -binary -aes-256-gcm -outform DER -in "$RUNNER_TEMP/cehovod-hosting.zip" -out "$RUNNER_TEMP/cehovod-hosting.cms" -recip "$GITHUB_WORKSPACE/harness/qualification/d05/current-hosting/recipient.pem" -keyopt rsa_padding_mode:oaep -keyopt rsa_oaep_md:sha256
-          digest="$(sha256sum "$RUNNER_TEMP/cehovod-hosting.zip" | cut -d' ' -f1)"
-          echo "digest=$digest" >>"$GITHUB_OUTPUT"
-          echo "D05_CURRENT_HOSTING_ZIP_SHA256=$digest"
-          rm -f "$RUNNER_TEMP/cehovod-hosting.zip"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: d05-t3-0.3.2-hosting-encrypted
-          path: ${{ runner.temp }}/cehovod-hosting.cms
-          if-no-files-found: error
-          retention-days: 7
-      - name: Destroy private source and unencrypted temporary data
-        if: always()
-        shell: bash
-        run: |
-          rm -rf "$GITHUB_WORKSPACE/site" "$GITHUB_WORKSPACE/domain" "$GITHUB_WORKSPACE/assistant" "$GITHUB_WORKSPACE/one-core" "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/d05-current-loopback-host"
-          rm -f "$RUNNER_TEMP"/d05-current-*.log "$RUNNER_TEMP"/d05-current-*.patch "$RUNNER_TEMP/platform-inputs.zip" "$RUNNER_TEMP/cehovod-hosting.zip"
- "$log" | tail -50 || true
-          grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+' "$log" | sort -u | head -40 || true
-          if [ "$code" -ne 0 ]; then echo "D05_CURRENT_ASSISTANT_BROWSER_FAIL"; exit "$code"; fi
-          echo "D05_CURRENT_ASSISTANT_BROWSER_PASS"
-          grep -E '^\{"status":"(CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS|CEHOVOD_T3_DYNAMIC_CONTEXT_PASS|CEHOVOD_T3_PUBLIC_COLD_OFFLINE_PASS|CEHOVOD_T3_ALL_SITE_COLD_PASS)",' "$log"
-      - name: Audit hydrated site links, desktop and mobile route journeys
-        shell: bash
-        working-directory: site
-        run: |
-          set -euo pipefail
-          harness="$GITHUB_WORKSPACE/harness/qualification/d05/navigation"
-          audit="scripts/d05-release-rendered-links.ts"
-          helper="scripts/d05-release-link-target.mjs"
-          transport="scripts/d05-release-transport.mjs"
-          test ! -e "$audit" && test ! -e "$helper" && test ! -e "$transport"
-          trap 'rm -f "$audit" "$helper" "$transport"' EXIT
-          node --test "$harness/t3-link-target.test.mjs" "$harness/transport.test.mjs"
-          cp "$harness/check-t3-rendered-links.ts" "$audit"
-          cp "$harness/t3-link-target.mjs" "$helper"
-          cp "$harness/transport.mjs" "$transport"
-          set -euo pipefail
-          log="$RUNNER_TEMP/d05-current-rendered-links.log"
-          code=0
-          node --import tsx "$audit" >"$log" 2>&1 || code=$?
-          grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$' "$log" | tail -60 || true
-          grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+' "$log" | sort -u | head -40 || true
-          if [ "$code" -ne 0 ]; then echo "D05_CURRENT_RENDERED_LINKS_FAIL"; exit "$code"; fi
-          echo "D05_CURRENT_RENDERED_LINKS_PASS"
-          grep -E '^\{"status":"D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED",' "$log"
-      - name: Verify external public anchor destinations without disclosing private source
-        shell: bash
-        working-directory: site
-        run: |
-          set -euo pipefail
-          python3 "$GITHUB_WORKSPACE/harness/qualification/d05/current-hosting/external-links.py" dist "$RUNNER_TEMP/d05-external-links.json"
-      - name: Rebuild from retained bytes and verify damaged input rollback
-        shell: bash
-        working-directory: site
-        run: |
-          set -euo pipefail
-          log="$RUNNER_TEMP/d05-current-repro.log"
-          code=0
-          node scripts/check-t3-dist-reproducibility.mjs >"$log" 2>&1 || code=$?
-          grep -E '^# (tests|pass|fail) [0-9]+$|^D05_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)$|^D05_[A-Z0-9_]+_PASS$|^CEHOVOD_[A-Z0-9_]+_PASS$' "$log" | tail -60 || true
-          grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+' "$log" | sort -u | head -40 || true
-          if [ "$code" -ne 0 ]; then echo "D05_CURRENT_REPRO_FAIL"; exit "$code"; fi
-          echo "D05_CURRENT_REPRO_PASS"
-          grep -E '^\{"status":"CEHOVOD_T3_REPRO_PASS","files":[0-9]+,"invalidInputPreservedDist":true,"exactBytes":true,"productAccepted":false\}$' "$log"
-      - name: Require completed actual hardware inference on unchanged runtime and verify exact correction boundary
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 60); do
-            gh api repos/Faust-S/knowledge/actions/jobs/140946226501 >"$RUNNER_TEMP/d05-prior-hardware.json"
-            status="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP+"/d05-prior-hardware.json")).status')"
-            [ "$status" = completed ] && break
-            sleep 20
-          done
-          node --input-type=module <<'JS'
-          import assert from "node:assert/strict";
-          import {readFileSync} from "node:fs";
-          const j=JSON.parse(readFileSync(process.env.RUNNER_TEMP+"/d05-prior-hardware.json","utf8"));
-          assert.equal(j.run_id,46134347428);
-          assert.equal(j.name,"hardware");
-          assert.equal(j.status,"completed");
-          assert.equal(j.conclusion,"success");
-          for(const name of ["Verify pinned source and owner projection","Retrieve exact published T3 input archive","Prove real nonfallback WebGPU hardware","Assemble actual T3 loopback product","Run actual local model, cancel, online and cold offline use","Require four exact-result and correct-choice observations (not semantic acceptance)","Require actual offline cross-service continuity and explicit abstention"])
-            assert.equal(j.steps.find(s=>s.name===name)?.conclusion,"success","D05_HARDWARE_GATE");
-          console.log("D05_CURRENT_ACTUAL_MODEL_EVIDENCE_REUSED_LINK_ONLY_CORRECTION");
-          JS
-      - name: Seal hosting package after successful corrected Linux and hardware qualification
-        shell: bash
-        working-directory: site
-        id: package
-        run: |
-          set -euo pipefail
-          test -f dist/index.html
-          test -f dist/.htaccess
-          test -f dist/workspace/index.html
-          git diff --check
-          git add -u
-          tree="$(git write-tree)"
-          echo "D05_CURRENT_FINAL_SOURCE_TREE=$tree"
-          git diff HEAD --binary >"$RUNNER_TEMP/d05-current-final.patch"
-          python3 "$GITHUB_WORKSPACE/harness/qualification/d05/current-hosting/package.py" dist "$RUNNER_TEMP/d05-current-final.patch" "$RUNNER_TEMP/cehovod-hosting.zip" "$tree" "$RUNNER_TEMP/d05-external-links.json"
           openssl cms -encrypt -binary -aes-256-gcm -outform DER -in "$RUNNER_TEMP/cehovod-hosting.zip" -out "$RUNNER_TEMP/cehovod-hosting.cms" -recip "$GITHUB_WORKSPACE/harness/qualification/d05/current-hosting/recipient.pem" -keyopt rsa_padding_mode:oaep -keyopt rsa_oaep_md:sha256
           digest="$(sha256sum "$RUNNER_TEMP/cehovod-hosting.zip" | cut -d' ' -f1)"
           echo "digest=$digest" >>"$GITHUB_OUTPUT"
