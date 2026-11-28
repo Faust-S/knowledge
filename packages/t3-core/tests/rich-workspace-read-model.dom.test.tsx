@@ -480,6 +480,66 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     for(const [request] of recoverAlternative.mock.calls)expect(request).toEqual({workspaceId:"w",projectId:"research",expected:f.binding.expected,targetProjectId:target});
     expect(createAlternative).toHaveBeenCalledTimes(1);
   });
+  it("opens an explicitly selected saved edited alternative using current original refs without the transient origin selection",async()=>{
+    const f=fixture(),target="saved-research-option";
+    const selection={projectRef:{...projectRef,objectId:"project:w:"+target,recordId:"edited-variant-project",revision:2},
+      workRefs:[{...a,objectId:"work:w:"+target+".analyse",recordId:"edited-variant-work",revision:3}]};
+    const flags={executionAuthority:false as const,newAuthorityGranted:false as const,resultReuseProven:false as const,sourceModified:false as const};
+    const createAlternative=vi.fn(async()=>({...flags,state:"USER_CANCELLED" as const,workspaceId:"w",sourceProjectId:"research",targetProjectId:target,selection:null}));
+    const recoverAlternative=vi.fn(async()=>({...await createAlternative.mock.results[0].value,state:"NOT_FOUND" as const}));
+    const reopenSavedAlternative=vi.fn(async()=>({...flags,state:"OPENED" as const,workspaceId:"w",sourceProjectId:"research",targetProjectId:target,selection}));
+    const binding={...f.binding,personalTaskId:"TASK-source",personalResultSelections:[],
+      reader:{...f.binding.reader,createAlternative,recoverAlternative,reopenSavedAlternative}};
+    render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.change(screen.getByRole("textbox",{name:"Идентификатор сохранённого варианта"}),{target:{value:target}});
+    fireEvent.click(screen.getByRole("button",{name:"Открыть сохранённый вариант"}));
+    await screen.findByText("Проект: "+target+" · ред. 2");
+    expect(reopenSavedAlternative).toHaveBeenCalledWith({workspaceId:"w",projectId:"research",targetProjectId:target});
+    expect(createAlternative).not.toHaveBeenCalled();expect(recoverAlternative).not.toHaveBeenCalled();
+    expect(f.overview).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button",{name:"Вернуться к исходному проекту"}));
+    expect(screen.getByText("Проект: research · ред. "+projectRef.revision)).toBeTruthy();
+  });
+  it("retains the original saved partial target for every explicit recovery",async()=>{
+    const f=fixture(),target="saved-partial-option";
+    const selection={projectRef:{...projectRef,objectId:"project:w:"+target,recordId:"saved-variant-project",revision:1},
+      workRefs:[{...a,objectId:"work:w:"+target+".analyse",recordId:"saved-variant-work",revision:1}]};
+    const flags={executionAuthority:false as const,newAuthorityGranted:false as const,resultReuseProven:false as const,sourceModified:false as const};
+    const base={...flags,workspaceId:"w",sourceProjectId:"research",targetProjectId:target};
+    const createAlternative=vi.fn(async()=>({...base,state:"USER_CANCELLED" as const,selection:null}));
+    const recoverAlternative=vi.fn(async()=>({...base,state:"NOT_FOUND" as const,selection:null}));
+    const reopenSavedAlternative=vi.fn<NonNullable<WorkspaceMethodStageReader["reopenSavedAlternative"]>>()
+      .mockResolvedValueOnce({...base,state:"RECOVERY_REQUIRED",selection:null})
+      .mockResolvedValueOnce({...base,state:"RECOVERED",selection});
+    const binding={...f.binding,reader:{...f.binding.reader,createAlternative,recoverAlternative,reopenSavedAlternative}};
+    render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.change(screen.getByRole("textbox",{name:"Идентификатор сохранённого варианта"}),{target:{value:target}});
+    fireEvent.click(screen.getByRole("button",{name:"Открыть сохранённый вариант"}));
+    await screen.findByText("Осталась незавершённая запись варианта.");
+    expect((screen.getByRole("button",{name:"Создать независимый вариант"}) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button",{name:"Открыть сохранённый вариант"}) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("textbox",{name:"Идентификатор сохранённого варианта"}) as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button",{name:"Восстановить вариант"}));
+    await screen.findByText("Проект: "+target+" · ред. 1");
+    expect(reopenSavedAlternative.mock.calls).toEqual([[{workspaceId:"w",projectId:"research",targetProjectId:target}],[{workspaceId:"w",projectId:"research",targetProjectId:target}]]);
+    expect(createAlternative).not.toHaveBeenCalled();expect(recoverAlternative).not.toHaveBeenCalled();
+  });
+  it("does not lock or create when an explicit saved-target lookup finds no original Project",async()=>{
+    const f=fixture(),target="not-saved";
+    const flags={executionAuthority:false as const,newAuthorityGranted:false as const,resultReuseProven:false as const,sourceModified:false as const};
+    const base={...flags,workspaceId:"w",sourceProjectId:"research",targetProjectId:target,selection:null};
+    const createAlternative=vi.fn(async()=>({...base,state:"USER_CANCELLED" as const}));
+    const recoverAlternative=vi.fn(async()=>({...base,state:"NOT_FOUND" as const}));
+    const reopenSavedAlternative=vi.fn(async()=>({...base,state:"NOT_FOUND" as const}));
+    const binding={...f.binding,reader:{...f.binding.reader,createAlternative,recoverAlternative,reopenSavedAlternative}};
+    render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.change(screen.getByRole("textbox",{name:"Идентификатор сохранённого варианта"}),{target:{value:target}});
+    fireEvent.click(screen.getByRole("button",{name:"Открыть сохранённый вариант"}));
+    await screen.findByText("Сохранённый вариант не найден.");
+    expect((screen.getByRole("button",{name:"Создать независимый вариант"}) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByRole("button",{name:"Восстановить вариант"})).toBeNull();
+    expect(createAlternative).not.toHaveBeenCalled();expect(recoverAlternative).not.toHaveBeenCalled();
+  });
   it("mounts saved Workflow in actual Rich Workspace only for a trusted current binding and explicitly reads original overview",async()=>{
     const f=fixture(),props={workspace,objects,events,profileDefinition:profile,onOpenObject:vi.fn()};
     const ui=render(<RichWorkspaceReadModel {...props}/>);

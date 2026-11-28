@@ -1,7 +1,7 @@
 import { useEffect,useMemo,useRef,useState } from "react";
 import type { ObjectRecord } from "../../../../kernel-client/contracts/runtime-1.3.0";
 import type { WorkspaceMethodCreationComparison,WorkspaceMethodRevisionSelection,WorkspaceMethodOriginComparison } from "../../../../modules/base/owners/project-process-method-comparison.mjs";
-import type { WorkspaceMethodReaderSelection,WorkspaceMethodStageReader,WorkspaceMethodInputOverview,WorkspaceMethodAlternativeReceipt,
+import type { WorkspaceMethodReaderSelection,WorkspaceMethodStageReader,WorkspaceMethodInputOverview,WorkspaceMethodAlternativeReceipt,WorkspaceMethodSavedAlternativeReceipt,
   WorkspaceMethodPublishedResultRef,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,
   WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence,WorkspaceMethodPersonalDraftReceipt,WorkspaceMethodPersonalTaskInspection,WorkspaceMethodPersonalResultSelection,WorkspaceMethodRecoveredPersonalTask,WorkspaceMethodCorporateTaskReferenceInspection,WorkspaceMethodCorporateResultSelection } from "../../../../t3/workspace-method-stage-reader.mjs";
 
@@ -230,48 +230,70 @@ function MethodCreationComparison({binding}:{binding:WorkspaceMethodWorkflowBind
 }
 
 
+type AlternativeReceipt=WorkspaceMethodAlternativeReceipt|WorkspaceMethodSavedAlternativeReceipt;
+type AlternativeActionMode="create"|"recover"|"saved";
+const savedProjectId=(value:string)=>/^[A-Za-z0-9_-]{1,63}$/.test(value);
+function validAlternativeReceipt(value:AlternativeReceipt,binding:WorkspaceMethodWorkflowBinding,mode:AlternativeActionMode,requestedTarget:string|null){
+  const saved=mode==="saved",done=["CREATED","RECOVERED","OPENED"].includes(value.state);
+  const selected=value.selection,target=value.targetProjectId;
+  const allowedStates=saved?["OPENED","RECOVERED","OUTCOME_UNKNOWN","RECOVERY_REQUIRED","RECOVERY_MATERIAL_REVIEW_REQUIRED","NOT_FOUND","CONFLICT"]:
+    mode==="recover"?["RECOVERED","OUTCOME_UNKNOWN","RECOVERY_REQUIRED","RECOVERY_MATERIAL_REVIEW_REQUIRED","NOT_FOUND","CONFLICT"]:
+    ["CREATED","USER_CANCELLED","MATERIAL_REVIEW_REQUIRED","OUTCOME_UNKNOWN"];
+  if(!allowedStates.includes(value.state)||value.workspaceId!==binding.workspaceId||value.sourceProjectId!==binding.projectId
+      ||(saved?!savedProjectId(target):!/^project-[a-f0-9]{32}$/.test(target))||target===binding.projectId
+      ||(requestedTarget!==null&&target!==requestedTarget)||value.executionAuthority!==false
+      ||value.sourceModified!==false||value.newAuthorityGranted!==false||value.resultReuseProven!==false)return false;
+  if(!done)return selected===null;
+  if(!selected||!selected.projectRef||!Array.isArray(selected.workRefs)||selected.workRefs.length<1||selected.workRefs.length>64
+      ||(!saved&&selected.workRefs.length!==binding.expected.workRefs.length))return false;
+  const prefix=encodeURIComponent(binding.workspaceId)+":"+encodeURIComponent(target);
+  const refValid=(ref:{recordId:string;revision:number})=>typeof ref.recordId==="string"&&ref.recordId.length>0
+    &&Number.isSafeInteger(ref.revision)&&ref.revision>=1&&(value.state==="OPENED"||ref.revision===1);
+  return selected.projectRef.family==="iwxa.project"&&selected.projectRef.objectId==="project:"+prefix&&refValid(selected.projectRef)
+    &&new Set([selected.projectRef,...selected.workRefs].map(ref=>ref.recordId)).size===selected.workRefs.length+1
+    &&new Set(selected.workRefs.map(ref=>ref.objectId)).size===selected.workRefs.length
+    &&selected.workRefs.every(ref=>ref.family==="iwxa.work"&&refValid(ref)&&ref.objectId.startsWith("work:"+prefix+".")
+      &&savedProjectId(ref.objectId.slice(("work:"+prefix+".").length)));
+}
 function MethodAlternativeAction({binding,onOpen}:{binding:WorkspaceMethodWorkflowBinding;onOpen:(selection:WorkspaceMethodReaderSelection)=>void}){
   const reader=binding.reader;
-  const [receipt,setReceipt]=useState<WorkspaceMethodAlternativeReceipt|null>(null);
+  const [receipt,setReceipt]=useState<AlternativeReceipt|null>(null);
+  const [savedTarget,setSavedTarget]=useState(""),[savedAttempt,setSavedAttempt]=useState(false);
   const [busy,setBusy]=useState(false),[error,setError]=useState("");
   const serial=useRef(0),liveReader=useRef(reader);liveReader.current=reader;
-  useEffect(()=>{serial.current++;setReceipt(null);setBusy(false);setError("");
+  useEffect(()=>{serial.current++;setReceipt(null);setSavedTarget("");setSavedAttempt(false);setBusy(false);setError("");
     return ()=>{serial.current++;};},[reader]);
   if(!reader.createAlternative||!reader.recoverAlternative)return null;
-  const complete=receipt!==null&&(receipt.state==="CREATED"||receipt.state==="RECOVERED");
-  // A material refusal before the first write is not a recoverable target.
-  // Once a target exists, material review must not unlock a second creation.
+  const complete=receipt!==null&&["CREATED","RECOVERED","OPENED"].includes(receipt.state);
+  // Keep a known partial target locked, but do not lock a read-only lookup
+  // that did not find an original saved target.
   const pending=receipt!==null&&["OUTCOME_UNKNOWN","RECOVERY_REQUIRED","RECOVERY_MATERIAL_REVIEW_REQUIRED","NOT_FOUND","CONFLICT"].includes(receipt.state);
-  const recoverable=pending;
-  const action=async(recover:boolean)=>{
-    if(busy||!reader.createAlternative||!reader.recoverAlternative||(recover?!pending:pending))return;
+  const action=async(mode:AlternativeActionMode)=>{
+    const recovering=mode==="recover",saved=mode==="saved"||(recovering&&savedAttempt);
+    const requestedTarget=recovering?receipt?.targetProjectId??null:mode==="saved"?savedTarget.trim():null;
+    if(busy||!reader.createAlternative||!reader.recoverAlternative||(recovering?!pending:pending)
+        ||(saved&&(!reader.reopenSavedAlternative||requestedTarget===null||!savedProjectId(requestedTarget)||requestedTarget===binding.projectId)))return;
     const token=++serial.current,current=()=>serial.current===token&&liveReader.current===reader;
     setBusy(true);setError("");
     try{
       const input={workspaceId:binding.workspaceId,projectId:binding.projectId,expected:binding.expected};
-      const value=recover?await reader.recoverAlternative({...input,targetProjectId:receipt!.targetProjectId}):await reader.createAlternative(input);
+      const value=saved?await reader.reopenSavedAlternative!({workspaceId:binding.workspaceId,projectId:binding.projectId,targetProjectId:requestedTarget!}):
+        recovering?await reader.recoverAlternative({...input,targetProjectId:requestedTarget!}):await reader.createAlternative(input);
       if(!current())return;
-      const done=value.state==="CREATED"||value.state==="RECOVERED";
-      const selected=value.selection,target=value.targetProjectId;
-      const encodedWorkspace=encodeURIComponent(binding.workspaceId),encodedTarget=encodeURIComponent(target);
-      const allowedStates=recover?["RECOVERED","OUTCOME_UNKNOWN","RECOVERY_REQUIRED","RECOVERY_MATERIAL_REVIEW_REQUIRED","NOT_FOUND","CONFLICT"]:
-        ["CREATED","USER_CANCELLED","MATERIAL_REVIEW_REQUIRED","OUTCOME_UNKNOWN"];
-      if(!allowedStates.includes(value.state)||value.workspaceId!==binding.workspaceId||value.sourceProjectId!==binding.projectId
-          ||!/^project-[a-f0-9]{32}$/.test(target)||target===binding.projectId
-          ||(recover&&target!==receipt!.targetProjectId)||value.executionAuthority!==false
-          ||value.sourceModified!==false||value.newAuthorityGranted!==false||value.resultReuseProven!==false
-          ||(done?(selected===null||selected.projectRef.family!=="iwxa.project"
-            ||selected.projectRef.objectId!=="project:"+encodedWorkspace+":"+encodedTarget||selected.projectRef.revision!==1
-            ||selected.workRefs.length!==binding.expected.workRefs.length
-            ||new Set([selected.projectRef,...selected.workRefs].map(ref=>ref.recordId)).size!==selected.workRefs.length+1
-            ||new Set(selected.workRefs.map(ref=>ref.objectId)).size!==selected.workRefs.length
-            ||selected.workRefs.some(ref=>ref.family!=="iwxa.work"||ref.revision!==1||!ref.objectId.startsWith("work:"+encodedWorkspace+":"+encodedTarget+".")))
-            :selected!==null))throw Error("alternative receipt mismatch");
-      setReceipt(value);
+      if(!validAlternativeReceipt(value,binding,saved?"saved":mode,requestedTarget))throw Error("alternative receipt mismatch");
+      if(mode==="saved"&&value.state==="NOT_FOUND"){
+        setError("Сохранённый вариант не найден.");return;
+      }
+      setReceipt(value);setSavedAttempt(saved);
+      // An explicitly selected saved target is opened directly only after
+      // original owner readback. Navigation clears old task selections.
+      if(saved&&(value.state==="OPENED"||value.state==="RECOVERED")&&value.selection)onOpen({
+        workspaceId:binding.workspaceId,projectId:value.targetProjectId,expected:value.selection,
+      });
     }catch(err){if(current())setError(message(err));}finally{if(current())setBusy(false);}
   };
-  const labels:Record<WorkspaceMethodAlternativeReceipt["state"],string>={
-    CREATED:"Независимый вариант сохранён.",RECOVERED:"Сохранённый вариант восстановлен.",
+  const labels:Record<AlternativeReceipt["state"],string>={
+    CREATED:"Независимый вариант сохранён.",RECOVERED:"Сохранённый вариант восстановлен.",OPENED:"Сохранённый вариант открыт.",
     USER_CANCELLED:"Создание отменено.",MATERIAL_REVIEW_REQUIRED:"Проверьте редакции материалов. Вариант не создан.",
     RECOVERY_MATERIAL_REVIEW_REQUIRED:"Проверьте редакции материалов незавершённого варианта. Новый вариант не создаётся.",
     OUTCOME_UNKNOWN:"Запись не подтверждена. Проверьте существующий вариант.",
@@ -280,12 +302,20 @@ function MethodAlternativeAction({binding,onOpen}:{binding:WorkspaceMethodWorkfl
   };
   return <section aria-label="Варианты методики" className="min-w-0 space-y-2 rounded border border-slate-800 p-2">
     <div className="flex flex-wrap gap-2">
-      <button type="button" className={button} disabled={busy||pending} onClick={()=>void action(false)}>Создать независимый вариант</button>
-      {recoverable&&<button type="button" className={button} disabled={busy} onClick={()=>void action(true)}>Восстановить вариант</button>}
+      <button type="button" className={button} disabled={busy||pending} onClick={()=>void action("create")}>Создать независимый вариант</button>
+      {pending&&<button type="button" className={button} disabled={busy} onClick={()=>void action("recover")}>Восстановить вариант</button>}
       {complete&&<button type="button" className={button} disabled={busy} onClick={()=>onOpen({
         workspaceId:binding.workspaceId,projectId:receipt!.targetProjectId,expected:receipt!.selection!,
       })}>Открыть вариант</button>}
     </div>
+    {reader.reopenSavedAlternative&&<div className="flex flex-wrap items-end gap-2">
+      <label className="min-w-0 flex-1 text-xs text-slate-300">Идентификатор сохранённого варианта
+        <input aria-label="Идентификатор сохранённого варианта" className="mt-1 min-h-[44px] w-full rounded border border-slate-700 bg-slate-950 px-2 text-xs"
+          value={savedTarget} maxLength={63} disabled={busy||pending} onChange={event=>setSavedTarget(event.target.value)}/>
+      </label>
+      <button type="button" className={button} disabled={busy||pending||!savedProjectId(savedTarget.trim())||savedTarget.trim()===binding.projectId}
+        onClick={()=>void action("saved")}>Открыть сохранённый вариант</button>
+    </div>}
     {busy&&<p role="status" className="text-xs text-slate-300">Проверяем и сохраняем вариант…</p>}
     {error&&<p role="alert" className="text-xs text-amber-200">{error}</p>}
     {receipt&&<div data-testid="workflow-alternative-receipt" className="text-xs text-slate-300 break-words">
