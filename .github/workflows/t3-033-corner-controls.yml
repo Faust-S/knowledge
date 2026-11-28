@@ -1,0 +1,257 @@
+name: T3 0.3.3 fixed corner controls and domain-bound offline lifecycle
+on:
+  push:
+    branches: ['ci/once/t3-033-corner-controls/**']
+    paths: ['.github/ci-requests/t3-033-corner-controls.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: t3-033-corner-controls
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: ${{
+      github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      assistant_passed: ${{ steps.assistant.outputs.passed }}
+      public_passed: ${{ steps.public.outputs.passed }}
+    env:
+      SOURCE: '56ee1bf853c734b8101b76d4648929df59f7a053'
+      BASE: '8e26076ce66f0c26693a647e061fcd568e055b77'
+      ASSISTANT: '629aaa274f2d6ad915730ee0d817aedc33e53108'
+      BEFORE: ${{ github.event.before }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the exact deliberate request and UI-only source delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Faust-S/knowledge
+          test "$GITHUB_REF_NAME" = "ci/once/t3-033-corner-controls/$BEFORE"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $BEFORE"
+          test "$(git rev-list --parents -n 1 "$BEFORE")" = "$BEFORE $SOURCE"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = "$(printf 'A\t.github/ci-requests/t3-033-corner-controls.json')"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('.github/ci-requests/t3-033-corner-controls.json','utf8'));
+          assert.deepEqual(r,{schema:'iwxa.ci.once/1',workflow:'t3-033-corner-controls',source:process.env.SOURCE,assistant:process.env.ASSISTANT,base:process.env.BASE,preparedSha:process.env.BEFORE,reason:'REUSE_CONFIRMED_OFFLINE_RESULT_WITHOUT_READING_TERMINAL_LOG'});
+          NODE
+          git checkout --detach "$SOURCE"
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          test "$(git diff --name-only "$BASE" HEAD -- packages/t3-core/src | sort)" = "$(printf '%s\n' packages/t3-core/src/t3/domain-mode/t3-domain-mode.mjs packages/t3-core/src/t3/domain-mode/t3-sw.js | sort)"
+          test "$(git diff --name-only "$BASE" HEAD -- packages/t3-core/scripts)" = packages/t3-core/scripts/materialize-t3-domain-mode.mjs
+          git diff --quiet "$BASE" HEAD -- packages/t3-core/integration-sources packages/t3-core/qualified-runtime packages/t3-core/vite.config.ts
+          echo T3_033_EXACT_SCOPE_PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Reuse exact successful offline lifecycle qualification from run 46152580621
+        id: public
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/46152580621/jobs" > "$RUNNER_TEMP/prior-jobs.json"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const dir=process.env.RUNNER_TEMP;
+          const job=JSON.parse(readFileSync(join(dir,'prior-jobs.json'),'utf8')).jobs.find(j=>j.id===141002197928);
+          assert.ok(job&&job.head_sha==='bf578fc616c001c3c058ed565a36b18cbeca3886');
+          assert.equal(job.steps.find(x=>x.name==='Verify the exact deliberate request and UI-only source delta').conclusion,'success');
+          assert.equal(job.steps.find(x=>x.name==='Validate shared installation source and existing offline lifecycle').conclusion,'success');
+          NODE
+          echo "passed=19" >> "$GITHUB_OUTPUT"
+          echo T3_033_EXACT_PRIOR_OFFLINE_19_PASS_REUSED
+          rm -f "$RUNNER_TEMP/prior-jobs.json"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: '629aaa274f2d6ad915730ee0d817aedc33e53108'
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-assistant
+      - name: Verify original assistant identity and unchanged semantic modules
+        id: assistant
+        shell: bash
+        working-directory: private-assistant/browser-local-inference
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$ASSISTANT"
+          test "$(git rev-parse HEAD:browser-local-inference/domain-assistant/main.mjs)" = '8392bddd8e4ce4863fd44be73f046c111bcc2bf0'
+          test "$(git rev-parse HEAD:browser-local-inference/domain-assistant/field-policy.mjs)" = '475045a4b86d6a2ef0535fb05be8f6a853ec3166'
+          test "$(git rev-parse HEAD:browser-local-inference/domain-assistant/skill-runtime.mjs)" = '9a9704df6b2b41df119827dd357d7ac2058bdd34'
+          test "$(git rev-parse HEAD:browser-local-inference/domain-assistant/device-policy.mjs)" = 'eee136413dc33a649be42b2d229125c69fd06cae'
+          log="$RUNNER_TEMP/t3-private-assistant.log"
+          if (node --check domain-assistant/main.mjs && node --test --test-reporter=tap tests/domain-assistant-*.test.mjs) > "$log" 2>&1; then
+            grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$log"
+            echo "passed=$(sed -n 's/^# pass //p' "$log")" >> "$GITHUB_OUTPUT"
+          else
+            grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$log" || true
+            echo T3_033_ORIGINAL_ASSISTANT_FAIL
+            exit 1
+          fi
+      - name: Prepare the existing browser qualification dependency
+        working-directory: packages/t3-core
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx --no-install playwright install chromium
+      - name: Existing install, update and cold restart route plus both actual controls
+        shell: bash
+        working-directory: packages/t3-core
+        run: |
+          set -euo pipefail
+          export T3_ORIGINAL_ASSISTANT_DIR="$GITHUB_WORKSPACE/private-assistant/browser-local-inference/domain-assistant"
+          log="$RUNNER_TEMP/t3-corner-browser.log"
+          set +e
+          node --test --test-reporter=tap tests/t3-domain-switch.browser.mjs > "$log" 2>&1
+          result=$?
+          set -e
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$|^# T3_CORNER_LAYOUT_PASS [0-9]+x[0-9]+$|^(not ok|ok) [0-9]+ - |^  location:.*t3-domain-switch.browser.mjs:' "$log" || true
+          if test "$result" != 0; then echo T3_033_BROWSER_ROUTE_FAIL; exit 1; fi
+          for geometry in 1440x900 375x812 320x568; do grep -F "# T3_CORNER_LAYOUT_PASS $geometry" "$log"; done
+          echo T3_033_BOTH_REAL_CONTROLS_AND_OFFLINE_LIFECYCLE_PASS
+      - name: Remove private inputs and logs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf private-assistant "$RUNNER_TEMP/t3-private-assistant.log" "$RUNNER_TEMP/t3-corner-browser.log"
+
+  release:
+    needs: qualify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE: '56ee1bf853c734b8101b76d4648929df59f7a053'
+      BASE: '8e26076ce66f0c26693a647e061fcd568e055b77'
+      ASSISTANT: '629aaa274f2d6ad915730ee0d817aedc33e53108'
+      WORK_BRANCH: 'fix/2026-11-28-t3-corner-controls'
+      ASSISTANT_PASSED: ${{ needs.qualify.outputs.assistant_passed }}
+      PUBLIC_PASSED: ${{ needs.qualify.outputs.public_passed }}
+      RELEASE_TAG: t3-platform-v0.3.3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '56ee1bf853c734b8101b76d4648929df59f7a053'
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Record the qualified scope, preserve original compiled platform bytes
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          test "$(git ls-remote origin "refs/heads/$WORK_BRANCH" | cut -f1)" = "$SOURCE"
+          test -z "$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")"
+          git diff --quiet "$BASE" HEAD -- packages/t3-core/integration-sources packages/t3-core/qualified-runtime packages/t3-core/vite.config.ts
+          mkdir "$RUNNER_TEMP/prior-download"
+          gh release download t3-platform-v0.3.2 --repo "$GITHUB_REPOSITORY" --pattern platform-inputs.zip --dir "$RUNNER_TEMP/prior-download"
+          echo '5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b  '"$RUNNER_TEMP/prior-download/platform-inputs.zip" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/prior"
+          unzip -q "$RUNNER_TEMP/prior-download/platform-inputs.zip" -d "$RUNNER_TEMP/prior"
+          (cd "$RUNNER_TEMP/prior"; echo 'f752ee74d54706479162dc212cd4152099d2751655a3781d3d91243dd56c4ba0  t3-platform-inputs.json' | sha256sum -c -; sha256sum -c t3-platform-inputs.sha256)
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const root='packages/t3-core',e=process.env,temp=e.RUNNER_TEMP;
+          assert.ok(Number(e.ASSISTANT_PASSED)>=137);assert.ok(Number(e.PUBLIC_PASSED)>0);
+          const qualification={schema:'IWXA_T3_033_QUALIFICATION/1',version:'0.3.3',testedSource:e.SOURCE,assistant:e.ASSISTANT,base:e.BASE,run:Number(e.GITHUB_RUN_ID),originalAssistantSourceTests:Number(e.ASSISTANT_PASSED),offlineAndPwaSourceTests:Number(e.PUBLIC_PASSED),offlineAndPwaSourceRun:46152580621,browser:{originalInstallUpdateColdRestart:true,realCombinedControls:true,viewports:['1440x900','375x812','320x568'],theme:true,print:true,layoutUnchanged:true},domainBinding:true,unchangedModelEvidenceRun:46065502722,modelGenerationRetested:false,originalKernelUnchanged:true,independentCodex:'NOT_RUN',actualDomainMigration:false,physicalMobileAccepted:false,installedProductAccepted:false};
+          const json=x=>JSON.stringify(x,null,2)+'\n';
+          writeFileSync(join(temp,'qualification-result.json'),json(qualification));
+          const path=join(root,'docs/t3-consolidation-sources.json'),m=JSON.parse(readFileSync(path,'utf8'));
+          assert.equal(m.version,'0.3.3');assert.equal(m.originalAssistant.commit,e.ASSISTANT);
+          m.status='ENGINEERING_QUALIFIED_STABLE_INPUTS_PENDING_PUBLICATION';
+          m.snapshot='0.3.3 fixed corner controls and exact offline origin binding, original compiled Host, model catalog, engine and Kernel unchanged from 0.3.2.';
+          m.domainAssistantUi.previousFinalRelease_0_3_2=m.domainAssistantUi.finalRelease;
+          m.domainAssistantUi.finalRelease={version:'0.3.3',prior:'0.3.2',source:e.SOURCE,assistant:e.ASSISTANT,run:Number(e.GITHUB_RUN_ID),sourceTests:qualification.originalAssistantSourceTests,offlineSourceTests:qualification.offlineAndPwaSourceTests,offlineSourceRun:46152580621,scope:'COMMON_UI_AND_OFFLINE_LIFECYCLE',priorRealInferenceRun:46065502722,installedProductsSeparate:true,domainMigrationAutoAuthorized:false};
+          m.domainAssistantUi.cornerControls={...m.domainAssistantUi.cornerControls,status:'ENGINEERING_QUALIFIED',qualification};
+          writeFileSync(path,json(m));
+          const notes=['# IWXA T3 0.3.3. Исправительный выпуск','','Две компактные иконки в правом нижнем углу, одна открытая панель, без изменения размеров и положения исходного сайта. Модель устанавливается внутри помощника. Автономная установка, обновление и холодное восстановление привязаны к точному origin официальной сборки; HTTP loopback сохранён для разработки. Это не DRM.','','Исходные проверки помощника: '+qualification.originalAssistantSourceTests+' PASS. Автономность и PWA: '+qualification.offlineAndPwaSourceTests+' PASS. Браузер: 1440×900, 375×812, 320×568, обе темы, печать, переключение панелей и холодный автономный запуск. [Прогон](https://github.com/Faust-S/knowledge/actions/runs/'+e.GITHUB_RUN_ID+').','','Общий помощник: '+e.ASSISTANT+'. Оригинальные Kernel 0.3.6, Runtime Contract 1.3.0, WebLLM 0.2.87 и три централизованные модели не менялись. Предыдущая аппаратная квалификация: 46065502722. Нового аппаратного прогона не проводилось.','','Это квалификация общей технологии на нейтральной странице, не автоматическая приёмка, миграция или публикация доменов. Независимая приёмка Codex и физические мобильные устройства не проверены. При миграции удалить прежние inline-слоты и декоративные блоки установки, сохранить предметные кнопки и перенести CSS-токены на корень документа.',''];
+          writeFileSync(join(root,'docs/T3_PLATFORM_0_3_3_RELEASE_RU.md'),notes.join('\n'));
+          NODE
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/t3-core/docs/t3-consolidation-sources.json packages/t3-core/docs/T3_PLATFORM_0_3_3_RELEASE_RU.md
+          git commit -m 'Record qualified IWXA T3 0.3.3 common UI and offline release [skip ci] [skip actions]'
+          FINAL="$(git rev-parse HEAD)"
+          echo "source=$FINAL" >> "$GITHUB_OUTPUT"
+          cd packages/t3-core
+          test ! -e dist
+          cp -a "$RUNNER_TEMP/prior/dist" dist
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          for(const name of ['package.json','package-lock.json']){
+            const old=readFileSync(join(process.env.RUNNER_TEMP,'prior',name),'utf8');
+            assert.equal(old.split('"version": "0.3.2"').length-1,name==='package.json'?1:2);
+            writeFileSync(name,old.replaceAll('"version": "0.3.2"','"version": "0.3.3"'));
+          }
+          NODE
+          node scripts/package-t3-portable-platform.mjs "$RUNNER_TEMP/final" "$FINAL" "$GITHUB_RUN_ID"
+          mkdir "$RUNNER_TEMP/final-input"
+          unzip -q "$RUNNER_TEMP/final/platform-inputs.zip" -d "$RUNNER_TEMP/final-input"
+          (cd "$RUNNER_TEMP/final-input"; sha256sum -c t3-platform-inputs.sha256)
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const t=process.env.RUNNER_TEMP;
+          const a=JSON.parse(readFileSync(join(t,'prior','t3-platform-inputs.json'),'utf8'));
+          const b=JSON.parse(readFileSync(join(t,'final-input','t3-platform-inputs.json'),'utf8'));
+          assert.equal(a.sourceCommit,process.env.BASE);assert.equal(b.version,'0.3.3');
+          const old=new Map(a.files.map(x=>[x.path,x])),now=new Map(b.files.map(x=>[x.path,x]));
+          assert.deepEqual([...old.keys()],[...now.keys()]);assert.equal(now.size,174);
+          const changed=[...now].filter(([k,v])=>old.get(k).sha256!==v.sha256).map(([k])=>k).sort();
+          assert.deepEqual(changed,['docs/t3-consolidation-sources.json','package-lock.json','package.json','scripts/materialize-t3-domain-mode.mjs','src/t3/domain-mode/t3-domain-mode.mjs','src/t3/domain-mode/t3-sw.js'].sort());
+          console.log('T3_033_EXACT_DELTA_PASS '+JSON.stringify({files:now.size,unchanged:now.size-changed.length,changed}));
+          NODE
+          cp "$RUNNER_TEMP/final-input/t3-platform-inputs.json" "$RUNNER_TEMP/final-input/t3-platform-inputs.sha256" "$RUNNER_TEMP/final/"
+          cp "$RUNNER_TEMP/qualification-result.json" "$RUNNER_TEMP/final/"
+          git -C "$GITHUB_WORKSPACE" push origin "$FINAL:refs/heads/$WORK_BRANCH"
+      - uses: actions/upload-artifact@v4
+        id: retained
+        with:
+          name: iwxa-t3-platform-inputs-0.3.3-${{ steps.package.outputs.source }}
+          path: ${{ runner.temp }}/final/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publish only the qualified exact release
+        shell: bash
+        env:
+          FINAL: ${{ steps.package.outputs.source }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FINAL"
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP/final/"* --repo "$GITHUB_REPOSITORY" --target "$FINAL" --draft --latest=false --title "IWXA T3 portable platform 0.3.3" --notes-file packages/t3-core/docs/T3_PLATFORM_0_3_3_RELEASE_RU.md
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name=="t3-platform-v0.3.3")' > "$RUNNER_TEMP/draft.json"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {createHash} from 'node:crypto';
+          import {readFileSync,readdirSync} from 'node:fs';
+          import {join} from 'node:path';
+          const t=process.env.RUNNER_TEMP,dir=join(t,'final');
+          const r=JSON.parse(readFileSync(join(t,'draft.json'),'utf8'));
+          assert.equal(r.draft,true);assert.equal(r.target_commitish,process.env.FINAL);
+          const expected=Object.fromEntries(readdirSync(dir).map(name=>[name,'sha256:'+createHash('sha256').update(readFileSync(join(dir,name))).digest('hex')]));
+          assert.deepEqual(Object.fromEntries(r.assets.map(a=>[a.name,a.digest])),expected);
+          NODE
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)" = "$FINAL"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '{tag_name,target_commitish,draft,prerelease,html_url,assets:[.assets[]|{name,digest,size}]}'
+          echo T3_033_STABLE_RELEASE_PUBLISHED
