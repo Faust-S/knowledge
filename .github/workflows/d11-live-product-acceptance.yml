@@ -1,4 +1,4 @@
-name: D11 stable T3 0.3.2 and original domain assistant qualification
+name: D11 stable T3 0.3.2 complete online cold and model qualification
 on:
   workflow_dispatch:
   push:
@@ -29,7 +29,7 @@ jobs:
           persist-credentials: false
       - name: Admit one exact T3 request
         run: |
-          python tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-live-product-acceptance --profile t3-stable-os --revision domain=f266bec7e24592b210ea5129001b8fd766199f79 --revision site=4231c2ec63f0fa87862bdfc460d926b20f5d993e --revision t3=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
+          python tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-live-product-acceptance --profile t3-stable-os --revision domain=f266bec7e24592b210ea5129001b8fd766199f79 --revision site=0b923349b3ea1b5e4b116a2a9f0c5c321422cf62 --revision t3=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
           if ($LASTEXITCODE -ne 0) { throw "D11_REQUEST_INVALID" }
       - name: Verify published stable T3 engineering release
         env:
@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 4231c2ec63f0fa87862bdfc460d926b20f5d993e
+          ref: 0b923349b3ea1b5e4b116a2a9f0c5c321422cf62
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -92,7 +92,7 @@ jobs:
           node-version: '22.16.0'
       - name: Verify exact T3 source and 56 D11 canonical mirrors
         run: |
-          if ((git -C site rev-parse HEAD).Trim() -ne "4231c2ec63f0fa87862bdfc460d926b20f5d993e" -or
+          if ((git -C site rev-parse HEAD).Trim() -ne "0b923349b3ea1b5e4b116a2a9f0c5c321422cf62" -or
               (git -C domain rev-parse HEAD).Trim() -ne "f266bec7e24592b210ea5129001b8fd766199f79" -or
               (git -C t3 rev-parse HEAD).Trim() -ne "8e26076ce66f0c26693a647e061fcd568e055b77" -or
               (git -C t3 rev-parse "HEAD^{tree}").Trim() -ne "6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" -or
@@ -318,12 +318,354 @@ jobs:
           }
           if ($code -ne 0) { throw "D11_T3_ONLINE_OS_FAILED" }
           Write-Output "D11_T3_ONLINE_OS=PASS"
-      - name: Require all current T3 build and online checks
+      - name: Original HTTPS cold witness prerequisite
+        run: |
+          if (!(Get-Command openssl -ErrorAction SilentlyContinue)) {
+            if ($IsWindows -and (Test-Path "$env:ProgramFiles/Git/usr/bin/openssl.exe")) {
+              "$env:ProgramFiles/Git/usr/bin" >> $env:GITHUB_PATH
+            } else { throw "D11_COLD_OPENSSL_UNAVAILABLE" }
+          }
+          "D11_ORIGINAL_T3_SOURCE=$(Join-Path $env:GITHUB_WORKSPACE 't3/packages/t3-core')" >> $env:GITHUB_ENV
+      - name: Real offline install, server stop, cold operating chain and original Exchange
+        id: cold
+        working-directory: site
+        continue-on-error: true
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP "d11-cold-os.log"
+          & node scripts/d11-live-t2-kernel-exchange-acceptance.mjs --operational --cold-offline *> $log
+          $code=$LASTEXITCODE
+          Get-Content $log | ForEach-Object {
+            if ($_ -match '^(D11_[A-Z0-9_]+=([0-9/ ]*PASS))
+        if: always()
+        run: |
+          if ("${{ steps.source.outcome }}" -ne "success" -or "${{ steps.host.outcome }}" -ne "success" -or "${{ steps.build.outcome }}" -ne "success" -or "${{ steps.static.outcome }}" -ne "success" -or "${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.documents.outcome }}" -ne "success" -or "${{ steps.exchange.outcome }}" -ne "success" -or "${{ steps.os.outcome }}" -ne "success" -or "${{ steps.cold.outcome }}" -ne "success") { throw "D11_T3_BUILD_ONLINE_COLD_QUALIFICATION_INCOMPLETE" }
+          Write-Output "D11_T3_BUILD_ONLINE_QUALIFICATION=PASS"
+          Write-Output "D11_T3_BUILD_ONLINE_COLD_QUALIFICATION=PASS"
+      - name: Remove private inputs and diagnostics
+        if: always()
+        run: |
+          foreach ($name in @("domain","site","t3","assistant")) {
+            $folder=Join-Path $env:GITHUB_WORKSPACE $name
+            if (Test-Path $folder) { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+          Get-ChildItem $env:RUNNER_TEMP -Filter "d11-*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+      # No private code, output, logs, screenshots or artifacts uploaded.
+) { Write-Output $Matches[1] }
+            elseif ($_ -match '^(D11_(?:COLD_SNAPSHOT_FILES|OS_STAGE|EXCHANGE_STAGE|REAL_T2_FAILED|LIVE_FAILURE_KIND|OS_DISPATCH_NOTICE|OS_FORM_INVALID_KIND)=[A-Z0-9_,]+)
         if: always()
         run: |
           if ("${{ steps.source.outcome }}" -ne "success" -or "${{ steps.host.outcome }}" -ne "success" -or "${{ steps.build.outcome }}" -ne "success" -or "${{ steps.static.outcome }}" -ne "success" -or "${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.documents.outcome }}" -ne "success" -or "${{ steps.exchange.outcome }}" -ne "success" -or "${{ steps.os.outcome }}" -ne "success") { throw "D11_T3_BUILD_ONLINE_QUALIFICATION_INCOMPLETE" }
           Write-Output "D11_T3_BUILD_ONLINE_QUALIFICATION=PASS"
           Write-Output "D11_T3_OFFLINE_AND_MODEL_QUALIFICATION=NOT_RUN"
+      - name: Remove private inputs and diagnostics
+        if: always()
+        run: |
+          foreach ($name in @("domain","site","t3","assistant")) {
+            $folder=Join-Path $env:GITHUB_WORKSPACE $name
+            if (Test-Path $folder) { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+          Get-ChildItem $env:RUNNER_TEMP -Filter "d11-*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+      # No private code, output, logs, screenshots or artifacts uploaded.
+) { Write-Output $Matches[1] }
+            elseif ($_ -match '(?:AssertionError|Error):\s*(D11_COLD_[A-Z0-9_]+)') { Write-Output ("D11_COLD_DIAGNOSTIC="+$Matches[1]) }
+          }
+          if ($code -ne 0) { throw "D11_T3_COLD_OS_FAILED" }
+          if (!(Select-String -Path $log -SimpleMatch "D11_T3_COLD_OPERATIONAL_OS=PASS" -Quiet)) { throw "D11_T3_COLD_WITNESS_MISSING" }
+          Write-Output "D11_T3_COLD_OS=PASS"
+      - name: Require all current T3 build, online and offline checks
+        if: always()
+        run: |
+          if ("${{ steps.source.outcome }}" -ne "success" -or "${{ steps.host.outcome }}" -ne "success" -or "${{ steps.build.outcome }}" -ne "success" -or "${{ steps.static.outcome }}" -ne "success" -or "${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.documents.outcome }}" -ne "success" -or "${{ steps.exchange.outcome }}" -ne "success" -or "${{ steps.os.outcome }}" -ne "success") { throw "D11_T3_BUILD_ONLINE_QUALIFICATION_INCOMPLETE" }
+          Write-Output "D11_T3_BUILD_ONLINE_QUALIFICATION=PASS"
+          Write-Output "D11_T3_OFFLINE_AND_MODEL_QUALIFICATION=NOT_RUN"
+      - name: Remove private inputs and diagnostics
+        if: always()
+        run: |
+          foreach ($name in @("domain","site","t3","assistant")) {
+            $folder=Join-Path $env:GITHUB_WORKSPACE $name
+            if (Test-Path $folder) { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+          Get-ChildItem $env:RUNNER_TEMP -Filter "d11-*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+      # No private code, output, logs, screenshots or artifacts uploaded.
+
+  model:
+    name: D11 native T3 model ${{ matrix.profile }}
+    needs: [browser]
+    runs-on: macos-latest
+    timeout-minutes: 110
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [light, balanced, extended]
+    env:
+      D11_T3_MODEL_PROFILE: ${{ matrix.profile }}
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit one exact T3 request
+        run: |
+          python tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d11-live-product-acceptance --profile t3-stable-os --revision domain=f266bec7e24592b210ea5129001b8fd766199f79 --revision site=0b923349b3ea1b5e4b116a2a9f0c5c321422cf62 --revision t3=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
+          if ($LASTEXITCODE -ne 0) { throw "D11_REQUEST_INVALID" }
+      - name: Verify published stable T3 engineering release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $run=gh api "repos/Faust-S/knowledge/actions/runs/46065502722" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.conclusion -ne "success") { throw "D11_T3_ORIGINAL_QUALIFICATION_MISSING" }
+          $release=gh api "repos/Faust-S/knowledge/releases/tags/t3-platform-v0.3.2" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $release.prerelease -or $release.draft -or $release.target_commitish -ne "8e26076ce66f0c26693a647e061fcd568e055b77") { throw "D11_T3_STABLE_RELEASE_IDENTITY" }
+          $exact=@($release.assets | Where-Object { $_.id -eq 802021785 -and $_.name -eq "platform-inputs.zip" -and $_.digest -eq "sha256:5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b" })
+          if ($exact.Count -ne 1) { throw "D11_T3_RELEASE_ASSET_IDENTITY" }
+          Write-Output "D11_T3_STABLE_RELEASE=PASS"
+      - name: Existing private repository read scope
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw "D11_DOMEN_UNAVAILABLE" }
+          foreach ($repo in @("Faust-S/advice-logistics.ru","Faust-S/advice-logistics","Faust-S/T3")) {
+            gh api "repos/$repo" --jq ".id" *> $null
+            if ($LASTEXITCODE -ne 0) { throw "D11_READ_SCOPE_UNAVAILABLE" }
+          }
+          Write-Output "D11_READ_SCOPE=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/advice-logistics.ru
+          ref: 0b923349b3ea1b5e4b116a2a9f0c5c321422cf62
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/advice-logistics
+          ref: f266bec7e24592b210ea5129001b8fd766199f79
+          token: ${{ secrets.DOMEN }}
+          path: domain
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 8e26076ce66f0c26693a647e061fcd568e055b77
+          path: t3
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 2c247482306f218a7d5be668de11e98f168862d4
+          token: ${{ secrets.DOMEN }}
+          path: assistant
+          persist-credentials: false
+      - name: Download exact published public platform input
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir=Join-Path $env:RUNNER_TEMP "d11-t3-platform-input"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          & gh release download t3-platform-v0.3.2 --repo Faust-S/knowledge --pattern platform-inputs.zip --dir "$dir"
+          if ($LASTEXITCODE -ne 0) { throw "D11_T3_STABLE_DOWNLOAD_FAILED" }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact T3 source and 56 D11 canonical mirrors
+        run: |
+          if ((git -C site rev-parse HEAD).Trim() -ne "0b923349b3ea1b5e4b116a2a9f0c5c321422cf62" -or
+              (git -C domain rev-parse HEAD).Trim() -ne "f266bec7e24592b210ea5129001b8fd766199f79" -or
+              (git -C t3 rev-parse HEAD).Trim() -ne "8e26076ce66f0c26693a647e061fcd568e055b77" -or
+              (git -C t3 rev-parse "HEAD^{tree}").Trim() -ne "6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" -or
+              (git -C t3 rev-parse "HEAD:packages/t3-core/src").Trim() -ne "81294420eff40500ecd04a43b4c253cb4bcd67c7" -or
+              (git -C t3 rev-parse "HEAD:packages/t3-core").Trim() -ne "1d969c6ed91995e213bb9f89fc3c17b309ba3770") { throw "D11_T3_PIN_MISMATCH" }
+          $o=Get-Content -Raw -Encoding UTF8 site/runtime/d11-module/operations/source.json | ConvertFrom-Json
+          $m=Get-Content -Raw -Encoding UTF8 site/src/lib/logistics/professional-methods-source.json | ConvertFrom-Json
+          $a=Get-Content -Raw -Encoding UTF8 site/runtime/d11-module/os-work-areas-source.json | ConvertFrom-Json
+          $files=@($o.files)+@($m.files)+@([pscustomobject]@{sourcePath=$a.sourcePath;localPath=$a.localPath;blob=$a.sourceBlob})
+          if ($files.Count -ne 56 -or @($files.localPath | Sort-Object -Unique).Count -ne 56 -or @($files.sourcePath | Sort-Object -Unique).Count -ne 55) { throw "D11_MIRROR_MANIFEST_INVALID" }
+          foreach ($f in $files) {
+            if ((git -C domain rev-parse "HEAD:$($f.sourcePath)").Trim() -ne $f.blob -or (git -C site rev-parse "HEAD:$($f.localPath)").Trim() -ne $f.blob) { throw "D11_MIRROR_MISMATCH" }
+          }
+          Write-Output "D11_MIRRORS=56/56 PASS"
+          if ((git -C assistant rev-parse HEAD).Trim() -ne "2c247482306f218a7d5be668de11e98f168862d4") { throw "D11_ASSISTANT_PIN_MISMATCH" }
+          $p=Get-Content -Raw -Encoding UTF8 site/runtime/t3-platform/0.3.2/domain-assistant.json | ConvertFrom-Json
+          if ($p.sourceCommit -ne "2c247482306f218a7d5be668de11e98f168862d4" -or $p.sharedEngineSource -ne "8e26076ce66f0c26693a647e061fcd568e055b77" -or $p.files.Count -ne 4) { throw "D11_ASSISTANT_MANIFEST_MISMATCH" }
+          foreach ($f in $p.files) {
+            if ((git -C assistant rev-parse "HEAD:$($p.sourceRoot)/$($f.path)").Trim() -ne $f.blob) { throw "D11_ASSISTANT_BLOB_MISMATCH" }
+          }
+          $s=Get-Content -Raw -Encoding UTF8 site/runtime/t3-platform/0.3.2/domain-skills.json | ConvertFrom-Json
+          if ($s.sourceCommit -ne "f266bec7e24592b210ea5129001b8fd766199f79" -or (git -C domain rev-parse "HEAD:$($s.sourcePath)").Trim() -ne $s.sourceBlob -or (git -C site rev-parse "HEAD:$($s.publishedPath)").Trim() -ne $s.sourceBlob) { throw "D11_SKILL_MIRROR_MISMATCH" }
+          Write-Output "D11_T3_ASSISTANT_FILES=4/4 PASS"
+          Write-Output "D11_T3_CANONICAL_SKILLS=PASS"
+          $archive=Join-Path $env:RUNNER_TEMP "d11-t3-platform-input/platform-inputs.zip"
+          if (!(Test-Path $archive) -or (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne "5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b") { throw "D11_T3_ARCHIVE_MISMATCH" }
+          Write-Output "D11_T3_ARCHIVE=PASS"
+          "IWXA_D11_T3_PLATFORM_ARCHIVE=$archive" >> $env:GITHUB_ENV
+          "IWXA_D11_T3_PREPARED_HOST=$(Join-Path $env:RUNNER_TEMP 'd11-t3-prepared-host')" >> $env:GITHUB_ENV
+      - name: Site dependencies and source regression
+        id: source
+        working-directory: site
+        continue-on-error: true
+        run: |
+          $status=0
+          & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP "d11-install.log")
+          if ($LASTEXITCODE -ne 0) { throw "D11_INSTALL_FAILED" }
+          $tests=@(Get-ChildItem tests -File -Filter "*.test.mjs" | ForEach-Object { $_.FullName })
+          if ($tests.Count -eq 0) { throw "D11_TESTS_MISSING" }
+          $log=Join-Path $env:RUNNER_TEMP "d11-site-regression.log"
+          & node --experimental-strip-types --test --test-reporter=tap @tests *> $log
+          $code=$LASTEXITCODE
+          Get-Content $log | ForEach-Object {
+            if ($_ -match '^# (tests|pass|fail|skipped) [0-9]+$') { Write-Output $_ }
+            elseif ($_ -match '^not ok ([0-9]+)') { Write-Output ("D11_FAILED_TEST_NUMBER="+$Matches[1]) }
+          }
+          if ($code -ne 0) { $status=1 }
+          & npx --no-install tsc --noEmit --pretty false *> (Join-Path $env:RUNNER_TEMP "d11-types.log")
+          if ($LASTEXITCODE -ne 0) { $status=1; Write-Output "D11_TYPES=FAIL" } else { Write-Output "D11_TYPES=PASS" }
+          if ($status -ne 0) { throw "D11_SOURCE_REGRESSION_FAILED" }
+          Write-Output "D11_T3_SITE_SOURCE=PASS"
+      - name: Original assistant validates actual public D11 skills
+        working-directory: site
+        run: |
+          $env:D11_ASSISTANT_SOURCE=Join-Path $env:GITHUB_WORKSPACE "assistant/browser-local-inference/domain-assistant"
+          $js=@'
+          import {readFileSync} from "node:fs";
+          import {resolve} from "node:path";
+          import {pathToFileURL} from "node:url";
+          const {validateSkillPack,rankSkills,routeSkill}=await import(pathToFileURL(resolve(process.env.D11_ASSISTANT_SOURCE,"skill-runtime.mjs")).href);
+          const p=validateSkillPack(JSON.parse(readFileSync("public/assets/d11-assistant-skills.json","utf8")));
+          if(p.skills.length!==17||p.formHints.length!==15||p.resultHints.length!==16||p.formHints.flatMap(h=>h.fields).length!==72||p.formHints.flatMap(h=>h.fields).filter(f=>f.kind==="omit").length!==12)throw Error("D11_SKILL_SCOPE");
+          for(const s of p.skills)if(routeSkill(p,s.route)!==s||!rankSkills(p,s.triggers[0]).some(x=>x.id===s.id))throw Error("D11_SKILL_ROUTE");
+          console.log("D11_T3_SKILLS=17/17 PASS");
+          if(p.formHints.some(h=>h.skillId==="logistics-order-execution")||p.resultHints.flatMap(h=>h.advice||[]).length!==48)throw Error("D11_SKILL_SCOPE");
+          const {splitFormProposals}=await import(pathToFileURL(resolve(process.env.D11_ASSISTANT_SOURCE,"field-policy.mjs")).href);
+          const cases=[
+            ["inbound-yard-crossdock","docks",["2","3","4","6"],"доступные доки: 4","4"],
+            ["returnable-transport-packaging","fleet",["4","6","8"],"автомобилей доставки: 6","6"],
+            ["carrier-sla-invoices","fleetMode",["all","reduced"],"ограниченный парк подрядчиков","reduced"],
+            ["multimodal-container-control","trafficPercent",["100","120","150"],"трафик на дорогах: 120%","120"],
+            ["warehouse-peak-shifts","peakPercent",["80","100","120"],"сезонный спрос: 120%","120"],
+            ["warehouse-peak-shifts","peakPercent",["80","100","120"],"сезонный спрос: 999%",null],
+            ["multimodal-container-control","railCapacityTeu",["2","4","6"],"вместимость поезда: 6 TEU",null],
+            ["returnable-transport-packaging","returnDays",["1","2","3","4"],"возврат через 2 рабочих дня",null],
+            ["carrier-sla-invoices","fleetMode",["all","reduced"],"все согласованные автомобили или ограниченный парк подрядчиков",null],
+            ["inbound-yard-crossdock","inspection",["10","20","40"],"время входной проверки: 20 минут","20"]
+          ];
+          for(const [id,name,values,request,expected] of cases){
+            const hint=p.formHints.find(h=>h.skillId===id);
+            const row={input:{name,tagName:"SELECT",options:values.map(value=>({value,disabled:false}))}};
+            const observed=splitFormProposals([row],request,hint);
+            if(observed.remaining.length||observed.controlled!==1||
+               (expected===null?(observed.known.length!==0||observed.unresolved.length!==1):
+                 (observed.known.length!==1||observed.known[0].proposed!==expected||observed.unresolved.length!==0)))throw Error("D11_T3_FIELD_POLICY_CASE");
+          }
+          const docs=p.formHints.filter(h=>h.marker.startsWith("data-d11-doc-"));
+          if(docs.length!==6||docs.flatMap(h=>h.fields).length!==23||docs.some(h=>h.fallback!=="omit"||h.fields.some(f=>f.kind!=="nativeQuote")))throw Error("D11_DOCUMENT_SCOPE");
+          console.log("D11_T3_NATIVE_CONTEXT_FORMS=15/15 PASS");
+          console.log("D11_T3_NATIVE_CONTEXT_RESULTS=16/16 PASS");
+          console.log("D11_T3_NATIVE_FIELD_POLICY=10/10 PASS");
+          '@
+          & node --input-type=module -e $js
+          if ($LASTEXITCODE -ne 0) { throw "D11_T3_SKILL_VALIDATION_FAILED" }
+      - name: Verify exact portable T3 inputs
+        working-directory: site
+        run: |
+          & npm run verify:t3:inputs -- "$env:IWXA_D11_T3_PLATFORM_ARCHIVE" *> (Join-Path $env:RUNNER_TEMP "d11-t3-verify.log")
+          if ($LASTEXITCODE -ne 0) { throw "D11_T3_PORTABLE_VERIFY_FAILED" }
+          Write-Output "D11_T3_PORTABLE_FILES=174/174 PASS"
+      - name: Prepare original T3 Host with current D11 module and BLI
+        id: host
+        working-directory: site
+        run: |
+          $core=Join-Path $env:GITHUB_WORKSPACE "t3/packages/t3-core"
+          $log=Join-Path $env:RUNNER_TEMP "d11-t3-host.log"
+          $assistant=Join-Path $env:GITHUB_WORKSPACE "assistant/browser-local-inference/domain-assistant"
+          & npm run prepare:t3:host -- "$core" "$env:IWXA_D11_T3_PREPARED_HOST" "$env:IWXA_D11_T3_PLATFORM_ARCHIVE" "$assistant" *> $log
+          $code=$LASTEXITCODE
+          Get-Content $log | ForEach-Object {
+            if ($_ -match '(?:Error:|error:)\s*((?:D11_T3_|T3_|T2_|SOURCE_|EXACT_)[A-Z0-9_]+)\b') { Write-Output ("D11_T3_HOST_DIAGNOSTIC="+$Matches[1]) }
+            elseif ($_ -match '(?<path>[^()\r\n]+\.(?:ts|tsx|mts))\((?<line>[0-9]+),(?<col>[0-9]+)\): error TS(?<code>[0-9]{4})') {
+              $locPath=$Matches["path"].Trim().Replace('\','/')
+              $locLine=$Matches["line"]; $locCol=$Matches["col"]; $locCode=$Matches["code"]
+              # Only diagnostic coordinates and one-way filename identity;
+              # never output private source snippets, types or messages.
+              $nameHash=[Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($locPath))).ToLowerInvariant()
+              Write-Output ("D11_T3_HOST_TS_LOCATION="+$nameHash.Substring(0,16)+":"+$locLine+":"+$locCol+":TS"+$locCode)
+              Write-Output ("D11_T3_HOST_TYPESCRIPT=TS"+$locCode)
+            }
+            elseif ($_ -match '\berror TS([0-9]{4})\b') { Write-Output ("D11_T3_HOST_TYPESCRIPT=TS"+$Matches[1]) }
+            elseif ($_ -match '\b(ENOENT|EACCES|EPERM|EINVAL|ENAMETOOLONG|EAI_AGAIN|ECONNRESET|ERR_[A-Z0-9_]+)\b') { Write-Output ("D11_T3_HOST_OS_DIAGNOSTIC="+$Matches[1]) }
+            elseif ($_ -match '\bnpm (?:ERR!|error) code ([A-Z0-9_]+)\b') { Write-Output ("D11_T3_HOST_NPM_CODE="+$Matches[1]) }
+          }
+          if ($code -ne 0) { throw "D11_T3_HOST_PREPARE_FAILED" }
+          & npm run verify:t3:host -- "$env:IWXA_D11_T3_PREPARED_HOST" *> (Join-Path $env:RUNNER_TEMP "d11-t3-host-readback.log")
+          if ($LASTEXITCODE -ne 0) { throw "D11_T3_HOST_READBACK_FAILED" }
+          Write-Output "D11_T3_ORIGINAL_HOST_AND_SHARED_ASSISTANT=PASS"
+      - name: Ordinary product build on T3 only
+        id: build
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP "d11-t3-build.log"
+          & npm run build *> $log
+          $code=$LASTEXITCODE
+          Get-Content $log | ForEach-Object {
+            if ($_ -match '^D11_T3_ONE_DIST=PASS version=0\.3\.2 offline=[0-9]+$') { Write-Output $_ }
+            elseif ($_ -match '(?:Error:|error:)\s*((?:D11_T3_|T3_|T2_|SOURCE_|EXACT_)[A-Z0-9_]+)\b') { Write-Output ("D11_T3_BUILD_DIAGNOSTIC="+$Matches[1]) }
+            elseif ($_ -match '\berror TS([0-9]{4})\b') { Write-Output ("D11_T3_BUILD_TYPESCRIPT=TS"+$Matches[1]) }
+          }
+          if ($code -ne 0) { throw "D11_T3_BUILD_FAILED" }
+          foreach ($p in @("workspace/index.html","workspace/exchange/index.html","workspace/lifecycle/index.html","t3-domain-mode.mjs","t3-sw.js","t3-app-manifest.json","t3-offline-manifest.json","_iwxa/runtime/0.3.6/runtime.js")) {
+            if (!(Test-Path "dist/$p")) { throw "D11_T3_DIST_MISSING" }
+          }
+          if (!(Select-String -Path $log -SimpleMatch "D11_T3_ONE_DIST=PASS version=0.3.2" -Quiet)) { throw "D11_T3_BUILD_WITNESS_MISSING" }
+          if (Test-Path dist/_iwxa/diagnostics) { throw "D11_ENGINEERING_DIAGNOSTICS_INCLUDED" }
+          Write-Output "D11_T3_DIST=PASS"
+      - name: Original hardware browser and HTTPS prerequisites
+        working-directory: t3/packages/t3-core
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP "d11-model-browser-install.log"
+          & npm ci --no-audit --no-fund *> $log
+          if ($LASTEXITCODE -ne 0) { throw "D11_MODEL_BROWSER_DEPENDENCIES_FAILED" }
+          & npx --no-install playwright install chromium *> $log
+          if ($LASTEXITCODE -ne 0) { throw "D11_MODEL_BROWSER_INSTALL_FAILED" }
+          if (!(Get-Command openssl -ErrorAction SilentlyContinue)) { throw "D11_COLD_OPENSSL_UNAVAILABLE" }
+          "D11_ORIGINAL_T3_SOURCE=$(Join-Path $env:GITHUB_WORKSPACE 't3/packages/t3-core')" >> $env:GITHUB_ENV
+          Write-Output "D11_MODEL_HARDWARE_BROWSER_PREPARED=PASS"
+      - name: Actual model inference with original catalog and cold offline advice
+        id: model
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP "d11-real-model.log"
+          & node scripts/d11-t3-real-model-witness.mjs *> $log
+          $code=$LASTEXITCODE
+          $final=$null
+          Get-Content $log | ForEach-Object {
+            if ($_ -match '^D11_T3_MODEL_(?:CANCEL|INSTALL|COLD_LOAD)=PASS$') { Write-Output $_ }
+            elseif ($_ -match '^D11_T3_MODEL_(?:FAILED|FAILURE_KIND)=[A-Z0-9_]+$') { Write-Output $_ }
+            elseif ($_ -match '^D11_T3_MODEL_GPU (.*)$') {
+              $v=$Matches[1] | ConvertFrom-Json
+              if ($v.profile -eq $env:D11_T3_MODEL_PROFILE -and $v.adapter -in @("nonfallback-reported","fallback","unavailable","unknown")) {
+                Write-Output ("D11_MODEL_GPU="+$v.adapter+" compute="+[bool]$v.compute)
+              }
+            }
+            elseif ($_ -match '^D11_T3_MODEL_ADVICE_EVIDENCE (.*)$') {
+              $v=$Matches[1] | ConvertFrom-Json
+              if ($v.scenario -in @("delivery_cost","cold_quality","warehouse_people","requirements_acceptance")) {
+                Write-Output ("D11_MODEL_SCENARIO="+$v.scenario+" offline="+[bool]$v.offline+" exact="+[bool]$v.exactSource+" choice="+[bool]$v.expectedChoice+" real="+[bool]$v.busyObserved+" unchanged="+[bool]($v.sourceUnchanged -and $v.controlsUnchanged -and $v.promptUnchanged -and $v.resultUnchanged))
+              }
+            }
+            elseif ($_ -match '^D11_T3_MODEL_FINAL (.*)$') { $final=$Matches[1] | ConvertFrom-Json }
+            elseif ($_ -match '(?:AssertionError|Error):\s*(D11_(?:MODEL|COLD)_[A-Z0-9_]+)') { Write-Output ("D11_MODEL_DIAGNOSTIC="+$Matches[1]) }
+          }
+          if ($code -ne 0) { throw "D11_MODEL_EXECUTION_FAILED" }
+          if ($null -eq $final -or $final.profile -ne $env:D11_T3_MODEL_PROFILE -or $final.adapter -ne "nonfallback-reported" -or $final.completed -ne 5 -or $final.exactSource -ne 5 -or $final.expectedChoice -ne 5 -or $final.actualInference -ne $true -or $final.serverStopped -ne $true -or $final.browserRestarted -ne $true -or $final.passed -ne $true) { throw "D11_MODEL_WITNESS_MISSING" }
+          Write-Output ("D11_T3_MODEL_PROFILE="+$env:D11_T3_MODEL_PROFILE+" 5/5 PASS")
+      - name: Require complete current source build and model
+        if: always()
+        run: |
+          if ("${{ steps.source.outcome }}" -ne "success" -or "${{ steps.host.outcome }}" -ne "success" -or "${{ steps.build.outcome }}" -ne "success" -or "${{ steps.model.outcome }}" -ne "success") { throw "D11_T3_MODEL_QUALIFICATION_INCOMPLETE" }
+          Write-Output "D11_T3_MODEL_QUALIFICATION=PASS"
       - name: Remove private inputs and diagnostics
         if: always()
         run: |
