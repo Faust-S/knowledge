@@ -146,9 +146,9 @@ function fakeBrowser(root,store=null,clock=Date,origin=ORIGIN) {
       waitUntil:p=>waits.push(p)});
     await Promise.all(waits);
   };
-  const fetchPage=async(url,method="GET")=>{
+  const fetchPage=async(url,method="GET",options={})=>{
     let result;
-    handlers.fetch({request:new Request(url,{method}),
+    handlers.fetch({request:new Request(url,{method,...options}),
       respondWith:p=>{result=p;}});
     return result;
   };
@@ -454,5 +454,27 @@ test("Exact released origin prevents unchanged autonomous bundle installation on
     await official.dispatch("T3_CHECK_UPDATE",{postMessage:m=>rejectedUpdate.push(m)});
     assert.match(rejectedUpdate.at(-1)?.message,/RELEASE_ORIGIN_MISMATCH/);
     assert.equal((await official.fetchPage(ORIGIN+"/workspace/")).status,200);
+  }finally{cleanup(root);}
+});
+
+
+test("autonomous snapshot permits only the explicitly scoped local Agent model transport",async()=>{
+  const root=specimen();
+  try{
+    materializeDomainMode(root);
+    const browser=fakeBrowser(root);
+    const replies=[];await browser.dispatch("T3_INSTALL",{postMessage:x=>replies.push(x)});
+    assert.equal(replies.at(-1)?.type,"READY");
+    const options={mode:"cors",credentials:"omit",redirect:"error",headers:{"Content-Type":"application/json","X-IWXA-Model-Token":"a".repeat(43)},body:"{}"};
+    const local="http://127.0.0.1:8765/api/t3-local-model/";
+    const before=browser.liveFetches;
+    await browser.fetchPage(local+"status","POST",options);
+    await browser.fetchPage(local+"invoke","POST",options);
+    assert.equal(browser.liveFetches,before+2,"two exact local routes reach the local transport");
+    for(const [url,init] of [[local+"list",options],[local+"invoke?x=1",options],[local+"invoke",{...options,credentials:"include"}],[local+"invoke",{...options,redirect:"follow"}],[local+"invoke",{...options,headers:{"Content-Type":"application/json"}}],["https://example.com/api/t3-local-model/invoke",options],["http://localhost:8765/api/t3-local-model/invoke",options]]){
+      const reply=await browser.fetchPage(url,"POST",init);
+      assert.equal(reply.type,"error");
+    }
+    assert.equal(browser.liveFetches,before+2,"no unauthorized route reaches network");
   }finally{cleanup(root);}
 });

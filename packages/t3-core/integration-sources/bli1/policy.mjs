@@ -84,3 +84,92 @@ export function classifyInferenceFailure(error) {
     return known("FORM_GRAMMAR_FAILED","Не удалось подготовить ответ для этой формы. Запустите модель снова или воспользуйтесь подсказками без модели.");
   return known("LOCAL_INFERENCE_FAILED","Не удалось завершить вычисления. Модель остановлена; сохранённые файлы доступны для повторного запуска.");
 }
+
+// Optional transport to the existing Agent-owned model port. It never loads
+// browser weights, discovers arbitrary servers or falls back to a hosted API.
+const AGENT_MODEL_SCHEMA="iwxa.agent-local-model/1";
+function parseAgentConnection(code){
+  const m=/^iwxa-local-v1:([1-9][0-9]{0,4}):([A-Za-z0-9_-]{43})$/.exec(typeof code==="string"?code.trim():"");
+  if(!m||Number(m[1])>65535)throw new BrowserInferenceError("AGENT_LOCAL_CODE_INVALID","Проверьте код подключения из Personal Agent.");
+  return {base:"http://127.0.0.1:"+m[1]+"/api/t3-local-model/",token:m[2]};
+}
+function requireAgentFormOutput(text,format){
+  if(!format)return;
+  const schema=JSON.parse(format.schema).properties.fields.properties;
+  let data;
+  try{data=JSON.parse(text);}catch{}
+  const object=value=>value!==null&&typeof value==="object"&&!Array.isArray(value);
+  if(!object(data)||Object.keys(data).length!==1||!Object.hasOwn(data,"fields")||!object(data.fields)||
+     Object.entries(data.fields).some(([key,value])=>!Object.hasOwn(schema,key)||typeof value!=="string"||
+       (schema[key].enum&&!schema[key].enum.includes(value))))
+    throw new BrowserInferenceError("FORM_GRAMMAR_FAILED","Модель Agent не вернула допустимые значения выбранных полей.");
+}
+export class AgentLocalModelAdapter{
+  #base;
+  #token;
+  #identity=null;
+  #controller=null;
+  #disposed=false;
+  constructor(code){
+    const connection=parseAgentConnection(code);
+    this.#base=connection.base;this.#token=connection.token;
+  }
+  get ready(){return !this.#disposed&&this.#identity!==null;}
+  async #post(action,body,timeout){
+    if(this.#disposed)throw new BrowserInferenceError("AGENT_LOCAL_UNAVAILABLE","Подключение завершено.");
+    if(this.#controller)throw new BrowserInferenceError("BUSY","Предыдущий запрос ещё выполняется.");
+    const controller=new AbortController();this.#controller=controller;
+    let timedOut=false;
+    const timer=setTimeout(()=>{timedOut=true;controller.abort();},timeout);
+    try{
+      const response=await fetch(this.#base+action,{
+        method:"POST",mode:"cors",credentials:"omit",cache:"no-store",redirect:"error",
+        referrerPolicy:"no-referrer",signal:controller.signal,
+        headers:{"Content-Type":"application/json","X-IWXA-Model-Token":this.#token},
+        body:JSON.stringify(body)
+      });
+      if(!response.ok)throw new BrowserInferenceError("AGENT_LOCAL_UNAVAILABLE","Agent не подтвердил доступ к локальной модели.");
+      const result=await response.json();
+      if(controller.signal.aborted)throw Error("aborted");
+      if(!result||result.schema!==AGENT_MODEL_SCHEMA)throw new BrowserInferenceError("AGENT_LOCAL_UNAVAILABLE","Ответ локального Agent не подтверждён.");
+      return result;
+    }catch(error){
+      if(controller.signal.aborted)throw new BrowserInferenceError(timedOut?"AGENT_LOCAL_UNAVAILABLE":"CANCELLED",timedOut?"Agent не ответил вовремя.":"Ожидание ответа Agent остановлено.");
+      if(error instanceof BrowserInferenceError)throw error;
+      throw new BrowserInferenceError("AGENT_LOCAL_UNAVAILABLE","Не удалось связаться с локальным Agent.");
+    }finally{
+      clearTimeout(timer);if(this.#controller===controller)this.#controller=null;
+    }
+  }
+  async connect(){
+    this.#identity=null;
+    const r=await this.#post("status",{},20000);
+    if(this.#disposed||r.ready!==true||typeof r.model!=="string"||!r.model.trim()||r.model.length>200||
+       !/^[a-f0-9]{64}$/.test(r.model_identity||""))
+      throw new BrowserInferenceError("AGENT_LOCAL_UNAVAILABLE","Выбранная модель Agent не подтверждена.");
+    this.#identity=r.model_identity;
+    return {model:r.model};
+  }
+  async invoke(prompt,{maxTokens=256,formFields,onChunk=()=>{}}={}){
+    if(!this.ready)throw new BrowserInferenceError("AGENT_LOCAL_UNAVAILABLE","Подключите локальную модель Agent.");
+    const content=requirePrompt(prompt),format=formResponseFormat(formFields);
+    if(!Number.isInteger(maxTokens)||maxTokens<1||maxTokens>1024)throw new BrowserInferenceError("AGENT_LOCAL_TOKEN_LIMIT","Недопустимый предел ответа.");
+    const identity=this.#identity;
+    try{
+      const r=await this.#post("invoke",{prompt:content,max_tokens:maxTokens,model_identity:identity},220000);
+      if(this.#disposed||r.model_identity!==identity||r.remote_fallback!==false||typeof r.text!=="string"||!r.text.trim()||r.text.length>2000000)
+        throw new BrowserInferenceError("AGENT_LOCAL_UNAVAILABLE","Ответ не связан с выбранной локальной моделью.");
+      // Agent's native port returns text, not WebLLM's constrained decoder.
+      // Only an exact valid field object proceeds to the existing proposal checks.
+      requireAgentFormOutput(r.text,format);
+      onChunk(r.text);
+      return r.text;
+    }catch(error){
+      if(!["CANCELLED","FORM_GRAMMAR_FAILED","BUSY"].includes(error?.code))this.#identity=null;
+      throw error;
+    }
+  }
+  cancel(){this.#controller?.abort();}
+  async unload(){this.dispose();}
+  dispose(){this.cancel();this.#disposed=true;this.#identity=null;this.#token="";}
+}

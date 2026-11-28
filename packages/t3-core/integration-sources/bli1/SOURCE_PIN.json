@@ -25,7 +25,7 @@
     },
     {
       "file": "workspace-module/engine.d.mts",
-      "blob": "656eec1b71cd24cb5c16943fe815f81a60309253",
+      "blob": "0c2ab69b30d5df94884adddffc5ec1c8175e8504",
       "upstream_blob": "48908fc3f9ee6d2bc6a29749a2eb1820524056d4"
     },
     {
@@ -56,7 +56,7 @@
     },
     {
       "file": "src/engine.mjs",
-      "blob": "1f6b875b013a87a3d3689f71aac2ed85b16dac07",
+      "blob": "84a70cd4e75f4c37a168b9dd5d12e9bfcd1a2fec",
       "upstream_blob": "5ae5c79f4421df46157d3798defff66fb6cad0b9"
     },
     {
@@ -65,7 +65,7 @@
     },
     {
       "file": "src/policy.mjs",
-      "blob": "d38d4d5b9d7c001bf9dc9a7949c9e16e442c6c91",
+      "blob": "a541f67f898f7972272947dc4a2430eaf9d42c10",
       "upstream_blob": "6f98ac52075058d43fe0824d994ad30736cf82eb"
     },
     {
@@ -74,7 +74,7 @@
     }
   ],
   "executable_owner": "Faust-S/knowledge",
-  "purpose": "hash-pinned T3-owned BLI runtime with three versioned multilingual profiles; exact upstream WebLLM variants and repository revisions; no credentials or weights; bounded native JSON grammar for explicit selected form fields; explicit developer profile replacement and previous revision cache maintenance; typed Worker rejection and explicit recovery from unusable model session; live generation is stopped by explicit cancellation or real failure, not elapsed wall-clock time",
+  "purpose": "hash-pinned T3-owned BLI runtime with three versioned multilingual profiles; exact upstream WebLLM variants and repository revisions; no credentials or weights; bounded native JSON grammar for explicit selected form fields; explicit developer profile replacement and previous revision cache maintenance; typed Worker rejection and explicit recovery from unusable model session; live generation is stopped by explicit cancellation or real failure, not elapsed wall-clock time; optional explicit Agent-owned local-model transport for authorized domains (no second engine)",
   "source_role": "HISTORICAL_BLI1_BASE_WITH_FIRST_PARTY_T3_D5_MODEL_CHOICE",
-  "source_revision": "Faust-S/knowledge@92ba6c314725a46f8f0ac0a6fd1a4ee9d315d60e"
+  "source_revision": "Faust-S/knowledge@work/2026-11-28-t3-04-shared-local-model"
 }

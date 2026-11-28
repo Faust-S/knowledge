@@ -247,3 +247,6 @@ export class BrowserLocalRuntimeAdapter {
     // Shared WASM may be reused by another model; intentionally retain it.
   }
 }
+
+// Re-export through the existing BLI entry used by every domain assistant.
+export {AgentLocalModelAdapter} from './policy.mjs';

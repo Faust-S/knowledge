@@ -1,19 +1,19 @@
 {
   "schema": "iwxa.t3.consolidation-sources/1",
-  "status": "ENGINEERING_QUALIFIED_STABLE_INPUTS_PENDING_PUBLICATION",
+  "status": "SHARED_LOCAL_MODEL_SOURCE_CANDIDATE_NOT_QUALIFIED",
   "base": "3056eef0665fb3503294d49b89d937af2ea060e2",
   "rc2": "4b3314079600f5d95b3dd9e0defe3be8e845378e",
   "corporate": "8db847058cab231d2d39c34df46024b60564d2ad",
   "workflow": "196e3cd824f2a21078f75576f09c1153a6b17d17",
   "originalAssistant": {
     "repository": "Faust-S/T3",
-    "commit": "629aaa274f2d6ad915730ee0d817aedc33e53108",
+    "commit": "5cbc3aef404338ff6eec7c2dd9f87c6c7d43ff72",
     "sourceDisposition": "private owner; build only through authorized qualification",
     "sourceRoot": "browser-local-inference/domain-assistant",
     "files": [
       {
         "path": "main.mjs",
-        "blob": "8392bddd8e4ce4863fd44be73f046c111bcc2bf0"
+        "blob": "ceb5e90cf4890dec5dfde72fd54190ede9a2b364"
       },
       {
         "path": "field-policy.mjs",
@@ -222,8 +222,8 @@
     "packages/t3-core/docs/EXCHANGE_RECEIPT_EXISTING_RECORDS_2026_11_27_RU.md"
   ],
   "qualification": "Generic T3 exact Host, accepted Kernel, complete .iwxa restore, cold autonomy, BLI and portable artifact. Separate original corporate installed A-B-A qualification remains open, not a domain/platform release prerequisite.",
-  "version": "0.3.3",
-  "snapshot": "0.3.3 fixed corner controls and exact offline origin binding, original compiled Host, model catalog, engine and Kernel unchanged from 0.3.2.",
+  "version": "0.4.0-rc.1",
+  "snapshot": "0.4 source candidate based on stable 0.3.3. Optional Agent-owned inference route; original three browser model profiles and fixed controls unchanged.",
   "qualificationAttempts": [
     {
       "candidate": "f3d0404da883c98fed4188fdff9006aa43c07eec",
@@ -597,6 +597,19 @@
       "filesIdenticalToRc2": 171,
       "installedProductsSeparate": true,
       "domainMigrationAutoAuthorized": false
+    },
+    "sharedAgentModel": {
+      "status": "SOURCE_CANDIDATE_NOT_QUALIFIED",
+      "agentRepository": "Faust-S/iwxa-personal-agent",
+      "agentSource": "50df7624a1c6ccb5beb4f29ffe42bd6afdf78923",
+      "assistantSource": "5cbc3aef404338ff6eec7c2dd9f87c6c7d43ff72",
+      "priorStable": "0.3.3",
+      "transport": "EXISTING_AGENT_LOOPBACK_MODEL_PORT_EXACT_ORIGIN_CONSENT",
+      "modelStorage": "AGENT_EXISTING_SELECTED_MODEL",
+      "browserProfilesUnchanged": true,
+      "nativeGenerationVerified": false,
+      "realBrowserToNativeAgentVerified": false,
+      "automaticDomainMigration": false
     }
   }
 }

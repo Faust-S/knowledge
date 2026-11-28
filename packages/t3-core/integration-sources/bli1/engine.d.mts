@@ -14,3 +14,13 @@ export class BrowserLocalRuntimeAdapter {
   unload(): Promise<void>;
   deleteCachedWeights(): Promise<void>;
 }
+
+export class AgentLocalModelAdapter {
+  constructor(connectionCode: string);
+  readonly ready: boolean;
+  connect(): Promise<{model:string}>;
+  invoke(prompt:string,options?:{onChunk?:(text:string)=>void;maxTokens?:number;formFields?:readonly Readonly<{key:string;choices?:readonly string[]}>[]}):Promise<string>;
+  cancel():void;
+  unload():Promise<void>;
+  dispose():void;
+}

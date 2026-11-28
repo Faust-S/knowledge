@@ -360,6 +360,18 @@ self.addEventListener("message", event => {
     })());
   }
 });
+// The only additional offline transport is the already running Agent on
+// this device. Its own exact-Origin grant and secret authorize each call.
+// No generic localhost proxy, remote fallback or Agent session cookie.
+function agentModelFetchAllowed(request,url) {
+  return request.method==="POST"&&request.mode==="cors"&&request.credentials==="omit"&&
+    request.redirect==="error"&&url.protocol==="http:"&&url.hostname==="127.0.0.1"&&
+    !url.username&&!url.password&&!url.search&&!url.hash&&
+    (url.pathname==="/api/t3-local-model/status"||url.pathname==="/api/t3-local-model/invoke")&&
+    request.headers.get("Content-Type")==="application/json"&&
+    /^[A-Za-z0-9_-]{43}$/.test(request.headers.get("X-IWXA-Model-Token")||"");
+}
+
 self.addEventListener("fetch", event => {
   const request = event.request;
   const url = new URL(request.url);
@@ -367,6 +379,7 @@ self.addEventListener("fetch", event => {
   event.respondWith((async () => {
     const snapshot = await installed();
     if (!snapshot) return fetch(request); // No opt-in => normal domain site.
+    if (agentModelFetchAllowed(request,url)) return fetch(request);
     if (url.origin !== self.location.origin || request.method !== "GET") {
       // Permission lasts only during a separately confirmed WebLLM install,
       // and only for its exact model repo and pinned upstream WASM library.
