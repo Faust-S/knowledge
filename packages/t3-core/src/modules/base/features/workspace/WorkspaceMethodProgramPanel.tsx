@@ -47,13 +47,15 @@ export function programWorkReceiptMatches(value:WorkspaceMethodProgramWorkReceip
     &&value.workCompleted===false&&value.finalHumanAcceptanceProven===false;
 }
 const names:Readonly<Record<string,string>>={QGIS_PROCESSING_V1:"QGIS",VALHALLA_ROUTING_V1:"Valhalla",
-  ORTOOLS_ALLOCATION_V1:"OR-Tools",RUST4PM_PROCESS_MINING_V1:"Rust4PM",MESA_MODEL_V1:"Mesa",SIMPY_MODEL_V1:"SimPy"};
+  ORTOOLS_ALLOCATION_V1:"OR-Tools",RUST4PM_V1:"Rust4PM",MESA_MODEL_V1:"Mesa",SIMPY_MODEL_V1:"SimPy"};
 const button="min-h-[44px] px-3 py-1.5 rounded border border-slate-700 text-xs disabled:opacity-40";
-type Prepared={selection:WorkspaceMethodProgramSelection;preview:WorkspaceMethodProgramWorkPreview};
+type Prepared={port:WorkspaceMethodProgramWorkPort;selection:WorkspaceMethodProgramSelection;preview:WorkspaceMethodProgramWorkPreview};
 type Props={port:WorkspaceMethodProgramWorkPort;request:WorkspaceMethodReaderSelection;stage:WorkspaceMethodOverviewStage};
 export function WorkspaceMethodProgramPanel({port,request,stage}:Props){
-  const [prepared,setPrepared]=useState<Prepared|null>(null);
-  const [receipt,setReceipt]=useState<WorkspaceMethodProgramWorkReceipt|null>(null);
+  const [preparedState,setPrepared]=useState<Prepared|null>(null);
+  const [receiptState,setReceipt]=useState<WorkspaceMethodProgramWorkReceipt|null>(null);
+  const prepared=preparedState?.port===port?preparedState:null;
+  const receipt=prepared?receiptState:null;
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [uncertain,setUncertain]=useState(false);
@@ -77,7 +79,7 @@ export function WorkspaceMethodProgramPanel({port,request,stage}:Props){
       const preview=await port.preview(structuredClone(selection));
       if(!current(token))return;
       if(!programWorkPreviewMatches(preview,selection,stage))throw Error("preview mismatch");
-      setPrepared({selection,preview:structuredClone(preview)});
+      setPrepared({port,selection,preview:structuredClone(preview)});
     }catch{if(current(token))setError("Не удалось подтвердить программу и исходные материалы. Выберите их заново.");}
     finally{finish(token);}
   }
@@ -94,7 +96,7 @@ export function WorkspaceMethodProgramPanel({port,request,stage}:Props){
     finally{finish(token);}
   }
   async function open(){
-    if(!receipt||receipt.state==="RECOVERY_REQUIRED")return;
+    if(!receipt)return;
     const token=start();if(token===null)return;
     try{await port.openTask(structuredClone(receipt));}
     catch{if(current(token))setError("Не удалось открыть оригинальную задачу Agent.");}
@@ -110,6 +112,9 @@ export function WorkspaceMethodProgramPanel({port,request,stage}:Props){
       <p className="break-words">Операция: {prepared.preview.operation}</p>
       <p className="break-words">Файл: {prepared.preview.source.name} · ред. {prepared.preview.source.revision} · {prepared.preview.source.bytes} байт</p>
       <p>Результатов предшественников: {prepared.preview.predecessorCount}. Назначений машин: {prepared.preview.fleetAssignmentCount}.</p>
+      {(prepared.selection.programResultSelections??[]).map(row=><p key={row.stepId} className="break-words text-slate-400">Работа {row.stepId}: {row.taskId} · {row.receiptId}</p>)}
+      {(prepared.selection.fleetAssignments??[]).map(row=><p key={row.vehicleId} className="break-words">Машина {row.vehicleId}: {row.stepId}, {row.tariff.per_kilometre} {row.tariff.cost_unit}/км, {row.tariff.per_hour} {row.tariff.cost_unit}/ч</p>)}
+      {Object.keys(prepared.selection.program.parameters).length>0&&<details><summary className="cursor-pointer text-slate-400">Параметры операции</summary><pre className="whitespace-pre-wrap break-all text-xs">{JSON.stringify(prepared.selection.program.parameters,null,2)}</pre></details>}
       {prepared.preview.nativeSource.sha256!==prepared.preview.source.sha256&&<p>Проверенный вычислительный вход сформирован из сохранённых результатов.</p>}
       {prepared.preview.trustedCodeConfirmed&&<p className="text-amber-200">Выбран исполняемый код. Перед запуском требуется отдельное подтверждение.</p>}
       <p className="text-slate-400">Исходные данные проверены. Создание задачи не запускает программу.</p>
@@ -120,7 +125,7 @@ export function WorkspaceMethodProgramPanel({port,request,stage}:Props){
         receipt.state==="TASK_AVAILABLE"?"Оригинальная задача найдена.":"Задача сохранена и доступна для проверки в Agent."}</p>
       <p className="break-words text-slate-400">{receipt.taskId}</p>
       <p className="text-slate-400">Программа не запущена. Работа не засчитана выполненной.</p>
-      {receipt.state!=="RECOVERY_REQUIRED"&&<button type="button" className={button} disabled={busy||disabled} onClick={()=>void open()}>Открыть задачу Agent</button>}
+      <button type="button" className={button} disabled={busy||disabled} onClick={()=>void open()}>{receipt.state==="RECOVERY_REQUIRED"?"Открыть задачу для восстановления":"Открыть задачу Agent"}</button>
     </div>}
   </div>;
 }
