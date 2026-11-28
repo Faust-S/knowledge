@@ -178,13 +178,13 @@ jobs:
             const counts={total:r.numTotalTests,passed:r.numPassedTests,failed:r.numFailedTests,pending:r.numPendingTests};
             assert.ok(counts.total>0&&counts.total===counts.passed&&counts.failed===0&&counts.pending===0);
             console.log("D05_033_TARGETED "+JSON.stringify(counts));
-            JS
+          JS
           else
             echo D05_033_TARGETED_FAIL
             failed=1
           fi
           node scripts/check-t3-native-context.mjs
-          node --test scripts/site-owned-chrome.test.mjs scripts/lib/t3-model-install-consent.test.mjs scripts/lib/t3-assistant-vite-config.test.mjs
+          node --experimental-strip-types --test scripts/site-owned-chrome.test.mjs scripts/lib/t3-model-install-consent.test.mjs scripts/lib/t3-assistant-vite-config.test.mjs
           test "$failed" -eq 0
           echo D05_033_SOURCE_PASS
       - name: Install existing protected Host browser witness dependencies
