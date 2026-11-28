@@ -31,7 +31,7 @@ export function createTrustedWorkspaceMethodProgramInputReader(options={}){
 function createReader({kernel,accessForRead,currentWorkspace,
   sourceOwner,originalAgentResultOwner=null,nativeContinuation=null,nativeRecipientId=null,
   personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null,corporateTaskOwner=null,corporateResultOwner=null,
-  confirmAlternative=null,isHostActive}={},nativeCorporateOnly=false,nativeProgramOnly=false){
+  confirmAlternative=null,originalProgramResultOwner=null,isHostActive}={},nativeCorporateOnly=false,nativeProgramOnly=false){
   check(kernel?.sessionInfo?.contract_version==='1.3.0'&&typeof kernel.hasOperation==='function'
     &&kernel.hasOperation('t1.getObject')===true&&typeof accessForRead==='function'
     &&typeof currentWorkspace?.get==='function'&&typeof currentWorkspace?.subscribe==='function'
@@ -46,6 +46,7 @@ function createReader({kernel,accessForRead,currentWorkspace,
     &&(corporateTaskOwner===null||typeof corporateTaskOwner.readSignedTask==='function')
     &&(corporateResultOwner===null||typeof corporateResultOwner.readAccepted==='function'||typeof corporateResultOwner.readAcceptedForInputs==='function'||
       typeof corporateResultOwner.readSharedResult==='function')
+    &&(originalProgramResultOwner===null||typeof originalProgramResultOwner.readVerified==='function')
     &&typeof isHostActive==='function'&&(!nativeCorporateOnly||corporateTaskOwner!==null),'T3_METHOD_STAGE_TRUSTED_HOST_REQUIRED');
   if(nativeCorporateOnly)check(typeof corporateTaskOwner.verifyTextInputs==='function','T3_METHOD_CORPORATE_TASK_INPUT_VERIFIER_REQUIRED');
   // Actual scoped source-owner write adoption and native confirmation are
@@ -87,6 +88,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
       &&(!alternativeMode||alternativeEnabled)
       &&(!programMode||(input.sourceAsset&&input.program&&(input.resultSelections??[]).length===0
         &&input.personalResultSelections===undefined&&input.corporateResultSelections===undefined))
+      &&(input.programResultSelections===undefined||(programMode&&Array.isArray(input.programResultSelections)
+        &&input.programResultSelections.length<=1&&originalProgramResultOwner!==null))
       &&(mode!=='alternative-recover'||(typeof input.targetProjectId==='string'
         &&/^[A-Za-z0-9_-]{1,63}$/u.test(input.targetProjectId)&&input.targetProjectId!==input.projectId))
       &&input.expected.workRefs.length>0&&input.expected.workRefs.length<=64
@@ -112,7 +115,8 @@ function createReader({kernel,accessForRead,currentWorkspace,
       canonicalClone({workspaceId:input.workspaceId,projectId:input.projectId,targetProjectId:input.targetProjectId}):canonicalClone({workspaceId:input.workspaceId,projectId:input.projectId,
       expected:{projectRef:ref(input.expected.projectRef),workRefs:input.expected.workRefs.map(ref)},
       ...(mode==='alternative-recover'?{targetProjectId:input.targetProjectId}:{}),
-      ...(programMode?{sourceAsset:input.sourceAsset,program:input.program}:{}),
+      ...(programMode?{sourceAsset:input.sourceAsset,program:input.program,
+        ...(input.programResultSelections===undefined?{}:{programResultSelections:input.programResultSelections})}:{}),
       ...(methodOnly?{}:{stepId:input.stepId,
         resultSelections:(input.resultSelections??[]).map(row=>({stepId:row.stepId,reference:{
           workspace_id:row.reference?.workspace_id,object_id:row.reference?.object_id,
@@ -241,7 +245,12 @@ function createReader({kernel,accessForRead,currentWorkspace,
         const list=await assetPort('t1.listAssets'),get=await assetPort('t1.getAsset');
         const evidenceArgs={...args,listAssets:query=>list(binding=>binding.listAssets(query)),
           getAsset:(workspaceId,id)=>get(binding=>binding.getAsset(workspaceId,id))};
-        if(programMode)report=await buildWorkspaceMethodProgramInput(evidenceArgs);
+        if(programMode)report=await buildWorkspaceMethodProgramInput({...evidenceArgs,
+          ...(originalProgramResultOwner===null?{}:{readVerifiedProgramResult:choice=>guarded(async()=>{
+            const current=await signed.getWorkspace(request.workspaceId);
+            check(current?.workspace_id===request.workspaceId&&current.deleted_at==null,'T3_METHOD_STAGE_WORKSPACE_REQUIRED');
+            return originalProgramResultOwner.readVerified(choice,context);
+          })})});
         else if(corporateMode){
           if(mode==='corporate-reference')report=await buildWorkspaceMethodCorporateTaskReference(evidenceArgs);
           else{

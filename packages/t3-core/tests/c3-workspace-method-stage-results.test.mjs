@@ -97,7 +97,7 @@ test('accepted owner or exact material changed during observation cannot confirm
       const r=await f.readObject(w,id);return changed&&id==='source'?{object:{...r.object,revision:2}}:r;
     }})),code('METHOD_STAGE_RESULT_BASIS_CHANGED'));
 });
-function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=()=>{},personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null,corporateTaskOwner=null,corporateResultOwner=null,confirmAlternative=null,subjectKind='PERSONAL',assetBytes=new Uint8Array([42]),assetMime='text/plain'}={}){
+function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=()=>{},personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null,corporateTaskOwner=null,corporateResultOwner=null,confirmAlternative=null,originalProgramResultOwner=null,subjectKind='PERSONAL',assetBytes=new Uint8Array([42]),assetMime='text/plain'}={}){
   const workspace={workspace_id:ws,deleted_at:null};
   let chosen=workspace,active=true,allowed=true;const listeners=new Set();
   const currentWorkspace={get:()=>chosen,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);}};
@@ -145,7 +145,7 @@ function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=(
   })}:null;
   const ports={kernel,accessForRead:async()=>access,currentWorkspace,sourceOwner:f.owner,
     originalAgentResultOwner:withAgent?{readAccepted:async ref=>{if(hook)await hook();return f.readAccepted(ref);}}:null,
-    nativeContinuation,nativeRecipientId:withNative?recipientId:null,personalComposer,confirmPersonalDraft,personalTaskOwner,corporateTaskOwner,corporateResultOwner,confirmAlternative,isHostActive:()=>active};
+    nativeContinuation,nativeRecipientId:withNative?recipientId:null,personalComposer,confirmPersonalDraft,personalTaskOwner,corporateTaskOwner,corporateResultOwner,confirmAlternative,originalProgramResultOwner,isHostActive:()=>active};
   const reader=createTrustedWorkspaceMethodStageReader(ports);
   const nativeProgramInputs=createTrustedWorkspaceMethodProgramInputReader(ports);
   const nativeInputs=nativeTaskOwner?createTrustedWorkspaceMethodCorporateInputReader({...ports,corporateTaskOwner:nativeTaskOwner}):null;
@@ -1369,4 +1369,42 @@ test('native program input rejects changed bytes without changed Object or Asset
     assetHook:kind=>{if(kind==='get'&&++count===2)bytes[5]=50;}});
   await assert.rejects(h.nativeProgramInputs.readInputs(selectedProgram(f)),code('METHOD_PROGRAM_ASSET_CHANGED'));
   assert.equal(count,2);assert.equal((await f.owner.audit()).length,3);
+});
+
+
+// W05.59: actual original Work owner and addressed material observation.
+// The native Result read port is controlled here; native execution is qualified separately.
+test('dependent road Work binds exact original root QGIS receipt and rejects changed Work or Asset',async()=>{
+  const d=draft();d.steps[0].actor='program';d.steps[1].actor='program';d.steps[1].materialIds=['source'];
+  const f=await setup(d),bytes=new TextEncoder().encode('{"points":[]}');
+  const root=await trusted(f,{withAssets:true,assetBytes:bytes,assetMime:'application/json'}).nativeProgramInputs.readInputs(selectedProgram(f));
+  const choice={stepId:'analyse',taskId:'TASK-U01-qgis',receiptId:'TXR-qgis',candidateDigest:root.candidateDigest};
+  const result={state:'ORIGINAL_WORKFLOW_PROGRAM_RESULT_VERIFIED',reference:root.reference,candidateDigest:root.candidateDigest,
+    agentWorkspaceId:'personal',taskId:choice.taskId,receiptId:choice.receiptId,outputDigest:'a'.repeat(64),providerId:'QGIS_PROCESSING_V1',
+    operation:'reproject_points',declaredInputBindingVerified:true,outputVerified:true,executionPerformed:false,
+    executionAuthority:false,workCompleted:false,resultReuseProven:false,finalHumanAcceptanceProven:false};
+  let observed=result,calls=0;
+  const opts={withAssets:true,assetBytes:bytes,assetMime:'application/json',originalProgramResultOwner:{
+    readVerified:async(s,ctx)=>{assert.deepEqual(s,choice);assert.equal(ctx.workspace_id,ws);calls++;return observed;}}};
+  const h=trusted(f,opts);
+  const target=selectedProgram(f,{stepId:'review',program:{providerId:'VALHALLA_ROUTING_V1',operation:'road_matrix',
+    parameters:{specification:'{}'},connectionEpoch:'road-epoch',trustedCodeConfirmed:false},programResultSelections:[choice]});
+  const prepared=await h.nativeProgramInputs.readInputs(target);
+  assert.equal(calls,2);
+  assert.equal(prepared.reference.predecessorResults.length,1);
+  assert.deepEqual(prepared.reference.predecessorResults[0].workRef,root.reference.workRef);
+  assert.equal(prepared.reference.predecessorResults[0].outputDigest,result.outputDigest);
+  assert.equal(prepared.taskCreated,false);
+  assert.equal(prepared.executionAuthority,false);
+  assert.equal(h.reader.readInputs,undefined);
+  observed={...result,outputVerified:false};
+  await assert.rejects(h.nativeProgramInputs.readInputs(target),code('METHOD_PROGRAM_PREDECESSOR_RESULT_MISMATCH'));
+  observed=result;
+  const altered=trusted(f,{...opts,assetBytes:new TextEncoder().encode('{"points":[1]}')});
+  await assert.rejects(altered.nativeProgramInputs.readInputs(target),code('METHOD_PROGRAM_PREDECESSOR_INPUT_CHANGED'));
+  const changed=draft();changed.steps[0].actor='program';changed.steps[1].actor='program';changed.steps[1].materialIds=['source'];
+  changed.steps[0].instruction='Changed original QGIS instruction';
+  const next=(await applyWorkspaceMethodRevision({owner:f.owner,workspaceId:ws,projectId,expected:f.base,draft:changed,objects:[material],
+    operationId:'program-predecessor-change',knowledgeAt:'2026-11-28T20:00:00Z'})).method;
+  await assert.rejects(h.nativeProgramInputs.readInputs({...target,expected:next}),code('METHOD_PROGRAM_PREDECESSOR_RESULT_MISMATCH'));
 });

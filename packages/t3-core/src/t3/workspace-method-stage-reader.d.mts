@@ -150,7 +150,13 @@ export function createTrustedWorkspaceMethodCorporateInputReader(input:{
 
 
 // Native-only selected file input for the existing program Task owner.
+export type WorkspaceMethodProgramResultSelection=Readonly<{stepId:string;taskId:string;receiptId:string;candidateDigest:string}>;
+export type WorkspaceMethodProgramPredecessor=WorkspaceMethodProgramResultSelection&Readonly<{
+  workRef:WorkspaceMethodSourceRef;outputDigest:string;agentWorkspaceId:string;providerId:'QGIS_PROCESSING_V1';
+  operation:'reproject_points';inputBasisDigest:string;materialEvidenceDigest:string;
+}>;
 export type WorkspaceMethodProgramSelection=WorkspaceMethodReaderSelection & Readonly<{
+  programResultSelections?:readonly WorkspaceMethodProgramResultSelection[];
   stepId:string;sourceAsset:Readonly<{objectId:string;assetId:string;revision:number;name:string}>;
   program:Readonly<{providerId:string;operation:string;parameters:Readonly<Record<string,string>>;
     connectionEpoch:string;trustedCodeConfirmed:boolean}>;
@@ -160,12 +166,12 @@ export type WorkspaceMethodProgramInput=Readonly<{
   reference:Readonly<{schema:'IWXA_T3_PERSONAL_PROGRAM_WORK_INPUT/1';workspaceId:string;projectId:string;stepId:string;
     projectRef:WorkspaceMethodSourceRef;workRef:WorkspaceMethodSourceRef;inputBasisDigest:string;materialEvidenceDigest:string;
     source:Readonly<{objectId:string;objectRevision:number;assetId:string;revision:number;name:string;mime:string;bytes:number;sha256:string}>;
-    program:WorkspaceMethodProgramSelection['program'];messageSha256:string;predecessorResults:readonly never[]}>;
+    program:WorkspaceMethodProgramSelection['program'];messageSha256:string;predecessorResults:readonly WorkspaceMethodProgramPredecessor[]}>;
   modelingSource:Readonly<{name:string;text:string;trusted_code_confirmed?:true}>;message:string;
   selectedAssetBytesVerified:true;observedMaterialBytesVerified:true;allAssetsProven:false;
   executionAuthority:false;taskCreated:false;workCompleted:false;resultReuseProven:false;
 }>;
 export function createTrustedWorkspaceMethodProgramInputReader(input:{
   kernel:unknown;accessForRead:(operation:string)=>unknown;currentWorkspace:unknown;
-  sourceOwner:unknown;isHostActive:()=>boolean;
+  sourceOwner:unknown;originalProgramResultOwner?:Readonly<{readVerified:(selection:WorkspaceMethodProgramResultSelection,context:unknown)=>unknown}>;isHostActive:()=>boolean;
 }):Readonly<{readInputs(input:WorkspaceMethodProgramSelection):Promise<WorkspaceMethodProgramInput>}>;

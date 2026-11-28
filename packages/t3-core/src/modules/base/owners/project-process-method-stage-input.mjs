@@ -263,7 +263,7 @@ export async function inspectWorkspaceMethodMaterialEvidence(input={}){
  * Native-only: this is the actual input text and exact canonical Work/Asset
  * identity, not a display receipt. The original program owner still validates
  * its operation/arguments/connection, creates Task, and performs Review and
- * ToolRuntime approval. Single-file, no predecessors at this boundary.
+ * ToolRuntime approval. Root single-file and explicit QGIS -> Valhalla handoff.
  */
 export async function buildWorkspaceMethodProgramInput(input={}){
   const {workspaceId,subjectKind,listAssets,getAsset,readObject}=input;
@@ -287,9 +287,59 @@ export async function buildWorkspaceMethodProgramInput(input={}){
         ||typeof v!=='string'||Buffer.byteLength(v,'utf8')>16000||v.includes('\0')||Buffer.from(v,'utf8').toString('utf8')!==v))
     fail('METHOD_PROGRAM_OPERATION_SELECTION_INVALID','Explicit program, operation, arguments and connection required');
   const selected=canonicalClone(file),operation=canonicalClone(program);
-  const opened=await openStageInputObservation(input),stage=opened.report,basis=stage.basis;
-  if(basis.intendedActor!=='program'||stage.predecessors.length)
-    fail('METHOD_PROGRAM_WORK_UNSUPPORTED','This original program input route requires a root program Work');
+  const opened=await openInputObservation(input,false),stage=opened.reportFor(input.stepId),basis=stage.basis;
+  const selections=input.programResultSelections??[];
+  if(!Array.isArray(selections)||selections.length>1||selections.some(row=>
+      !keys(row,['stepId','taskId','receiptId','candidateDigest'])||!clean(row.stepId,63)
+      ||!/^TASK-[A-Za-z0-9_-]{1,120}$/.test(row.taskId)||!/^TXR-[A-Za-z0-9_-]{1,100}$/.test(row.receiptId)
+      ||!HEX.test(row.candidateDigest??'')))
+    fail('METHOD_PROGRAM_PREDECESSOR_SELECTION_INVALID','Select the exact original program Task and execution receipt');
+  const chosen=canonicalClone(selections);
+  if(basis.intendedActor!=='program')
+    fail('METHOD_PROGRAM_WORK_UNSUPPORTED','Original program Work required');
+  let prior=null;
+  if(stage.predecessors.length){
+    if(stage.predecessors.length!==1||chosen.length!==1||stage.predecessors[0].stepId!==chosen[0].stepId
+        ||operation.providerId!=='VALHALLA_ROUTING_V1'||operation.operation!=='road_matrix'||operation.trustedCodeConfirmed
+        ||typeof input.readVerifiedProgramResult!=='function')
+      fail('METHOD_PROGRAM_WORK_UNSUPPORTED','Choose one original root QGIS Work for the Valhalla road matrix');
+    prior=opened.reportFor(chosen[0].stepId);
+    if(prior.basis.intendedActor!=='program'||prior.predecessors.length||prior.inputBasisDigest===null)
+      fail('METHOD_PROGRAM_WORK_UNSUPPORTED','Selected original QGIS predecessor must be a current root program Work');
+    const target=opened.closure.works.find(row=>row.work.methodology.stepId===input.stepId);
+    if(!target?.work.methodology.materialRefs.some(pin=>pin.object_id===selected.objectId))
+      fail('METHOD_PROGRAM_MATERIAL_REVIEW_REQUIRED','Select a declared material of the target program Work');
+  }else if(chosen.length)fail('METHOD_PROGRAM_PREDECESSOR_SELECTION_INVALID','Root Work has no predecessor');
+  const predecessor=async()=>{
+    if(!prior)return Object.freeze([]);
+    const choice=chosen[0],actual=await input.readVerifiedProgramResult(choice);
+    const r=actual?.reference;
+    if(actual?.state!=='ORIGINAL_WORKFLOW_PROGRAM_RESULT_VERIFIED'||actual.taskId!==choice.taskId
+        ||actual.receiptId!==choice.receiptId||actual.candidateDigest!==choice.candidateDigest
+        ||actual.providerId!=='QGIS_PROCESSING_V1'||actual.operation!=='reproject_points'
+        ||!HEX.test(actual.outputDigest??'')||!/^(personal|AREA-[a-f0-9]{18})$/.test(actual.agentWorkspaceId??'')
+        ||actual.declaredInputBindingVerified!==true||actual.outputVerified!==true
+        ||actual.executionPerformed!==false||actual.executionAuthority!==false||actual.workCompleted!==false
+        ||actual.resultReuseProven!==false||actual.finalHumanAcceptanceProven!==false
+        ||r?.schema!=='IWXA_T3_PERSONAL_PROGRAM_WORK_INPUT/1'||r.workspaceId!==workspaceId
+        ||r.projectId!==basis.projectId||r.stepId!==choice.stepId||!equal(r.projectRef,prior.basis.projectRef)
+        ||!equal(r.workRef,prior.basis.stageRef)||r.inputBasisDigest!==prior.inputBasisDigest
+        ||r.program?.providerId!==actual.providerId||r.program?.operation!==actual.operation
+        ||!Array.isArray(r.predecessorResults)||r.predecessorResults.length!==0
+        ||createHash('sha256').update(canonicalStringify(r)).digest('hex')!==choice.candidateDigest)
+      fail('METHOD_PROGRAM_PREDECESSOR_RESULT_MISMATCH','Original saved QGIS receipt does not bind the selected predecessor Work');
+    const observation=await readVisibleMaterialEvidence({readObject,listAssets,getAsset,workspaceId,materials:prior.materials});
+    const observed=materialEvidenceReport(prior,observation);
+    const source=r.source,row=observation.materials.find(m=>m.reference.object_id===source?.objectId);
+    const asset=row?.visibleAssets.find(a=>a.asset_id===source?.assetId);
+    if(r.materialEvidenceDigest!==observed.materialEvidenceDigest||!asset||row.reference.revision!==source.objectRevision
+        ||asset.revision!==source.revision||asset.size!==source.bytes||asset.mime!==source.mime||asset.sha256!==source.sha256
+        ||r.messageSha256!==createHash('sha256').update(prior.basis.objective+'\n\n'+prior.basis.instruction,'utf8').digest('hex'))
+      fail('METHOD_PROGRAM_PREDECESSOR_INPUT_CHANGED','Original QGIS Work or exact input material has changed');
+    return Object.freeze([Object.freeze({stepId:choice.stepId,workRef:prior.basis.stageRef,candidateDigest:choice.candidateDigest,
+      taskId:choice.taskId,receiptId:choice.receiptId,outputDigest:actual.outputDigest,agentWorkspaceId:actual.agentWorkspaceId,
+      providerId:actual.providerId,operation:actual.operation,inputBasisDigest:r.inputBasisDigest,materialEvidenceDigest:r.materialEvidenceDigest})]);
+  };
   if(stage.inputBasisDigest===null||!stage.materials.some(row=>row.object_id===selected.objectId))
     fail('METHOD_PROGRAM_MATERIAL_REVIEW_REQUIRED','Selected input is not a current declared Work material');
   const message=basis.objective+'\n\n'+basis.instruction;
@@ -318,7 +368,7 @@ export async function buildWorkspaceMethodProgramInput(input={}){
       projectId:basis.projectId,stepId:basis.stepId,projectRef:basis.projectRef,workRef:basis.stageRef,
       inputBasisDigest:stage.inputBasisDigest,materialEvidenceDigest:material.materialEvidenceDigest,
       program:operation,source:capture.source,messageSha256:createHash('sha256').update(message,'utf8').digest('hex'),
-      predecessorResults:Object.freeze([])});
+      predecessorResults:await predecessor()});
     return Object.freeze({state:'ORIGINAL_PROGRAM_WORK_INPUT_PREPARED',reference,
       candidateDigest:createHash('sha256').update(canonicalStringify(reference)).digest('hex'),
       modelingSource:capture.modelingSource,message,selectedAssetBytesVerified:true,observedMaterialBytesVerified:true,
