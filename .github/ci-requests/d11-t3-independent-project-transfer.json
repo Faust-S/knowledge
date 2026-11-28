@@ -1,0 +1,12 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d11-t3-independent-project-transfer",
+  "prepared_sha": "bd81733292525e1dece8bdefef9e3ff132333a7e",
+  "profile": "t3-independent-project-transfer",
+  "revisions": {
+    "domain": "f266bec7e24592b210ea5129001b8fd766199f79",
+    "site": "eb36d039472af1a3ff15cf030c808158561411b1",
+    "t3": "8e26076ce66f0c26693a647e061fcd568e055b77",
+    "assistant": "2c247482306f218a7d5be668de11e98f168862d4"
+  }
+}
