@@ -1,4 +1,4 @@
-name: D09 HOP T3 0.3.2 exact release candidate qualification
+name: D09 HOP T3 0.3.2 command profiles and verified hosting ZIP
 on:
   push:
     branches: ['ci/once/d09-hop-t3-integration/**']
@@ -29,9 +29,15 @@ jobs:
             runner: macos-latest
             origin: https://hop.iwxa.ru:9443
             preview: '1'
+            profile: light
+          - lane: hardware
+            runner: macos-latest
+            origin: https://hop.iwxa.ru:9443
+            preview: '1'
+            profile: balanced
     env:
-      SITE_PIN: df51b47bde31e8d99267d484f8e46dce6bdd9a2f
-      SUBJECT_PIN: 21550443a23ab2c8dd47137f7bb1344ead19b52b
+      SITE_PIN: 4ae0335694485d6181bb4951c231c199d3042f6a
+      SUBJECT_PIN: 24da92543502914ff5bac01269b82d4984788dae
       T3_PIN: 8e26076ce66f0c26693a647e061fcd568e055b77
       ASSISTANT_PIN: 2c247482306f218a7d5be668de11e98f168862d4
       D09_ORIGIN: ${{ matrix.origin }}
@@ -47,7 +53,7 @@ jobs:
           persist-credentials: false
       - name: Admit immutable domain request
         working-directory: ci-harness
-        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=df51b47bde31e8d99267d484f8e46dce6bdd9a2f --revision subject=21550443a23ab2c8dd47137f7bb1344ead19b52b --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
+        run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=4ae0335694485d6181bb4951c231c199d3042f6a --revision subject=24da92543502914ff5bac01269b82d4984788dae --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
       - name: Checkout HOP site
         uses: actions/checkout@v4
         with:
@@ -81,13 +87,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for spec in "private-site $SITE_PIN 810e679f473a784626e507dcc8bfd4200522aee0" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
+          for spec in "private-site $SITE_PIN 71954250a5967e7eab46de723cd71bfbaa6bb60c" "original-platform $T3_PIN 6ffc44d4a633d958ac7a4e71ea14fb182f5f82c5" "private-assistant $ASSISTANT_PIN f7b331dc9334ae343975c33cff62f71a6980fccd"; do
             read -r dir sha tree <<< "$spec"
             test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
             test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
             echo "D09_T3_INPUT $dir PASS"
           done
-          test "$(git -C private-site rev-parse HEAD:public/assets/hop-assistant-skills.json)" = bc5325b505327595da242bbe681fa23fc0ea3a40
+          test "$(git -C private-site rev-parse HEAD:public/assets/hop-assistant-skills.json)" = ff1a1f8cfcf2854549f291f8ddee1964736915e4
           mkdir -p "$RUNNER_TEMP/d09-t3"
           curl --fail --silent --show-error --location --retry 2 'https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.2/platform-inputs.zip' -o "$RUNNER_TEMP/d09-t3/platform-inputs.zip"
           printf '%s  %s\n' '5624d8a899c99fc2c100f57023eaf6fb1140f6f39ad1e7bfb85c5f20faadd32b' "$RUNNER_TEMP/d09-t3/platform-inputs.zip" | (if command -v sha256sum >/dev/null 2>&1; then sha256sum -c -; else shasum -a 256 -c -; fi) >/dev/null
@@ -236,11 +242,38 @@ jobs:
             grep -oE '(D09_[A-Z0-9_]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-t3/HOSTING.log" | sort -u | head -25 || true
             exit 1
           fi
+      - name: Package actual production dist and verify extracted ZIP
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.lane == 'production' }}
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -eu
+          node --check scripts/package-d09-hosting.mjs
+          if npm run package:d09:hosting -- --output "$RUNNER_TEMP/d09-t3/hosting-candidate" > "$RUNNER_TEMP/d09-t3/ZIP.log" 2>&1; then
+            node --input-type=module - "$RUNNER_TEMP/d09-t3/hosting-candidate" <<'D09_ZIP'
+          import {readdirSync,readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          import {createHash} from 'node:crypto';
+          const dir=process.argv[2],files=readdirSync(dir);
+          const receiptName=files.find(x=>x.endsWith('.zip.json'));
+          if(!receiptName||files.length!==3)process.exit(1);
+          const r=JSON.parse(readFileSync(join(dir,receiptName),'utf8'));
+          const data=readFileSync(join(dir,r.archive)),sha256=createHash('sha256').update(data).digest('hex');
+          if(r.status!=='D09_HOSTING_ZIP_ROUNDTRIP_PASS'||r.siteCommit!==process.env.SITE_PIN||r.subjectCommit!==process.env.SUBJECT_PIN||r.archiveSha256!==sha256||r.archiveBytes!==data.length||r.report.platform!=='T3')process.exit(1);
+          console.log('D09_T3_HOSTING_ZIP=PASS');
+          console.log('D09_T3_ZIP_SUMMARY='+JSON.stringify({archive:r.archive,archiveBytes:r.archiveBytes,archiveSha256:r.archiveSha256,files:r.report.files,inventorySha256:r.report.inventorySha256,productAcceptance:r.productAcceptance}));
+          D09_ZIP
+          else
+            echo D09_T3_HOSTING_ZIP=FAIL
+            grep -oE '(D09_HOSTING_[A-Z0-9_]+|ERR_[A-Z0-9_]+|AssertionError|TypeError|SyntaxError)' "$RUNNER_TEMP/d09-t3/ZIP.log" | sort -u | head -25 || true
+            exit 1
+          fi
       - name: Real local model and explicit HOP canvas command on macOS
         if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.lane == 'hardware' }}
         working-directory: private-site
         shell: bash
         env:
+          D09_T3_MODEL_PROFILE: ${{ matrix.profile }}
           D09_T3_ALLOW_REAL_MODEL: '1'
           D09_T3_REQUIRE_HARDWARE_GPU: '1'
         run: |
