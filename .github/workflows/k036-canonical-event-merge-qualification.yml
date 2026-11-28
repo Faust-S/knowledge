@@ -6,7 +6,7 @@ name: Corporate installed Admin Center 0.5 Atlas and Agent 0.6.6
 on:
   push:
     branches: ['work/2026-11-25-k036-corporate-event-qualification']
-    paths: ['.github/ci-requests/admin-center05-corporate-agent066.json']
+    paths: ['.github/ci-requests/admin-center05-corporate-saved-contact.json']
 
 permissions:
   contents: read
@@ -14,7 +14,7 @@ concurrency:
   group: corporate-installed-employee-first-use-${{ github.ref }}
   cancel-in-progress: false
 env:
-  CENTER_WITNESS_PIN: 'd7d8ad990347714130b29119bb0e7525b08e8060'
+  CENTER_WITNESS_PIN: '657c086888df7dcce2aacc1532579d0fcbe4773c'
   T2_PIN: 'c28e01876f3230307b7f20449f7ef54374367c93'
   KERNEL_CANDIDATE_ID: 'iwxa-kernel-k036-canonical-event-merge-20261125-candidate.1'
   KERNEL_CANDIDATE_ARCHIVE_SHA256: '5320dcb6c42d5fca410880677c8a8b595d4c9a2a6cedf51089b5f60f4ceeb52a'
@@ -28,7 +28,7 @@ env:
   CENTER_BRTEST_PIN: '7cfb17870042cac824644140b7f0a587e244a20e'
   CENTER_ATLAS_SETUP_PIN: '0ef7544e2a6fd5fab5994f7f25abbb960063908c'
   PUBLISHER_PIN: 'f51877ab77dce56af0d745f09752ce2505a521a8'
-  AGENT_PIN: '4db3f6130fb22a956792f8a8f677949fbf56c350'
+  AGENT_PIN: '3a1e94112ad4edceb90dc6e60c5a1ab9149c691d'
   AGENT_VERSION: '0.6.6'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   CENTER_VERSION: '0.5.0-dev.1'
@@ -59,7 +59,7 @@ jobs:
           def git(*args):
               return subprocess.check_output(['git', *args], text=True).strip()
           event=json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))
-          path='.github/ci-requests/admin-center05-corporate-agent066.json'
+          path='.github/ci-requests/admin-center05-corporate-saved-contact.json'
           request=json.loads(Path(path).read_text(encoding='utf-8'))
           prepared=request.get('prepared','')
           head=git('rev-parse','HEAD')
