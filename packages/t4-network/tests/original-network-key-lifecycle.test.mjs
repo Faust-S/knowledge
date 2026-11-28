@@ -1829,3 +1829,33 @@ test('K168 original source Vault seals successor multipart only with exact bilat
   await assert.rejects(source.authorizeOriginalSealedPublication(publication),{code:'ORIGINAL_HOST_LIFETIME_ENDED'});
   assert.equal(admissionReads+agreementReads,reads);
 });
+
+
+test('installed route selects all three current original keys in one verified Registry read, and never revives retired keys',async()=>{
+  const f=await fixture(),q={role:'SOURCE',sourceNodeRef:A,recipientNodeRef:B,workspaceId:WS,
+    originalWriteOwnerRef:OWNER,scopeRef:SCOPE,ownerEpoch:2};
+  const agreement={...remoteBinding,bindingRef:'binding:route:agreement',keyId:'key:route:agreement',keyUse:'NETWORK_AGREEMENT'};
+  assert.equal(await f.registry.readNetworkRouteKeys(q),null);
+  await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',localBinding,f.generate(localBinding)));
+  await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',remoteBinding,f.generate(remoteBinding)));
+  assert.equal(await f.registry.readNetworkRouteKeys(q),null);
+  const provisioned=await f.prepare('ENROLL',agreement,f.generate(agreement));
+  await f.registry.applyNetworkKeyTransition(provisioned.command,provisioned.evidence);
+  const exact={localKeyRef:localBinding.keyId,remoteKeyRef:remoteBinding.keyId,recipientKeyRef:agreement.keyId};
+  const before=f.calls;
+  assert.deepEqual(await f.registry.readNetworkRouteKeys(q),exact);
+  const cold=createOriginalKernelRegistryStatePort(f.options);
+  assert.deepEqual(await cold.readNetworkRouteKeys({...q,role:'RECIPIENT'}),
+    {localKeyRef:exact.remoteKeyRef,remoteKeyRef:exact.localKeyRef,recipientKeyRef:exact.recipientKeyRef});
+  for(const patch of [{workspaceId:'ws:foreign'},{scopeRef:'scope:foreign'},{ownerEpoch:3},{originalWriteOwnerRef:'owner:foreign'}])
+    assert.equal(await cold.readNetworkRouteKeys({...q,...patch}),null);
+  await assert.rejects(cold.readNetworkRouteKeys({...q,role:'BOTH'}),{code:'T3_ACCESS_NETWORK_ROUTE_KEY_QUERY_INVALID'});
+  assert.equal(f.calls,before);
+  const previous=(await cold.readNetworkKeyEvidence(query(localBinding))).binding;
+  const next={...localBinding,keyId:'key:route:next',generation:2};
+  await f.registry.applyNetworkKeyTransition(await f.prepare('ROTATE',next,f.generate(next),previous));
+  assert.deepEqual(await cold.readNetworkRouteKeys(q),{...exact,localKeyRef:next.keyId});
+  const current=(await cold.readNetworkKeyEvidence(query(agreement))).binding;
+  await f.registry.applyNetworkKeyTransition(await f.prepare('REVOKE',{...agreement,generation:2},null,current));
+  assert.equal(await cold.readNetworkRouteKeys(q),null);
+});

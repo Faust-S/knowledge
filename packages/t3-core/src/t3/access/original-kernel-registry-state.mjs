@@ -650,6 +650,7 @@ function corporateRegistryPort({kernel,workspaceId,objectId,trustedPolicy,clock,
     readRegistryDelivery:async()=> (await bound()).readRegistryDelivery(),
     applyNetworkKeyTransition:async(...args)=> (await bound()).applyNetworkKeyTransition(...args),
     readNetworkKeyEvidence:async(...args)=> (await bound()).readNetworkKeyEvidence(...args),
+    readNetworkRouteKeys:async(...args)=> (await bound()).readNetworkRouteKeys(...args),
     readNetworkKeyHistoryEvidence:async(...args)=> (await bound()).readNetworkKeyHistoryEvidence(...args),
     commitSignedState:async(...args)=> (await bound()).commitSignedState(...args),
     admitProofCredential:async(...args)=> (await bound()).admitProofCredential(...args),
@@ -1077,17 +1078,47 @@ export function createOriginalKernelRegistryStatePort({
       "T3_ACCESS_NETWORK_KEY_QUERY_INVALID");
     return {q,matches:b=>required.every(k=>b[k]===q[k])&&b.ownerEpoch===q.ownerEpoch};
   };
-  const readNetworkKeyEvidence=async(query={})=>{
-    const {matches}=networkKeyQuery(query);
-    const latest=await read(),matching=[...latest.networkBindings.values()].filter(b=>b.active&&matches(b));
+  const currentNetworkKey=(latest,matches,now)=>{
+    const matching=[...latest.networkBindings.values()].filter(b=>b.active&&matches(b));
     check(matching.length<=1,"T3_ACCESS_NETWORK_KEY_BINDING_AMBIGUOUS");
     if(!matching.length)return null;
-    const binding=matching[0],key=latest.state.policy.keys[binding.keyId],now=validClock(clock);
+    const binding=matching[0],key=latest.state.policy.keys[binding.keyId];
     if(!key||key.status!=="ACTIVE"||key.subjectId!==binding.subjectId||
       key.uses.length!==1||key.uses[0]!==binding.keyUse||
       !(timestamp(key.notBefore)<=now&&now<timestamp(key.expiresAt)))return null;
-    return Object.freeze({binding:copy(binding),key:copy(key),policyDigest:digest(latest.state.policy),
+    return {binding,key};
+  };
+  const readNetworkKeyEvidence=async(query={})=>{
+    const {matches}=networkKeyQuery(query),latest=await read();
+    const current=currentNetworkKey(latest,matches,validClock(clock));
+    if(current===null)return null;
+    return Object.freeze({binding:copy(current.binding),key:copy(current.key),policyDigest:digest(latest.state.policy),
       originalRegistryRevision:latest.revision,originalReadback:true});
+  };
+  // Select the three existing keys from ONE replay-verified Registry
+  // snapshot. Signature/seal/open still require exact live evidence and
+  // original signed JIT; this selection is not a grant or cached proof.
+  const readNetworkRouteKeys=async(query={})=>{
+    const q=copy(query),names=["sourceNodeRef","recipientNodeRef","workspaceId","originalWriteOwnerRef","scopeRef"];
+    fields(q,[...names,"ownerEpoch","role"]);
+    check(names.every(k=>ID.test(q[k]??""))&&q.sourceNodeRef!==q.recipientNodeRef&&
+      ["SOURCE","RECIPIENT"].includes(q.role)&&Number.isSafeInteger(q.ownerEpoch)&&q.ownerEpoch>=1,
+      "T3_ACCESS_NETWORK_ROUTE_KEY_QUERY_INVALID");
+    const latest=await read(),now=validClock(clock);
+    const select=(nodeRef,recipientNodeRef,keyUse)=>currentNetworkKey(latest,b=>
+      b.nodeRef===nodeRef&&b.recipientNodeRef===recipientNodeRef&&b.keyUse===keyUse&&
+      ["workspaceId","originalWriteOwnerRef","scopeRef","ownerEpoch"].every(k=>b[k]===q[k]),now);
+    const source=select(q.sourceNodeRef,q.recipientNodeRef,"NETWORK_FRAME"),
+      recipient=select(q.recipientNodeRef,q.sourceNodeRef,"NETWORK_FRAME"),
+      agreement=select(q.recipientNodeRef,q.sourceNodeRef,"NETWORK_AGREEMENT");
+    if(source===null||recipient===null||agreement===null)return null;
+    check(["principalId","authorityId"].every(k=>source.binding[k]===recipient.binding[k]&&
+      recipient.binding[k]===agreement.binding[k])&&recipient.binding.subjectId===agreement.binding.subjectId&&
+      new Set([source.binding.keyId,recipient.binding.keyId,agreement.binding.keyId]).size===3,
+      "T3_ACCESS_NETWORK_ROUTE_KEY_SCOPE_MISMATCH");
+    return Object.freeze({localKeyRef:(q.role==="SOURCE"?source:recipient).binding.keyId,
+      remoteKeyRef:(q.role==="SOURCE"?recipient:source).binding.keyId,
+      recipientKeyRef:agreement.binding.keyId});
   };
   // Historical material is reconstructed from the same signed original
   // Event history. A retired key is NEVER returned by readNetworkKeyEvidence.
@@ -1123,7 +1154,7 @@ export function createOriginalKernelRegistryStatePort({
   const port=Object.freeze({
     readState:async()=>copy((await read()).state),
     readRegistryDelivery:async()=>(await read({includeDelivery:true})).delivery,
-    applyNetworkKeyTransition,readNetworkKeyEvidence,readNetworkKeyHistoryEvidence,
+    applyNetworkKeyTransition,readNetworkKeyEvidence,readNetworkRouteKeys,readNetworkKeyHistoryEvidence,
     commitSignedState:commit,
     admitProofCredential,readProofCredential,enableCorporateSeatPolicy,
     getStatus:async()=>{const state=(await read()).state;
