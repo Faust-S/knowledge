@@ -1,0 +1,9 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d11-original-t3-reference-audit",
+  "prepared_sha": "0831911d9fcdaa7273245bada2316213f797ed94",
+  "profile": "original-public-compiler",
+  "revisions": {
+    "t3": "8e26076ce66f0c26693a647e061fcd568e055b77"
+  }
+}
