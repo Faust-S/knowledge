@@ -1,4 +1,4 @@
-name: D09 HOP T3 0.3.2 native structured artistic action and hosting ZIP
+name: D09 HOP T3 0.3.2 qualified private ZIP sealed delivery
 on:
   push:
     branches: ['ci/once/d09-hop-t3-integration/**']
@@ -8,6 +8,7 @@ concurrency:
   cancel-in-progress: false
 permissions:
   contents: read
+  actions: read
 jobs:
   product:
     if: github.event.created == false && github.event.deleted == false && github.event.forced == false
@@ -21,20 +22,6 @@ jobs:
             runner: ubuntu-24.04
             origin: https://hop.iwxa.ru
             preview: '0'
-          - lane: browser
-            runner: ubuntu-24.04
-            origin: https://hop.iwxa.ru:9443
-            preview: '1'
-          - lane: hardware
-            runner: macos-latest
-            origin: https://hop.iwxa.ru:9443
-            preview: '1'
-            profile: light
-          - lane: hardware
-            runner: macos-latest
-            origin: https://hop.iwxa.ru:9443
-            preview: '1'
-            profile: balanced
     env:
       SITE_PIN: 1e30df8d96ff2a698c0b57512d5fd52cd95a7024
       SUBJECT_PIN: 13d262f05cf0979d9b360cb9d01253ffbc163a0d
@@ -54,6 +41,30 @@ jobs:
       - name: Admit immutable domain request
         working-directory: ci-harness
         run: python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d09-hop-t3-integration --profile hop-original-t3-032 --revision site=1e30df8d96ff2a698c0b57512d5fd52cd95a7024 --revision subject=13d262f05cf0979d9b360cb9d01253ffbc163a0d --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4
+      - name: Require completed exact four-lane engineering qualification and existing sealed transport tests
+        working-directory: ci-harness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/runs/46127374338 > "$RUNNER_TEMP/d09-qualified-run.json"
+          gh api repos/Faust-S/knowledge/actions/runs/46127374338/jobs > "$RUNNER_TEMP/d09-qualified-jobs.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          run = json.loads((root / "d09-qualified-run.json").read_text())
+          jobs = json.loads((root / "d09-qualified-jobs.json").read_text())["jobs"]
+          assert run["status"] == "completed" and run["conclusion"] == "success"
+          assert run["head_sha"] == "697381fdb2daa50fb10c1985f2e67fda7d607ecb"
+          assert sorted(j["id"] for j in jobs) == [140924853955,140924854169,140924854183,140924854198]
+          assert all(j["conclusion"] == "success" for j in jobs)
+          print("D09_T3_EXACT_PREVIOUS_QUALIFICATION=PASS")
+          PY
+          test "$(git rev-parse HEAD:tools/ci/sealed-release-zip.mjs)" = 7cb21b714ce42caea90de71f9db76c26778070e0
+          test "$(git rev-parse HEAD:tools/ci/sealed-release-zip.test.mjs)" = 9a72459fa9dae4c172602eaff3cf68eec836d1ba
+          node --test tools/ci/sealed-release-zip.test.mjs
       - name: Checkout HOP site
         uses: actions/checkout@v4
         with:
@@ -136,24 +147,6 @@ jobs:
             grep -E '^([[:alnum:]_./-]+\.(tsx?|mjs)\([0-9]+,[0-9]+\): error TS[0-9]+:)' "$RUNNER_TEMP/d09-t3/typecheck.log" | cut -c1-180 | head -30 || true
             exit 1
           fi
-      - name: Complete unit regression including guided operation and stale draft
-        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && matrix.lane == 'browser' }}
-        working-directory: private-site
-        shell: bash
-        run: |
-          set -eu
-          failed=0
-          npm test -- --reporter=json --outputFile="$RUNNER_TEMP/d09-t3/UNIT.json" > "$RUNNER_TEMP/d09-t3/UNIT.log" 2>&1 || failed=1
-          if test -f "$RUNNER_TEMP/d09-t3/UNIT.json"; then
-            node --input-type=module - "$RUNNER_TEMP/d09-t3/UNIT.json" <<'D09_UNIT'
-          import {readFileSync} from 'node:fs';
-          const r=JSON.parse(readFileSync(process.argv[2],'utf8'));
-          console.log('D09_T3_UNIT_SUMMARY='+JSON.stringify({tests:r.numTotalTests,passed:r.numPassedTests,failed:r.numFailedTests,files:r.numTotalTestSuites,passedFiles:r.numPassedTestSuites}));
-          if(!r.success||r.numFailedTests!==0||r.numPassedTests<1114)process.exit(1);
-          D09_UNIT
-          fi
-          if [ "$failed" = 0 ]; then echo D09_T3_UNIT=PASS; else echo D09_T3_UNIT=FAIL; fi
-          exit "$failed"
       - name: Prepare ONE original T3 Host with HOP editor and assistant
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         id: prepare
@@ -194,51 +187,6 @@ jobs:
             grep -E '^([[:alnum:]_./-]+\.(tsx?|mjs)\([0-9]+,[0-9]+\): error TS[0-9]+:|error during build:)' "$RUNNER_TEMP/d09-t3/build.log" | cut -c1-200 | head -20 || true
             exit 1
           fi
-      - name: T3 assistant, actual canvas context, offline restart and Workspace
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.lane == 'browser' }}
-        working-directory: private-site
-        shell: bash
-        run: |
-          set -eu
-          failed=0
-          check() {
-            local id="$1"; shift
-            if "$@" > "$RUNNER_TEMP/d09-t3/$id.log" 2>&1; then
-              echo "D09_T3_$id=PASS"
-            else
-              echo "D09_T3_$id=FAIL"
-              grep -oE '(D09_[A-Z0-9_]+|T3_[A-Z0-9_]+|error TS[0-9]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-t3/$id.log" | sort -u | head -30 || true
-              failed=1
-            fi
-            grep -E '^D09_[A-Z0-9_]+=(PASS|FAIL)$|^D09_PRODUCT_ROUTE_FAIL [^ ]+' "$RUNNER_TEMP/d09-t3/$id.log" | cut -c1-200 | tail -30 || true
-          }
-          check USER node tests/d09-t3-user.browser.mjs
-          check FIRST_WORKSPACE node tests/d09-original-t2-production-first-run.browser.mjs
-          check PROJECT_RESULT_EXCHANGE node tests/d09-original-t2-project-save.browser.mjs
-          grep -E '^D09_PROJECT_[A-Z0-9_]+=FAIL ' "$RUNNER_TEMP/d09-t3/PROJECT_RESULT_EXCHANGE.log" | cut -c1-200 | head -5 || true
-          exit "$failed"
-      - name: Existing product routes and contracts on T3
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.lane == 'browser' }}
-        working-directory: private-site
-        shell: bash
-        run: |
-          set -eu
-          failed=0
-          if npm run test:d09:user-routes > "$RUNNER_TEMP/d09-t3/USER_ROUTES.log" 2>&1; then
-            echo D09_T3_USER_ROUTES=PASS
-          else
-            echo D09_T3_USER_ROUTES=FAIL
-            failed=1
-          fi
-          grep -E '^D09_PRODUCT_ROUTE_PHASE |^D09_PRODUCT_ROUTE_STATE |^D09_PRODUCT_ROUTE_FAIL |^D09_PRODUCT_ROUTE_MATRIX=' "$RUNNER_TEMP/d09-t3/USER_ROUTES.log" | cut -c1-240 | tail -30 || true
-          if NODE_OPTIONS="--test-reporter=tap" npm run test:d09 > "$RUNNER_TEMP/d09-t3/CONTRACTS.log" 2>&1; then
-            echo D09_T3_CONTRACTS=PASS
-          else
-            echo D09_T3_CONTRACTS=FAIL
-            grep -E '^not ok [0-9]+ - ' "$RUNNER_TEMP/d09-t3/CONTRACTS.log" | cut -c1-160 | head -30 || true
-            failed=1
-          fi
-          exit "$failed"
       - name: Validate actual production-origin dist
         if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.lane == 'production' }}
         working-directory: private-site
@@ -261,6 +209,7 @@ jobs:
             exit 1
           fi
       - name: Package actual production dist and verify extracted ZIP
+        id: package
         if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.lane == 'production' }}
         working-directory: private-site
         shell: bash
@@ -286,36 +235,44 @@ jobs:
             grep -oE '(D09_HOSTING_[A-Z0-9_]+|ERR_[A-Z0-9_]+|AssertionError|TypeError|SyntaxError)' "$RUNNER_TEMP/d09-t3/ZIP.log" | sort -u | head -25 || true
             exit 1
           fi
-      - name: Real local model and explicit HOP canvas command on macOS
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.lane == 'hardware' }}
-        working-directory: private-site
+      - name: Compare delivery to prior qualified production and seal verified ZIP only
+        if: ${{ success() && steps.package.outcome == 'success' }}
         shell: bash
         env:
-          D09_T3_MODEL_PROFILE: ${{ matrix.profile }}
-          D09_T3_ALLOW_REAL_MODEL: '1'
-          D09_T3_REQUIRE_HARDWARE_GPU: '1'
+          D09_TRANSIT_PUBLIC_KEY: 'MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAg0ETA7uLZaBo4NLvxyJi1f0Khog9W2pIK2ptD1F+t1Y/rYqfbi1ELBF7mIlCTezwPqdJ5FIDn6XDqHRqp19b3qEI/r+0dn3itODGYBI3oNxZ3cN7PLSfhXdet0B8goZCiBkGIMthibZ+B22uGNDTVJ/LM0yE9qWthZyc/AiAurb3GJKkci66DDY/ePyTxO79fhLTTzpEjVbXP5xQk7gqXjoZINw5eOOOtmSB5KLEw+MmYxLqjT+nm9o3aup2E4WXfADhlmuqBsubmWf3mKt7oHUtrG2iOJrsIyIVSyNLaAqJbd/foLwZ9Ydw5eWaCiD/NYiEryqViJq9VOHr6ZAQl9qRLhqgpWpH4zf0Ahnb/K0J7nUiRIx9aYx7AfiLxgWVisrkpkfsjWLbQNHtBBw8Xo/y5+QLhsFNf51LuN6ljJZIng9ht4MlZVmPsvbvfNcPaDzdkfOrhHBVtKCgWsc4S2y4QtaNx6WDjtIOhV4xbOn8WAnPICWoYpFhmcU5Dv2jAgMBAAE='
         run: |
-          set -eu
-          log="$RUNNER_TEMP/d09-t3/HARDWARE.log"
-          failed=0
-          node tests/d09-t3-user.browser.mjs > "$log" 2>&1 || failed=1
-          # Finite evidence only: never print generated text or private source.
-          grep -E '^D09_T3_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN_AFTER_FIRST_FAILURE|[0-9]+)$|^D09_T3_MODEL_(DEVICE|ANSWER|PAGE_REQUESTS|CANVAS_STRUCTURE|FORM_STRUCTURE)=' "$log" | cut -c1-650 | tail -40 || true
-          if [ "$failed" = 0 ]; then
-            echo D09_T3_REAL_MODEL_FUNCTIONAL=PASS
-          else
-            echo D09_T3_REAL_MODEL_FUNCTIONAL=FAIL
-            grep -oE 'D09_T3_[A-Z0-9_]{5,100}' "$log" | sort -u | tail -30 || true
-          fi
-          exit "$failed"
-      - name: Separate model functional qualification
-        if: ${{ !cancelled() && matrix.lane == 'browser' }}
-        run: |
-          echo D09_T3_REAL_MODEL_FUNCTIONAL=SEPARATE_HARDWARE_LANE
-          echo D09_RELEASE_ACCEPTANCE=NOT_EVALUATED
+          set -euo pipefail
+          umask 077
+          stage="$RUNNER_TEMP/d09-t3"
+          zip="$stage/hosting-candidate/HOP_IWXA_HOSTING_T3_0.3.2_1e30df8d.zip"
+          node --input-type=module - "$zip" <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash,createPublicKey} from 'node:crypto';
+          const zip=process.argv[2],r=JSON.parse(readFileSync(zip+'.json','utf8'));
+          const key=createPublicKey({key:Buffer.from(process.env.D09_TRANSIT_PUBLIC_KEY,'base64'),format:'der',type:'spki'});
+          if(createHash('sha256').update(key.export({format:'der',type:'spki'})).digest('hex')!=='1fb5abbed7df15474b8b6380ce109c55d6b17d4bb9b90cfad2fc7f7e0ba1dacb')throw Error('D09_RECIPIENT_MISMATCH');
+          if(r.siteCommit!==process.env.SITE_PIN||r.status!=='D09_HOSTING_ZIP_ROUNDTRIP_PASS'||r.report.files!==298||r.report.offline.pages!==28||r.report.offline.manifestEntries!==320)throw Error('D09_DELIVERY_STRUCTURE');
+          console.log('D09_DELIVERY_PREVIOUS_ZIP_MATCH='+(r.archiveSha256==='64a33a7103bac04b29c81a09e976ac869d322bd5d7d954a5b9078451d2d18adc'?'YES':'NO'));
+          console.log('D09_DELIVERY_PREVIOUS_INVENTORY_MATCH='+(r.report.inventorySha256==='4b90448073a70acff924b210f9b0f17144a1ffb38c7c1271786da89dbbd0819d'?'YES':'NO'));
+          JS
+          node ci-harness/tools/ci/sealed-release-zip.mjs seal "$zip" "$stage/handoff" "$SITE_PIN" "$GITHUB_RUN_ID" "$D09_TRANSIT_PUBLIC_KEY"
+          test -f "$stage/handoff/header.json"
+          test -f "$stage/handoff/payload.bin"
+      - name: Retain authenticated ciphertext only for closed recipient
+        uses: actions/upload-artifact@v4
+        with:
+          name: d09-hop-sealed-hosting-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/d09-t3/handoff/header.json
+            ${{ runner.temp }}/d09-t3/handoff/payload.bin
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Record sealed handoff
+        run: echo D09_SEALED_DELIVERY=PASS
       - name: Remove private inputs, site and evidence
         if: always()
         shell: bash
         run: |
           rm -rf "$GITHUB_WORKSPACE/private-site" "$GITHUB_WORKSPACE/private-assistant" "$GITHUB_WORKSPACE/original-platform" "$RUNNER_TEMP/d09-t3"
-          echo D09_PRIVATE_ARTIFACT_UPLOADS=NONE
+          echo D09_PLAINTEXT_PRIVATE_ARTIFACT_UPLOADS=NONE
