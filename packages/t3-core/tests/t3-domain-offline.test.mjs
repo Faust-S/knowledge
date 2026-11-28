@@ -438,8 +438,21 @@ test("Exact released origin prevents unchanged autonomous bundle installation on
     const official=fakeBrowser(root),officialReady=[];
     await official.dispatch("T3_INSTALL",{postMessage:m=>officialReady.push(m)});
     assert.equal(officialReady.at(-1)?.type,"READY");
-    const foreignCold=fakeBrowser(root,official.caches,Date,"https://copy.example"),status=[];
+    // Even if copied CacheStorage entries are manually re-keyed to the
+    // destination origin, the original release metadata cannot authorize it.
+    const cloned=new Map([...official.caches].map(([name,entries])=>[name,new Map(
+      [...entries].map(([url,response])=>[url.replace(ORIGIN,"https://copy.example"),response.clone()])
+    )]));
+    const foreignCold=fakeBrowser(root,cloned,Date,"https://copy.example"),status=[];
     await foreignCold.dispatch("T3_STATUS",{postMessage:m=>status.push(m)});
-    assert.equal(status.at(-1)?.active,false,"foreign-origin cache cannot be activated");
+    assert.equal(status.at(-1)?.active,false,"re-keyed foreign-origin cache cannot be activated");
+    assert.equal(foreignCold.liveFetches,0,"cold rejection does not consult the network");
+    // The same manifest verification applies to explicit updates on the
+    // official origin. The already installed, legitimate version survives.
+    writeFileSync(manifestPath,JSON.stringify({...manifest,domain_origin:"https://copy.example"}));
+    const rejectedUpdate=[];
+    await official.dispatch("T3_CHECK_UPDATE",{postMessage:m=>rejectedUpdate.push(m)});
+    assert.match(rejectedUpdate.at(-1)?.message,/RELEASE_ORIGIN_MISMATCH/);
+    assert.equal((await official.fetchPage(ORIGIN+"/workspace/")).status,200);
   }finally{cleanup(root);}
 });
