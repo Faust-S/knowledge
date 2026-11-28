@@ -1,6 +1,6 @@
 {
   "schema": "iwxa.t3.consolidation-sources/1",
-  "status": "CORNER_CONTROLS_SOURCE_CANDIDATE_NOT_QUALIFIED",
+  "status": "ENGINEERING_QUALIFIED_STABLE_INPUTS_PENDING_PUBLICATION",
   "base": "3056eef0665fb3503294d49b89d937af2ea060e2",
   "rc2": "4b3314079600f5d95b3dd9e0defe3be8e845378e",
   "corporate": "8db847058cab231d2d39c34df46024b60564d2ad",
@@ -223,7 +223,7 @@
   ],
   "qualification": "Generic T3 exact Host, accepted Kernel, complete .iwxa restore, cold autonomy, BLI and portable artifact. Separate original corporate installed A-B-A qualification remains open, not a domain/platform release prerequisite.",
   "version": "0.3.3",
-  "snapshot": "0.3.3 source candidate from stable 0.3.2; fixed site-wide corner controls and exact offline origin binding. Previously qualified generic Host, Kernel, model catalog and engine retained.",
+  "snapshot": "0.3.3 fixed corner controls and exact offline origin binding, original compiled Host, model catalog, engine and Kernel unchanged from 0.3.2.",
   "qualificationAttempts": [
     {
       "candidate": "f3d0404da883c98fed4188fdff9006aa43c07eec",
@@ -530,6 +530,62 @@
       }
     },
     "finalRelease": {
+      "version": "0.3.3",
+      "prior": "0.3.2",
+      "source": "56ee1bf853c734b8101b76d4648929df59f7a053",
+      "assistant": "629aaa274f2d6ad915730ee0d817aedc33e53108",
+      "run": 46152768497,
+      "sourceTests": 137,
+      "offlineSourceTests": 19,
+      "offlineSourceRun": 46152580621,
+      "scope": "COMMON_UI_AND_OFFLINE_LIFECYCLE",
+      "priorRealInferenceRun": 46065502722,
+      "installedProductsSeparate": true,
+      "domainMigrationAutoAuthorized": false
+    },
+    "cornerControls": {
+      "status": "ENGINEERING_QUALIFIED",
+      "base": "0.3.2",
+      "baseSource": "8e26076ce66f0c26693a647e061fcd568e055b77",
+      "assistant": "629aaa274f2d6ad915730ee0d817aedc33e53108",
+      "placement": "FIXED_LOWER_RIGHT_VERTICAL_48PX_ICONS",
+      "modelCatalogUnchanged": true,
+      "originalKernelUnchanged": true,
+      "originBinding": "EXACT_DEPLOYMENT_ORIGIN_WITH_HTTP_LOOPBACK_DEVELOPMENT_EXCEPTION",
+      "siteMigrationAutomatic": false,
+      "qualification": {
+        "schema": "IWXA_T3_033_QUALIFICATION/1",
+        "version": "0.3.3",
+        "testedSource": "56ee1bf853c734b8101b76d4648929df59f7a053",
+        "assistant": "629aaa274f2d6ad915730ee0d817aedc33e53108",
+        "base": "8e26076ce66f0c26693a647e061fcd568e055b77",
+        "run": 46152768497,
+        "originalAssistantSourceTests": 137,
+        "offlineAndPwaSourceTests": 19,
+        "offlineAndPwaSourceRun": 46152580621,
+        "browser": {
+          "originalInstallUpdateColdRestart": true,
+          "realCombinedControls": true,
+          "viewports": [
+            "1440x900",
+            "375x812",
+            "320x568"
+          ],
+          "theme": true,
+          "print": true,
+          "layoutUnchanged": true
+        },
+        "domainBinding": true,
+        "unchangedModelEvidenceRun": 46065502722,
+        "modelGenerationRetested": false,
+        "originalKernelUnchanged": true,
+        "independentCodex": "NOT_RUN",
+        "actualDomainMigration": false,
+        "physicalMobileAccepted": false,
+        "installedProductAccepted": false
+      }
+    },
+    "previousFinalRelease_0_3_2": {
       "version": "0.3.2",
       "prior": "0.3.2-rc.2",
       "source": "0a2cd84af5d56e148e003326bada030da8fb62e2",
@@ -541,17 +597,6 @@
       "filesIdenticalToRc2": 171,
       "installedProductsSeparate": true,
       "domainMigrationAutoAuthorized": false
-    },
-    "cornerControls": {
-      "status": "SOURCE_CANDIDATE_NOT_QUALIFIED",
-      "base": "0.3.2",
-      "baseSource": "8e26076ce66f0c26693a647e061fcd568e055b77",
-      "assistant": "629aaa274f2d6ad915730ee0d817aedc33e53108",
-      "placement": "FIXED_LOWER_RIGHT_VERTICAL_48PX_ICONS",
-      "modelCatalogUnchanged": true,
-      "originalKernelUnchanged": true,
-      "originBinding": "EXACT_DEPLOYMENT_ORIGIN_WITH_HTTP_LOOPBACK_DEVELOPMENT_EXCEPTION",
-      "siteMigrationAutomatic": false
     }
   }
 }
