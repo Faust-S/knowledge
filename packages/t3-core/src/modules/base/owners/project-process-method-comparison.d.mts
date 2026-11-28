@@ -92,3 +92,16 @@ export function compareWorkspaceMethodWithCreation(input:{
   owner:WorkspaceMethodHistoryPort & {load:(kind:string,workspaceId:string,id:string)=>Promise<unknown>};
   workspaceId:string;projectId:string;expected:WorkspaceMethodRevisionSelection;
 }):Promise<WorkspaceMethodCreationComparison>;
+
+
+export type WorkspaceMethodOriginComparison =
+  Readonly<{state:'NO_ALTERNATIVE_ORIGIN';workspaceId:string;projectId:string;
+    currentSelection:WorkspaceMethodRevisionSelection;currentHeadVerified:true;
+    writeAuthorized:false;executionAuthority:false;resultReuseProven:false;mergeAuthorized:false;atomicSnapshot:false}>
+  | (Omit<WorkspaceMethodAlternativeComparison,'comparisonBasis'|'beforeFromOrigin'|'afterFromOrigin'|'currentHeadVerified'>
+    & Readonly<{comparisonBasis:'ORIGINAL_ALTERNATIVE_ORIGIN_TO_SELECTED_CURRENT';currentHeadVerified:true;
+      originCurrentHeadVerified:false;stageDetails:WorkspaceMethodCreationComparison['stageDetails']}>);
+export function compareWorkspaceMethodWithOrigin(input:{
+  owner:WorkspaceMethodHistoryPort & {load:(kind:string,workspaceId:string,id:string)=>Promise<unknown>};
+  workspaceId:string;projectId:string;expected:WorkspaceMethodRevisionSelection;
+}):Promise<WorkspaceMethodOriginComparison>;

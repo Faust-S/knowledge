@@ -283,11 +283,49 @@ export async function compareWorkspaceMethodWithCreation({owner,workspaceId,proj
   const after=await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId});
   if(!sameSelection(after,selected))fail('METHOD_CREATION_SELECTION_CHANGED','Selected current method changed');
   const comparison=compareWorkspaceMethodRevisions({before,after});
-  const left=new Map(before.draft.steps.map(step=>[step.id,step]));
-  const right=new Map(after.draft.steps.map(step=>[step.id,step]));
   return Object.freeze({...comparison,comparisonBasis:'ORIGINAL_CREATION_TO_SELECTED_CURRENT',
     beforeSelection:selectionOf(before),afterSelection:selectionOf(after),currentHeadVerified:true,
-    stageDetails:Object.freeze(comparison.stepChanges.filter(row=>row.operation!=='UNCHANGED').map(row=>Object.freeze({
-      stepId:row.stepId,before:left.get(row.stepId)??null,after:right.get(row.stepId)??null,
-    })))});
+    stageDetails:describeChangedStages(comparison,before,after)});
+}
+
+
+function describeChangedStages(comparison,before,after){
+  const left=new Map(before.draft.steps.map(step=>[step.id,step]));
+  const right=new Map(after.draft.steps.map(step=>[step.id,step]));
+  return Object.freeze(comparison.stepChanges.filter(row=>row.operation!=='UNCHANGED').map(row=>Object.freeze({
+    stepId:row.stepId,before:left.get(row.stepId)??null,after:right.get(row.stepId)??null,
+  })));
+}
+
+/** Compare a selected current independent alternative against the exact
+ * source revision recorded when it was created, NOT the source's live head.
+ * The original source can evolve without changing the comparison baseline.
+ */
+export async function compareWorkspaceMethodWithOrigin({owner,workspaceId,projectId,expected}={}){
+  if(!text(workspaceId)||!text(projectId)||workspaceId.trim()!==workspaceId||projectId.trim()!==projectId
+      ||typeof owner?.load!=='function'||typeof owner?.historyThrough!=='function'){
+    fail('METHOD_ALTERNATIVE_COMPARISON_OWNER_REQUIRED','Original addressed source and history owner required');
+  }
+  const selected=captureSelection(expected,'current');
+  const current=await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId});
+  if(!sameSelection(current,selected))fail('METHOD_ALTERNATIVE_SELECTION_CHANGED','Selected alternative changed');
+  const origin=current.originalCreation?.origin;
+  if(!origin)return Object.freeze({state:'NO_ALTERNATIVE_ORIGIN',workspaceId,projectId,
+    currentSelection:selectionOf(current),currentHeadVerified:true,writeAuthorized:false,executionAuthority:false,
+    resultReuseProven:false,mergeAuthorized:false,atomicSnapshot:false});
+  if(origin.workspaceId!==workspaceId||origin.projectId===projectId)
+    fail('METHOD_ALTERNATIVE_ORIGIN_MISMATCH','Original alternative origin is outside current Workspace');
+  const before=await readHistoricalWorkspaceMethod({owner,workspaceId,projectId:origin.projectId,
+    expected:captureSelection(origin,'origin')});
+  const after=await readWorkspaceMethodFromSourceOwner({owner,workspaceId,projectId});
+  if(!sameSelection(after,selected))fail('METHOD_ALTERNATIVE_SELECTION_CHANGED','Selected alternative changed');
+  const observedOrigin=after.originalCreation?.origin;
+  if(!observedOrigin||observedOrigin.projectId!==origin.projectId||observedOrigin.workspaceId!==workspaceId
+      ||!sameSelection(before,observedOrigin))fail('METHOD_ALTERNATIVE_ORIGIN_MISMATCH','Original alternative origin changed');
+  const comparison=compareReadbacks(readback(before,'origin'),readback(after,'alternative'),true);
+  return Object.freeze({...comparison,comparisonBasis:'ORIGINAL_ALTERNATIVE_ORIGIN_TO_SELECTED_CURRENT',
+    beforeSelection:selectionOf(before),afterSelection:selectionOf(after),
+    origin:Object.freeze({workspaceId,projectId:before.projectId,...selectionOf(before)}),
+    currentHeadVerified:true,originCurrentHeadVerified:false,mergeAuthorized:false,
+    stageDetails:describeChangedStages(comparison,before,after)});
 }

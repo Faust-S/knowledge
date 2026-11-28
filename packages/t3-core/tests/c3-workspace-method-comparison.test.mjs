@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compareWorkspaceMethodRevisions,compareWorkspaceMethodSelections,compareWorkspaceMethodAlternatives,compareWorkspaceMethodWithCreation } from '../src/modules/base/owners/project-process-method-comparison.mjs';
+import { compareWorkspaceMethodRevisions,compareWorkspaceMethodSelections,compareWorkspaceMethodAlternatives,compareWorkspaceMethodWithCreation,compareWorkspaceMethodWithOrigin } from '../src/modules/base/owners/project-process-method-comparison.mjs';
 import { createWorkspaceMethodThroughSourceOwner } from '../src/modules/base/owners/project-process-method-materialization.mjs';
 import { createProjectProcessSourceOwnerQualificationHarness } from '../src/modules/base/owners/project-process-source-owner.mjs';
 import { readWorkspaceMethodFromSourceOwner } from '../src/modules/base/owners/project-process-method-readback.mjs';
@@ -235,4 +235,35 @@ test('creation comparison rechecks selected current heads after historical reads
   }};
   await assert.rejects(compareWorkspaceMethodWithCreation({owner:port,workspaceId,projectId:'project-a',expected:readback}),
     e=>e.code==='METHOD_CREATION_SELECTION_CHANGED');
+});
+
+
+test('alternative comparison uses immutable parent selection after parent and variant evolve',async()=>{
+  const {owner,readback,draft:d}=await base();
+  const fork=await forkFrom(owner,readback,'variant-origin');
+  const changed=await editFork(owner,fork,'analyse','Variant analysis');
+  const newer=await reviseReal(owner,readback,{...d,steps:d.steps.map(s=>s.id==='compute'?{...s,instruction:'Parent later changed'}:s)},
+    '2026-11-27T14:00:00Z','comparison-parent-later');
+  const count=(await owner.audit()).length;
+  const result=await compareWorkspaceMethodWithOrigin({owner,workspaceId,projectId:'variant-origin',expected:changed});
+  assert.equal(result.comparisonBasis,'ORIGINAL_ALTERNATIVE_ORIGIN_TO_SELECTED_CURRENT');
+  assert.equal(result.currentHeadVerified,true);assert.equal(result.originCurrentHeadVerified,false);
+  assert.deepEqual(result.beforeSelection.projectRef,readback.projectRef);
+  assert.deepEqual(result.beforeSelection.workRefs,readback.workRefs);
+  assert.notDeepEqual(result.beforeSelection.workRefs,newer.workRefs);
+  assert.deepEqual(result.changedStepIds,['analyse']);assert.deepEqual(result.affectedStepIds,['analyse','review']);
+  assert.equal(result.stageDetails[0].before.instruction,'Propose options');
+  assert.equal(result.stageDetails[0].after.instruction,'Variant analysis');
+  assert.equal(result.mergeAuthorized,false);assert.equal(result.resultReuseProven,false);
+  assert.equal((await owner.audit()).length,count);
+});
+test('ordinary method has no alternative origin, and stale alternative is rejected',async()=>{
+  const {owner,readback}=await base();
+  const ordinary=await compareWorkspaceMethodWithOrigin({owner,workspaceId,projectId:'project-a',expected:readback});
+  assert.equal(ordinary.state,'NO_ALTERNATIVE_ORIGIN');
+  const fork=await forkFrom(owner,readback,'variant-stale');
+  const changed=await editFork(owner,fork,'analyse','Change');
+  await assert.rejects(compareWorkspaceMethodWithOrigin({owner,workspaceId,projectId:'variant-stale',expected:fork}),
+    e=>e.code==='METHOD_ALTERNATIVE_SELECTION_CHANGED');
+  assert.equal((await compareWorkspaceMethodWithOrigin({owner,workspaceId,projectId:'variant-stale',expected:changed})).state,'CHANGES_PROPOSED');
 });
