@@ -12,12 +12,18 @@ const sha=s=>createHash("sha256").update(s).digest("hex");
 const tracked=new Set(git("ls-files","-z").split("\0").filter(Boolean));
 const pathOf=r=>relative(cwd,r.filePath).replaceAll("\\","/");
 const isSafePath=p=>/^(?:scripts|src|t2-site-module|public)\/[A-Za-z0-9_.$/-]{1,220}$/.test(p)||/^(?:eslint|vite|vitest)\.config\.(?:js|ts|mjs)$/.test(p);
-const allowedFix=p=>tracked.has(p)&&/^scripts\/(?:check-|verify-|.*\.test\.)[A-Za-z0-9_.$/-]*\.(?:ts|tsx|mjs|js)$/.test(p);
+const allowedFix=p=>tracked.has(p)&&(
+  p==="scripts/d05-t3-real-model-witness.mjs"||
+  /^scripts\/(?:check-|verify-|.*\.test\.)[A-Za-z0-9_.$/-]*\.(?:ts|tsx|mjs|js)$/.test(p)||
+  /^src\/[A-Za-z0-9_.$/-]+\.test\.tsx?$/.test(p));
 const emit=(tag,obj)=>console.log(tag+" "+JSON.stringify(obj));
 function report(rows,phase){
   const errors=rows.flatMap(row=>row.messages.filter(m=>m.severity===2).map(m=>({path:pathOf(row),line:m.line,column:m.column,rule:m.ruleId||"parse"})));
   emit("D05_LINT_SUMMARY",{phase,errors:errors.length,warnings:rows.reduce((n,r)=>n+r.warningCount,0)});
   for(const e of errors.slice(0,100))if(isSafePath(e.path))emit("D05_LINT_DIAG",e);
+  const grouped={};
+  for(const e of errors)if(isSafePath(e.path)){const rules=grouped[e.path]||={};rules[e.rule]=(rules[e.rule]||0)+1;}
+  emit("D05_LINT_FILE_COUNTS",{phase,files:grouped});
   return errors;
 }
 const first=await new ESLint({cwd}).lintFiles(["."]);
@@ -106,6 +112,10 @@ for(const [name,cmd,args] of groups){
     for(const line of output.split(/\r?\n/)){
       const m=line.match(/^\s*((?:src|scripts|t2-site-module)\/[A-Za-z0-9_.$/-]+)\((\d+),(\d+)\): error (TS\d+):/);
       if(m)emit("D05_TYPE_DIAG",{file:m[1],line:+m[2],column:+m[3],code:m[4]});
+    }
+    for(const m of output.matchAll(/^not ok (\d+) -[^\n]*\n([\s\S]*?)(?=^not ok |^ok |^# tests |$)/gm)){
+      const at=m[2].match(/(?:location:|at)\s*[^\n]*\/site\/((?:scripts|src|t2-site-module)\/[A-Za-z0-9_.$/-]+):(\d+):(\d+)/);
+      emit("D05_NODE_TEST_DIAG",{number:Number(m[1]),path:at?.[1]||null,line:at?Number(at[2]):null});
     }
     const codes=[...new Set(output.match(/(?:CEHOVOD|IWXA|D05|T2|T3)_[A-Z0-9_]{3,100}|TS\d{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+/g)||[])].slice(0,60);
     emit("D05_GATE_CODES",{name,codes});

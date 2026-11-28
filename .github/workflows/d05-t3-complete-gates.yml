@@ -24,7 +24,7 @@ jobs:
       - name: Validate deliberate one-shot qualification request
         shell: bash
         run: |
-          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d05-t3-complete-gates --profile 0.3.2-complete-gates --revision site=ad826d3128e8a73488b1a7b0b41b405c6851f1f9 --revision subject=6852d55ae8e7100b480b2d5c0a10b92de1c7d467 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4 --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d05-t3-complete-gates --profile 0.3.2-complete-gates --revision site=96881770ef2473c59cb0f15ff66098f3de08786f --revision subject=6852d55ae8e7100b480b2d5c0a10b92de1c7d467 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4 --revision platform=8e26076ce66f0c26693a647e061fcd568e055b77
   linux:
     needs: admission
     runs-on: ubuntu-latest
@@ -44,10 +44,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: ad826d3128e8a73488b1a7b0b41b405c6851f1f9
+          ref: 96881770ef2473c59cb0f15ff66098f3de08786f
           path: site
           persist-credentials: false
-          fetch-depth: 3
+          fetch-depth: 4
           token: ${{ secrets.DOMEN }}
       - uses: actions/checkout@v4
         with:
@@ -76,7 +76,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C site rev-parse HEAD)" = "ad826d3128e8a73488b1a7b0b41b405c6851f1f9"
+          test "$(git -C site rev-parse HEAD)" = "96881770ef2473c59cb0f15ff66098f3de08786f"
           test "$(git -C domain rev-parse HEAD)" = "6852d55ae8e7100b480b2d5c0a10b92de1c7d467"
           test "$(git -C assistant rev-parse HEAD)" = "2c247482306f218a7d5be668de11e98f168862d4"
           test "$(git -C one-core rev-parse HEAD)" = "8e26076ce66f0c26693a647e061fcd568e055b77"
@@ -93,15 +93,17 @@ jobs:
           import assert from "node:assert/strict";
           import {execFileSync} from "node:child_process";
           import {readFileSync} from "node:fs";
+          import {createHash} from "node:crypto";
           const git=(...args)=>execFileSync("git",args,{encoding:"utf8",stdio:["ignore","pipe","pipe"]});
-          const base="b7896f9b74be8b4d5d9e1eeb3c039b1c5098606f";
-          assert.equal(git("rev-parse","HEAD").trim(),"ad826d3128e8a73488b1a7b0b41b405c6851f1f9");
-          assert.equal(git("rev-parse","HEAD^^").trim(),base);
-          assert.deepEqual(git("diff","--name-only",base,"HEAD").trim().split("\n"),["src/routes/glossariy.tsx","src/routes/stati.tsx"]);
-          for(const p of ["src/routes/glossariy.tsx","src/routes/stati.tsx"]){
-            const old=git("show",base+":"+p);
-            assert.equal(readFileSync(p,"utf8"),old.replace(/(\bto="\/[^"]*?)(?<!\/)"/g,'$1/"'));
-          }
+          const old="ad826d3128e8a73488b1a7b0b41b405c6851f1f9",base="b7896f9b74be8b4d5d9e1eeb3c039b1c5098606f";
+          assert.equal(git("rev-parse","HEAD").trim(),"96881770ef2473c59cb0f15ff66098f3de08786f");
+          assert.equal(git("rev-parse","HEAD^").trim(),old);
+          assert.equal(git("rev-parse","HEAD^^^").trim(),base);
+          const expected={"scripts/check-navigation-a11y.ts":"5d0a17138a42d2e38f9165e6a4b1f7f7e13b36670df8b951c78220d91fbab3d3","scripts/check-t3-assistant-dynamic.ts":"fec97ed1a585cf9e4c481091f52f8506207061724639e801371710a1c89211a8","scripts/site-owned-chrome.test.mjs":"3e091e091504f34c8813c62e96edacccec731870f7dad9861ba473102e04918d","src/data/materials.test.ts":"eb64b7314c362672a5a8fdf336349efc2a8a4bd6e83eaaa2342306ecf53c3356","src/routes/stati.tsx":"390f2a81dd7dff4a1b73d72d973569da58b53eff13a2027d08d4a582f1368dca","t2-site-module/host-config/workspace-site-owned.css":"f677d491273f7d4c895ba72f879c4596bfea067e4415884b28b20c2ecd74a26f","src/static-checks-contract.test.ts":"156e36c84ba093a0c4f3d592d3e11a135d19498b66b3dc32cc271e35d6256f10","scripts/prepare-cehovod-host-build.test.mjs":"3f294abbcfba959d6c7b163f9096354fe052ae12d9b86880b8c4676b4509f0f9"};
+          assert.deepEqual(git("diff","--name-only",old,"HEAD").trim().split("\n").sort(),Object.keys(expected).sort());
+          assert.deepEqual(git("diff","--name-only",base,"HEAD").trim().split("\n").sort(),[...Object.keys(expected),"src/routes/glossariy.tsx"].sort());
+          for(const [path,hash] of Object.entries(expected))assert.equal(createHash("sha256").update(readFileSync(path)).digest("hex"),hash);
+          assert.equal(git("show","HEAD:src/routes/glossariy.tsx"),git("show",base+":src/routes/glossariy.tsx").replace(/(\bto="\/[^"]*?)(?<!\/)"/g,'$1/"'));
           assert.ok(readFileSync("src/router.tsx","utf8").includes('trailingSlash: "always" as const'));
           const generated=readFileSync("src/routeTree.gen.ts","utf8");
           const destinations=new Set([...generated.slice(generated.indexOf("export interface FileRoutesByTo"),generated.indexOf("export interface FileRoutesById")).matchAll(/'([^']+)':/g)].map(m=>m[1].endsWith("/")?m[1]:m[1]+"/"));
@@ -109,7 +111,7 @@ jobs:
           rows.push(...[...readFileSync("src/data/materials.ts","utf8").matchAll(/(?:toolPath|casePath):\s*"([^"]+)"/g)].map(m=>m[1]));
           assert.equal(rows.length,18);
           assert.ok(rows.every(p=>destinations.has(p)));
-          console.log("D05_CANONICAL_ROUTE_CONTRACT_18_PASS");
+          console.log("D05_CANONICAL_ROUTE_AND_TEST_FORMAT_BOUNDARY_PASS");
           JS
       - name: Install locked site dependencies
         shell: bash
@@ -126,7 +128,7 @@ jobs:
         id: normalized
         run: |
           set -euo pipefail
-          npx --no-install prettier --write scripts/check-navigation-a11y.ts scripts/site-owned-chrome.mjs scripts/site-owned-chrome.test.mjs src/components/site/Footer.tsx src/components/site/Header.tsx src/data/materials.test.ts src/data/materials.ts src/data/navigation.ts src/data/terminology.ts src/lib/terminology.test.ts src/routes/glossariy.tsx src/routes/stati.tsx src/site-routes.ts t2-site-module/host-config/workspace-site-owned.css >"$RUNNER_TEMP/d05-current-format.log" 2>&1 || { echo D05_CURRENT_FORMAT_FAIL; exit 1; }
+          npx --no-install prettier --write scripts/d05-t3-real-model-witness.mjs scripts/prepare-cehovod-host-build.test.mjs src/static-checks-contract.test.ts scripts/check-navigation-a11y.ts scripts/site-owned-chrome.mjs scripts/site-owned-chrome.test.mjs src/components/site/Footer.tsx src/components/site/Header.tsx src/data/materials.test.ts src/data/materials.ts src/data/navigation.ts src/data/terminology.ts src/lib/terminology.test.ts src/routes/glossariy.tsx src/routes/stati.tsx src/site-routes.ts t2-site-module/host-config/workspace-site-owned.css >"$RUNNER_TEMP/d05-current-format.log" 2>&1 || { echo D05_CURRENT_FORMAT_FAIL; exit 1; }
           git diff --check
           git add -u
           tree="$(git write-tree)"
@@ -174,6 +176,8 @@ jobs:
           git add -u
           echo "D05_SOURCE_QUALIFIED_TREE=$(git write-tree)"
       - name: Build public pages and exercise every existing static gate
+        id: public_static
+        continue-on-error: true
         shell: bash
         working-directory: site
         run: |
@@ -192,6 +196,7 @@ jobs:
               echo "D05_STATIC_GATE $gate PASS"
             else
               echo "D05_STATIC_GATE $gate FAIL"
+              python3 "$GITHUB_WORKSPACE/harness/qualification/d05/current-hosting/static-diagnostics.py" "$gate" "$log"
               grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|TS[0-9]{4,6}|TimeoutError|AssertionError|ERR_[A-Z0-9_]+' "$log" | sort -u | head -30 || true
               failed=1
             fi
@@ -231,6 +236,8 @@ jobs:
           if [ "$code" -ne 0 ]; then echo "D05_CURRENT_LOOPBACK_BUILD_FAIL"; exit "$code"; fi
           echo "D05_CURRENT_LOOPBACK_BUILD_PASS"
       - name: Verify actual protected preview
+        id: preview_gate
+        continue-on-error: true
         shell: bash
         working-directory: site
         run: |
@@ -243,6 +250,8 @@ jobs:
           if [ "$code" -ne 0 ]; then echo "D05_CURRENT_PREVIEW_FAIL"; exit "$code"; fi
           echo "D05_CURRENT_PREVIEW_PASS"
       - name: T2 completed production and physical Exchange on original T3 Host
+        id: t2_production_gate
+        continue-on-error: true
         shell: bash
         working-directory: site
         env:
@@ -262,6 +271,8 @@ jobs:
           echo "D05_CURRENT_T2_PRODUCTION_PASS"
           grep -Fxq 'D05_FIRST_USE_REAL_T2_CROSS_SERVICE=PASS' "$log"
       - name: T3 autonomous costed production and independent cold import
+        id: t3_production_gate
+        continue-on-error: true
         shell: bash
         working-directory: site
         env:
@@ -309,6 +320,8 @@ jobs:
           if [ "$code" -ne 0 ]; then echo "D05_CURRENT_CANONICAL_DIST_FAIL"; exit "$code"; fi
           echo "D05_CURRENT_CANONICAL_DIST_PASS"
       - name: Check actual Apache routing and assets
+        id: apache_gate
+        continue-on-error: true
         shell: bash
         working-directory: site
         run: |
@@ -327,6 +340,8 @@ jobs:
           echo "D05_CURRENT_APACHE_PASS"
           grep -Eq '^  Apache integration[[:space:]]*:[[:space:]]*PASS$' "$log"
       - name: Browser assistant and actual native forms, dynamic context and cold offline public site
+        id: assistant_gate
+        continue-on-error: true
         shell: bash
         working-directory: site
         run: |
@@ -341,6 +356,8 @@ jobs:
           echo "D05_CURRENT_ASSISTANT_BROWSER_PASS"
           grep -E '^\{"status":"(CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS|CEHOVOD_T3_DYNAMIC_CONTEXT_PASS|CEHOVOD_T3_PUBLIC_COLD_OFFLINE_PASS|CEHOVOD_T3_ALL_SITE_COLD_PASS)",' "$log"
       - name: Audit hydrated site links, desktop and mobile route journeys
+        id: link_gate
+        continue-on-error: true
         shell: bash
         working-directory: site
         run: |
@@ -367,11 +384,44 @@ jobs:
           echo "D05_CURRENT_RENDERED_LINKS_PASS"
           grep -E '^\{"status":"D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED",' "$log"
       - name: Verify external public anchor destinations without disclosing private source
+        id: external_gate
+        continue-on-error: true
         shell: bash
         working-directory: site
         run: |
           set -euo pipefail
           python3 "$GITHUB_WORKSPACE/harness/qualification/d05/current-hosting/external-links.py" dist "$RUNNER_TEMP/d05-external-links.json"
+      - name: Require all independent site and product gates before reproducibility and packaging
+        shell: bash
+        env:
+          PUBLIC_STATIC: ${{ steps.public_static.outcome }}
+          PREVIEW_GATE: ${{ steps.preview_gate.outcome }}
+          T2_PRODUCTION_GATE: ${{ steps.t2_production_gate.outcome }}
+          T3_PRODUCTION_GATE: ${{ steps.t3_production_gate.outcome }}
+          APACHE_GATE: ${{ steps.apache_gate.outcome }}
+          ASSISTANT_GATE: ${{ steps.assistant_gate.outcome }}
+          LINK_GATE: ${{ steps.link_gate.outcome }}
+          EXTERNAL_GATE: ${{ steps.external_gate.outcome }}
+        run: |
+          set -euo pipefail
+          failed=0
+          echo "D05_FINAL_GATE public_static=$PUBLIC_STATIC"
+          [ "$PUBLIC_STATIC" = success ] || failed=1
+          echo "D05_FINAL_GATE preview_gate=$PREVIEW_GATE"
+          [ "$PREVIEW_GATE" = success ] || failed=1
+          echo "D05_FINAL_GATE t2_production_gate=$T2_PRODUCTION_GATE"
+          [ "$T2_PRODUCTION_GATE" = success ] || failed=1
+          echo "D05_FINAL_GATE t3_production_gate=$T3_PRODUCTION_GATE"
+          [ "$T3_PRODUCTION_GATE" = success ] || failed=1
+          echo "D05_FINAL_GATE apache_gate=$APACHE_GATE"
+          [ "$APACHE_GATE" = success ] || failed=1
+          echo "D05_FINAL_GATE assistant_gate=$ASSISTANT_GATE"
+          [ "$ASSISTANT_GATE" = success ] || failed=1
+          echo "D05_FINAL_GATE link_gate=$LINK_GATE"
+          [ "$LINK_GATE" = success ] || failed=1
+          echo "D05_FINAL_GATE external_gate=$EXTERNAL_GATE"
+          [ "$EXTERNAL_GATE" = success ] || failed=1
+          test "$failed" -eq 0
       - name: Rebuild from retained bytes and verify damaged input rollback
         shell: bash
         working-directory: site
@@ -407,7 +457,7 @@ jobs:
           assert.equal(j.conclusion,"success");
           for(const name of ["Verify pinned source and owner projection","Retrieve exact published T3 input archive","Prove real nonfallback WebGPU hardware","Assemble actual T3 loopback product","Run actual local model, cancel, online and cold offline use","Require four exact-result and correct-choice observations (not semantic acceptance)","Require actual offline cross-service continuity and explicit abstention"])
             assert.equal(j.steps.find(s=>s.name===name)?.conclusion,"success","D05_HARDWARE_GATE");
-          console.log("D05_CURRENT_ACTUAL_MODEL_EVIDENCE_REUSED_LINK_ONLY_CORRECTION");
+          console.log("D05_CURRENT_ACTUAL_MODEL_EVIDENCE_REUSED_LINK_AND_TEST_FORMAT_CORRECTION");
           JS
       - name: Seal hosting package after successful corrected Linux and hardware qualification
         shell: bash
