@@ -7,13 +7,13 @@
   "workflow": "196e3cd824f2a21078f75576f09c1153a6b17d17",
   "originalAssistant": {
     "repository": "Faust-S/T3",
-    "commit": "2602f9d90b47ede1c0645844c2a4b6a0055ce697",
+    "commit": "629aaa274f2d6ad915730ee0d817aedc33e53108",
     "sourceDisposition": "private owner; build only through authorized qualification",
     "sourceRoot": "browser-local-inference/domain-assistant",
     "files": [
       {
         "path": "main.mjs",
-        "blob": "ea7ef3621a6e384354e6a8f0f202d2ec05749771"
+        "blob": "8392bddd8e4ce4863fd44be73f046c111bcc2bf0"
       },
       {
         "path": "field-policy.mjs",
@@ -222,8 +222,8 @@
     "packages/t3-core/docs/EXCHANGE_RECEIPT_EXISTING_RECORDS_2026_11_27_RU.md"
   ],
   "qualification": "Generic T3 exact Host, accepted Kernel, complete .iwxa restore, cold autonomy, BLI and portable artifact. Separate original corporate installed A-B-A qualification remains open, not a domain/platform release prerequisite.",
-  "version": "0.3.2",
-  "snapshot": "0.3.2 stable promotion: original platform executable bytes unchanged from rc.2; exact qualified original domain assistant source pin and metadata.",
+  "version": "0.3.3",
+  "snapshot": "0.3.3 source candidate from stable 0.3.2; fixed site-wide corner controls and exact offline origin binding. Previously qualified generic Host, Kernel, model catalog and engine retained.",
   "qualificationAttempts": [
     {
       "candidate": "f3d0404da883c98fed4188fdff9006aa43c07eec",
@@ -541,6 +541,17 @@
       "filesIdenticalToRc2": 171,
       "installedProductsSeparate": true,
       "domainMigrationAutoAuthorized": false
+    },
+    "cornerControls": {
+      "status": "SOURCE_CANDIDATE_NOT_QUALIFIED",
+      "base": "0.3.2",
+      "baseSource": "8e26076ce66f0c26693a647e061fcd568e055b77",
+      "assistant": "629aaa274f2d6ad915730ee0d817aedc33e53108",
+      "placement": "FIXED_LOWER_RIGHT_VERTICAL_48PX_ICONS",
+      "modelCatalogUnchanged": true,
+      "originalKernelUnchanged": true,
+      "originBinding": "EXACT_DEPLOYMENT_ORIGIN_WITH_HTTP_LOOPBACK_DEVELOPMENT_EXCEPTION",
+      "siteMigrationAutomatic": false
     }
   }
 }
