@@ -1,0 +1,19 @@
+name: T4 original route keys
+on:
+  push:
+    branches: ['ci/once/t4-original-route-keys/0f7eb79f1dd8']
+permissions:
+  contents: read
+jobs:
+  registry:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '0f7eb79f1dd8e155c314d529640aa302fecb7683'
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: node --test --test-name-pattern='installed route selects|K37 exact original signed registry|K38 independent X25519' packages/t4-network/tests/original-network-key-lifecycle.test.mjs
