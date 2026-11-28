@@ -97,7 +97,7 @@ test('accepted owner or exact material changed during observation cannot confirm
       const r=await f.readObject(w,id);return changed&&id==='source'?{object:{...r.object,revision:2}}:r;
     }})),code('METHOD_STAGE_RESULT_BASIS_CHANGED'));
 });
-function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=()=>{},personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null,corporateTaskOwner=null,corporateResultOwner=null,subjectKind='PERSONAL',assetBytes=new Uint8Array([42]),assetMime='text/plain'}={}){
+function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=()=>{},personalComposer=null,confirmPersonalDraft=null,personalTaskOwner=null,corporateTaskOwner=null,corporateResultOwner=null,confirmAlternative=null,subjectKind='PERSONAL',assetBytes=new Uint8Array([42]),assetMime='text/plain'}={}){
   const workspace={workspace_id:ws,deleted_at:null};
   let chosen=workspace,active=true,allowed=true;const listeners=new Set();
   const currentWorkspace={get:()=>chosen,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);}};
@@ -145,7 +145,7 @@ function trusted(f,{withAgent=true,withNative=false,withAssets=false,assetHook=(
   })}:null;
   const ports={kernel,accessForRead:async()=>access,currentWorkspace,sourceOwner:f.owner,
     originalAgentResultOwner:withAgent?{readAccepted:async ref=>{if(hook)await hook();return f.readAccepted(ref);}}:null,
-    nativeContinuation,nativeRecipientId:withNative?recipientId:null,personalComposer,confirmPersonalDraft,personalTaskOwner,corporateTaskOwner,corporateResultOwner,isHostActive:()=>active};
+    nativeContinuation,nativeRecipientId:withNative?recipientId:null,personalComposer,confirmPersonalDraft,personalTaskOwner,corporateTaskOwner,corporateResultOwner,confirmAlternative,isHostActive:()=>active};
   const reader=createTrustedWorkspaceMethodStageReader(ports);
   const nativeInputs=nativeTaskOwner?createTrustedWorkspaceMethodCorporateInputReader({...ports,corporateTaskOwner:nativeTaskOwner}):null;
   const changeSelection=()=>{chosen={...workspace};for(const notify of listeners)notify();};
@@ -1193,4 +1193,66 @@ test('trusted method creation comparison ignores disposed or changed Workspace b
     await assert.rejects(pending,e=>['T3_METHOD_STAGE_WORKSPACE_CHANGED','T3_METHOD_STAGE_SIGNED_CONTEXT_CHANGED'].includes(e.code));
     assert.equal((await actual.audit()).length,3);
   }
+});
+
+
+test('actual trusted alternative creates independent original Project/Works and compares them without a new owner',async()=>{
+  const f=await setup(),confirmations=[];
+  const h=trusted(f,{confirmAlternative:async value=>{confirmations.push(value);return true;}});
+  const source={workspaceId:ws,projectId,expected:f.base};
+  const result=await h.reader.createAlternative(source);
+  assert.equal(result.state,'CREATED');assert.notEqual(result.targetProjectId,projectId);
+  assert.equal(result.selection.workRefs.length,2);assert.equal(result.sourceModified,false);
+  assert.equal(confirmations.length,1);assert.equal(confirmations[0].kind,'CREATE_ALTERNATIVE');
+  assert.equal((await f.owner.audit()).length,6);
+  const target={workspaceId:ws,projectId:result.targetProjectId,expected:result.selection};
+  assert.equal((await h.reader.overview(target)).stages.length,2);
+  const comparison=await h.reader.compareOrigin(target);
+  assert.equal(comparison.state,'INDEPENDENT_IDENTITIES');assert.deepEqual(comparison.beforeSelection.projectRef,f.base.projectRef);
+  assert.equal(comparison.originCurrentHeadVerified,false);assert.equal(comparison.resultReuseProven,false);
+  const recovered=await h.reader.recoverAlternative({...source,targetProjectId:result.targetProjectId});
+  assert.equal(recovered.state,'RECOVERED');assert.deepEqual(recovered.selection,result.selection);
+  assert.equal(confirmations.length,1);assert.equal((await f.owner.audit()).length,6);
+  assert.equal(f.nativeCalls.length,0);
+});
+
+test('alternative write action requires trusted confirmation and current material and scope',async()=>{
+  const f=await setup(),source={workspaceId:ws,projectId,expected:f.base};
+  assert.equal(trusted(f).reader.createAlternative,undefined);
+  assert.equal((await trusted(f).reader.compareOrigin(source)).state,'NO_ALTERNATIVE_ORIGIN');
+  const cancelled=trusted(f,{confirmAlternative:async()=>false});
+  assert.equal((await cancelled.reader.createAlternative(source)).state,'USER_CANCELLED');
+  let changed=false;
+  const h=trusted({...f,readObject:async(...a)=>{
+    const value=await f.readObject(...a);return changed&&value&&a[1]==='source'?{object:{...value.object,revision:2}}:value;
+  }},{confirmAlternative:async()=>{changed=true;return true;}});
+  assert.equal((await h.reader.createAlternative(source)).state,'MATERIAL_REVIEW_REQUIRED');
+  const revoked=trusted(f,{confirmAlternative:async()=>{revoked.deny();return true;}});
+  await assert.rejects(revoked.reader.createAlternative(source),code('T3_ACCESS_NOT_PERMITTED'));
+  const switched=trusted(f,{confirmAlternative:async()=>{switched.changeSelection();return true;}});
+  await assert.rejects(switched.reader.createAlternative(source),code('T3_METHOD_STAGE_WORKSPACE_CHANGED'));
+  assert.equal((await f.owner.audit()).length,3);
+});
+
+test('partial alternative creation resumes original records after lost write, not a replacement Project',async()=>{
+  const f=await setup(),actual=f.owner,source={workspaceId:ws,projectId,expected:f.base};
+  let failWork=true;const confirmations=[];
+  const owner={
+    load:(...a)=>actual.load(...a),history:(...a)=>actual.history(...a),
+    historyThrough:(...a)=>actual.historyThrough(...a),sourceIdentityExists:(...a)=>actual.sourceIdentityExists(...a),
+    create:async(kind,input)=>{if(kind==='work'&&failWork)throw Error('interrupted original Work write');
+      return actual.create(kind,input);}
+  };
+  const h=trusted({...f,owner},{confirmAlternative:async value=>{confirmations.push(value.kind);return true;}});
+  const first=await h.reader.createAlternative(source);
+  assert.equal(first.state,'OUTCOME_UNKNOWN');assert.equal(first.selection,null);
+  assert.equal((await actual.audit()).length,4);
+  failWork=false;
+  const next=await h.reader.recoverAlternative({...source,targetProjectId:first.targetProjectId});
+  assert.equal(next.state,'RECOVERED');assert.equal(next.targetProjectId,first.targetProjectId);
+  assert.equal((await actual.audit()).length,6);assert.deepEqual(confirmations,['CREATE_ALTERNATIVE','RESUME_ALTERNATIVE']);
+  const final=await h.reader.recoverAlternative({...source,targetProjectId:first.targetProjectId});
+  assert.equal(final.state,'RECOVERED');assert.deepEqual(final.selection,next.selection);
+  assert.equal((await actual.audit()).length,6);
+  assert.equal((await h.reader.recoverAlternative({...source,targetProjectId:'project-absent'})).state,'NOT_FOUND');
 });

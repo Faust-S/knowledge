@@ -1,7 +1,7 @@
 import { useEffect,useMemo,useRef,useState } from "react";
 import type { ObjectRecord } from "../../../../kernel-client/contracts/runtime-1.3.0";
-import type { WorkspaceMethodCreationComparison,WorkspaceMethodRevisionSelection } from "../../../../modules/base/owners/project-process-method-comparison.mjs";
-import type { WorkspaceMethodReaderSelection,WorkspaceMethodStageReader,WorkspaceMethodInputOverview,
+import type { WorkspaceMethodCreationComparison,WorkspaceMethodRevisionSelection,WorkspaceMethodOriginComparison } from "../../../../modules/base/owners/project-process-method-comparison.mjs";
+import type { WorkspaceMethodReaderSelection,WorkspaceMethodStageReader,WorkspaceMethodInputOverview,WorkspaceMethodAlternativeReceipt,
   WorkspaceMethodPublishedResultRef,WorkspaceMethodHandoffPreview,WorkspaceMethodNativeInspection,
   WorkspaceMethodOverviewStage,WorkspaceMethodMaterialEvidence,WorkspaceMethodPersonalDraftReceipt,WorkspaceMethodPersonalTaskInspection,WorkspaceMethodPersonalResultSelection,WorkspaceMethodRecoveredPersonalTask,WorkspaceMethodCorporateTaskReferenceInspection,WorkspaceMethodCorporateResultSelection } from "../../../../t3/workspace-method-stage-reader.mjs";
 
@@ -107,12 +107,29 @@ function bindingKey(binding:WorkspaceMethodWorkflowBinding){
     binding.personalResultSelections===undefined?null:[...binding.personalResultSelections].sort((a,b)=>a.stepId.localeCompare(b.stepId)),
     binding.corporateResultSelections===undefined?null:[...binding.corporateResultSelections].sort((a,b)=>a.stepId.localeCompare(b.stepId))]);
 }
-export function WorkspaceMethodWorkflowPanel(props:{
-  binding:WorkspaceMethodWorkflowBinding;objects:readonly ObjectRecord[];selectedObjectIds:readonly string[];
-}){
+type WorkflowPanelProps={binding:WorkspaceMethodWorkflowBinding;objects:readonly ObjectRecord[];selectedObjectIds:readonly string[]};
+export function WorkspaceMethodWorkflowPanel(props:WorkflowPanelProps){
   // Key remounts on exact source identity or trusted context epoch change.
   if(!props.binding.contextEpoch)return null;
-  return <WorkflowPanel key={bindingKey(props.binding)} {...props}/>;
+  return <WorkflowAlternativeSelection key={bindingKey(props.binding)} {...props}/>;
+}
+function WorkflowAlternativeSelection(props:WorkflowPanelProps){
+  const {binding}=props;
+  const [navigation,setNavigation]=useState<{reader:WorkspaceMethodStageReader;entries:WorkspaceMethodReaderSelection[]}|null>(null);
+  const entries=navigation?.reader===binding.reader?navigation.entries:[];
+  const chosen=entries.at(-1);
+  const active:WorkspaceMethodWorkflowBinding=chosen?{...binding,...chosen,
+    personalTaskId:undefined,corporateTaskId:undefined,
+    personalResultSelections:binding.personalResultSelections===undefined?undefined:[],
+    corporateResultSelections:binding.corporateResultSelections===undefined?undefined:[]}:binding;
+  const open=(selection:WorkspaceMethodReaderSelection)=>{
+    setNavigation({reader:binding.reader,entries:[...entries,selection]});
+  };
+  return <div className="min-w-0 space-y-2">
+    {chosen&&<button type="button" className={button} onClick={()=>setNavigation({reader:binding.reader,entries:entries.slice(0,-1)})}>
+      Вернуться к исходному проекту</button>}
+    <WorkflowPanel key={bindingKey(active)} {...props} binding={active} onOpenAlternative={open}/>
+  </div>;
 }
 
 const comparisonFieldLabels:Record<string,string>={
@@ -129,29 +146,46 @@ function sameRevisionSelection(a:WorkspaceMethodRevisionSelection,b:WorkspaceMet
     &&a.workRefs.length===b.workRefs.length&&new Set(a.workRefs.map(ref=>ref.objectId)).size===refs.size
     &&a.workRefs.every(ref=>{const expected=refs.get(ref.objectId);return !!expected&&sameRef(ref,expected);});
 }
+type MethodComparison=WorkspaceMethodCreationComparison|Exclude<WorkspaceMethodOriginComparison,{state:'NO_ALTERNATIVE_ORIGIN'}>;
 function MethodCreationComparison({binding}:{binding:WorkspaceMethodWorkflowBinding}){
-  const [report,setReport]=useState<WorkspaceMethodCreationComparison|null>(null);
+  const [report,setReport]=useState<MethodComparison|null>(null);
+  const [notice,setNotice]=useState("");
   const [busy,setBusy]=useState(false),[error,setError]=useState("");
   const generation=useRef(0),reader=binding.reader;
   const currentReader=useRef(reader);currentReader.current=reader;
   useEffect(()=>{
-    setReport(null);setBusy(false);setError("");
+    setReport(null);setNotice("");setBusy(false);setError("");
     return ()=>{generation.current+=1;};
   },[reader]);
-  if(!reader.compareCreation)return null;
-  const compare=async()=>{
-    if(busy||!reader.compareCreation)return;
+  if(!reader.compareCreation&&!reader.compareOrigin)return null;
+  const compare=async(mode:"creation"|"origin")=>{
+    const read=mode==="creation"?reader.compareCreation:reader.compareOrigin;
+    if(busy||!read)return;
     const token=++generation.current;
     const current=()=>token===generation.current&&currentReader.current===reader;
-    setBusy(true);setError("");setReport(null);
+    setBusy(true);setError("");setNotice("");setReport(null);
     try{
-      const value=await reader.compareCreation({workspaceId:binding.workspaceId,projectId:binding.projectId,expected:binding.expected});
+      const value=await read({workspaceId:binding.workspaceId,projectId:binding.projectId,expected:binding.expected});
       if(!current())return;
-      if(value.schema!=="IWXA_T2_WORKSPACE_METHOD_REVISION_COMPARISON_V1"||value.comparisonBasis!=="ORIGINAL_CREATION_TO_SELECTED_CURRENT"
-          ||value.workspaceId!==binding.workspaceId||value.projectId!==binding.projectId||!value.currentHeadVerified
-          ||value.atomicSnapshot!==false||value.writeAuthorized!==false||value.executionAuthority!==false||value.resultReuseProven!==false
-          ||value.beforeSelection.projectRef.revision!==1||value.beforeSelection.workRefs.some(ref=>ref.revision!==1)
-          ||!sameRevisionSelection(value.afterSelection,binding.expected))throw Error("comparison mismatch");
+      if(value.workspaceId!==binding.workspaceId||value.currentHeadVerified!==true
+          ||value.atomicSnapshot!==false||value.writeAuthorized!==false||value.executionAuthority!==false||value.resultReuseProven!==false)
+        throw Error("comparison mismatch");
+      if(value.state==="NO_ALTERNATIVE_ORIGIN"){
+        if(mode!=="origin"||value.projectId!==binding.projectId||value.mergeAuthorized!==false
+            ||!sameRevisionSelection(value.currentSelection,binding.expected))throw Error("comparison mismatch");
+        setNotice("У этой методики нет исходного проекта: она не является альтернативой.");
+        return;
+      }
+      if(!sameRevisionSelection(value.afterSelection,binding.expected))throw Error("comparison mismatch");
+      if(value.comparisonBasis==="ORIGINAL_CREATION_TO_SELECTED_CURRENT"){
+        if(mode!=="creation"||value.schema!=="IWXA_T2_WORKSPACE_METHOD_REVISION_COMPARISON_V1"||value.projectId!==binding.projectId
+            ||value.beforeSelection.projectRef.revision!==1||value.beforeSelection.workRefs.some(ref=>ref.revision!==1))
+          throw Error("comparison mismatch");
+      }else if(mode!=="origin"||value.comparisonBasis!=="ORIGINAL_ALTERNATIVE_ORIGIN_TO_SELECTED_CURRENT"
+          ||value.schema!=="IWXA_T2_WORKSPACE_METHOD_ALTERNATIVE_COMPARISON_V1"||value.afterProjectId!==binding.projectId
+          ||value.beforeProjectId===binding.projectId||value.origin.workspaceId!==binding.workspaceId
+          ||value.origin.projectId!==value.beforeProjectId||value.originCurrentHeadVerified!==false||value.mergeAuthorized!==false
+          ||!sameRevisionSelection(value.beforeSelection,value.origin))throw Error("comparison mismatch");
       setReport(value);
     }catch(err){if(current()){
       const code=err&&typeof err==="object"&&"code" in err?String(err.code):"";
@@ -159,12 +193,18 @@ function MethodCreationComparison({binding}:{binding:WorkspaceMethodWorkflowBind
     }}finally{if(current())setBusy(false);}
   };
   return <section aria-label="Редакции методики" className="space-y-2 rounded border border-slate-800 p-2 min-w-0">
-    <button type="button" className={button} disabled={busy} onClick={()=>void compare()}>Сравнить с исходной редакцией</button>
+    <div className="flex flex-wrap gap-2">
+      {reader.compareCreation&&<button type="button" className={button} disabled={busy} onClick={()=>void compare("creation")}>Сравнить с исходной редакцией</button>}
+      {reader.compareOrigin&&<button type="button" className={button} disabled={busy} onClick={()=>void compare("origin")}>Сравнить с исходным проектом</button>}
+    </div>
     {busy&&<p role="status" className="text-xs text-slate-300">Читаем сохранённые редакции…</p>}
+    {notice&&<p role="status" className="text-xs text-slate-300">{notice}</p>}
     {error&&<p role="alert" className="text-xs text-amber-200">{error}</p>}
-    {report&&<div data-testid="workflow-creation-comparison" className="space-y-2 text-xs text-slate-200">
-      <p className="font-medium">Исходная редакция 1 и выбранная редакция {report.afterSelection.projectRef.revision}</p>
-      <p>{report.state==="UNCHANGED"?"Изменений нет.":report.state==="SOURCE_REBIND_ONLY"?"Изменились ссылки на редакции.":"Обнаружены изменения методики."} Изменённых работ: {report.changedStepIds.length}. Затронуто работ: {report.affectedStepIds.length}.</p>
+    {report&&<div data-testid={report.comparisonBasis==="ORIGINAL_CREATION_TO_SELECTED_CURRENT"?"workflow-creation-comparison":"workflow-origin-comparison"} className="space-y-2 text-xs text-slate-200">
+      <p className="font-medium">{report.comparisonBasis==="ORIGINAL_CREATION_TO_SELECTED_CURRENT"?
+        "Исходная редакция 1 и выбранная редакция "+report.afterSelection.projectRef.revision:
+        "Исходный проект "+report.beforeProjectId+", ред. "+report.beforeSelection.projectRef.revision+" и текущий вариант, ред. "+report.afterSelection.projectRef.revision}</p>
+      <p>{report.state==="UNCHANGED"?"Изменений нет.":report.state==="INDEPENDENT_IDENTITIES"?"Содержание совпадает. Проекты независимы.":report.state==="SOURCE_REBIND_ONLY"?"Изменились ссылки на редакции.":"Обнаружены изменения методики."} Изменённых работ: {report.changedStepIds.length}. Затронуто работ: {report.affectedStepIds.length}.</p>
       {report.projectChanges.filter(item=>item.field!=="MATERIAL_REVISIONS").map(item=><div key={item.field} className="rounded border border-slate-800 p-2 break-words">
         <strong>{comparisonFieldLabels[item.field]??item.field}</strong>
         <p>Было: {comparisonText(item.before)||"Нет"}</p><p>Стало: {comparisonText(item.after)||"Нет"}</p>
@@ -189,6 +229,68 @@ function MethodCreationComparison({binding}:{binding:WorkspaceMethodWorkflowBind
   </section>;
 }
 
+
+function MethodAlternativeAction({binding,onOpen}:{binding:WorkspaceMethodWorkflowBinding;onOpen:(selection:WorkspaceMethodReaderSelection)=>void}){
+  const reader=binding.reader;
+  const [receipt,setReceipt]=useState<WorkspaceMethodAlternativeReceipt|null>(null);
+  const [busy,setBusy]=useState(false),[error,setError]=useState("");
+  const serial=useRef(0),liveReader=useRef(reader);liveReader.current=reader;
+  useEffect(()=>{serial.current++;setReceipt(null);setBusy(false);setError("");
+    return ()=>{serial.current++;};},[reader]);
+  if(!reader.createAlternative||!reader.recoverAlternative)return null;
+  const complete=receipt!==null&&(receipt.state==="CREATED"||receipt.state==="RECOVERED");
+  const pending=receipt!==null&&["OUTCOME_UNKNOWN","RECOVERY_REQUIRED","NOT_FOUND","CONFLICT"].includes(receipt.state);
+  const recoverable=receipt!==null&&(pending||receipt.state==="MATERIAL_REVIEW_REQUIRED");
+  const action=async(recover:boolean)=>{
+    if(busy||!reader.createAlternative||!reader.recoverAlternative||(recover&&!receipt))return;
+    const token=++serial.current,current=()=>serial.current===token&&liveReader.current===reader;
+    setBusy(true);setError("");
+    try{
+      const input={workspaceId:binding.workspaceId,projectId:binding.projectId,expected:binding.expected};
+      const value=recover?await reader.recoverAlternative({...input,targetProjectId:receipt!.targetProjectId}):await reader.createAlternative(input);
+      if(!current())return;
+      const done=value.state==="CREATED"||value.state==="RECOVERED";
+      const selected=value.selection,target=value.targetProjectId;
+      const encodedWorkspace=encodeURIComponent(binding.workspaceId),encodedTarget=encodeURIComponent(target);
+      if(value.workspaceId!==binding.workspaceId||value.sourceProjectId!==binding.projectId
+          ||!/^project-[a-f0-9]{32}$/.test(target)||target===binding.projectId
+          ||(recover&&target!==receipt!.targetProjectId)||value.executionAuthority!==false
+          ||value.sourceModified!==false||value.newAuthorityGranted!==false||value.resultReuseProven!==false
+          ||(done?(selected===null||selected.projectRef.family!=="iwxa.project"
+            ||selected.projectRef.objectId!=="project:"+encodedWorkspace+":"+encodedTarget||selected.projectRef.revision!==1
+            ||selected.workRefs.length!==binding.expected.workRefs.length
+            ||new Set([selected.projectRef,...selected.workRefs].map(ref=>ref.recordId)).size!==selected.workRefs.length+1
+            ||new Set(selected.workRefs.map(ref=>ref.objectId)).size!==selected.workRefs.length
+            ||selected.workRefs.some(ref=>ref.family!=="iwxa.work"||ref.revision!==1||!ref.objectId.startsWith("work:"+encodedWorkspace+":"+encodedTarget+".")))
+            :selected!==null))throw Error("alternative receipt mismatch");
+      setReceipt(value);
+    }catch(err){if(current())setError(message(err));}finally{if(current())setBusy(false);}
+  };
+  const labels:Record<WorkspaceMethodAlternativeReceipt["state"],string>={
+    CREATED:"Независимый вариант сохранён.",RECOVERED:"Сохранённый вариант восстановлен.",
+    USER_CANCELLED:"Создание отменено.",MATERIAL_REVIEW_REQUIRED:"Проверьте редакции материалов.",
+    OUTCOME_UNKNOWN:"Запись не подтверждена. Проверьте существующий вариант.",
+    RECOVERY_REQUIRED:"Осталась незавершённая запись варианта.",NOT_FOUND:"Запись пока не найдена. Повторная запись не выполнялась.",
+    CONFLICT:"Редакции варианта изменились. Откройте его из сохранённых проектов.",
+  };
+  return <section aria-label="Варианты методики" className="min-w-0 space-y-2 rounded border border-slate-800 p-2">
+    <div className="flex flex-wrap gap-2">
+      <button type="button" className={button} disabled={busy||pending} onClick={()=>void action(false)}>Создать независимый вариант</button>
+      {recoverable&&<button type="button" className={button} disabled={busy} onClick={()=>void action(true)}>Восстановить вариант</button>}
+      {complete&&<button type="button" className={button} disabled={busy} onClick={()=>onOpen({
+        workspaceId:binding.workspaceId,projectId:receipt!.targetProjectId,expected:receipt!.selection!,
+      })}>Открыть вариант</button>}
+    </div>
+    {busy&&<p role="status" className="text-xs text-slate-300">Проверяем и сохраняем вариант…</p>}
+    {error&&<p role="alert" className="text-xs text-amber-200">{error}</p>}
+    {receipt&&<div data-testid="workflow-alternative-receipt" className="text-xs text-slate-300 break-words">
+      <p role="status">{labels[receipt.state]}</p>
+      {(complete||pending)&&<p>Проект: {receipt.targetProjectId}</p>}
+    </div>}
+    <p className="text-xs text-slate-400">Исходная методика сохраняется. Задачи и принятые результаты не копируются.</p>
+  </section>;
+}
+
 function prerequisiteStages(report:WorkspaceMethodInputOverview,stage:WorkspaceMethodOverviewStage){
   const byId=new Map(report.stages.map(row=>[row.stepId,row]));
   const found=new Set<string>(),pending=[...stage.directPredecessorStepIds];
@@ -202,8 +304,8 @@ function prerequisiteStages(report:WorkspaceMethodInputOverview,stage:WorkspaceM
   }
   return found.size===stage.prerequisiteCount?report.stages.filter(row=>found.has(row.stepId)):null;
 }
-function WorkflowPanel({binding,objects,selectedObjectIds}:{
-  binding:WorkspaceMethodWorkflowBinding;objects:readonly ObjectRecord[];selectedObjectIds:readonly string[];
+function WorkflowPanel({binding,objects,selectedObjectIds,onOpenAlternative}:WorkflowPanelProps&{
+  onOpenAlternative:(selection:WorkspaceMethodReaderSelection)=>void;
 }){
   const reader=binding.reader;
   const [overview,setOverview]=useState<{reader:WorkspaceMethodStageReader;value:WorkspaceMethodInputOverview;materialKey:string}|null>(null);
@@ -508,6 +610,7 @@ function WorkflowPanel({binding,objects,selectedObjectIds}:{
       <p className="text-xs text-slate-400">Проверка входов и передачи результатов. Исполнение остаётся у оригинальных владельцев.</p>
     </div><button type="button" className={button} disabled={busy} onClick={()=>void checkOverview()}>Проверить входы</button></div>
     <MethodCreationComparison binding={binding}/>
+    <MethodAlternativeAction binding={binding} onOpen={onOpenAlternative}/>
     {busy&&<p role="status" className="text-xs text-slate-300">Проверка оригинальных данных…</p>}
     {error&&<p role="alert" className="text-xs text-amber-200">{error}</p>}
     {visible&&<div className="space-y-3">

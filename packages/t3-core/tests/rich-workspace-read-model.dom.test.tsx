@@ -412,6 +412,43 @@ describe("W05.7 saved method Workflow read-only surface",()=>{
     ui.rerender(<WorkspaceMethodWorkflowPanel binding={{...binding,contextEpoch:"epoch-2"}} objects={[]} selectedObjectIds={[]}/>);
     expect(screen.queryByTestId("workflow-creation-comparison")).toBeNull();
   });
+  it("creates and opens only an owner-confirmed independent method and clears source task selections",async()=>{
+    const f=fixture(),target="project-"+"a".repeat(32);
+    const selection={projectRef:{...projectRef,objectId:"project:w:"+target,recordId:"variant-project",revision:1},
+      workRefs:[{...a,objectId:"work:w:"+target+".analyse",recordId:"variant-analyse",revision:1},
+        {...b,objectId:"work:w:"+target+".review",recordId:"variant-review",revision:1}]};
+    const createAlternative=vi.fn(async()=>({state:"CREATED" as const,workspaceId:"w",sourceProjectId:"research",targetProjectId:target,
+      selection,executionAuthority:false as const,newAuthorityGranted:false as const,resultReuseProven:false as const,sourceModified:false as const}));
+    const recoverAlternative=vi.fn(async()=>({...await createAlternative(),state:"RECOVERED" as const}));
+    const binding={...f.binding,personalTaskId:"TASK-source",personalResultSelections:[],
+      reader:{...f.binding.reader,createAlternative,recoverAlternative}};
+    render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    expect(createAlternative).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button",{name:"Создать независимый вариант"}));
+    await screen.findByTestId("workflow-alternative-receipt");
+    expect(createAlternative).toHaveBeenCalledWith({workspaceId:"w",projectId:"research",expected:f.binding.expected});
+    fireEvent.click(screen.getByRole("button",{name:"Открыть вариант"}));
+    expect(screen.getByText("Проект: "+target+" · ред. 1")).toBeTruthy();
+    expect(screen.queryByTestId("workflow-alternative-receipt")).toBeNull();
+    expect(f.overview).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button",{name:"Вернуться к исходному проекту"}));
+    expect(screen.getByText("Проект: research · ред. "+projectRef.revision)).toBeTruthy();
+  });
+  it("recovers uncertain alternative by original target ID rather than creating a second one",async()=>{
+    const f=fixture(),target="project-"+"b".repeat(32);
+    const createAlternative=vi.fn(async()=>({state:"OUTCOME_UNKNOWN" as const,workspaceId:"w",sourceProjectId:"research",targetProjectId:target,
+      selection:null,executionAuthority:false as const,newAuthorityGranted:false as const,resultReuseProven:false as const,sourceModified:false as const}));
+    const recoverAlternative=vi.fn(async()=>({...await createAlternative.mock.results[0].value,state:"NOT_FOUND" as const}));
+    const binding={...f.binding,reader:{...f.binding.reader,createAlternative,recoverAlternative}};
+    render(<WorkspaceMethodWorkflowPanel binding={binding} objects={[]} selectedObjectIds={[]}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Создать независимый вариант"}));
+    await screen.findByTestId("workflow-alternative-receipt");
+    expect((screen.getByRole("button",{name:"Создать независимый вариант"}) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button",{name:"Восстановить вариант"}));
+    await screen.findByText("Запись пока не найдена. Повторная запись не выполнялась.");
+    expect(recoverAlternative).toHaveBeenCalledWith({workspaceId:"w",projectId:"research",expected:f.binding.expected,targetProjectId:target});
+    expect(createAlternative).toHaveBeenCalledTimes(1);
+  });
   it("mounts saved Workflow in actual Rich Workspace only for a trusted current binding and explicitly reads original overview",async()=>{
     const f=fixture(),props={workspace,objects,events,profileDefinition:profile,onOpenObject:vi.fn()};
     const ui=render(<RichWorkspaceReadModel {...props}/>);

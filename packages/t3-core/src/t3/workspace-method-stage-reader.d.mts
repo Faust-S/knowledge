@@ -1,4 +1,4 @@
-import type { WorkspaceMethodRevisionSelection,WorkspaceMethodSourceRef,WorkspaceMethodCreationComparison } from '../modules/base/owners/project-process-method-comparison.mjs';
+import type { WorkspaceMethodRevisionSelection,WorkspaceMethodSourceRef,WorkspaceMethodCreationComparison,WorkspaceMethodOriginComparison } from '../modules/base/owners/project-process-method-comparison.mjs';
 import type { WorkspaceMethodActor } from '../modules/base/features/workspace/workspace-project-method.mjs';
 export type WorkspaceMethodReaderSelection = Readonly<{workspaceId:string;projectId:string;expected:WorkspaceMethodRevisionSelection}>;
 export type WorkspaceMethodPublishedResultRef = Readonly<{workspace_id:string;object_id:string;schema_id:'iwxa.agent.accepted-result';revision:number}>;
@@ -92,9 +92,18 @@ export type WorkspaceMethodCorporateTaskReferenceInspection=Readonly<{
   exactInputBindingProven:false;allAssetsProven:false;workCompleted:false;executionAuthority:false;
   writeAuthorized:false;resultReuseProven:false;
 }>;
+export type WorkspaceMethodAlternativeReceipt=Readonly<{
+  state:'CREATED'|'RECOVERED'|'USER_CANCELLED'|'MATERIAL_REVIEW_REQUIRED'|'OUTCOME_UNKNOWN'|'RECOVERY_REQUIRED'|'NOT_FOUND'|'CONFLICT';
+  workspaceId:string;sourceProjectId:string;targetProjectId:string;
+  selection:WorkspaceMethodRevisionSelection|null;
+  executionAuthority:false;newAuthorityGranted:false;resultReuseProven:false;sourceModified:false;
+}>;
 export interface WorkspaceMethodStageReader {
   overview(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodInputOverview>;
   compareCreation?(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodCreationComparison>;
+  compareOrigin?(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodOriginComparison>;
+  createAlternative?(input:WorkspaceMethodReaderSelection):Promise<WorkspaceMethodAlternativeReceipt>;
+  recoverAlternative?(input:WorkspaceMethodReaderSelection&Readonly<{targetProjectId:string}>):Promise<WorkspaceMethodAlternativeReceipt>;
   inspect(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodStageInspection>;
   previewHandoff(input:WorkspaceMethodStageRequest&Readonly<{includeMaterialEvidence?:boolean}>):Promise<WorkspaceMethodHandoffPreview>;
   inspectMaterialEvidence?(input:WorkspaceMethodStageRequest):Promise<WorkspaceMethodMaterialEvidence>;
@@ -112,6 +121,7 @@ export function createTrustedWorkspaceMethodStageReader(input:{
   kernel:unknown;accessForRead:(operation:string)=>unknown;currentWorkspace:unknown;
   sourceOwner:unknown;originalAgentResultOwner?:unknown;nativeContinuation?:unknown;nativeRecipientId?:string|null;
   corporateTaskOwner?:unknown;corporateResultOwner?:unknown;personalTaskOwner?:unknown;personalComposer?:unknown;confirmPersonalDraft?:(preview:unknown)=>boolean|Promise<boolean>;
+  confirmAlternative?:(preview:unknown)=>boolean|Promise<boolean>;
   isHostActive:()=>boolean;
 }):WorkspaceMethodStageReader;
 

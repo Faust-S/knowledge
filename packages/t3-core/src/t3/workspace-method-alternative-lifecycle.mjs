@@ -13,7 +13,10 @@ import {hasProjectProcessSourceIdentity} from '../modules/base/owners/project-pr
 const eq=(a,b)=>canonicalStringify(a)===canonicalStringify(b);
 const id=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,63}$/u.test(value);
 function check(ok,code){if(!ok)throw Object.assign(Error(code),{code});}
-function selection(value){return {projectRef:value.projectRef,workRefs:[...value.workRefs].sort((a,b)=>a.objectId<b.objectId?-1:a.objectId>b.objectId?1:0)};}
+function selection(value){
+  const ref=row=>Object.freeze({family:row.family,objectId:row.objectId,recordId:row.recordId,revision:row.revision});
+  return Object.freeze({projectRef:ref(value.projectRef),workRefs:Object.freeze(value.workRefs.map(ref).sort((a,b)=>a.objectId<b.objectId?-1:a.objectId>b.objectId?1:0))});
+}
 const matches=(a,b)=>eq(selection(a),selection(b));
 function baseReceipt(workspaceId,sourceProjectId,targetProjectId,state,method=null){
   return Object.freeze({state,workspaceId,sourceProjectId,targetProjectId,selection:method?Object.freeze(selection(method)):null,
@@ -70,7 +73,10 @@ export async function runOriginalWorkspaceMethodAlternative({owner,workspaceId,p
   let invoked=false;
   // Mark any actual attempt at an original write. Read failures before a
   // write remain ordinary errors. Uncertain writes are never resubmitted.
-  const writer={...owner,create:(...args)=>{invoked=true;return owner.create(...args);}};
+  const writer={load:(...args)=>owner.load(...args),history:(...args)=>owner.history(...args),
+    historyThrough:(...args)=>owner.historyThrough(...args),
+    ...(typeof owner.sourceIdentityExists==='function'?{sourceIdentityExists:(...args)=>owner.sourceIdentityExists(...args)}:{}),
+    create:(...args)=>{invoked=true;return owner.create(...args);}};
   if(recovery){
     const existing=await owner.load('project',workspaceId,target);
     if(!existing){
