@@ -1,0 +1,12 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d11-t3-addressed-release-qualification",
+  "prepared_sha": "33456024cbc75aaa5bec41cc4df7b4fcff6b6882",
+  "profile": "t3-addressed-release",
+  "revisions": {
+    "domain": "f266bec7e24592b210ea5129001b8fd766199f79",
+    "site": "4e3f1ca1c8068dab95effe0c48d174ffe0ca7783",
+    "t3": "8e26076ce66f0c26693a647e061fcd568e055b77",
+    "assistant": "2c247482306f218a7d5be668de11e98f168862d4"
+  }
+}
