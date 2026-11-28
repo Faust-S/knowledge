@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 110
     env:
-      SITE_PIN: d78ed7a290feb06c13e4c0278b4470b724c4fdda
-      SITE_TREE: e717fc11dd4d0957e254359d9676af85d690b83b
+      SITE_PIN: 8b6ae98c6d596017086626b8961fd356d7d2c13e
+      SITE_TREE: 177d6804dee452859bd080d563f0c788163cb5aa
       T2_PIN: 9c64951cd78411283e8a416641c36d71e169fc1d
       T2_TREE: 56e55a9458aeb3ce540ef87dbc2dd9549ae2fcb2
       T3_PIN: 8e26076ce66f0c26693a647e061fcd568e055b77
@@ -40,7 +40,7 @@ jobs:
       - name: Verify deliberate immutable request before private checkout
         working-directory: ci-harness
         run: |
-          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-site-release --profile artbazy-integrated-site-release --revision site=d78ed7a290feb06c13e4c0278b4470b724c4fdda --revision subject=b3e6614aeace087b66a7b25e3d881fab074e4d8e --revision t2=9c64951cd78411283e8a416641c36d71e169fc1d --revision core=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4 --revision skills=f5858032830317a9c0b9cb153c1c98fc08cfe4c2
+          python3 tools/ci/verify_once_request.py --repository Faust-S/knowledge --workflow d03-artbazy-site-release --profile artbazy-integrated-site-release --revision site=8b6ae98c6d596017086626b8961fd356d7d2c13e --revision subject=b3e6614aeace087b66a7b25e3d881fab074e4d8e --revision t2=9c64951cd78411283e8a416641c36d71e169fc1d --revision core=8e26076ce66f0c26693a647e061fcd568e055b77 --revision assistant=2c247482306f218a7d5be668de11e98f168862d4 --revision skills=f5858032830317a9c0b9cb153c1c98fc08cfe4c2
       - name: Identify exact private GitHub source access before build
         shell: bash
         env:
@@ -92,7 +92,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazy.ru
-          ref: d78ed7a290feb06c13e4c0278b4470b724c4fdda
+          ref: 8b6ae98c6d596017086626b8961fd356d7d2c13e
           token: ${{ secrets.DOMEN }}
           path: private-site
           persist-credentials: false
@@ -198,7 +198,9 @@ jobs:
           if(rendered.length)console.log('PRERENDER_OBSERVED='+rendered.length);
           for(const m of [...s.matchAll(/(?:^|\n)\[prerender:fail\] (\/[a-z0-9/_-]*)/g)].slice(0,20))console.log('PRERENDER_FAILED_ROUTE='+m[1]);
           for(const m of [...s.matchAll(/(?:^|\n)\[prerender:(?:retry|diagnostic)\] (\/[a-z0-9/_-]*)(?: attempt=\d+)? codes=([A-Z_,]+) html=(\d+) text=(\d+) links=(\d+)/g)].slice(0,40))console.log('PRERENDER_ROUTE_DIAGNOSTIC='+m[1]+' CODES='+m[2]+' HTML='+m[3]+' TEXT='+m[4]+' LINKS='+m[5]);
-          for(const m of [...s.matchAll(/\bARTBAZY_OFFLINE_NAV_LINK: (\/[a-z0-9/._-]*) -> (\/[a-z0-9/._-]+)/g)].slice(0,20))console.log('OFFLINE_NAV_LINK='+m[1]+' -> '+m[2]);
+          for(const m of [...s.matchAll(/\bARTBAZY_OFFLINE_NAV_(LINK|ORIGIN): (\/[a-z0-9/._-]*) -> (\/[a-z0-9/._-]+)/g)].slice(0,100))console.log('OFFLINE_NAV_'+m[1]+'='+m[2]+' -> '+m[3]);
+          for(const m of [...s.matchAll(/\bARTBAZY_OFFLINE_NAV_ISSUES=(\d+)/g)].slice(0,2))console.log('OFFLINE_NAV_ISSUES='+m[1]);
+          for(const m of [...s.matchAll(/\[links:fail\] repeated-slash: (\/[a-z0-9/._-]+) /g)].slice(0,100))console.log('REPEATED_SLASH_LINK='+m[1]);
           const linkFailures=[...s.matchAll(/(?:^|\n)\[links:fail\] (no-slash|broken): (\/[a-z0-9/._-]+)/g)];
           for(const kind of ['no-slash','broken']){
             const matches=linkFailures.filter(m=>m[1]===kind);
@@ -238,6 +240,7 @@ jobs:
           phase SOURCE_LINK_TESTS npm run test:source-links
           phase STATIC_CAPTURE_TESTS node --test scripts/capture-static-document.test.mjs
           phase STATIC_RETRY_TESTS node --test scripts/prerender-retry.test.mjs
+          phase OFFLINE_NAVIGATION_TESTS node --test scripts/verify-artbazy-offline-navigation.test.mjs
           host_ok=yes
           kernel_ok=yes
           phase ORIGINAL_HOST npm run prepare:t3:host -- \
