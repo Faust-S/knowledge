@@ -34,11 +34,13 @@ class DeliveryTests(unittest.TestCase):
         for p in self.pages:
             self.files[p.lstrip('/') + 'index.html'] = (
                 f'<html data-artbazy-workspace-results="1"><head><link rel="canonical" href="{ORIGIN}{p}"></head>'
-                '<body><h1>Test</h1><div data-iwxa-t3-domain-mode></div><div data-iwxa-domain-assistant></div>'
+                '<body><h1>Test</h1><div data-iwxa-t3-domain-mode></div><div hidden data-iwxa-domain-assistant data-assistant-dynamic-dom data-assistant-strict-forms data-assistant-label="Консультант ArtBazy"></div>'
                 '<script data-artbazy-original-assistant></script></body></html>').encode()
         self.pins = {'indexed': 3, 'calculators': 1, 'methods': 1, 'kernel': sha(self.files[KERNEL]),
                      'sitemap_blob': git_blob(self.sitemap.read_bytes()), 'catalog_blob': git_blob(self.catalog.read_bytes()),
-                     'skills': git_blob(self.files[SKILLS]), 'proofs': {'google-proof.html': git_blob(b'hosting proof')}}
+                     'skills': git_blob(self.files[SKILLS]),
+                     'delivery_blobs': {p: git_blob(self.files[p]) for p in ('t3-domain-mode.mjs', 't3-sw.js')},
+                     'proofs': {'google-proof.html': git_blob(b'hosting proof')}}
         self.manifest = self.make_manifest()
 
     def make_manifest(self):
@@ -135,6 +137,22 @@ class DeliveryTests(unittest.TestCase):
     def test_missing_assistant(self):
         self.files['tools/a/index.html'] = self.files['tools/a/index.html'].replace(b'data-iwxa-domain-assistant', b'data-other')
         self.reject('PUBLIC_PAGE:/tools/a/', True)
+
+    def test_obsolete_inline_controls(self):
+        self.add_anchors('<div data-iwxa-assistant-context-slot></div>')
+        self.reject('LEGACY_INLINE_CONTROLS:', True)
+
+    def test_missing_corner_mount(self):
+        self.files['tools/a/index.html'] = self.files['tools/a/index.html'].replace(b'<div hidden data-iwxa-domain-assistant', b'<div data-iwxa-domain-assistant')
+        self.reject('CONSULTANT_MOUNT:', True)
+
+    def test_changed_bound_controller_consistent_manifest(self):
+        self.files['t3-domain-mode.mjs'] = b'other controller'
+        self.reject('ORIGINAL_T3_BOUND_RESOURCE:', True)
+
+    def test_changed_bound_worker_consistent_manifest(self):
+        self.files['t3-sw.js'] = b'other worker'
+        self.reject('ORIGINAL_T3_BOUND_RESOURCE:', True)
 
     def add_anchors(self, html):
         self.files['tools/a/index.html'] = self.files['tools/a/index.html'].replace(b'</body>', html.encode() + b'</body>')

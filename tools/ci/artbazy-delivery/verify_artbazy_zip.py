@@ -18,10 +18,12 @@ PINS = {
     'catalog_blob': 'd0dc8fe262c446d1b7c6e54b3137f0d19d8b2d92',
     'kernel': 'e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78',
     'skills': '9e863df7c46b0b66c1d9ff9bcbd7ec240b469d8f',
+    'delivery_blobs': {'t3-domain-mode.mjs': '8f666e67d8966aeaa1eecd03b1caf0ce864a5038',
+                       't3-sw.js': '1a3f2220b32570bd080620b98c82ae32fe8c3e46'},
     'proofs': {'google16dce79d77367d6f.html': 'e00d88abdf9eac6d343e8f90163f165886f5034e',
                'yandex_95e23e45501e02eb.html': '98101d34a80c463b6ad8c7e2a7feb5cbc51f020c'},
 }
-SITE_COMMIT = '8b6ae98c6d596017086626b8961fd356d7d2c13e'
+SITE_COMMIT = '95ee28cd4b1f064ff70d6afd0bb1a2fa830564cc'
 KERNEL = '_iwxa/runtime/0.3.6/runtime.js'
 SKILLS = 'assets/artbazy-assistant-skills.json'
 MANIFEST = 't3-offline-manifest.json'
@@ -138,6 +140,12 @@ def check(zip_path, source_sitemap, catalog, pins=PINS):
                     and 'data-iwxa-t3-domain-mode' in html
                     and html.count('data-artbazy-original-assistant') == 1
                     and html.count('data-iwxa-domain-assistant') == 1, 'PUBLIC_PAGE:' + route)
+            require('<div hidden data-iwxa-domain-assistant' in html
+                    and 'data-assistant-label="Консультант ArtBazy"' in html
+                    and 'data-assistant-dynamic-dom' in html and 'data-assistant-strict-forms' in html,
+                    'CONSULTANT_MOUNT:' + route)
+            require(not re.search(r'\b(?:data-iwxa-t3-controls|data-artbazy-t3-tools|data-assistant-inline-slots|data-iwxa-assistant-page-slot|data-iwxa-assistant-context-slot|data-iwxa-assistant-model-slot|data-iwxa-update-offer-slot)\b', html),
+                    'LEGACY_INLINE_CONTROLS:' + route)
             require(re.search(r'<link\b[^>]*\brel=[\"\']canonical[\"\'][^>]*\bhref=[\"\']'
                               + re.escape(ORIGIN + route) + r'[\"\']', html, re.I), 'CANONICAL:' + route)
             parser = LocalAnchors(route)
@@ -188,6 +196,8 @@ def check(zip_path, source_sitemap, catalog, pins=PINS):
                     or PurePosixPath(p).name == '.htaccess' for p in files), 'UNDECLARED_FILE')
         require(physical['/' + KERNEL][1] == pins['kernel'], 'ORIGINAL_KERNEL')
         require(git_blob(read(SKILLS)) == pins['skills'], 'ORIGINAL_SKILLS')
+        for path, blob in pins['delivery_blobs'].items():
+            require(git_blob(read(path)) == blob, 'ORIGINAL_T3_BOUND_RESOURCE:' + path)
         for path, blob in pins['proofs'].items():
             require(git_blob(read(path)) == blob, 'HOSTING_PROOF:' + path)
         return {'status': 'DELIVERED_ZIP_STATIC_PASS_NOT_PRODUCT_ACCEPTED', 'sha256': checksum,
