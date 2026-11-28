@@ -17,11 +17,11 @@ PINS = {
     'sitemap_blob': '26f00b6f0d3e4354af0002e985574edb8da7535d',
     'catalog_blob': 'd0dc8fe262c446d1b7c6e54b3137f0d19d8b2d92',
     'kernel': 'e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78',
-    'skills': '446a0e2627b586bf821b2cc6198876aaa40b402c',
+    'skills': '9e863df7c46b0b66c1d9ff9bcbd7ec240b469d8f',
     'proofs': {'google16dce79d77367d6f.html': 'e00d88abdf9eac6d343e8f90163f165886f5034e',
                'yandex_95e23e45501e02eb.html': '98101d34a80c463b6ad8c7e2a7feb5cbc51f020c'},
 }
-SITE_COMMIT = 'a6ad6a7a90d97e04a931c8f33598373a5336c1a2'
+SITE_COMMIT = 'f5e7437c742b8bad9c0a758af7e20faacafd700f'
 KERNEL = '_iwxa/runtime/0.3.6/runtime.js'
 SKILLS = 'assets/artbazy-assistant-skills.json'
 MANIFEST = 't3-offline-manifest.json'
